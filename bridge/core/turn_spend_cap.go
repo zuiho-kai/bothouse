@@ -77,12 +77,39 @@ type turnSpendMeter struct {
 	files   map[string]*UsageFileState // log file -> how far it was read
 	costs   map[string]float64         // record key -> USD; one response is logged on several lines
 	total   float64
-	warned  map[string]bool // models without a price, logged once
+	warned  map[string]bool // models without a price; each is warned about once
+
+	// fallback is what a model without a price is charged (#1754): the highest rate in the
+	// table. Such a model used to count as zero, so its turns never reached the cap or the
+	// hand-in reminder. hasFallback is false only when the price table is empty.
+	fallback    TokenPrice
+	hasFallback bool
 }
 
 func newTurnSpendMeter(cfg *turnSpendSetup, since time.Time) *turnSpendMeter {
-	return &turnSpendMeter{sources: cfg.sources, prices: cfg.prices, since: since,
+	m := &turnSpendMeter{sources: cfg.sources, prices: cfg.prices, since: since,
 		files: map[string]*UsageFileState{}, costs: map[string]float64{}, warned: map[string]bool{}}
+	m.fallback, m.hasFallback = highestTokenPrice(cfg.prices)
+	return m
+}
+
+// highestTokenPrice returns the most expensive rate in the price table, column by column:
+// the highest input, output, cache read and cache write rate, each taken over the whole
+// table. ok is false when the table is empty.
+//
+// It is not the single most expensive row. Cache reads and writes are often most of a turn's
+// tokens, and many rows price them at zero; a fallback row with a zero cache rate would still
+// count a cache-heavy turn as almost free. The column-wise maximum is never below any row of
+// the table, so a model without a price is stopped early rather than never.
+func highestTokenPrice(prices map[string]TokenPrice) (TokenPrice, bool) {
+	var top TokenPrice
+	for _, p := range prices {
+		top.Input = max(top.Input, p.Input)
+		top.Output = max(top.Output, p.Output)
+		top.CacheRead = max(top.CacheRead, p.CacheRead)
+		top.CacheWrite = max(top.CacheWrite, p.CacheWrite)
+	}
+	return top, len(prices) > 0
 }
 
 // read adds the usage logged since the last call by the agent sessions ids and returns the
@@ -131,11 +158,20 @@ func (m *turnSpendMeter) add(r UsageRecord) {
 	}
 	price, ok := lookupPrice(m.prices, r.Model)
 	if !ok {
-		if !m.warned[r.Model] {
-			m.warned[r.Model] = true
-			slog.Warn("turn spend cap: model has no price, its usage is not counted", "model", r.Model)
+		first := !m.warned[r.Model]
+		m.warned[r.Model] = true
+		if !m.hasFallback { // an empty price table: nothing to charge at
+			if first {
+				slog.Warn("turn spend cap: model has no price, its usage is not counted", "model", r.Model)
+			}
+			return
 		}
-		return
+		price = m.fallback
+		if first {
+			slog.Warn("turn spend cap: model has no price, charging it at the highest rate in the table", "model", r.Model,
+				"input_usd_per_mtok", m.fallback.Input, "output_usd_per_mtok", m.fallback.Output,
+				"cache_read_usd_per_mtok", m.fallback.CacheRead, "cache_write_usd_per_mtok", m.fallback.CacheWrite)
+		}
 	}
 	cost := (float64(r.Input)*price.Input + float64(r.Output)*price.Output + float64(r.CacheRead)*price.CacheRead + float64(r.CacheWrite)*price.CacheWrite) / 1e6 // SPEC: TokenPrice is per million tokens
 	if r.Key == "" {
