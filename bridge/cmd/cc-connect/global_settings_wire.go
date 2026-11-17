@@ -31,6 +31,9 @@ func wireGlobalSettings(srv *core.ManagementServer) {
 		if v, ok := updates["log_level"].(string); ok {
 			u.LogLevel = &v
 		}
+		if v, ok := updates["hide_wiki_terminal_windows"].(bool); ok {
+			u.HideWikiTerminalWindows = &v
+		}
 		if v, ok := updates["idle_timeout_mins"].(float64); ok {
 			iv := int(v)
 			u.IdleTimeoutMins = &iv

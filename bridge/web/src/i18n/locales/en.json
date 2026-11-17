@@ -501,6 +501,8 @@
     "reviewModelNotice": "Latest review whose model did not apply: #{{board}} ({{tier}}), {{role}} · {{model}}: {{reason}}",
     "log": "Log",
     "logLevel": "Log level",
+    "hideWikiTerminalWindows": "Hide wiki terminal pop-ups",
+    "hideWikiTerminalWindowsHint": "Applies to the next background wiki update on Windows.",
     "appearance": "Appearance",
     "theme": "Theme",
     "themeHint": "Default is bright yellow-white. Saved in this browser only; no need to press Save.",

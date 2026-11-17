@@ -35,6 +35,27 @@ const pick = async (sel: HTMLSelectElement, value: string) => {
   });
 };
 
+it('saves both choices for the Windows wiki terminal setting', async () => {
+  vi.mocked(getGlobalSettings).mockResolvedValue({ hide_wiki_terminal_windows: false } as never);
+  vi.mocked(updateGlobalSettings).mockResolvedValue({} as never);
+  vi.mocked(listRoles).mockResolvedValue({ roles: [] } as never);
+  const container = document.createElement('div');
+  document.body.append(container);
+  containers.push(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<GlobalSettings hideHeader />); });
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="settings.hideWikiTerminalWindows"]')!;
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  const save = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('common.save'))!;
+  await act(async () => { toggle.click(); });
+  await act(async () => { save.click(); });
+  expect(updateGlobalSettings).toHaveBeenLastCalledWith(expect.objectContaining({ hide_wiki_terminal_windows: true }));
+  await act(async () => { toggle.click(); });
+  await act(async () => { save.click(); });
+  expect(updateGlobalSettings).toHaveBeenLastCalledWith(expect.objectContaining({ hide_wiki_terminal_windows: false }));
+  act(() => root.unmount());
+});
+
 // User 2026-11-04「简单的交给便宜模型 这个可以在我们dsh插件设置里设置」: two review tiers, each a role
 // shown with its model, saved as review_simple_role / review_complex_role.
 describe('GlobalSettings review models', () => {

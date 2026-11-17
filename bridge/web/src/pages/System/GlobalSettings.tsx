@@ -83,6 +83,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [language, setLanguage] = useState('en');
   const [attachmentSend, setAttachmentSend] = useState('');
   const [logLevel, setLogLevel] = useState('info');
+  const [hideWikiTerminalWindows, setHideWikiTerminalWindows] = useState<boolean>();
   const [idleTimeout, setIdleTimeout] = useState(120);
   const [thinkingMessages, setThinkingMessages] = useState(true);
   const [thinkingMaxLen, setThinkingMaxLen] = useState(300);
@@ -109,6 +110,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setLanguage(s.language || 'en');
       setAttachmentSend(s.attachment_send || '');
       setLogLevel(s.log_level || 'info');
+      setHideWikiTerminalWindows(s.hide_wiki_terminal_windows);
       setIdleTimeout(s.idle_timeout_mins ?? 120);
       setThinkingMessages(s.thinking_messages ?? true);
       setThinkingMaxLen(s.thinking_max_len ?? 300);
@@ -178,6 +180,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
         language,
         attachment_send: attachmentSend,
         log_level: logLevel,
+        hide_wiki_terminal_windows: hideWikiTerminalWindows,
         idle_timeout_mins: idleTimeout,
         thinking_messages: thinkingMessages,
         thinking_max_len: thinkingMaxLen,
@@ -239,6 +242,14 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
             min={0}
             hint={t('settings.idleTimeoutHint', 'Auto-stop agent after N minutes of inactivity; 0 = disabled')}
           />
+          {hideWikiTerminalWindows !== undefined && (
+            <Toggle
+              label={t('settings.hideWikiTerminalWindows', 'Hide wiki terminal pop-ups')}
+              hint={t('settings.hideWikiTerminalWindowsHint', 'Applies to the next background wiki update on Windows.')}
+              value={hideWikiTerminalWindows}
+              onChange={setHideWikiTerminalWindows}
+            />
+          )}
         </div>
       </Card>
 

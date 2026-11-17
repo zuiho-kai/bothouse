@@ -501,6 +501,8 @@
     "reviewModelNotice": "最近一次审核模型没生效：#{{board}}（{{tier}}），{{role}} · {{model}}：{{reason}}",
     "log": "日志",
     "logLevel": "日志级别",
+    "hideWikiTerminalWindows": "隐藏 Wiki 终端弹窗",
+    "hideWikiTerminalWindowsHint": "保存后，下一次 Windows 后台 Wiki 更新时生效。",
     "appearance": "外观",
     "theme": "主题",
     "themeHint": "默认是黄白明亮。只保存在这个浏览器里，不用点保存。",

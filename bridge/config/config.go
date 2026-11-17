@@ -90,9 +90,10 @@ var ConfigPath string
 type Config struct {
 	UsagePrices map[string]core.TokenPrice `toml:"usage_prices"`
 	// TurnSpendCap: USD one cron / timer / workspace turn may cost before it is stopped; unset = built-in (1 / 5 / 20).
-	TurnSpendCap   core.TurnSpendCaps `toml:"turn_spend_cap"`
-	DataDir        string             `toml:"data_dir"` // session store directory, default ~/.cc-connect
-	AttachmentSend string             `toml:"attachment_send"`
+	TurnSpendCap            core.TurnSpendCaps `toml:"turn_spend_cap"`
+	DataDir                 string             `toml:"data_dir"` // session store directory, default ~/.cc-connect
+	AttachmentSend          string             `toml:"attachment_send"`
+	HideWikiTerminalWindows bool               `toml:"hide_wiki_terminal_windows,omitempty"`
 	// Quiet is legacy: when true and [display] does not set thinking_messages / tool_messages,
 	// engines behave as if those flags were false. Per-project quiet overrides when set.
 	Quiet              *bool                   `toml:"quiet,omitempty"`
@@ -4328,6 +4329,9 @@ func GetGlobalSettings() map[string]any {
 		"attachment_send": cfg.AttachmentSend,
 		"log_level":       cfg.Log.Level,
 	}
+	if runtime.GOOS == "windows" {
+		result["hide_wiki_terminal_windows"] = cfg.HideWikiTerminalWindows
+	}
 	if cfg.IdleTimeoutMins != nil {
 		result["idle_timeout_mins"] = *cfg.IdleTimeoutMins
 	} else {
@@ -4437,6 +4441,8 @@ type GlobalSettingsUpdate struct {
 	ReviewSimpleModel  *string `json:"review_simple_model"`
 	ReviewComplexModel *string `json:"review_complex_model"`
 	AvatarStyle        *string `json:"avatar_style"`
+
+	HideWikiTerminalWindows *bool `json:"hide_wiki_terminal_windows"`
 }
 
 // Avatar sets for Display.AvatarStyle.
@@ -4476,6 +4482,9 @@ func SaveGlobalSettings(u GlobalSettingsUpdate) error {
 	}
 	if u.LogLevel != nil {
 		cfg.Log.Level = *u.LogLevel
+	}
+	if runtime.GOOS == "windows" && u.HideWikiTerminalWindows != nil {
+		cfg.HideWikiTerminalWindows = *u.HideWikiTerminalWindows
 	}
 	if u.IdleTimeoutMins != nil {
 		cfg.IdleTimeoutMins = u.IdleTimeoutMins
