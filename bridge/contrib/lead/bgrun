@@ -10,6 +10,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gate"))
+from datadir import data_dir
+
 
 def wake_session(run, rc):
     session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION")
@@ -17,7 +20,7 @@ def wake_session(run, rc):
         return
     bridge = os.environ.get("CC_BIN") or shutil.which("bothouse") or "/Applications/Bothouse.app/Contents/MacOS/bothouse"
     # 来源：原 bgrun 叫醒接口保留末尾 15 行。
-    tail = "\n".join((run / "log").read_text(errors="replace").splitlines()[-15:])
+    tail = subprocess.check_output(["tail", "-n", "15", str(run / "log")], text=True, errors="replace")
     message = (f"后台命令结束：运行号 {run.name}，退出码 {rc}（142 是超时）。日志 {run}/log 末尾：\n"
                f"{tail}\n接着做依赖它的下一步；没有要做的就不用回复。")
     with (run / "wake").open("a") as output:
@@ -83,7 +86,9 @@ def main():
     if args and args[0] == "--supervise":
         supervise(Path(args[1]), int(args[2]), int(args[3]), args[4:])
         return 0
-    root = Path.home() / ".bothouse/runs"
+    # The bridge resolves this once for both the runner and the idle watcher.
+    # Outside a bridge session, use the collaboration tools' existing resolver.
+    root = Path(os.environ["CC_RUNS_DIR"]) if os.environ.get("CC_RUNS_DIR") else data_dir() / "runs"
     if args and args[0] == "status":
         # 来源：原 status 最多显示 15 项。
         runs = [root / args[1]] if len(args) > 1 else sorted(

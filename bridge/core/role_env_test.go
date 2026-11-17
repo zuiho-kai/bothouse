@@ -44,6 +44,7 @@ func checkRoleEnv(t *testing.T, a *sessionEnvRecordingAgent, dataDir, pyBin, ses
 	want := map[string]string{
 		"CC_SESSION_KEY":    sessionKey,
 		"CC_DATA_DIR":       dataDir,
+		"CC_RUNS_DIR":       filepath.Join(dataDir, "runs"),
 		"GATE_SETUP_DIR":    dataDir,
 		"BOTHOUSE_DATA_DIR": dataDir,
 		"CC_BIN":            exe,
