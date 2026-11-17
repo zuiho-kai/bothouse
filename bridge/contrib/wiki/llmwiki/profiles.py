@@ -13,9 +13,12 @@ Now each person a bridge has heard has a page, rewritten nightly from that perso
           owner's page had (SOP below, moved here from ingest.py profile_pass); a person with few words gets a thin page
   push    the gate's /context pushes the page of whoever sent the turn's message (contrib/gate/ctxsvc.py
           profile_items), nobody else's
+  roles   the owner's page also goes into the roles' instruction files, which every session reads anyway (to_roles,
+          #1757); the gate then stops pushing it to those roles
 
   run(repo, lo, hi, ask, log, skip=(), commit=True)   rewrite the page of each person who said something in [lo, hi)
   rewrite(repo, key, name, transcript, citations, ask, log)   one person's page from a transcript of his USER lines
+  to_roles(page, key, personas, state)   the owner's 「现状」 into each role's instruction file
 """
 import calendar, json, os, re, time
 from pathlib import Path
@@ -24,7 +27,9 @@ PROFILE_DIR = "tooling/workflow/workflow/preferences"  # same as the gate's GATE
 PAGE = "profile-{key}.md"
 PROFILE_LINES = 20  # 方案 11-02 11:30「二十行左右」，用户 11:5x 回「做」
 SECTIONS = ("判断标准", "在意什么", "说话和情绪", "审美口味", "生活和兴趣")
-LINE = re.compile(r"^- (.+)（(\d\d-\d\d)「(.+?)」）$")
+# 行尾可带论坛的楼层帖标注（<!-- 帖 … -->）：带标注的行仍是现状行（同 ingest.py PROFILE_LINE，#1757）
+LINE = re.compile(r"^- (.+)（(\d\d-\d\d)「(.+?)」）(?:\s*<!--.*-->)?\s*$")
+TAG = re.compile(r"\s*<!--.*-->\s*$")
 HISTORY = "历史"
 MAX_CHARS = 240_000  # one call, as ingest.py MAX_CHARS
 KEY = re.compile(r"[A-Za-z0-9._-]{1,120}")
@@ -142,7 +147,7 @@ def read_page(text):
         elif part == "现状" and LINE.match(ln):
             cur.append((sec, ln))
         elif part and ln.startswith("- "):
-            # 历史行；也收现状里带论坛注释等对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
+            # 历史行；也收现状里对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
             hist.append(ln)
     return cur, hist
 
@@ -163,7 +168,7 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     page = Path(repo) / rel
     old_text = page.read_text(encoding="utf-8") if page.exists() else ""
     cur, hist = read_page(old_text)
-    old = "\n".join(f"P{i}: [{s}] {l[2:]}" for i, (s, l) in enumerate(cur)) or "（暂无，第一次写）"
+    old = "\n".join(f"P{i}: [{s}] {TAG.sub('', l[2:])}" for i, (s, l) in enumerate(cur)) or "（暂无，第一次写）"
     head = (sop or SOP).format(n=n, old=old, name=name)
     room = MAX_CHARS - len(head)
     ans = ask(head + (transcript[-room:] if len(transcript) > room else transcript))
@@ -240,3 +245,41 @@ def run(repo, lo, hi, ask, log, skip=(), deadline=None, root=None):
             done[key] = f"{name}: {what}"
             files += fs
     return done, files
+
+
+# 主人画像进角色说明（#1757，用户 11-17「根因是他召回的效果不好……对我的那个人物画像没有清晰的认知」「这个方向对，具体做法有点笨」）：
+# 角色说明文件（CLAUDE.md / AGENTS.md / GEMINI.md）每个会话本来就读，主人那页的「现状」夜里写进去，不靠每轮推送。
+# 说明文件自己写明要哪种，两样都没有的不动：
+#   一行 `@owner-profile.md`：Claude Code 的引用，只认说明文件所在目录里的文件（目录外的要人点过同意才读，11-17 实测）
+#       → 写它旁边的 owner-profile.md
+#   一对标记 ROLE_MARKS：codex、agy 的说明文件不认引用（11-17 实测）→ 换掉标记之间那段
+# 带上了的角色记进 state（bots.json 旁的 ROLE_STATE），gate 对这些角色不再推这个人那页（ctxsvc.profile_items）。
+ROLE_FILE = "owner-profile.md"
+ROLE_MARKS = ("<!-- owner-profile:start -->", "<!-- owner-profile:end -->")
+ROLE_STATE = "owner-profile.json"
+
+
+def to_roles(page, key, personas, state):
+    """`page`（主人 `key` 那页）的「现状」→ `personas` {角色: 说明文件} 里要它的那些；名单写进 `state`。返回带上了的角色。"""
+    text = Path(page).read_text(encoding="utf-8")
+    cur = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", text, re.S | re.M).group(1)
+    name = re.search(r"^# 懂你：(.+)$", text, re.M).group(1).strip()
+    body = (f"## 主人画像：{name}\n\n夜间从他自己的原话重写，括号里是他的原话。照这些懂他，说话做事贴他的判断和口味。\n\n"
+            + "\n".join(TAG.sub("", ln) for ln in cur.strip().split("\n")) + "\n")
+    start, end = ROLE_MARKS
+    carried = []
+    for role, f in personas.items():
+        f = Path(f).expanduser()
+        if not f.is_file():
+            continue
+        old = f.read_text(encoding="utf-8")
+        a, b = old.find(start), old.find(end)
+        if 0 <= a < b:
+            f.write_text(old[:a + len(start)] + "\n" + body + old[b:], encoding="utf-8")
+        elif re.search(rf"^@{re.escape(ROLE_FILE)}\s*$", old, re.M):
+            (f.parent / ROLE_FILE).write_text(body, encoding="utf-8")
+        else:
+            continue
+        carried.append(role)
+    Path(state).write_text(json.dumps({"key": key, "roles": carried}, ensure_ascii=False) + "\n", encoding="utf-8")
+    return carried

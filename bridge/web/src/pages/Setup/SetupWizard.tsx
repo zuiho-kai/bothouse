@@ -13,7 +13,7 @@ import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
   startLocalHub, testCloudWeb, testJev, saveJev,
-  type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type MatrixCell,
+  type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type ACPPreset, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
 import { backendLabel, nextRoleName, roleLabel, personaWithName } from '@/lib/roleIdentity';
@@ -36,7 +36,12 @@ interface RoleDraft {
   checking?: boolean;
   error?: string;
   agent_type: string;
-  agent_cmd?: string; // acp: the launch command (JiuwenSwarm's scripts/run_gateway_acp.sh)
+  // acp: acp_preset = the card picked ('' = custom agent); agent_cmd = launch command with arguments;
+  // agent_env = one KEY=VALUE per line; work_dir = '' for the default role folder
+  acp_preset?: string;
+  agent_cmd?: string;
+  agent_env?: string;
+  work_dir?: string;
   agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
   provider: { vendor: string; base_url: string; api_key: string; model: string; max_tokens: string };
@@ -70,6 +75,16 @@ const MEMORY_FILE: Record<string, string> = {
 // Vendors without a default model need one typed in (core validateWizardProvider).
 
 
+// acp: the environment box, one KEY=VALUE per line (lines without a key are dropped).
+const parseEnvLines = (text?: string) => {
+  const env: Record<string, string> = {};
+  for (const line of (text || '').split('\n')) {
+    const i = line.indexOf('=');
+    const k = (i > 0 ? line.slice(0, i) : '').trim();
+    if (k) env[k] = line.slice(i + 1).trim();
+  }
+  return env;
+};
 // Same rule as core/setup_wizard.go cleanProjectName.
 const cleanName = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -125,12 +140,13 @@ export default function SetupWizard() {
     [state],
   );
   const [clis, setClis] = useState<LocalCLI[] | null>(null);
+  const [acpPresets, setAcpPresets] = useState<ACPPreset[]>([]);
   // #1881: the first page says which CLI is needed and can look again without losing what was typed
   const [cliError, setCliError] = useState(false);
   const [cliChecking, setCliChecking] = useState(false);
   const recheckCLIs = useCallback(() => {
     setCliChecking(true);
-    return getCLIs().then((r) => { setClis(r.clis); setCliError(false); })
+    return getCLIs().then((r) => { setClis(r.clis); setAcpPresets(r.acp_presets || []); setCliError(false); })
       .catch(() => { setCliError(true); }) // a failed check is not "nothing installed": keep the last list
       .finally(() => { setCliChecking(false); });
   }, []);
@@ -196,7 +212,7 @@ export default function SetupWizard() {
   // the CLI step tells you to log in from a terminal: look again on reaching it and on coming back to the page
   useEffect(() => {
     if (step !== 2) return;
-    const recheck = () => { getCLIs().then((r) => setClis(r.clis)).catch(() => {}); };
+    const recheck = () => { getCLIs().then((r) => { setClis(r.clis); setAcpPresets(r.acp_presets || []); }).catch(() => {}); };
     recheck();
     window.addEventListener('focus', recheck);
     return () => window.removeEventListener('focus', recheck);
@@ -427,7 +443,11 @@ export default function SetupWizard() {
         // configured, so it stays quiet about the CLI for every role; a real submit omits it only
         // for a reused role, and a new role sends the CLI the review step shows (#552)
         agent_type: platform === 'qq' && (connectionTest || (r.reuse_project && !r.agentTouched)) ? undefined : r.agent_type,
-        ...(r.agent_type === 'acp' && !r.reuse_project ? { agent_cmd: (r.agent_cmd || '').trim() } : {}),
+        ...(r.agent_type === 'acp' && !r.reuse_project ? {
+          agent_cmd: (r.agent_cmd || '').trim(),
+          ...(Object.keys(parseEnvLines(r.agent_env)).length ? { agent_env: parseEnvLines(r.agent_env) } : {}),
+          ...((r.work_dir || '').trim() ? { work_dir: (r.work_dir || '').trim() } : {}),
+        } : {}),
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
@@ -918,19 +938,57 @@ export default function SetupWizard() {
                         {c.note && <div className="text-[11px] text-amber-600">{c.note}</div>}
                       </button>
                     ))}
+                    {!r.reuse_project && acpPresets.map((p) => {
+                      const on = r.agent_type === 'acp' && r.acp_preset === p.id;
+                      return (
+                        <button key={p.id} onClick={() => patchRole(r.key, { agent_type: 'acp', acp_preset: p.id, agent_cmd: p.cmd, agentTouched: true, useProvider: false })}
+                          data-testid={`cli-${idx}-acp-${p.id}`}
+                          className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${on ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
+                          <div className="flex items-center justify-between gap-2"><span className="font-medium">{p.label}</span>
+                            {!p.found ? <Badge variant="warning">{zh ? '没找到' : 'Not found'}</Badge>
+                              : p.running === false ? <Badge variant="warning">{zh ? '未启动' : 'Not running'}</Badge>
+                              : <Badge variant="success">{p.running ? (zh ? '已启动' : 'Running') : (zh ? '已找到' : 'Found')}</Badge>}</div>
+                          {p.found && <div className="text-[11px] text-gray-400 truncate">{p.version || p.path}</div>}
+                          {!p.running && <div className="text-[11px] text-gray-400 truncate">{zh ? p.note_zh : p.note_en}</div>}
+                        </button>
+                      );
+                    })}
                     {!r.reuse_project && (
-                      <button onClick={() => patchRole(r.key, { agent_type: 'acp', agentTouched: true, useProvider: false })}
+                      <button onClick={() => patchRole(r.key, { agent_type: 'acp', acp_preset: '', agent_cmd: '', agentTouched: true, useProvider: false })}
                         data-testid={`cli-${idx}-acp`}
-                        className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${r.agent_type === 'acp' ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
-                        <div className="font-medium">JiuwenSwarm / ACP</div>
-                        <div className="text-[11px] text-gray-400">{zh ? '自带 ACP 接口的 agent，填启动脚本就能当队员' : 'Any agent that speaks ACP: give its launch script'}</div>
+                        className={`text-left p-2.5 rounded-lg border text-sm text-gray-900 dark:text-gray-100 ${r.agent_type === 'acp' && !r.acp_preset ? 'border-accent bg-accent/5' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'}`}>
+                        <div className="font-medium">{zh ? '自定义 Agent（ACP）' : 'Custom agent (ACP)'}</div>
+                        <div className="text-[11px] text-gray-400">{zh ? '任何讲 ACP 协议的命令行 Agent，填启动命令就能接' : 'Any command-line agent that speaks ACP: give its launch command'}</div>
                       </button>
                     )}
                   </div>
                   {r.agent_type === 'acp' && !r.reuse_project && (
-                    <Input label={zh ? '启动脚本路径' : 'Launch script path'} data-testid={`acp-cmd-${idx}`} value={r.agent_cmd || ''}
-                      placeholder="/path/to/jiuwenswarm/scripts/run_gateway_acp.sh"
-                      onChange={(e) => patchRole(r.key, { agent_cmd: e.target.value })} />
+                    <div className="space-y-2" data-testid={`acp-form-${idx}`}>
+                      {(() => {
+                        const p = acpPresets.find((x) => x.id === r.acp_preset);
+                        if (!p || p.found) return null;
+                        return (
+                          <p className="text-xs text-amber-600" data-testid={`acp-missing-${idx}`}>
+                            {zh ? `这台机器上没找到 ${p.label}。` : `${p.label} was not found on this machine. `}
+                            {p.install_url && <>{zh ? '装法见 ' : 'Install steps: '}<a className="underline" href={p.install_url} target="_blank" rel="noreferrer">{p.install_url}</a>{zh ? '。' : '. '}</>}
+                            {zh ? `装好后回到这页，这张卡变成「已找到」再点它；也可以直接在下面填 ${p.bin} 的完整路径。` : `After installing, come back to this page and pick the card again once it says Found, or type the full path of ${p.bin} below.`}
+                          </p>
+                        );
+                      })()}
+                      <Input label={zh ? '启动命令（含参数）' : 'Launch command (with arguments)'} data-testid={`acp-cmd-${idx}`} value={r.agent_cmd || ''}
+                        placeholder={zh ? '例如 jiuwenswarm-acp，或 /完整路径/agent acp' : 'e.g. jiuwenswarm-acp, or /full/path/agent acp'}
+                        onChange={(e) => patchRole(r.key, { agent_cmd: e.target.value })} />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{zh ? '环境变量（可选，每行 KEY=VALUE）' : 'Environment (optional, one KEY=VALUE per line)'}</label>
+                          <textarea className={selectCls} rows={2} data-testid={`acp-env-${idx}`} value={r.agent_env || ''}
+                            onChange={(e) => patchRole(r.key, { agent_env: e.target.value })} />
+                        </div>
+                        <Input label={zh ? '工作目录（可选）' : 'Working directory (optional)'} data-testid={`acp-workdir-${idx}`} value={r.work_dir || ''}
+                          placeholder={`${state?.data_dir || '~/.bothouse'}/roles/${projectOf(r)}`}
+                          onChange={(e) => patchRole(r.key, { work_dir: e.target.value })} />
+                      </div>
+                    </div>
                   )}
                   {attachable && (
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.useProvider} data-testid={`use-provider-${idx}`}

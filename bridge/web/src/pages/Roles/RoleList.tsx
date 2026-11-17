@@ -253,8 +253,7 @@ export default function RoleList() {
                       {/* 型号和平台降级：后端 · 型号，一行小字 */}
                       <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-mute" title={role.model || undefined}>
                         <span className="shrink-0">{backendLabel(role.agent_type)}</span>
-                        <span aria-hidden>·</span>
-                        {role.model ? <span className="truncate font-mono text-[11px]">{role.model}</span> : <span className="truncate">当前模型{t('dsh.unknownModel', '未知')}</span>}
+                        {role.model && <><span aria-hidden>·</span><span className="truncate font-mono text-[11px]">{role.model}</span></>}
                       </p>
                     </div>
                     {role.source !== 'dsh' && (

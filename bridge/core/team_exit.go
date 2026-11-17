@@ -219,6 +219,11 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 			if en := team.EntryReportProblems(body, team.LocalFileExists); en != nil {
 				problems, legacy = append(problems, en...), false
 			}
+			// a result called useless, no improvement or not working answers the three questions
+			// instead of stopping there (Fable method 2, 11-17 #1755)
+			if rs := team.ResponsibilityReportProblems(body); rs != nil {
+				problems, legacy = append(problems, rs...), false
+			}
 		}
 		// 「要你做的」hands the user a file to place, a command to run, a setting to change: it goes back
 		// for another route, a [report] too (user 11-10 「你自己搞」; team_exit_rules.go SelfRouteProblems)

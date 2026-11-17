@@ -524,7 +524,7 @@ def context(req):
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     dec = decision_items(text, key)
-    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender")) + board_items(key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + board_items(key)
            + proposal_items(text, bot, key)
            + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text)), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
@@ -765,9 +765,21 @@ PROFILE_PAGE = "profile-{key}.md"
 _SENDER = re.compile(r"[A-Za-z0-9._-]{1,120}")
 
 
-def profile_items(roots, sender):
+def _in_role_file(bot, sender):
+    """这个人那页已经在这个角色的说明文件里（夜间 llmwiki/profiles.py to_roles 写进去，带上了的角色记在 bots.json 旁的
+    owner-profile.json，#1757）：说明文件每个会话本来就读，不再推。"""
+    if BOTS is None:
+        return False
+    try:
+        d = json.loads((BOTS.parent / "owner-profile.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return d.get("key") == sender and (bot[4:] if bot.startswith("dsh:") else bot) in d.get("roles", ())
+
+
+def profile_items(roots, sender, bot=""):
     sender = (sender or "").strip()
-    if not roots or not PROFILE or not _SENDER.fullmatch(sender):
+    if not roots or not PROFILE or not _SENDER.fullmatch(sender) or _in_role_file(bot, sender):
         return []
     rel = f"{PROFILE}/{PROFILE_PAGE.format(key=sender)}"
     text = _read(roots[0] / rel)

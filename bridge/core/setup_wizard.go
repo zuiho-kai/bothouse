@@ -112,19 +112,20 @@ type WizardFeishu struct {
 }
 
 type WizardRole struct {
-	Project         string          `json:"project,omitempty"`
-	Name            string          `json:"name,omitempty"`
-	NameCustomized  *bool           `json:"name_customized,omitempty"`
-	KeepPersonaName bool            `json:"keep_persona_name,omitempty"`
-	Token           string          `json:"token,omitempty"`         // discord bot token (new bot)
-	ReuseProject    string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
-	AgentType       string          `json:"agent_type,omitempty"`
-	AgentCmd        string          `json:"agent_cmd,omitempty"` // a new acp role's launch command, e.g. JiuwenSwarm's scripts/run_gateway_acp.sh (written as cmd)
-	WorkDir         string          `json:"work_dir,omitempty"`
-	Persona         string          `json:"persona,omitempty"`
-	EditPersona     bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
-	ReplyLanguage   string          `json:"reply_language,omitempty"`
-	Provider        *WizardProvider `json:"provider,omitempty"` // nil = the CLI's own local login
+	Project         string            `json:"project,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	NameCustomized  *bool             `json:"name_customized,omitempty"`
+	KeepPersonaName bool              `json:"keep_persona_name,omitempty"`
+	Token           string            `json:"token,omitempty"`         // discord bot token (new bot)
+	ReuseProject    string            `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
+	AgentType       string            `json:"agent_type,omitempty"`
+	AgentCmd        string            `json:"agent_cmd,omitempty"` // a new acp role's launch command with its arguments (written as cmd)
+	AgentEnv        map[string]string `json:"agent_env,omitempty"` // a new acp role's environment (written as the agent's env)
+	WorkDir         string            `json:"work_dir,omitempty"`
+	Persona         string            `json:"persona,omitempty"`
+	EditPersona     bool              `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
+	ReplyLanguage   string            `json:"reply_language,omitempty"`
+	Provider        *WizardProvider   `json:"provider,omitempty"` // nil = the CLI's own local login
 	// Model: the agent's model option ("" = leave). DSH takes its ACP model value, `["<provider route>","<model>"]`.
 	Model string `json:"model,omitempty"`
 	// Library picks; nil / "" = keep what the state already has for this project.
@@ -706,14 +707,14 @@ func jevFailCause(lang string, t JevTestResult) string {
 
 func acpCmdMissingText(lang, project string) string {
 	if strings.HasPrefix(lang, "zh") {
-		return fmt.Sprintf("角色 %s 走 ACP 接入，要填启动脚本路径（例如 JiuwenSwarm 仓库里的 scripts/run_gateway_acp.sh）。", project)
+		return fmt.Sprintf("角色 %s 走 ACP 接入，要填启动命令（例如 jiuwenswarm-acp）。", project)
 	}
-	return fmt.Sprintf("role %s connects over ACP and needs its launch command (e.g. JiuwenSwarm's scripts/run_gateway_acp.sh)", project)
+	return fmt.Sprintf("role %s connects over ACP and needs its launch command (e.g. jiuwenswarm-acp)", project)
 }
 
 func acpCmdNotFoundText(lang, project, cmd string) string {
 	if strings.HasPrefix(lang, "zh") {
-		return fmt.Sprintf("角色 %s 的启动脚本 %s 找不到或不能执行，请填本机上能运行的完整路径。", project, cmd)
+		return fmt.Sprintf("角色 %s 的启动命令 %s 在本机找不到或不能执行，请填能运行的完整路径。", project, cmd)
 	}
 	return fmt.Sprintf("role %s: launch command %s was not found or is not executable; give the full path of a command this machine can run", project, cmd)
 }
@@ -1784,6 +1785,9 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				return nil, fmt.Errorf("%s", acpCmdNotFoundText(req.Language, r.project, cmd))
 			}
 			r.agentCmd = strings.TrimSpace(r.AgentCmd)
+			if len(r.AgentEnv) > 0 {
+				r.agentEnv = r.AgentEnv
+			}
 		}
 		if r.AgentType == "dsh" && !r.reused {
 			// a DSH role with no model key fails every turn: refuse it here, before anything is written
@@ -2571,7 +2575,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (m *ManagementServer) handleSetupCLIs(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context())})
+	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context()), "acp_presets": ACPPresets(r.Context())})
 }
 
 func (m *ManagementServer) handleSetupMatrix(w http.ResponseWriter, r *http.Request) {
