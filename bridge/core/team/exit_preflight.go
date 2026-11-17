@@ -28,6 +28,7 @@ func ReportPreflight(draft, notes string) []string {
 		problems = append(problems, ScopeReportProblems(notes, body)...)
 		problems = append(problems, GenericReportProblems(body)...)
 		problems = append(problems, EntryReportProblems(body, LocalFileExists)...)
+		problems = append(problems, ResponsibilityReportProblems(body)...)
 	}
 	problems = append(problems, SelfRouteProblems(body)...)
 	var blanks []string
