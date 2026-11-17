@@ -180,10 +180,8 @@ func (m *ManagementServer) bridgeRoles() []RoleInfo {
 		}
 		e.interactiveMu.Unlock()
 
+		// Empty when neither the running session nor the config names a model; the page then shows none.
 		model := replyFooterModel(activeSession, e.agent)
-		if model == "" {
-			model = "未知"
-		}
 
 		// 3. Busy status & current task from Session.Busy()
 		busy := false

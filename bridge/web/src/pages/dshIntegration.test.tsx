@@ -148,7 +148,7 @@ contractTest('renders Go management route contract scenarios through the API cli
   expect(member).toBeTruthy(); expect(el.textContent).toContain(member!.display_name || member!.name);
   const noModel = scenarios.dsh_only.roles.roles.find((item) => item.model === ''); expect(noModel).toBeTruthy();
   const noModelCard = [...el.querySelectorAll('article')].find((card) => card.textContent?.includes(noModel!.display_name || noModel!.name));
-  expect(noModelCard?.textContent).toContain('未知'); close();
+  expect(noModelCard?.textContent).not.toContain('未知'); close();
   el = await page('dsh_only', '/sessions');
   const channel = scenarios.dsh_only.summary.channels[0]; expect(channel).toBeTruthy(); expect(el.textContent).toContain(channel.name);
   if (channel.last_message) expect(el.textContent).toContain(channel.last_message.content); close();
