@@ -141,7 +141,7 @@ class RoleCodexRetry(unittest.TestCase):
             return original(cmd, **kwargs)
         # A real deadline decreases; retries spend elapsed time rather than fictitious full slots.
         with patch.object(self.m, 'engine_run', side_effect=fail), \
-                patch.object(self.m, 'round_remaining', side_effect=[1500, 1500, 989, 478]):
+                patch.object(self.m, 'round_remaining', side_effect=lambda: 1500 - len(self.calls) * 511):
             self.assertFalse(self.run_pass())
         self.assertEqual(len(self.calls), 1500 // 511)
 
