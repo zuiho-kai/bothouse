@@ -608,6 +608,36 @@ func workspaceChannelKeysLocked(st *teamWorkspaceState) map[string]bool {
 	return out
 }
 
+// worksWorkspaceTask: this engine is the role working the task that gave chat channel parent the
+// workspace channelID. That task is the workspace's latest handoff when it came from parent; who
+// works it is the watch's answer (watchOwns: the role its Owner names, the primary role when it
+// names none; an owner who is a person leaves it with the role that handed it off). A workspace
+// owned with no handoff from parent on record is the primary role's, as an unnamed owner is.
+func (e *Engine) worksWorkspaceTask(channelID, parent string) bool {
+	if e == nil || e.dataDir == "" || channelID == "" || parent == "" {
+		return false
+	}
+	key, chat := teamChatKey(channelID), teamChatKey(parent)
+	var h TeamHandoff
+	teamWorkspaceStore.mu.Lock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	if err == nil {
+		if hs := st.Handoffs[key]; len(hs) > 0 && teamChatKey(hs[len(hs)-1].Chat) == chat {
+			h = hs[len(hs)-1]
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		slog.Error("team workspace: state unreadable", "channel", key, "error", err)
+		return false
+	}
+	plat, _, _ := strings.Cut(key, ":")
+	if e.watchOwns(e.lookupReadyPlatform(plat), h.Owner) {
+		return true
+	}
+	return e.watchOwnerIsPerson(plat, h.Chat, h.Owner) && e.watchSender(h) == e
+}
+
 // WorkspaceLastChat returns the chat channel of the latest handoff to workspace channelID
 // (same id form as WorkspaceParent). It covers a workspace that is no longer owned because
 // its task was parked or closed while a turn there was still running: that turn's late
