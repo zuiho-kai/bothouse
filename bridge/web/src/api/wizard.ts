@@ -5,6 +5,8 @@ export interface LocalCLI {
   agent_type: string; label: string; binary: string; path: string; version?: string;
   login: 'logged_in' | 'not_logged_in' | 'unknown'; protocol: string; supported: boolean; note?: string;
 }
+/** an ACP agent CLI the wizard offers as a card (core/acp_presets.json); found = its command runs on this machine as it stands */
+export interface ACPPreset { id: string; label: string; cmd: string; note_zh?: string; note_en?: string; found: boolean }
 export interface WizardVendor {
   id: string; label: string; openai_base: string; endpoints: Record<string, string>;
   model?: string; signup_url?: string; source: string;
@@ -37,7 +39,7 @@ export interface WikiEngine { id: string; label: string; agent_type: string }
 export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
-  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string; agent_cmd?: string;
+  name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string; agent_cmd?: string; agent_env?: Record<string, string>;
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };
@@ -96,7 +98,7 @@ export const startLocalHub = (lang: string) => api.post<LocalHubStatus>('/setup/
 export const testCloudWeb = (body: { url: string; token: string; lang: string }) => api.post<CloudWebTest>('/setup/cloudweb/test', body);
 
 export const getSetupState = (lang: string, fallbackName = '') => api.get<SetupStateResp>('/setup/state', { lang, fallback_name: fallbackName });
-export const getCLIs = () => api.get<{ clis: LocalCLI[] }>('/setup/clis');
+export const getCLIs = () => api.get<{ clis: LocalCLI[]; acp_presets?: ACPPreset[] }>('/setup/clis');
 export const getMatrix = () => api.get<{ vendors: WizardVendor[]; agents: string[]; matrix: MatrixCell[] }>('/setup/matrix');
 export const getPersonas = (lang: string) => api.get<{ language: string; presets: PersonaPreset[] }>('/setup/personas', { lang });
 export const getExistingBots = () => api.get<{ bots: ExistingBot[] }>('/setup/discord/bots');
