@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -845,5 +846,57 @@ func TestApplyWizardUserWikiModelsNotWritten(t *testing.T) {
 	}
 	if s := wizardSteps(res)["wiki"]; s.Step == "" || !s.OK || !strings.Contains(s.Detail, "not saved") {
 		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
+	}
+}
+
+// #1943: an upgrade replaces an installed sub-wiki.py that is an old copy of ours, and keeps one the user edited.
+func TestRefreshRoleWikiHookScript(t *testing.T) {
+	old := RoleWikiFS
+	RoleWikiFS = os.DirFS("..")
+	t.Cleanup(func() { RoleWikiFS = old })
+	want, err := os.ReadFile(filepath.Join("..", "contrib", "wiki", "sub-wiki.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := t.TempDir()
+	if got, err := RefreshRoleWikiHookScript(data); err != nil || len(got) != 0 {
+		t.Fatalf("not installed: got %v %v", got, err)
+	}
+	stale := []byte("# a sub-wiki.py an older build shipped\n")
+	sums := shippedSubWikiSums
+	shippedSubWikiSums = append(slices.Clone(sums), subWikiSum(stale))
+	t.Cleanup(func() { shippedSubWikiSums = sums })
+	p := filepath.Join(data, "wiki", "sub-wiki.py")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(p, stale, 0o755)
+	if got, err := RefreshRoleWikiHookScript(data); err != nil || len(got) != 1 || got[0] != p {
+		t.Fatalf("old copy: got %v %v", got, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != string(want) {
+		t.Fatal("the old copy was not replaced by this build's sub-wiki.py")
+	}
+	if got, _ := RefreshRoleWikiHookScript(data); len(got) != 0 {
+		t.Fatalf("already this build's: rewrote %v", got)
+	}
+	edited := append(slices.Clone(stale), []byte("# my own change\n")...)
+	os.WriteFile(p, edited, 0o755)
+	if got, err := RefreshRoleWikiHookScript(data); err != nil || len(got) != 0 {
+		t.Fatalf("edited by the user: got %v %v", got, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != string(edited) {
+		t.Fatal("the user's edited sub-wiki.py was overwritten")
+	}
+}
+
+// Every sub-wiki.py we ship has to be in shippedSubWikiSums, or the next build would take it for a user's edit.
+func TestShippedSubWikiSums(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "contrib", "wiki", "sub-wiki.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := subWikiSum(b); !slices.Contains(shippedSubWikiSums, s) {
+		t.Fatalf("sub-wiki.py changed: add %q to shippedSubWikiSums (core/rolewiki.go)", s)
 	}
 }
