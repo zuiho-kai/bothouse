@@ -11,7 +11,7 @@
 
 ## 一句话
 
-bothouse 是跑在你自己电脑上的团队协作层：把你已经登录好的几种 AI CLI（Claude Code、Codex、Antigravity、DSH、Gemini CLI、OpenCode，Grok 等走 ACP 的也行）拉进同一个群，主角色拆活派活、大活交给工作区，全员共用一份 Markdown 记忆，每晚自己复盘。一个账号、一个模型也能建几个角色组队。
+bothouse 是跑在你自己电脑上的团队协作层：把你已经登录好的几种 AI CLI（Claude Code、Codex、Antigravity、DSH、Gemini CLI、OpenCode，Grok、JiuwenSwarm 等走 ACP 的也行）拉进同一个群，主角色拆活派活、大活交给工作区，全员共用一份 Markdown 记忆，每晚自己复盘。一个账号、一个模型也能建几个角色组队。
 
 ## 能做什么
 
@@ -23,7 +23,7 @@ bothouse 是跑在你自己电脑上的团队协作层：把你已经登录好�
 - **大家记得同一件事**：所有角色读写同一份 Markdown Wiki（基于开源 llm-wiki 扩展），Git 记每次改动；每轮只推相关页的标题和行号，要用再读正文；面板里的「记忆论坛」给每条记忆打分排序。
 - **晚上自己复盘**：会话结束或闲置时记进度，夜里对照原话纠错去重；反复被纠正的地方整理成候选规则，人点头才生效。
 - **每个角色的技能**：反复摸索工具的步骤可在夜里起草成技能，面板里查看、编辑、确认，再按角色启用；DSH 原生加载该角色已启用的技能，其他后端通过桥的技能命令使用。已有全局技能仍沿用原来的范围。
-- **长任务不跑偏**：交接带用户原话；换一个干净上下文的 AI 验收；工作区用命令交回，长命令结束自动叫醒发起的会话；每轮有花费上限，cron、定时和工作区的轮超了中途停并通知；危险命令有护栏。
+- **长任务不跑偏**：交接带用户原话；换一个干净上下文的 AI 验收；工作区用命令交回，长命令结束自动叫醒发起的会话；每轮有花费上限，cron、定时和工作区的轮花到八成先提醒收尾交结果，超了中途停并通知；危险命令有护栏。
 - **每个成员自己的目录和 GitHub 授权**：开了以后，进群的人各有一个目录，用自己的设备码授权 GitHub，替他做的 GitHub 操作只用他本人的授权；角色换一个系统账号跑时，由系统拦住一个成员的活去读别人的目录和凭据。建团队时推荐，部署团队的人点头才开。
 - **个人 agent 入队**：队员可以在自己电脑上跑自己的 bothouse，用自己的 CLI 和额度；主角色派活时附上团队里相关的经验，他们交回的经验进共享记忆。
 - **在手机上管**：自带网页面板，看谁在忙、用了多少额度、改人设、换模型、给正在跑的活插话；模型和推理档位按频道分开记。手机不装 DSH，开着 Tailscale 在浏览器里输 6 位配对码也能连上。
@@ -36,7 +36,7 @@ bothouse 是跑在你自己电脑上的团队协作层：把你已经登录好�
 
 | | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 |
 | --- | --- | --- | --- | --- | --- |
-| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Antigravity、Gemini CLI、OpenCode、DSH；Grok 等走 ACP；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、飞书、QQ、DSH web（实验） |
+| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Antigravity、Gemini CLI、OpenCode、DSH；Grok、JiuwenSwarm 等走 ACP；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、飞书、QQ、DSH web（实验） |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验 | 没有内置长期记忆，可接记忆插件 | 自带桌面端和网页 |
 | [Tobs](https://github.com/BotHarness/DeepSeekBot) | 基于 DSH 的 Bot 插件 | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 |
 | [DS Bot](https://github.com/Fei2411/DS-Bot) | 基于 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 |

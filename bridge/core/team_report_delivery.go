@@ -68,6 +68,9 @@ type pendingReport struct {
 	// not the end. Its board item is parked and comes back by itself, so the lead's pass posts it without
 	// closing the item, and no verdict in time drops it instead of posting it unchecked (#1378).
 	Waiting bool `json:"waiting,omitempty"`
+	// Batch publishes one delivery without ending the task or releasing its workspace.
+	Batch    bool `json:"batch,omitempty"`
+	Rejected bool `json:"rejected,omitempty"` // Lead rejected this delivery; identical rework can be submitted again.
 	// HeldBound / HeldDone: the board item's bind time and whether it was already closed when the report
 	// was held. A later rebind, a newer handoff of the same notes or a close ends the hold (#1378).
 	HeldBound   string    `json:"held_bound,omitempty"`
@@ -175,7 +178,7 @@ func (e *Engine) rememberReportErr(rec *pendingReport) (bool, error) {
 	e.teamExit.mu.Lock()
 	defer e.teamExit.mu.Unlock()
 	if old := e.loadReportsLocked()[rec.Key]; old != nil {
-		if !old.delivered() || time.Since(old.DeliveredAt) <= teamReportDedupe {
+		if !old.delivered() || (time.Since(old.DeliveredAt) <= teamReportDedupe && !old.Rejected) {
 			return false, nil
 		}
 		delete(e.teamExit.reports, rec.Key)
@@ -438,13 +441,13 @@ func (e *Engine) settleReportRecord(key, text string, runErr error) {
 // completeReportDelivery records platform acceptance separately from task verification.
 // All successful paths retain the same receipt so PR800 can retry a failed board write.
 func (e *Engine) completeReportDelivery(rec *pendingReport) {
-	if rec.Headline != "" {
+	if !rec.Batch && rec.Headline != "" {
 		e.exitMarkPosted(rec.Kind, rec.Board, rec.Headline)
 	}
-	if rec.Kind == team.ExitKindReport && rec.Board > 0 {
+	if !rec.Batch && rec.Kind == team.ExitKindReport && rec.Board > 0 {
 		e.markExitReported(rec.Board)
 	}
-	if rec.Board > 0 && !rec.Posted {
+	if !rec.Batch && rec.Board > 0 && !rec.Posted {
 		e.endWorkspaceTask(rec.Platform+":"+rec.Chat, rec.Session, rec.Kind, rec.Board, rec.Body)
 	}
 	e.dropDeliveredReport(rec.Key)

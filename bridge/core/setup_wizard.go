@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -111,18 +112,20 @@ type WizardFeishu struct {
 }
 
 type WizardRole struct {
-	Project         string          `json:"project,omitempty"`
-	Name            string          `json:"name,omitempty"`
-	NameCustomized  *bool           `json:"name_customized,omitempty"`
-	KeepPersonaName bool            `json:"keep_persona_name,omitempty"`
-	Token           string          `json:"token,omitempty"`         // discord bot token (new bot)
-	ReuseProject    string          `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
-	AgentType       string          `json:"agent_type,omitempty"`
-	WorkDir         string          `json:"work_dir,omitempty"`
-	Persona         string          `json:"persona,omitempty"`
-	EditPersona     bool            `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
-	ReplyLanguage   string          `json:"reply_language,omitempty"`
-	Provider        *WizardProvider `json:"provider,omitempty"` // nil = the CLI's own local login
+	Project         string            `json:"project,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	NameCustomized  *bool             `json:"name_customized,omitempty"`
+	KeepPersonaName bool              `json:"keep_persona_name,omitempty"`
+	Token           string            `json:"token,omitempty"`         // discord bot token (new bot)
+	ReuseProject    string            `json:"reuse_project,omitempty"` // or reuse the bot of an existing project
+	AgentType       string            `json:"agent_type,omitempty"`
+	AgentCmd        string            `json:"agent_cmd,omitempty"` // a new acp role's launch command with its arguments (written as cmd)
+	AgentEnv        map[string]string `json:"agent_env,omitempty"` // a new acp role's environment (written as the agent's env)
+	WorkDir         string            `json:"work_dir,omitempty"`
+	Persona         string            `json:"persona,omitempty"`
+	EditPersona     bool              `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
+	ReplyLanguage   string            `json:"reply_language,omitempty"`
+	Provider        *WizardProvider   `json:"provider,omitempty"` // nil = the CLI's own local login
 	// Model: the agent's model option ("" = leave). DSH takes its ACP model value, `["<provider route>","<model>"]`.
 	Model string `json:"model,omitempty"`
 	// Library picks; nil / "" = keep what the state already has for this project.
@@ -700,6 +703,20 @@ func jevFailCause(lang string, t JevTestResult) string {
 		return "这个模型不给概率，存了也不会被用上。"
 	}
 	return "This model returns no probabilities, so it would never be used."
+}
+
+func acpCmdMissingText(lang, project string) string {
+	if strings.HasPrefix(lang, "zh") {
+		return fmt.Sprintf("角色 %s 走 ACP 接入，要填启动命令（例如 jiuwenswarm-acp）。", project)
+	}
+	return fmt.Sprintf("role %s connects over ACP and needs its launch command (e.g. jiuwenswarm-acp)", project)
+}
+
+func acpCmdNotFoundText(lang, project, cmd string) string {
+	if strings.HasPrefix(lang, "zh") {
+		return fmt.Sprintf("角色 %s 的启动命令 %s 在本机找不到或不能执行，请填能运行的完整路径。", project, cmd)
+	}
+	return fmt.Sprintf("role %s: launch command %s was not found or is not executable; give the full path of a command this machine can run", project, cmd)
 }
 
 // ── persona file ───────────────────────────────────────────────
@@ -1757,6 +1774,21 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				r.agentCmd = c.Path // found outside PATH: tell the service where it is (L2)
 			}
 		}
+		if r.AgentType == "acp" && !r.reused {
+			// acp.New fails without a command it can find, and one failing agent stops the whole
+			// bridge at start: refuse it here, before anything is written
+			cmd, _ := ParseCmdOpts(map[string]any{"cmd": r.AgentCmd}, "")
+			if cmd == "" {
+				return nil, fmt.Errorf("%s", acpCmdMissingText(req.Language, r.project))
+			}
+			if _, err := exec.LookPath(cmd); err != nil {
+				return nil, fmt.Errorf("%s", acpCmdNotFoundText(req.Language, r.project, cmd))
+			}
+			r.agentCmd = strings.TrimSpace(r.AgentCmd)
+			if len(r.AgentEnv) > 0 {
+				r.agentEnv = r.AgentEnv
+			}
+		}
 		if r.AgentType == "dsh" && !r.reused {
 			// a DSH role with no model key fails every turn: refuse it here, before anything is written
 			keyEnv, err := dshModelSetup(req.Language, r.project, "", r.Provider)
@@ -2543,7 +2575,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (m *ManagementServer) handleSetupCLIs(w http.ResponseWriter, r *http.Request) {
-	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context())})
+	mgmtJSON(w, http.StatusOK, map[string]any{"clis": DetectLocalCLIs(r.Context()), "acp_presets": ACPPresets(r.Context())})
 }
 
 func (m *ManagementServer) handleSetupMatrix(w http.ResponseWriter, r *http.Request) {

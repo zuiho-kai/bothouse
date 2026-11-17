@@ -23,7 +23,8 @@ type LocalCLI struct {
 	Path      string `json:"path"`
 	InPath    bool   `json:"in_path"` // false = found in a common install dir outside PATH; the wizard writes Path into the agent's cmd
 	Version   string `json:"version,omitempty"`
-	// Login: "logged_in" (the CLI's own local login / OAuth found), "not_logged_in", "unknown".
+	// Login: "logged_in" (the CLI's own local login / OAuth found), "not_logged_in", "unknown"
+	// (bothouse has no check for this CLI; the wizard says the CLI signs in by itself).
 	Login string `json:"login"`
 	// LoginEnvOnly: logged in only through an environment variable of this process (Claude Code:
 	// ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN, no credential file). `bothouse daemon install`
@@ -86,6 +87,42 @@ func loginEnvOnly(agentType, login, home string) bool {
 	return agentType == "claudecode" && login == "logged_in" && !claudeFileLogin(home)
 }
 
+// agyLogin: agy keeps its account login in the macOS keychain (service "gemini", account
+// "antigravity"; checked 2026-11-17 with agy 1.5.9). Only the item's presence is asked: without
+// -w/-g the secret is not read and no keychain prompt opens. Older agy versions also wrote a
+// token file (agent/antigravity/usage_cloud.go). On other systems without that file the state
+// stays "unknown".
+func agyLogin(home string) string {
+	if fileExists(filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")) {
+		return "logged_in"
+	}
+	if runtime.GOOS != "darwin" {
+		return "unknown"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 来源：沿用本文件 --version 探测的 5 秒
+	defer cancel()
+	return loginIf(exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", "gemini", "-a", "antigravity").Run() == nil)
+}
+
+// cursorLogin asks the CLI itself: Cursor keeps its login in the system keychain, not in a file.
+// `status --format json` answers {"isAuthenticated": false, …} on a machine without a login
+// (checked 2026-11-17 with cursor-agent 2026.11.13). An answer that cannot be read stays "unknown".
+func cursorLogin(ctx context.Context, path string) string {
+	if os.Getenv("CURSOR_API_KEY") != "" {
+		return "logged_in"
+	}
+	tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用本文件 --version 探测的 5 秒；实测未登录时 0.4 秒
+	defer cancel()
+	b, _ := exec.CommandContext(tctx, path, "status", "--format", "json").Output()
+	var st struct {
+		IsAuthenticated *bool `json:"isAuthenticated"`
+	}
+	if json.Unmarshal(b, &st) != nil || st.IsAuthenticated == nil {
+		return "unknown"
+	}
+	return loginIf(*st.IsAuthenticated)
+}
+
 // Binary names follow each agent's ParseCmdOpts default (agent/*/*.go).
 // Login checks look at whether the CLI's own credential file exists. The one exception is
 // Claude Code (besides ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, both passed
@@ -112,7 +149,8 @@ var cliSpecs = []cliSpec{
 	// DSH (npm @deepseek-ai/dsh): logged in = the official key variable, an account login, or the user's own
 	// model setup in DSH's config (dshLogin).
 	{"dsh", "DSH (DeepSeek Harness)", []string{"dsh"}, ProtocolAnthropic, dshLogin, ""},
-	{"antigravity", "Antigravity CLI", []string{"agy"}, "", nil, ""},
+	{"antigravity", "Antigravity CLI", []string{"agy"}, "", agyLogin, ""},
+	// Cursor's login is asked from the CLI itself (cursorLogin, in DetectLocalCLIs: it needs the binary's path).
 	{"cursor", "Cursor Agent", []string{"cursor-agent", "agent"}, "", nil, ""},
 	{"copilot", "GitHub Copilot", []string{"copilot"}, "", nil, ""},
 	{"kimi", "Kimi", []string{"kimi"}, "", nil, ""},
@@ -272,13 +310,62 @@ func isGenuine(ctx context.Context, bin, path string) bool {
 	if match, ok := staticIdentity(path, words); ok {
 		return match
 	}
+	has := func(hay string) bool {
+		for _, w := range words {
+			if strings.Contains(hay, w) {
+				return true
+			}
+		}
+		return false
+	}
+	// A version line that starts with a program name settles it: Grok also installs its CLI as
+	// `agent`, answers "grok 1.0.77 (…)", and its --help mentions Cursor.
+	if name := versionName(versionLine(ctx, path)); name != "" {
+		return has(name)
+	}
 	help := strings.ToLower(helpOutput(ctx, path))
-	for _, w := range words {
-		if strings.Contains(help, w) {
-			return true
+	return has(help)
+}
+
+// versionLine is the first line of `<path> --version`, at most 80 bytes; empty when the command fails.
+func versionLine(ctx context.Context, path string) string {
+	tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用改动前本文件 --version 探测的 5 秒
+	defer cancel()
+	b, err := exec.CommandContext(tctx, path, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+	if len(v) > 80 {
+		v = v[:80]
+	}
+	return v
+}
+
+// versionName is the program name a version line starts with ("grok" in "grok 1.0.77"), lower
+// case; empty when the line starts with the number itself ("2026.11.13-eacade1", "v1.2").
+func versionName(line string) string {
+	f := strings.Fields(strings.ToLower(line))
+	if len(f) < 2 {
+		return ""
+	}
+	for _, r := range f[0] {
+		if (r < 'a' || r > 'z') && r != '-' {
+			return ""
 		}
 	}
-	return false
+	return f[0]
+}
+
+// lookSpecBin finds the first of bins that is installed (PATH, then the common install dirs) and
+// really is that CLI. The CLI list and the ACP agent cards (acp_presets.go) both look this way.
+func lookSpecBin(ctx context.Context, bins []string) (bin, path string, inPath bool) {
+	for _, b := range bins {
+		if p, in, err := lookPath(b); err == nil && isGenuine(ctx, b, p) {
+			return b, p, in
+		}
+	}
+	return "", "", false
 }
 
 // DetectLocalCLIs lists the agent CLIs installed on this machine (PATH and common
@@ -292,13 +379,7 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 		wg.Add(1)
 		go func(i int, s cliSpec) {
 			defer wg.Done()
-			bin, path, inPath := "", "", false
-			for _, b := range s.bins {
-				if p, in, err := lookPath(b); err == nil && isGenuine(ctx, b, p) {
-					bin, path, inPath = b, p, in
-					break
-				}
-			}
+			bin, path, inPath := lookSpecBin(ctx, s.bins)
 			if path == "" && s.agentType == "dsh" {
 				// a Mac that only installed the desktop app has no dsh on PATH; use the one
 				// inside the app bundle, the same lookup the DSH module and hooks use (#192)
@@ -316,18 +397,12 @@ func DetectLocalCLIs(ctx context.Context) []LocalCLI {
 				Supported: s.agentType != "", Login: "unknown", Note: s.note}
 			if s.login != nil {
 				c.Login = s.login(home)
+			} else if s.agentType == "cursor" {
+				c.Login = cursorLogin(ctx, path)
 			}
 			c.LoginEnvOnly = loginEnvOnly(s.agentType, c.Login, home)
 			if !strings.HasSuffix(path, ".app") {
-				tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用改动前本文件 --version 探测的 5 秒
-				if b, err := exec.CommandContext(tctx, path, "--version").Output(); err == nil {
-					v := strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
-					if len(v) > 80 {
-						v = v[:80]
-					}
-					c.Version = v
-				}
-				cancel()
+				c.Version = versionLine(ctx, path)
 			}
 			out[i] = c
 		}(i, s)

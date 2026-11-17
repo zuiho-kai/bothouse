@@ -509,6 +509,22 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 		slog.Warn("team watch: save release hold skip failed", "workspace", key, "error", err)
 	}
 	busy := w.workspaceBusy(key)
+	// The task this handoff was claimed for is no longer in work in this workspace (handed back
+	// or closed from another one, or claimed into another one) and nothing runs here: there is no
+	// progress to judge and nobody to nudge. The handoff ends without a word and the workspace
+	// goes back to the pool. 11-17 #1748: a rework claimed 工作区4 and then 工作区1 for the same
+	// task; 工作区1 did the work and handed back, and twenty minutes later the watch told the chat
+	// that 工作区4 「」 made no progress, stopped nothing there and woke it to continue.
+	if !busy && w.taskLeftWorkspace(key, h) {
+		_, err := w.park(key, h.Chat, h.At)
+		if err == nil || errors.Is(err, ErrTeamWorkspaceNotOwned) {
+			slog.Info("team watch: the task is no longer in this workspace; handoff ended without a notice", "workspace", key, "chat", h.Chat, "board", h.Board)
+			_, _ = w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = time.Time{} })
+			return time.Time{}
+		}
+		slog.Warn("team watch: ending a handoff whose task left the workspace failed; retried", "workspace", key, "board", h.Board, "error", err)
+		return now.Add(watchRetryDelay)
+	}
 	if !busy && target != nil && !h.Idle.Ended.IsZero() && !h.Idle.Returned && !h.Idle.Reported {
 		target.armIdleWake(idleAssignment{key, h, false})
 		due := now.Add(watchCheckAfter())
@@ -639,6 +655,19 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	return time.Time{}
 }
 
+// taskLeftWorkspace: handoff h was claimed for a board item whose state record says it is not in
+// work in workspace key any more. False for a handoff without a board item, a task the store has
+// never seen, and an unreadable store (the check goes on as before).
+func (w *handoffWatch) taskLeftWorkspace(key string, h TeamHandoff) bool {
+	if h.Board <= 0 || w.e == nil || w.e.dataDir == "" {
+		return false
+	}
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	t, inWork, err := teamTaskInWorkOnLocked(w.e.dataDir, h.Board, key)
+	return err == nil && t.ID == h.Board && !inWork
+}
+
 // watchHistoryLimit: how many recent posts of the workspace channel a check reads (one request;
 // Discord's maximum per request).
 const watchHistoryLimit = 100
@@ -660,8 +689,8 @@ var watchFeishuMention = regexp.MustCompile(`user_id="([^"]+)"`)
 // since then (Session.UpdatedAt; B9 plan 9b item 2). An error: the history request failed (check
 // retries it).
 func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.Time) (watchProgress, error) {
-	running, pushed := w.workspaceBackgroundProgress(key, since)
-	if pushed || running && h.Renewed < watchMaxBackgroundRenew {
+	running, observed := w.workspaceBackgroundProgress(key, since)
+	if observed || running && h.Renewed < watchMaxBackgroundRenew {
 		return watchProgressReal, nil
 	}
 	if !running && w.workspaceBusy(key) {
@@ -684,14 +713,20 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 	return watchProgressNone, nil
 }
 
-// workspaceBackgroundProgress reads the same native task state used by idle
-// cleanup and the child table. Inspect active agent processes even after the
-// parent turn unlocks; Session.Busy alone cannot describe their lifetime.
-func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, pushed bool) {
+// workspaceBackgroundProgress reads tracked commands and the native task state
+// used by idle cleanup and the child table. Inspect active agent processes even
+// after the parent turn unlocks; Session.Busy alone cannot describe their lifetime.
+func (w *handoffWatch) workspaceBackgroundProgress(key string, since time.Time) (running, observed bool) {
 	dirs := make(map[string]bool)
 	for _, e := range w.engines() {
 		if e == nil {
 			continue
+		}
+		// bgrun is tracked outside the agent process. Both periodic progress and
+		// idle wake decisions use its output window and completion record. Recent
+		// output is measured progress, independent of the native-task renewal cap.
+		if e.watchBackgroundRun(key) != "" {
+			return true, true
 		}
 		e.interactiveMu.Lock()
 		var states []*interactiveState

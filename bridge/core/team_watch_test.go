@@ -514,6 +514,38 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 	}
 }
 
+// 11-17 #1748: a rework claimed 工作区4 and then 工作区1 for the same task. 工作区1 did the work, and
+// twenty minutes later the watch told the chat that 工作区4 made no progress and woke it. A handoff
+// whose task is in work in another workspace ends without a nudge or a notice; the other
+// workspace's handoff and the task's state are untouched.
+func TestWatchHandoffWhoseTaskLeftEndsWithoutANotice(t *testing.T) {
+	e, p, w, h := progressFixtureBoard(t, k5aOwner, 7)
+	// Leave the original handoff open to exercise cleanup of an old assignment;
+	// a live task must now explicitly leave its workspace before being reassigned.
+	teamWorkspaceStore.mu.Lock()
+	_, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: 7, To: TeamTaskPaused, By: "yield"}, time.Now())
+	teamWorkspaceStore.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ClaimTeamWorkspaceTask("discord:chatA", "ws2", "工作区2", k5aOwner, "K5a", 7); err != nil {
+		t.Fatal(err)
+	}
+	w.tick(h.Due)
+	if got := handoffsOf(e, "discord:ws1")[0]; got.Parked.IsZero() || got.Nudged || got.AutoResumed {
+		t.Fatalf("the handoff the task left: ended without a nudge, got %+v", got)
+	}
+	if len(p.sentTo("discord:ws1"))+len(p.sentTo("discord:chatA")) != 0 {
+		t.Fatalf("nothing is said about it, sent %v", p.out)
+	}
+	if got := handoffsOf(e, "discord:ws2")[0]; !teamHandoffOpen(got) {
+		t.Fatalf("the workspace doing the task keeps its handoff, got %+v", got)
+	}
+	if task, _, err := e.TeamTask(7); err != nil || task.State != TeamTaskDispatched || task.WS != "discord:ws2" {
+		t.Fatalf("task #7 stays dispatched in ws2, got %+v, %v", task, err)
+	}
+}
+
 // No post and no turn running: stopped at the first check.
 func TestWatchNoSignalStops(t *testing.T) {
 	e, p, w, h := progressFixture(t, k5aOwner)

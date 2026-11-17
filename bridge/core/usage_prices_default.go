@@ -11,6 +11,11 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"claude-3-5-sonnet-20241022":          {Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75},
 	"claude-fable-5":                      {Input: 10.0, Output: 50.0, CacheRead: 1.0, CacheWrite: 12.5},
 	"claude-fable-5-1":                    {Input: 10.0, Output: 50.0, CacheRead: 0.25, CacheWrite: 12.5},
+// claude-fable-5-2 is added by hand because the cc-switch export predates the model.
+// Rates are from https://platform.claude.com/docs/en/about-claude/pricing (read 2026-11-17):
+// input $8, output $40, cache read $0.20, 5-minute cache write $10 (the column every
+// other Claude row uses; the 1-hour write is $16).
+	"claude-fable-5-2":                    {Input: 8.0, Output: 40.0, CacheRead: 0.2, CacheWrite: 10.0},
 	"claude-haiku-4-5-20251001":           {Input: 1.0, Output: 5.0, CacheRead: 0.1, CacheWrite: 1.25},
 	"claude-haiku-5-5":                    {Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125},
 	"claude-mythos-5":                     {Input: 10.0, Output: 50.0, CacheRead: 1.0, CacheWrite: 12.5},
@@ -220,6 +225,10 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"o3-mini":                             {Input: 1.1, Output: 4.4, CacheRead: 0.55, CacheWrite: 0.0},
 	"o3-pro":                              {Input: 20.0, Output: 80.0, CacheRead: 0.0, CacheWrite: 0.0},
 	"o4-mini":                             {Input: 1.1, Output: 4.4, CacheRead: 0.275, CacheWrite: 0.0},
+// qwen27b is the local LM Studio model split workspaces run on (workspace_model in
+// config.toml); it runs on this machine, so its tokens cost nothing. An explicit zero
+// row keeps the spend cap from charging it at the no-price fallback rate.
+	"qwen27b":                             {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-235b-a22b":                     {Input: 0.7, Output: 8.4, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-32b":                           {Input: 0.16, Output: 0.64, CacheRead: 0.0, CacheWrite: 0.0},
 	"qwen3-coder-480b":                    {Input: 0.65, Output: 3.25, CacheRead: 0.0, CacheWrite: 0.0},

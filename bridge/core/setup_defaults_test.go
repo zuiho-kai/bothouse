@@ -39,7 +39,7 @@ func TestApplyWizardNewRoleHasDiary(t *testing.T) {
 		ChannelID string `json:"channel_id"`
 	}{GuildID: "900"}, Roles: []WizardRole{
 		{Token: t1, AgentType: "claudecode", Persona: "# 角色：橘\n"},
-		{Token: t2, AgentType: "acp", ReplyLanguage: "en"}, // a DSH role runs over ACP
+		{Token: t2, AgentType: "acp", AgentCmd: "sh", ReplyLanguage: "en"}, // a DSH role runs over ACP; an acp role needs a launch command
 	}}
 	res := ApplyWizard(context.Background(), env, req)
 	if !res.OK {

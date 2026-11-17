@@ -30,6 +30,12 @@ type TurnSpendCaps struct {
 // 数据：11-16 线上日志统计，一轮花费 p75 为 cron 0.23、timer 1.04、工作区 4.16 美元，取 5 倍取整。
 var defaultTurnSpendCaps = TurnSpendCaps{Cron: 1, Timer: 5, Workspace: 20} // 数据：同上一行，5 倍 p75 取整
 
+// turnWarnAt is the share of a turn's spend cap, and of a scheduled turn's time limit, at which
+// the turn is told to hand in what it has (#1744). Before, a turn over its limit was only
+// stopped: 11-16 23:02 a cron turn at 1.016 USD of 1 was cut and left nothing.
+// 数据：上限是一轮正常花费（p75）的 5 倍（见 defaultTurnSpendCaps），八成处提醒，留下的两成正好是一轮正常花费，够写完答复。
+const turnWarnAt = 0.8
+
 // turnSpendCheckEvery is how often a capped turn's spend is read from the logs.
 // 沿用已有配置：和 boardAutostartEvery 一样的 15 秒轮询。
 const turnSpendCheckEvery = boardAutostartEvery
@@ -71,12 +77,39 @@ type turnSpendMeter struct {
 	files   map[string]*UsageFileState // log file -> how far it was read
 	costs   map[string]float64         // record key -> USD; one response is logged on several lines
 	total   float64
-	warned  map[string]bool // models without a price, logged once
+	warned  map[string]bool // models without a price; each is warned about once
+
+	// fallback is what a model without a price is charged (#1754): the highest rate in the
+	// table. Such a model used to count as zero, so its turns never reached the cap or the
+	// hand-in reminder. hasFallback is false only when the price table is empty.
+	fallback    TokenPrice
+	hasFallback bool
 }
 
 func newTurnSpendMeter(cfg *turnSpendSetup, since time.Time) *turnSpendMeter {
-	return &turnSpendMeter{sources: cfg.sources, prices: cfg.prices, since: since,
+	m := &turnSpendMeter{sources: cfg.sources, prices: cfg.prices, since: since,
 		files: map[string]*UsageFileState{}, costs: map[string]float64{}, warned: map[string]bool{}}
+	m.fallback, m.hasFallback = highestTokenPrice(cfg.prices)
+	return m
+}
+
+// highestTokenPrice returns the most expensive rate in the price table, column by column:
+// the highest input, output, cache read and cache write rate, each taken over the whole
+// table. ok is false when the table is empty.
+//
+// It is not the single most expensive row. Cache reads and writes are often most of a turn's
+// tokens, and many rows price them at zero; a fallback row with a zero cache rate would still
+// count a cache-heavy turn as almost free. The column-wise maximum is never below any row of
+// the table, so a model without a price is stopped early rather than never.
+func highestTokenPrice(prices map[string]TokenPrice) (TokenPrice, bool) {
+	var top TokenPrice
+	for _, p := range prices {
+		top.Input = max(top.Input, p.Input)
+		top.Output = max(top.Output, p.Output)
+		top.CacheRead = max(top.CacheRead, p.CacheRead)
+		top.CacheWrite = max(top.CacheWrite, p.CacheWrite)
+	}
+	return top, len(prices) > 0
 }
 
 // read adds the usage logged since the last call by the agent sessions ids and returns the
@@ -125,11 +158,20 @@ func (m *turnSpendMeter) add(r UsageRecord) {
 	}
 	price, ok := lookupPrice(m.prices, r.Model)
 	if !ok {
-		if !m.warned[r.Model] {
-			m.warned[r.Model] = true
-			slog.Warn("turn spend cap: model has no price, its usage is not counted", "model", r.Model)
+		first := !m.warned[r.Model]
+		m.warned[r.Model] = true
+		if !m.hasFallback { // an empty price table: nothing to charge at
+			if first {
+				slog.Warn("turn spend cap: model has no price, its usage is not counted", "model", r.Model)
+			}
+			return
 		}
-		return
+		price = m.fallback
+		if first {
+			slog.Warn("turn spend cap: model has no price, charging it at the highest rate in the table", "model", r.Model,
+				"input_usd_per_mtok", m.fallback.Input, "output_usd_per_mtok", m.fallback.Output,
+				"cache_read_usd_per_mtok", m.fallback.CacheRead, "cache_write_usd_per_mtok", m.fallback.CacheWrite)
+		}
 	}
 	cost := (float64(r.Input)*price.Input + float64(r.Output)*price.Output + float64(r.CacheRead)*price.CacheRead + float64(r.CacheWrite)*price.CacheWrite) / 1e6 // SPEC: TokenPrice is per million tokens
 	if r.Key == "" {
@@ -151,6 +193,8 @@ type turnSpendWatch struct {
 	name    string // the job's description, or the workspace turn's task line
 	id      string // the job id, or the workspace channel
 	meter   *turnSpendMeter
+	warned  bool    // the hand-in reminder went out, or could not be delivered; it is tried once
+	stopAt  float64 // the spend the turn is stopped over: limit, or more for a late reminder
 }
 
 // turnSpendKind is the cap a turn runs under: the workspace one for any turn in a workspace
@@ -202,6 +246,7 @@ func (e *Engine) newTurnSpendWatch(state *interactiveState, session *Session, iK
 	default:
 		return nil
 	}
+	w.stopAt = w.limit
 	w.tok = scheduledWatchSeq.Add(1)
 	w.meter = newTurnSpendMeter(cfg, time.Now())
 	state.mu.Lock()
@@ -257,7 +302,11 @@ func (e *Engine) watchTurnSpend(w *turnSpendWatch, every time.Duration) {
 	}
 }
 
-// checkTurnSpend reads the turn's spend once and stops the turn when it is over the cap.
+// checkTurnSpend reads the turn's spend once. At turnWarnAt of the cap the turn is told, once,
+// to hand in what it has; over the cap it is stopped. Spend is read every turnSpendCheckEvery,
+// so one reading can jump from under turnWarnAt to over the cap: that turn is told then, and
+// stopped only after the room an on-time reminder leaves (the cap's last 1-turnWarnAt). A turn
+// that cannot be told (the agent takes no mid-turn input) is stopped at the cap as before.
 // It returns false when the watch is over (the turn ended, or was stopped here).
 func (e *Engine) checkTurnSpend(w *turnSpendWatch) bool {
 	w.state.mu.Lock()
@@ -267,11 +316,36 @@ func (e *Engine) checkTurnSpend(w *turnSpendWatch) bool {
 		return false
 	}
 	spent := w.meter.read(w.sessionIDs(), false)
-	if spent <= w.limit {
+	if !w.warned && spent >= w.limit*turnWarnAt {
+		w.warned = true
+		told := e.tellTurnToHandIn(w.state, w.iKey, e.i18n.Tf(MsgTurnSpendWarn, spendUSD(spent), spendUSD(w.limit)))
+		if told && spent > w.limit {
+			w.stopAt = w.limit * (2 - turnWarnAt)
+		}
+		slog.Info("turn near its spend cap; told it to hand in", "project", e.name, "session", w.iKey, "kind", w.kind,
+			"id", w.id, "spent_usd", spent, "cap_usd", w.limit, "told", told)
+	}
+	if spent <= w.stopAt {
 		return true
 	}
 	e.fireTurnSpendCap(w, spent)
 	return false
+}
+
+// tellTurnToHandIn puts note into the turn running under iKey, the way a message sent during a
+// turn joins it (injectIntoRunningTurn). state, when given, must still be the one under iKey:
+// a reminder armed for a turn never reaches a later turn's agent. It returns false when the
+// agent takes no mid-turn input or the turn is gone; the caller then keeps its hard stop only.
+func (e *Engine) tellTurnToHandIn(state *interactiveState, iKey, note string) bool {
+	if state != nil {
+		e.interactiveMu.Lock()
+		cur := e.interactiveStates[iKey]
+		e.interactiveMu.Unlock()
+		if cur != state {
+			return false
+		}
+	}
+	return e.canInjectInto(e.agent, iKey) && e.injectIntoRunningTurn(iKey, note, nil, nil, nil)
 }
 
 // fireTurnSpendCap stops the turn the cap was armed for, and only that turn, then tells its

@@ -86,8 +86,8 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 		// nudge hours later had the lead accept it again against the PR's newer head and send work the
 		// user already had back for rework (agentm #35 11-10 07:16; contrib/gate/board.py accepted).
 		// A progress report on a task waiting outside (#1378) leaves the item parked: it comes back by itself.
-		if rec.Waiting {
-			slog.Info("report accept: progress on a task waiting outside posted; item stays parked", "board_item", rec.Board)
+		if rec.Waiting || rec.Batch {
+			slog.Info("report accept: progress posted; task remains open", "board_item", rec.Board, "batch", rec.Batch)
 		} else if out, err := owner.runLeadScript(rec.Platform+":"+rec.Chat, "board", "accepted", strconv.Itoa(rec.Board)); err != nil {
 			slog.Warn("report accept: closing the board item failed", "board_item", rec.Board, "error", err, "output", strings.TrimSpace(string(out)))
 		}
@@ -99,7 +99,7 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 			if other.Key == rec.Key && e == owner {
 				continue
 			}
-			e.endHeldReport(other.Key, sameTaskVerdict(req.Action, req.Verdict))
+			e.endHeldReportAs(other.Key, sameTaskVerdict(req.Action, req.Verdict), req.Action == "reject")
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

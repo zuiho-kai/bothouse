@@ -96,6 +96,8 @@ Only three ideas to learn:
 - **Workspaces** — big jobs (more than about ten minutes, or code changes and tests) go to a separate job channel with a handoff that carries your original words, the scope and what "done" looks like. Chat never stalls; one workspace, one job. The lead keeps a task board, and the bridge looks at every job every ten minutes. Results come back with proof, and only decisions that need you come back to chat. This is what we call **team mode**.
 - **Shared memory** — every role reads and writes the same Markdown notes, so whoever picks up a job already knows the background. See [Memory](#memory).
 
+Jobs can return results in batches: accepting a batch keeps the job and workspace open, while accepting the final report closes the job. Workspace agents use `ws-up --report <draft> --batch` for intermediate results and `--final` (the default) for the final handback; see the [workspace playbook](bridge/contrib/lead/PLAYBOOK.zh-CN.md).
+
 More detail — who replies when nobody is named, the nightly review, guardrails, switching the lead by hand — is in [How the team works](docs/readme-details.en.md#how-the-team-works).
 
 <picture>

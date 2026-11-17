@@ -29,7 +29,7 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 	}
 	var path []string
 	if e.dataDir != "" {
-		env = append(env, "CC_DATA_DIR="+e.dataDir)
+		env = append(env, "CC_DATA_DIR="+e.dataDir, "CC_RUNS_DIR="+e.backgroundRunsDir())
 		if v := e.productPyBin.Load(); v != nil {
 			if dir := v.(string); dir != "" {
 				path = append(path, dir)

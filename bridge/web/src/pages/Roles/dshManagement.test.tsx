@@ -79,7 +79,7 @@ describe('DSH member management', () => {
     mocks.roles.mockResolvedValue({ roles: [role('managed'), role('native')], dsh: { status: 'running' } });
     await render(<RoleList />);
     const cards = [...container.querySelectorAll('article')];
-    expect(cards[0].textContent).toContain('当前模型未知');
+    expect(cards[0].textContent).not.toContain('未知');
     expect(cards[0].textContent).toContain('dshManage.savedConfigNextTurn');
     expect(cards[0].textContent).toContain('dshManage.model: saved-model');
     expect(cards[0].textContent).toContain('dshManage.effort: high');

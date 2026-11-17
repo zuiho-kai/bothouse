@@ -3444,8 +3444,7 @@ def nightly(a):
     split_pass(state())
     log(f"nightly: stage=dream stopped={budget.stopped()}")
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
-    data_dir = (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
-                os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+    data_dir = bridge_data_dir()
     import manuals
     role = manuals.role_project(REPO, data_dir)
     manuals.WIKI = REPO
@@ -4031,26 +4030,65 @@ def profile_ask(prompt):
     return json.JSONDecoder().raw_decode(res[i:])[0]
 
 
+def bridge_data_dir():
+    return (os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR") or
+            os.environ.get("CC_DATA_DIR") or str(Path.home() / ".bothouse"))
+
+
+def owner_to_roles(done):
+    """今晚重写了主人（桥配置里的 admin_from）那页 → 写进各角色的说明文件（profiles.to_roles，#1757：每个会话本来就读
+    说明文件，不靠每轮推送）。角色和说明文件照 bots.json。只在主 wiki 做（gate 推的是主 wiki 那页）：角色自己的 wiki
+    （.bothouse-role）、试跑副本（WIKI_DIR、PROFILE_NO_COMMIT）不写。"""
+    import profiles
+    try:
+        key = f"discord-{discord_said.user_id()}"
+    except discord_said.Unavailable:  # 桥配置里没有主人
+        return
+    bots = Path(os.environ.get("WIKI_BOTS") or Path(bridge_data_dir()) / "wiki/bots.json").expanduser()
+    if key not in done or not bots.is_file() or (REPO / ".bothouse-role").exists() \
+            or REPO.resolve() != HOME.resolve() or os.environ.get("PROFILE_NO_COMMIT"):
+        return
+    personas = {k: v["persona"] for k, v in json.loads(bots.read_text(encoding="utf-8")).items()
+                if isinstance(v, dict) and v.get("persona")}
+    roles = profiles.to_roles(REPO / profiles.page_rel(key), key, personas, bots.parent / profiles.ROLE_STATE)
+    log(f"profile: owner's page written into role instructions: {', '.join(roles) or 'no role asks for it'}")
+
+
 def profiles_pass(db, deadline):
     """懂你画像，每人一页（profiles.py，#1160）：每个说过话的人，按他自己 [上次到现在) 的原话重写他那页，只提交这些页。
     The window starts where the last pass ended (0 the first time: all the person's recorded words) and moves only
-    when the pass ran; a person whose rewrite was kept back is read again with the next window's words only."""
+    when the pass ran and its pages were committed; a person whose rewrite was kept back is read again with the next
+    window's words only. A refused commit (the lossless pre-commit hook) puts the pages back and leaves the window
+    where it was: the same words are read again the next night instead of being lost (#1757: three nights of rewritten
+    lines were logged as written, never committed, then reset away)."""
     import profiles
     db.execute("create table if not exists profile_window(at real)")
     lo = db.execute("select max(at) from profile_window").fetchone()[0] or 0
     hi = time.time()
     done, files = profiles.run(REPO, lo, hi, profile_ask, log, deadline=deadline)
+    if files and (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
+        subprocess.run(["git", "add", "--", *files], cwd=REPO, capture_output=True, text=True)
+        r = subprocess.run(["git", "commit", "-qm", "dream: 画像", "--", *files], cwd=REPO, capture_output=True, text=True)
+        if r.returncode:  # git() drops the exit code: say it, undo the pages, keep the window
+            log(f"profile: commit refused, pages put back, window kept: {(r.stderr or r.stdout).strip()[-600:]}")
+            subprocess.run(["git", "reset", "-q", "--", *files], cwd=REPO, capture_output=True, text=True)
+            tracked = git("ls-files", "--", *files, cwd=REPO).split("\n")
+            git("checkout", "--", *[f for f in files if f in tracked], cwd=REPO)
+            for f in files:
+                if f not in tracked:
+                    (REPO / f).unlink(missing_ok=True)
+            return
     db.execute("insert into profile_window values (?)", (hi,))
     db.commit()
     if not files:
         log("profile: nothing rewritten")
         return
+    owner_to_roles(done)
     with open(REPO / "log.md", "a") as f:
         f.write(f"\n## [{time.strftime('%Y-%m-%d')}] dream | 画像\n" + "".join(f"- {k}: {v}\n" for k, v in done.items()))
-    files.append("log.md")
     if (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
-        git("add", "--", *files, cwd=REPO)
-        git("commit", "-qm", "dream: 画像", "--", *files, cwd=REPO)
+        git("add", "--", "log.md", cwd=REPO)
+        git("commit", "-qm", "dream: 画像（log）", "--", "log.md", cwd=REPO)
     log(f"profile: {len(done)} people rewritten")
 
 

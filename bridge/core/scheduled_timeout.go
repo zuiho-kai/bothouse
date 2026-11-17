@@ -59,6 +59,44 @@ func (e *Engine) StopScheduledTurn(runID string) bool {
 	return stopped
 }
 
+// scheduledWarnAfter is how long into its time limit a scheduled turn is told to hand in.
+func scheduledWarnAfter(limit time.Duration) time.Duration {
+	return time.Duration(float64(limit) * turnWarnAt)
+}
+
+// armScheduledTurnWarning is armed by whoever will call StopScheduledTurn(runID) after limit:
+// at turnWarnAt of the limit the run's turn is told to hand in what it has (#1744; before, the
+// 15 turns stopped on time left nothing). The caller stops the returned timer when the run ends.
+func (e *Engine) armScheduledTurnWarning(runID string, limit time.Duration) *time.Timer {
+	return time.AfterFunc(scheduledWarnAfter(limit), func() { e.warnScheduledTurn(runID, limit) })
+}
+
+// warnScheduledTurn tells the turn the scheduled run started that its time is nearly up. A run
+// that only queued registered nothing, so another turn is never told.
+func (e *Engine) warnScheduledTurn(runID string, limit time.Duration) bool {
+	scheduledTurnsMu.Lock()
+	iKey := e.scheduledTurns[runID]
+	scheduledTurnsMu.Unlock()
+	if iKey == "" {
+		return false
+	}
+	told := e.tellTurnToHandIn(nil, iKey, e.scheduledWarnText(limit))
+	slog.Info("scheduled turn near its time limit; told it to hand in", "project", e.name, "run", runID, "session", iKey, "limit", limit, "told", told)
+	return told
+}
+
+func (e *Engine) scheduledWarnText(limit time.Duration) string {
+	return e.i18n.Tf(MsgTurnTimeWarn, shortDuration(limit), shortDuration(limit-scheduledWarnAfter(limit)))
+}
+
+// shortDuration prints whole minutes, or seconds under a minute.
+func shortDuration(d time.Duration) string {
+	if d < time.Minute {
+		return strconv.Itoa(int(d.Round(time.Second)/time.Second)) + "s"
+	}
+	return strconv.Itoa(int(d.Round(time.Minute)/time.Minute)) + "min"
+}
+
 func heartbeatRunID(sessionKey string) string { return "heartbeat:" + sessionKey }
 
 // scheduledTurnCovered reports whether a scheduler (or a restart resume) already waits on a turn
@@ -113,9 +151,27 @@ func (e *Engine) armScheduledTurnTimeout(state *interactiveState, iKey, trigger,
 	state.mu.Lock()
 	state.scheduledWatch = tok
 	state.mu.Unlock()
+	time.AfterFunc(scheduledWarnAfter(limit), func() { e.warnQueuedScheduledTurn(state, iKey, tok, limit) })
 	time.AfterFunc(limit, func() {
 		e.fireScheduledTurnTimeout(state, iKey, tok, trigger, timerJobID, cronJobID, limit)
 	})
+}
+
+// warnQueuedScheduledTurn tells the turn a limit was armed for (armScheduledTurnTimeout), and
+// only that turn, that its time is nearly up; the checks are fireScheduledTurnTimeout's.
+func (e *Engine) warnQueuedScheduledTurn(state *interactiveState, iKey string, tok uint64, limit time.Duration) bool {
+	state.mu.Lock()
+	live := state.scheduledWatch == tok && state.scheduledCancel == nil
+	state.mu.Unlock()
+	if !live {
+		return false
+	}
+	if j := e.turnJournalStore(); j != nil && j.Active(iKey) == "" {
+		return false // the turn already ended
+	}
+	told := e.tellTurnToHandIn(state, iKey, e.scheduledWarnText(limit))
+	slog.Info("queued scheduled turn near its time limit; told it to hand in", "project", e.name, "session", iKey, "limit", limit, "told", told)
+	return told
 }
 
 // fireScheduledTurnTimeout stops the turn a limit was armed for, and only that turn. The limit

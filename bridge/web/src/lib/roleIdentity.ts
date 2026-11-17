@@ -1,6 +1,6 @@
 const BACKENDS: Record<string, string> = {
   claudecode: 'Claude Code', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode', dsh: 'DSH',
-  antigravity: 'Antigravity', cursor: 'Cursor', iflow: 'iFlow', qoder: 'Qoder', copilot: 'Copilot',
+  antigravity: 'Antigravity', cursor: 'Cursor', iflow: 'iFlow', qoder: 'Qoder', copilot: 'Copilot', acp: 'ACP',
 };
 export const backendLabel = (backend: string) => BACKENDS[backend] || backend;
 export function nextRoleName(backend: string, used: readonly string[]) {
