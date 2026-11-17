@@ -60,7 +60,7 @@ def supervise(run, seconds, ready_fd, command):
             try:
                 # Startup observation timeout catches immediate shell failures;
                 # failures after acknowledgment use the normal exit/wake contract.
-                rc = task.wait(timeout=min(seconds, 0.1))
+                rc = task.wait(timeout=min(seconds, 0.1) if seconds else 0.1)
             except subprocess.TimeoutExpired:
                 rc = None
             if rc is not None:
@@ -71,7 +71,7 @@ def supervise(run, seconds, ready_fd, command):
             ready.flush()
             if rc is None:
                 try:
-                    rc = task.wait(timeout=max(0, seconds - (time.monotonic() - started)))
+                    rc = task.wait(timeout=max(0, seconds - (time.monotonic() - started)) if seconds else None)
                     rc = rc if rc >= 0 else 128 - rc
                 except subprocess.TimeoutExpired:
                     os.killpg(task.pid, signal.SIGKILL)

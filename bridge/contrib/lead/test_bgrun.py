@@ -1,6 +1,8 @@
 """Exercise the real CLI in an isolated HOME; never contact the live bridge."""
 import json
 import os
+import pty
+import select
 from pathlib import Path
 import signal
 import subprocess
@@ -54,8 +56,8 @@ class BgrunTest(unittest.TestCase):
 
     def test_survives_launching_process_group_shutdown(self):
         # The launcher shares its process group with the caller, like an agent tool.
-        starter = subprocess.Popen(["/bin/zsh", "-c",
-                                    '"$@"; print -r -- launcher-ready; read ignored',
+        starter = subprocess.Popen(["/bin/sh", "-c",
+                                    '"$@"; echo launcher-ready; read ignored',
                                     "launcher", str(HERE / "bgrun"), "probe", "10",
                                     "/bin/sh", "-c", "sleep 0.5; echo survived"],
                                    env=self.env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -88,12 +90,55 @@ class BgrunTest(unittest.TestCase):
         self.assertNotIn("运行号", result.stdout)
         self.assertIn("intentional-failure", result.stderr)
         self.assertEqual(self.wait_file(self.run_dir() / "exit").strip(), "7")
+        self.wait_file(self.calls)
 
     def test_missing_executable_has_synchronous_error(self):
         result = self.run_cli(str(self.home / "missing-command"))
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("运行号", result.stdout)
         self.assertIn("missing-command", result.stderr)
+        self.wait_file(self.calls)
+
+    def test_survives_controlling_terminal_close(self):
+        pid, master = pty.fork()
+        if pid == 0:
+            os.execve("/bin/sh", ["sh", "-c", '"$@"; exec sleep 5', "launcher",
+                                 str(HERE / "bgrun"), "pty", "10", "/bin/sh", "-c",
+                                 "sleep 0.5; echo terminal-closed"], self.env)
+        self.groups.append(pid)
+        try:
+            self.assertTrue(select.select([master], [], [], 5)[0], "no startup response")
+            self.assertIn("运行号", os.read(master, 8192).decode())
+        finally:
+            os.close(master)
+            os.waitpid(pid, 0)
+        run = self.run_dir()
+        self.assertEqual(self.wait_file(run / "exit").strip(), "0")
+        self.assertEqual((run / "log").read_text().strip(), "terminal-closed")
+        self.wait_file(self.calls)
+
+    def test_uses_bridge_resolved_directory(self):
+        self.env["CC_RUNS_DIR"] = str(self.home / "bridge-data/runs")
+        result = self.run_cli("/bin/echo", "shared-directory")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = next(Path(self.env["CC_RUNS_DIR"]).iterdir())
+        self.assertEqual(self.wait_file(run / "exit").strip(), "0")
+        self.wait_file(self.calls)
+        self.assertFalse((self.home / ".bothouse/runs").exists())
+
+    def test_timeout_writes_exit_and_wakes(self):
+        result = subprocess.run([str(HERE / "bgrun"), "timeout", "1", "/bin/sh", "-c", "sleep 10"],
+                                env=self.env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_file(self.run_dir() / "exit").strip(), "142")
+        self.wait_file(self.calls)
+
+    def test_zero_timeout_retains_unlimited_contract(self):
+        result = subprocess.run([str(HERE / "bgrun"), "no-timeout", "0", "/bin/sh", "-c", "sleep 0.2; echo done"],
+                                env=self.env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_file(self.run_dir() / "exit").strip(), "0")
+        self.wait_file(self.calls)
 
 
 if __name__ == "__main__":
