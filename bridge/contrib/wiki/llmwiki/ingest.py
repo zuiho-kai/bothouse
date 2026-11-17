@@ -3670,12 +3670,27 @@ def profile_ask(prompt):
 def profiles_pass(db, deadline):
     """懂你画像，每人一页（profiles.py，#1160）：每个说过话的人，按他自己 [上次到现在) 的原话重写他那页，只提交这些页。
     The window starts where the last pass ended (0 the first time: all the person's recorded words) and moves only
-    when the pass ran; a person whose rewrite was kept back is read again with the next window's words only."""
+    when the pass ran and its pages were committed; a person whose rewrite was kept back is read again with the next
+    window's words only. A refused commit (the lossless pre-commit hook) puts the pages back and leaves the window
+    where it was: the same words are read again the next night instead of being lost (#1757: three nights of rewritten
+    lines were logged as written, never committed, then reset away)."""
     import profiles
     db.execute("create table if not exists profile_window(at real)")
     lo = db.execute("select max(at) from profile_window").fetchone()[0] or 0
     hi = time.time()
     done, files = profiles.run(REPO, lo, hi, profile_ask, log, deadline=deadline)
+    if files and (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
+        subprocess.run(["git", "add", "--", *files], cwd=REPO, capture_output=True, text=True)
+        r = subprocess.run(["git", "commit", "-qm", "dream: 画像", "--", *files], cwd=REPO, capture_output=True, text=True)
+        if r.returncode:  # git() drops the exit code: say it, undo the pages, keep the window
+            log(f"profile: commit refused, pages put back, window kept: {(r.stderr or r.stdout).strip()[-600:]}")
+            subprocess.run(["git", "reset", "-q", "--", *files], cwd=REPO, capture_output=True, text=True)
+            tracked = git("ls-files", "--", *files, cwd=REPO).split("\n")
+            git("checkout", "--", *[f for f in files if f in tracked], cwd=REPO)
+            for f in files:
+                if f not in tracked:
+                    (REPO / f).unlink(missing_ok=True)
+            return
     db.execute("insert into profile_window values (?)", (hi,))
     db.commit()
     if not files:
@@ -3683,10 +3698,9 @@ def profiles_pass(db, deadline):
         return
     with open(REPO / "log.md", "a") as f:
         f.write(f"\n## [{time.strftime('%Y-%m-%d')}] dream | 画像\n" + "".join(f"- {k}: {v}\n" for k, v in done.items()))
-    files.append("log.md")
     if (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
-        git("add", "--", *files, cwd=REPO)
-        git("commit", "-qm", "dream: 画像", "--", *files, cwd=REPO)
+        git("add", "--", "log.md", cwd=REPO)
+        git("commit", "-qm", "dream: 画像（log）", "--", "log.md", cwd=REPO)
     log(f"profile: {len(done)} people rewritten")
 
 

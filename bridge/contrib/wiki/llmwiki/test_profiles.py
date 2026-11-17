@@ -48,7 +48,7 @@ class Profiles(unittest.TestCase):
         self.assertTrue(all("我要根因" not in p for p in self.prompts if "zzzx0757" in p))  # 他的页只喂他的话
 
     def test_rewrite_keeps_unmatched_lines(self):
-        """现状里带论坛注释（对不上格式）的行、别人加的其他「##」节的行，重写后都在「历史」里，不丢。"""
+        """现状里被替掉的行（带论坛标注的也算）、别人加的其他「##」节的行，重写后都在「历史」里，不丢。"""
         self.prompts = []
         page = self.wiki / profiles.page_rel("discord-1")
         page.parent.mkdir(parents=True)
@@ -63,6 +63,23 @@ class Profiles(unittest.TestCase):
         for ln in (noted, extra, old):
             self.assertIn(ln, hist)
         self.assertIn("我要根因", text.split("## 历史")[0])  # 新行照常写进现状
+
+    def test_noted_line_stays_current_when_kept(self):
+        """带论坛楼层标注的现状行仍是现状行：模型沿用它（keep）就原样留在现状，不被挪进历史；给模型看的不带标注（#1757）。"""
+        self.prompts = []
+        page = self.wiki / profiles.page_rel("discord-1")
+        page.parent.mkdir(parents=True)
+        noted = "- 他看你给的是现象还是根因，所以先问一层为什么（10-30「这个只是现象」） <!-- 帖 t6e85aa5bb0·18楼 -->"
+        page.write_text("# 懂你：owner\n\n## 现状\n### 判断标准\n" + noted + "\n", encoding="utf-8")
+        keep = lambda prompt: (self.prompts.append(prompt), {"lines": [
+            {"section": "判断标准", "text": "", "keep": "P0"},
+            {"section": "判断标准", "text": "他认根因，所以修到上游", "id": "U1", "quote": "我要根因"}]})[1]
+        profiles.run(self.wiki, 0, time.time(), keep, lambda m: None, root=self.store)
+        text = page.read_text(encoding="utf-8")
+        self.assertIn(noted, text.split("## 历史")[0])
+        self.assertNotIn("## 历史", text)
+        self.assertIn("我要根因", text)
+        self.assertNotIn("<!--", self.prompts[0])
 
     def test_push_by_sender(self):
         import ctxsvc

@@ -24,7 +24,9 @@ PROFILE_DIR = "tooling/workflow/workflow/preferences"  # same as the gate's GATE
 PAGE = "profile-{key}.md"
 PROFILE_LINES = 20  # 方案 11-02 11:30「二十行左右」，用户 11:5x 回「做」
 SECTIONS = ("判断标准", "在意什么", "说话和情绪", "审美口味", "生活和兴趣")
-LINE = re.compile(r"^- (.+)（(\d\d-\d\d)「(.+?)」）$")
+# 行尾可带论坛的楼层帖标注（<!-- 帖 … -->）：带标注的行仍是现状行（同 ingest.py PROFILE_LINE，#1757）
+LINE = re.compile(r"^- (.+)（(\d\d-\d\d)「(.+?)」）(?:\s*<!--.*-->)?\s*$")
+TAG = re.compile(r"\s*<!--.*-->\s*$")
 HISTORY = "历史"
 MAX_CHARS = 240_000  # one call, as ingest.py MAX_CHARS
 KEY = re.compile(r"[A-Za-z0-9._-]{1,120}")
@@ -142,7 +144,7 @@ def read_page(text):
         elif part == "现状" and LINE.match(ln):
             cur.append((sec, ln))
         elif part and ln.startswith("- "):
-            # 历史行；也收现状里带论坛注释等对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
+            # 历史行；也收现状里对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
             hist.append(ln)
     return cur, hist
 
@@ -163,7 +165,7 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     page = Path(repo) / rel
     old_text = page.read_text(encoding="utf-8") if page.exists() else ""
     cur, hist = read_page(old_text)
-    old = "\n".join(f"P{i}: [{s}] {l[2:]}" for i, (s, l) in enumerate(cur)) or "（暂无，第一次写）"
+    old = "\n".join(f"P{i}: [{s}] {TAG.sub('', l[2:])}" for i, (s, l) in enumerate(cur)) or "（暂无，第一次写）"
     head = (sop or SOP).format(n=n, old=old, name=name)
     room = MAX_CHARS - len(head)
     ans = ask(head + (transcript[-room:] if len(transcript) > room else transcript))
