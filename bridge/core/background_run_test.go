@@ -126,6 +126,13 @@ func TestBackgroundRunWatchEntries(t *testing.T) {
 			if got.Nudged == tc.output {
 				t.Fatalf("output=%v: nudged=%v", tc.output, got.Nudged)
 			}
+			wantNudges := 0
+			if !tc.output {
+				wantNudges = 1
+			}
+			if sent := p.sentTo("discord:ws1"); len(sent) != wantNudges {
+				t.Fatalf("output=%v: workspace messages=%v", tc.output, sent)
+			}
 			got.Idle.Ended = time.Now()
 			e.updateIdle(idleAssignment{"discord:ws1", got, false}, func(row *TeamHandoff) { row.Idle = got.Idle })
 			e.fireIdleWake(idleAssignment{"discord:ws1", got, false})
