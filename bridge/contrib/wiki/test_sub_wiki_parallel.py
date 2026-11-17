@@ -51,6 +51,7 @@ if os.name != 'nt':
                                 env=env, capture_output=True, text=True, timeout=8)
         self.assertEqual(result.returncode, 0, result.stderr)
         observations = [json.loads((root / name / 'result.json').read_text()) for name in ('gge', 'gjiang', 'deep')]
+        print('nightly role observations: ' + json.dumps(observations, sort_keys=True))
         self.assertTrue(all(row['overlap'] for row in observations), observations)
         self.assertTrue(all(not row['newest'] for row in observations), observations)
         if os.name != 'nt':
