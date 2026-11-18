@@ -279,7 +279,7 @@ export default function SessionChat() {
   const previewHandleCounter = useRef(0);
 
   const sessionKey = session?.session_key || '';
-  const sessionModel = useSessionModel(project, sessionKey);
+  const sessionModel = useSessionModel(project, session?.id === id ? sessionKey : '', id);
 
   // Load session data + bridge config
   const fetchSession = useCallback(async () => {

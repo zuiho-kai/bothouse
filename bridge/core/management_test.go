@@ -1174,6 +1174,54 @@ func TestMgmt_ProjectModel_ReadsSavedChoiceBySession(t *testing.T) {
 	}
 }
 
+type historyModelAgent struct {
+	stubModelModeAgent
+	models map[string]string
+}
+
+func (a *historyModelAgent) SessionModel(sessionID string) string { return a.models[sessionID] }
+
+func TestMgmt_ProjectModel_UsesSelectedConversation(t *testing.T) {
+	agent := &historyModelAgent{
+		stubModelModeAgent: stubModelModeAgent{model: "role-default"},
+		models:             map[string]string{"old-thread": "old-model"},
+	}
+	e := NewEngine("test-project", agent, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	const key = "bridge:web-admin:test-project"
+	unknown := e.sessions.NewSession(key, "unknown model")
+	old := e.sessions.NewSession(key, "old")
+	old.SetAgentSessionID("old-thread", "codex")
+	old.SetAgentSessionID("", "") // /new retired this conversation before Bothouse recorded models.
+	active := e.sessions.NewSession(key, "active")
+	active.SetAgentSessionID("active-thread", "codex")
+	e.interactiveStates[key] = &interactiveState{agentSession: &statusModelSession{newControllableSession("active-thread"), "live-model"}}
+
+	assertModel := func(id, want string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/model?session_key="+key+"&session_id="+id, nil)
+		res := httptest.NewRecorder()
+		(&ManagementServer{}).handleProjectModel(res, req, e)
+		var body struct{ Data struct{ Model string } }
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil || res.Code != http.StatusOK || body.Data.Model != want {
+			t.Fatalf("model for %s = %s (HTTP %d), want %q; decode error: %v", id, res.Body, res.Code, want, err)
+		}
+	}
+	assertModel(active.ID, "live-model")
+	assertModel(old.ID, "old-model")
+	assertModel(unknown.ID, "")
+	if err := e.queueSwitch(key, pendingModelSwitch{Model: "queued-model"}); err != nil {
+		t.Fatal(err)
+	}
+	assertModel(active.ID, "queued-model")
+	assertModel(old.ID, "old-model")
+	if err := e.applyPendingSwitchOnAgent(agent, key, key); err != nil {
+		t.Fatal(err)
+	}
+	assertModel(active.ID, "queued-model")
+	assertModel(old.ID, "old-model")
+}
+
 func TestMgmt_ProjectModel_UsesSwitchModelWithActiveProvider(t *testing.T) {
 	agent := &stubModelModeAgent{
 		model: "gpt-4.1-mini",

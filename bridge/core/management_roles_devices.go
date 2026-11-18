@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // PlatformStatus represents the readiness of a platform connected to an engine.
@@ -48,6 +49,8 @@ type RoleInfo struct {
 	// Source is "dsh" for a member DSH runs itself (read-only on the page); empty for bridge roles.
 	Source string     `json:"source,omitempty"`
 	Quota  *RoleQuota `json:"quota,omitempty"`
+
+	ConversationModel string `json:"conversation_model,omitempty"`
 }
 
 // roleQuotaFromReport formats the cached UsageReport into RoleQuota without doing I/O.
@@ -166,7 +169,7 @@ func (m *ManagementServer) bridgeRoles(ctx context.Context) []RoleInfo {
 			platforms = []PlatformStatus{}
 		}
 
-		// 2. The role label shows the role's default model across conversations.
+		// 2. The role default is used when there is no conversation model.
 		model := replyFooterModel(nil, e.agent)
 		if model == "" {
 			if defaults, ok := e.agent.(interface{ DefaultModel(context.Context) string }); ok {
@@ -259,9 +262,66 @@ func (m *ManagementServer) bridgeRoles(ctx context.Context) []RoleInfo {
 			Platforms:     platforms,
 			SessionsCount: len(e.sessions.AllSessions()),
 			Quota:         quota,
+
+			ConversationModel: e.roleConversationModel(),
 		})
 	}
 	return roles
+}
+
+func (e *Engine) roleConversationModel() string {
+	key, session, at := e.sessions.latestActiveSession()
+	agent := e.agent
+	e.interactiveMu.Lock()
+	pool := e.workspacePool
+	e.interactiveMu.Unlock()
+	if pool != nil {
+		for _, ws := range pool.All() {
+			ws.mu.Lock()
+			wsAgent, sessions := ws.agent, ws.sessions
+			ws.mu.Unlock()
+			if sessions == nil {
+				continue
+			}
+			if wsKey, wsSession, wsAt := sessions.latestActiveSession(); wsAt.After(at) {
+				key, session, at, agent = wsKey, wsSession, wsAt, wsAgent
+			}
+		}
+	}
+
+	var changedKey string
+	consider := func(candidate string, changedAt time.Time) {
+		if !changedAt.IsZero() && (changedAt.After(at) || changedAt.Equal(at) && (changedKey == "" || candidate < changedKey)) {
+			changedKey, at = candidate, changedAt
+		}
+	}
+	e.modelSwitchMu.Lock()
+	for candidate, pending := range e.pendingSwitch {
+		consider(candidate, pending.QueuedAt)
+	}
+	e.modelSwitchMu.Unlock()
+	if ps := e.projectState; ps != nil {
+		ps.mu.RLock()
+		for candidate, selection := range ps.state.SessionModelOverrides {
+			consider(candidate, selection.ChangedAt)
+		}
+		ps.mu.RUnlock()
+	} else {
+		e.sessionModelsMu.RLock()
+		for candidate, selection := range e.sessionSelections {
+			consider(candidate, selection.ChangedAt)
+		}
+		e.sessionModelsMu.RUnlock()
+	}
+	if changedKey != "" {
+		var sessions *SessionManager
+		agent, sessions = e.sessionContextForKey(changedKey)
+		key, session = changedKey, sessions.FindByID(sessions.ActiveSessionID(changedKey))
+	}
+	if key == "" {
+		return ""
+	}
+	return displayModelName(e.conversationModel(agent, key, session, true))
 }
 
 func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Request) {

@@ -1707,12 +1707,29 @@ func (m *ManagementServer) handleProjectModels(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Request, e *Engine) {
 	if r.Method == http.MethodGet {
-		key := strings.TrimSpace(r.URL.Query().Get("session_key"))
+		query := r.URL.Query()
+		key := strings.TrimSpace(query.Get("session_key"))
 		if key == "" {
 			mgmtError(w, http.StatusBadRequest, "session_key is required")
 			return
 		}
-		mgmtJSON(w, http.StatusOK, map[string]string{"model": displayModelName(e.sessionModelFor(key))})
+		agent, sessions := e.sessionContextForKey(key)
+		id := query.Get("session_id")
+		if id != "" {
+			// The management session list uses the project's session store.
+			sessions = e.sessions
+			keys, _ := sessions.SessionKeyMap()
+			if keys[id] != key {
+				mgmtError(w, http.StatusNotFound, "session not found")
+				return
+			}
+		}
+		activeID := sessions.ActiveSessionID(key)
+		if id == "" {
+			id = activeID
+		}
+		model := e.conversationModel(agent, key, sessions.FindByID(id), id == activeID)
+		mgmtJSON(w, http.StatusOK, map[string]string{"model": displayModelName(model)})
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -1743,6 +1760,49 @@ func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Req
 		"model":   model,
 		"message": "model updated",
 	})
+}
+
+func (e *Engine) conversationModel(agent Agent, key string, session *Session, active bool) string {
+	var nativeID, lastModel string
+	if session != nil {
+		session.mu.Lock()
+		nativeID, lastModel = session.AgentSessionID, session.LastModel
+		if !active && nativeID == "" && len(session.PastAgentSessionIDs) > 0 {
+			nativeID = session.PastAgentSessionIDs[len(session.PastAgentSessionIDs)-1]
+		}
+		session.mu.Unlock()
+	}
+	if active {
+		interactiveKey := e.interactiveKeyForSessionKey(key)
+		e.modelSwitchMu.Lock()
+		request, ok := e.pendingSwitch[key]
+		if !ok {
+			request = e.pendingSwitch[interactiveKey]
+		}
+		e.modelSwitchMu.Unlock()
+		if request.Model != "" {
+			return request.Model
+		}
+		if model := e.sessionModelFor(key); model != "" {
+			return model
+		}
+		if live := e.liveModelSession(key); live != nil && live.Alive() && (nativeID == "" || nativeID == live.CurrentSessionID()) {
+			if model := replyFooterModel(live, nil); model != "" {
+				return model
+			}
+		}
+	}
+	if lastModel != "" {
+		return lastModel
+	}
+	if nativeID != "" && nativeID != ContinueSession {
+		if history, ok := agent.(interface{ SessionModel(string) string }); ok {
+			if model := history.SessionModel(nativeID); model != "" {
+				return model
+			}
+		}
+	}
+	return ""
 }
 
 // ── Heartbeat endpoints ───────────────────────────────────────

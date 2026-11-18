@@ -1758,6 +1758,9 @@ func (e *Engine) SetBaseWorkDir(dir string) {
 
 func (e *Engine) SetProjectStateStore(store *ProjectStateStore) {
 	e.projectState = store
+	if store != nil {
+		e.pendingSwitch = maps.Clone(store.state.PendingModelSwitches)
+	}
 }
 
 func (e *Engine) SetDataDir(dir string) {

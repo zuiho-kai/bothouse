@@ -971,7 +971,7 @@ Lists available models for the project's agent type.
 
 #### GET /api/v1/projects/{name}/model?session_key=...
 
-Returns the saved or configured model for the given session key in `model`. An empty value means the session inherits the agent's model. This lookup works while the session has no running worker.
+Returns the selected or recorded model for the active conversation on the given session key. Pass `session_id` to look up a specific conversation from the project session list. Older conversations return their last recorded model. The model is empty when unavailable.
 
 #### POST /api/v1/projects/{name}/model
 

@@ -339,7 +339,7 @@ export default function ChatView() {
   const currentSession = loadedSession && loadedSession.project === projectName && loadedSession.selectedId === selectedSessionId
     ? loadedSession.detail : null;
   const sessionKey = selectedSessionId ? currentSession?.session_key || '' : webSessionKey;
-  const sessionModel = useSessionModel(projectName, sessionKey);
+  const sessionModel = useSessionModel(projectName, sessionKey, selectedSessionId);
   sessionKeyRef.current = sessionKey;
 
   useEffect(() => {

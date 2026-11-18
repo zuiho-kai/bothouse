@@ -26,6 +26,7 @@ export interface RoleInfo {
   display_name?: string;
   agent_type: string;
   model: string;
+  conversation_model?: string;
   online: boolean;
   busy: boolean;
   current_task: string;

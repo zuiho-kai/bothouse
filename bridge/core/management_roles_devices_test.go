@@ -15,6 +15,37 @@ type stubRoleDefaultModelAgent struct{ stubAgent }
 
 func (*stubRoleDefaultModelAgent) DefaultModel(context.Context) string { return "gpt-6.1-sol" }
 
+func TestManagementRolesRecentConversationModel(t *testing.T) {
+	a := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: "role-default"},
+		models: []ModelOption{{Name: "queued-model"}}}
+	e := NewEngine("test", a, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	mgmt := NewManagementServer(0, "test-token", nil)
+	mgmt.RegisterEngine("test", e)
+
+	check := func(model string) {
+		t.Helper()
+		role := mgmt.bridgeRoles(context.Background())[0]
+		if role.Model != "role-default" || role.ConversationModel != model {
+			t.Fatalf("role model default=%q conversation=%q, want default=role-default conversation=%q",
+				role.Model, role.ConversationModel, model)
+		}
+	}
+	check("")
+	older := e.sessions.NewSession("discord:older", "older")
+	older.SetLastModel("older-model")
+	older.UpdatedAt = time.Now().Add(-time.Hour)
+	recent := e.sessions.NewSession("discord:recent", "recent")
+	recent.SetLastModel("recent-model")
+	check("recent-model")
+	if result := e.QueueModelSwitch(context.Background(), "discord:older", "queued-model", "", false); !result.OK {
+		t.Fatal(result)
+	}
+	check("queued-model")
+	e.applyPendingSwitch("discord:older")
+	check("queued-model")
+}
+
 func TestManagementRolesAndDevices(t *testing.T) {
 	mgmt := NewManagementServer(0, "test-token", nil)
 
