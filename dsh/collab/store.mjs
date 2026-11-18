@@ -70,6 +70,9 @@ const COLUMNS = [
   // #155 (no version bump): 1 = the owner closed this private chat; it stays out of the room list
   // (history kept) until openDm() brings it back.
   ['rooms', 'dm_hidden', 'INTEGER NOT NULL DEFAULT 0'],
+  // #1904 (no version bump): 1 = the owner deleted this idle workspace; the row stays so its id is never
+  // given to another room and its messages stay attributable, but no list, lookup or claim sees it.
+  ['rooms', 'removed', 'INTEGER NOT NULL DEFAULT 0'],
   // #597 G34: when a role last changed the row in place (a streamed draft growing, a progress card
   // edited, the draft committed); NULL if never. The task watch counts it as progress (Tasks.progressed).
   ['messages', 'changed_at', 'REAL'],
@@ -102,15 +105,15 @@ export class Store {
     if (version > SCHEMA_VERSION) throw Error(`collab: store schema ${version} is newer than ${SCHEMA_VERSION}`);
     this.ensureSchema(version);
     this.q = {
-      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ?'),
-      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms ORDER BY id'),
+      room: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE id = ? AND removed = 0'),
+      rooms: this.db.prepare('SELECT id, name, kind, parent_id FROM rooms WHERE removed = 0 ORDER BY id'),
       dms: this.db.prepare('SELECT id, dm_member FROM rooms WHERE dm_member IS NOT NULL'),
       // #155: private chats the room list leaves out — closed by the owner, or with a member
       // since removed (a removed member keeps its row). Members that never had a row (bridge
       // roles joining over cloud_web) are not matched, so a reconnect does not hide their chat.
       hiddenDms: this.db.prepare(`SELECT r.id FROM rooms r LEFT JOIN members m ON m.id = r.dm_member
         WHERE r.dm_member IS NOT NULL AND (r.dm_hidden = 1 OR m.removed = 1)`),
-      children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id"),
+      children: this.db.prepare("SELECT id, name FROM rooms WHERE kind = 'workspace' AND parent_id = ? AND removed = 0 ORDER BY id"),
       // A new workspace is claimed with no task yet (claim_task 0): its first task is the handoff.
       createWorkspace: this.db.prepare(`INSERT INTO rooms (id, name, kind, parent_id, claim_task, claim_bridge, claim_at)
         SELECT MAX(${WORKSPACE_ID_MIN}, COALESCE((SELECT MAX(id) + 1 FROM rooms WHERE id >= ${WORKSPACE_ID_MIN}), ${WORKSPACE_ID_MIN})),
@@ -419,7 +422,7 @@ export class Store {
       const parent = room.kind === 'workspace' ? room.parent_id : room.id;
       const re = new RegExp(`^${WORKSPACE_PREFIX}(\\d+)$`);
       // Numbers are unique across every chat channel's workspaces; reuse stays within this one.
-      const all = this.db.prepare("SELECT id, name, free, parent_id FROM rooms WHERE kind = 'workspace'").all();
+      const all = this.db.prepare("SELECT id, name, free, parent_id FROM rooms WHERE kind = 'workspace' AND removed = 0").all();
       const num = w => Number(re.exec(w.name)?.[1] ?? 0);
       const free = all.filter(w => w.free && w.parent_id === parent && num(w) > 0).sort((a, b) => num(a) - num(b))[0];
       if (free !== undefined) {
@@ -489,6 +492,23 @@ export class Store {
       return true;
     });
     return released;
+  }
+
+  /**
+   * #1904: take a free workspace out for good: it leaves every list and can no longer be claimed.
+   * The row stays (removed = 1), as a removed member's does. Refused ('workspace-busy') while a chat
+   * channel owns it (a task is in work there). The bridge keeps the tasks, so it checks for paused
+   * ones before it asks for this (cloudweb.mjs op delete).
+   */
+  removeWorkspace(roomId) {
+    return this.transaction(() => {
+      const ws = this.q.room.get(roomId);
+      if (ws === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
+      if (ws.kind !== 'workspace') throw new CollabError('not-workspace', `room ${roomId} is not a workspace`);
+      if (this.workspaceOwner(ws.id) != null) throw new CollabError('workspace-busy', `workspace ${ws.name} has a task in work`);
+      this.db.prepare('UPDATE rooms SET removed = 1 WHERE id = ?').run(ws.id);
+      return ws;
+    });
   }
 
   ensureRoomSettings(roomId) {
@@ -612,8 +632,9 @@ export class Store {
   /** Rooms for clients: each carries kind, parent_id and its channel settings. */
   roomsView() {
     const hidden = new Set(this.q.hiddenDms.all().map(r => r.id));
+    // #1904: a workspace says whether it is free (no chat channel owns it), so the list offers to delete only those.
     return this.rooms().filter(r => !hidden.has(r.id))
-      .map(r => ({ ...r, ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
+      .map(r => ({ ...r, ...(r.kind === 'workspace' ? { free: this.workspaceOwner(r.id) == null } : {}), ...this.dispatchSetting(r.id), ...this.relaySetting(r.id) }));
   }
 
   /**

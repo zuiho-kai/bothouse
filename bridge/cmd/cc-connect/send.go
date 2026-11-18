@@ -268,6 +268,9 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	} else if req.SessionKey == "" {
 		req.SessionKey = strings.TrimSpace(envSessionKey())
 		req.SessionFromEnv = req.SessionKey != ""
+		// The workspace task this process was started for; the bridge moves attachments to the
+		// chat channel only while that task is in work.
+		req.Handoff = strings.TrimSpace(os.Getenv("CC_HANDOFF"))
 	}
 	if req.Message == "" {
 		req.Message = strings.Join(positional, " ")

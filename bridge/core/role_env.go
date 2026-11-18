@@ -9,7 +9,7 @@ import (
 )
 
 // roleSessionEnv is the env every role process gets (normal turns and relays alike): its identity for
-// `bothouse cron/send …`, CC_BIN, and a PATH that has the product Python, the collaboration scripts
+// `bothouse cron/send …` (in a workspace with a task in work also CC_HANDOFF, that task), CC_BIN, and a PATH that has the product Python, the collaboration scripts
 // (board, later, d10, …) and this binary in front.
 //
 // GATE_SETUP_DIR / BOTHOUSE_DATA_DIR (the data dir under both names the gate/lead scripts read, same as
@@ -26,6 +26,12 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 	}
 	if e.team != nil && e.team.dir != "" {
 		env = append(env, "BOARD_DIR="+e.team.dir)
+	}
+	// Which task of its workspace this process is started for (workspaceHandoffID). Everything
+	// the process starts inherits it, so a `bothouse send` from a job that outlives the task
+	// still says which task it belongs to (SendTargetForAttachments).
+	if id := e.workspaceHandoffID(sessionKey); id != "" {
+		env = append(env, "CC_HANDOFF="+id)
 	}
 	var path []string
 	if e.dataDir != "" {
@@ -115,6 +121,16 @@ func (e *Engine) resolveRoleProductPython() {
 			slog.Warn("role env: no product Python for role PATH; lead scripts use the system python3", "project", e.name, "error", r.err)
 		}
 	}()
+}
+
+// roleEnvValue returns the value of name in a KEY=value list, "" when it is not set.
+func roleEnvValue(env []string, name string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 type productPythonResult struct {

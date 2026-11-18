@@ -107,7 +107,9 @@ def detach(argv, env):
     """Start argv in the background, detached from the hook (its timeout is 10 s by default), and return."""
     kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, close_fds=True)
     if os.name == "nt":
-        kw["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        # CREATE_NO_WINDOW, not DETACHED_PROCESS (#1943): a worker with no console makes Windows open a visible
+        # one for every console program it starts; a hidden console is inherited by them instead.
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True  # nohup: not killed with the hook's process group
     subprocess.Popen(argv, **kw)

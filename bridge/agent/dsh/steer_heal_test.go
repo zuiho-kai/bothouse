@@ -95,3 +95,41 @@ func TestHealSteerFromNodeArgs(t *testing.T) {
 		t.Fatal("no backup")
 	}
 }
+
+func TestDshPackageDirFromWindowsNPMShim(t *testing.T) {
+	root := t.TempDir()
+	shim := filepath.Join(root, "dsh.cmd")
+	pkg := filepath.Join(root, "node_modules", "@deepseek-ai", "dsh")
+	js := filepath.Join(pkg, "node_modules", "@deepseek-ai", "dsh-acp", "lib", "index.js")
+	if err := os.MkdirAll(filepath.Dir(js), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name": "@deepseek-ai/dsh"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shim, []byte("@echo off\r\n\"%dp0%\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js\" %*\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stock := "\tasync prompt(params, imageEnabled, requestSignal) {\n" +
+		"\t\tthis.assertActive();\n\t\tif (this.inflight !== void 0) throw invalidParams$1(\"a prompt is already in flight for this session\");\n" +
+		"\t}\n\t/** Cancel the active prompt, or autonomous work when no ACP prompt exists. */\n\tcancel() {\n\t}\n" +
+		"\t\t\t\t\t\tresume: {}\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tauthMethods: []\n"
+	if err := os.WriteFile(js, []byte(stock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dshPackageDir(shim, nil); got != want {
+		t.Fatalf("dshPackageDir(%q) = %q, want %q", shim, got, want)
+	}
+	healSteer(shim, nil)
+	healed, err := os.ReadFile(js)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(healed), steerHealMarker) {
+		t.Fatal("healSteer did not patch dsh-acp reached through the Windows npm shim")
+	}
+}

@@ -274,12 +274,17 @@ func announceSetupWizard(link, linkFile string, port int, tryBrowser bool) {
 	}
 }
 
-// refreshInstalledHookScripts brings installed guard scripts up to this binary after an upgrade.
-// Both startup paths call it: the normal one after config.Load, and setup mode, which returns into
-// the wizard before reaching that line (#1727).
+// refreshInstalledHookScripts brings installed guard scripts, and the wiki's agent.closed hook script (#1943), up
+// to this binary after an upgrade. Both startup paths call it: the normal one after config.Load, and setup mode,
+// which returns into the wizard before reaching that line (#1727).
 func refreshInstalledHookScripts(dataDir string) {
 	if dataDir == "" {
 		return
+	}
+	if replaced, err := core.RefreshRoleWikiHookScript(dataDir); err != nil {
+		slog.Warn("wiki hook script refresh failed", "error", err)
+	} else if len(replaced) > 0 {
+		slog.Info("wiki hook script updated to this build", "files", replaced)
 	}
 	if refreshed, err := core.RefreshAgentHookScripts(dataDir, version); err != nil {
 		slog.Warn("hook scripts refresh failed", "dir", core.AgentHooksDir(dataDir), "error", err)

@@ -22,6 +22,8 @@ export const AGENT_TYPES = { claude: 'claudecode', codex: 'codex', gemini: 'gemi
 const APPLY_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 600_000;
 const SYNC_DEBOUNCE_MS = 1_000;
+// 来源：桥向频道主机发 team_workspace 帧等 ack 的上限是 10 秒（bridge/platform/cloud-web/workspaces.go），加命令启动的余量。
+const WORKSPACE_TIMEOUT_MS = 30_000;
 const TOKEN_FILE = 'bot-token';
 
 /** The bothouse binary: on PATH, else where the installer puts it (~/.local/bin). */
@@ -183,6 +185,22 @@ export class Bridge {
     this.changed = false;
     this.first = false;
     if (!await this.manage(restart ? 'restart' : 'reload')) this.start(bin);
+  }
+
+  /**
+   * #1904: have the bridge delete workspace `workspace` ("room-<id>"). The bridge keeps the tasks, so it
+   * decides whether the workspace is idle (`bothouse workspace delete`) and has the room removed through
+   * its own team_workspace frame. Answers the bridge's { deleted, reason?, error? }; reason 'unreachable'
+   * when there is no running bridge to ask.
+   */
+  async deleteWorkspace(workspace) {
+    const bin = bridgeBinary(this.env);
+    if (bin === undefined) return { deleted: false, reason: 'unreachable', error: 'bothouse is not installed' };
+    const r = await run(bin, ['workspace', 'delete', workspace, '--session-key', `cloud_web:${workspace}`, '--json'], { timeout: WORKSPACE_TIMEOUT_MS, env: this.env });
+    let res;
+    try { res = JSON.parse(r.out.slice(r.out.indexOf('{'))); } catch { res = undefined; }
+    if (typeof res?.deleted !== 'boolean') return { deleted: false, reason: 'unreachable', error: r.out.trim().slice(-300) };
+    return res;
   }
 
   configText() {

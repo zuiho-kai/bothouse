@@ -43,7 +43,11 @@ def usage_calls(start, end=None, root=CC):
         if os.path.getmtime(f) < start:
             continue
         proj, sub = f.split(str(root) + "/")[1].split("/")[0], "/subagents/" in f
+        compacted = False  # a compact_boundary line since this file's previous usage line
         for line in open(f, errors="ignore"):
+            if '"compact_boundary"' in line:
+                compacted = True
+                continue
             if '"usage"' not in line:
                 continue
             try:
@@ -56,8 +60,10 @@ def usage_calls(start, end=None, root=CC):
             t = ts_of(d["timestamp"])
             if t < start or (end and t >= end):
                 continue
-            last[(m.get("id"), d.get("requestId"))] = dict(proj=proj, sid=d.get("sessionId", "?"), sub=sub, file=f, t=t,
-                                                          model=m.get("model", "?"), u=m["usage"])
+            key = (m.get("id"), d.get("requestId"))
+            last[key] = dict(proj=proj, sid=d.get("sessionId", "?"), sub=sub, file=f, t=t, model=m.get("model", "?"),
+                             u=m["usage"], compact=compacted or last.get(key, {}).get("compact", False))
+            compacted = False
     return list(last.values())
 
 
@@ -95,7 +101,7 @@ def per_session(calls):
     A session includes its sub-agents (their files carry the parent's sessionId)."""
     S = collections.defaultdict(collections.Counter)
     REWRITES.clear()
-    prev = {}
+    prev = {}  # file → (previous call time, most recently advertised TTL, model)
     for c in sorted(calls, key=lambda c: c["t"]):
         u, s = c["u"], S[(c["proj"], c["sid"])]
         cost, write, read, out = call_cost(u)
@@ -106,10 +112,12 @@ def per_session(calls):
         s["read"] += read
         s["out"] += out
         w = sum(written(u))
-        s["tok_r"] += u.get("cache_read_input_tokens", 0)
+        s["tok_r"] += u.get("cache_read_input_tokens", 0)  # 缓存命中率用（反思 11-07 a 类：记缓存命中）
         s["tok_w"] += w
         s["tok_i"] += u.get("input_tokens", 0)
-        s["maxctx"] = max(s["maxctx"], u.get("cache_read_input_tokens", 0) + w + u.get("input_tokens", 0))
+        ctx = u.get("cache_read_input_tokens", 0) + w + u.get("input_tokens", 0)
+        s["maxctx"] = max(s["maxctx"], ctx)
+        s["over_ctx"] += ctx > BIG_CTX  # 反思 11-15 a 类：过 30 万还在同一会话里干，每次调用重读大缓存
         previous = prev.get(c["file"])
         reason = rewrite_reason(c, previous, w)
         if reason:
@@ -161,6 +169,101 @@ def slow_commands(start, end=None, root=CC, over=SLOW):
     return sorted(out, reverse=True)
 
 
+# 按任务编号归因（反思 11-09 a 类「按任务编号和阶段关联费用」）：日志里没有会话↔任务的映射，首条提示又被注入块塞满了
+# 别的编号，所以只认会话自己跑过的 board 命令（board update/done/pr/tier/pause/resume <编号>）——跑得最多的编号就是它在做的事。
+BOARD_CMD = re.compile(r"\bboard\s+(?:update|done|pr|tier|pause|resume|next|link)\s+#?(\d{2,5})\b")
+BIG_CTX = 300_000  # 来源：反思 11-15 a 类「上下文过 300k 先写交接页再开新会话」；桥 max_context_tokens 默认 30 万
+TITLE_CHARS = 24  # 来源：只当分类名，取 ai-title 长度量级（如「DSH 插件改薄适配层」）
+TASK_TOP = 10  # 来源：只列最贵的几件事供复查，不是统计；与 TOP 同理取半
+
+
+def session_tasks(start, end=None, root=CC):
+    """{sid: Counter(task number → board commands)} from the Bash board commands each session ran in [start, end)."""
+    out = collections.defaultdict(collections.Counter)
+    for f in glob.glob(str(root / "*" / "**" / "*.jsonl"), recursive=True):
+        if os.path.getmtime(f) < start:
+            continue
+        for line in open(f, errors="ignore"):
+            if '"tool_use"' not in line or "board " not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            m = d.get("message") if isinstance(d, dict) else None
+            content = m.get("content") if isinstance(m, dict) else None
+            if not d.get("timestamp") or not isinstance(content, list):
+                continue
+            t = ts_of(d["timestamp"])
+            if t < start or (end and t >= end):
+                continue
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash":
+                    for n in BOARD_CMD.findall((b.get("input") or {}).get("command") or ""):
+                        out[d.get("sessionId", "?")][n] += 1
+    return out
+
+
+WS_TASK = re.compile(r"任务板 #(\d{2,5})")  # 工作区开工消息「从主频道接手一整块大活：…（任务板 #1662）」
+
+
+def session_title(proj, sid, root=CC):
+    """'#编号' when the session's first user message names its board task (workspace hand-offs), else the session's
+    last ai-title / custom-title, else its first user message that is not a system block (bridge identity, hooks,
+    <tags>); '' when none. Read from the main transcript root/proj/sid.jsonl."""
+    title, first, seen = "", "", False
+    try:
+        f = open(Path(root) / proj / f"{sid}.jsonl", errors="ignore")
+    except OSError:
+        return ""
+    with f:
+        for line in f:
+            if '"ai-title"' in line or '"custom-title"' in line:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                title = d.get("customTitle") or d.get("aiTitle") or title
+            elif not first and '"type":"user"' in line:
+                try:
+                    c = json.loads(line).get("message", {}).get("content")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(c, list):
+                    c = " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+                c = " ".join(str(c or "").split())
+                m = None if seen else WS_TASK.search(c)
+                seen = seen or bool(c)
+                if m:
+                    return "#" + m.group(1)
+                if c and c[0] not in "[<{" and not c.startswith(("Caveat", "This session is being continued")):
+                    first = c
+    return one_line(title or first, TITLE_CHARS) if (title or first) else ""
+
+
+def task_part(S, tasks, n=TASK_TOP, root=CC):
+    """Cost per task number (each session goes to the task it ran most board commands on), split main / sub-agent —
+    the stage a session was in is not in the log; main vs sub-agent is the split the log does show."""
+    by = collections.defaultdict(collections.Counter)
+    for (proj, sid), v in S.items():
+        c = tasks.get(sid)
+        t = "" if c else session_title(proj, sid, root)  # 反思 11-15 a 类：没 board 编号的按会话标题/首条用户话归类
+        k = "#" + c.most_common(1)[0][0] if c else t if t.startswith("#") else f"未标·{t}" if t else "未标任务"
+        by[k]["cost"] += v["cost"]
+        by[k]["sub"] += v["sub"]
+        by[k]["rewrite_cost"] += v["rewrite_cost"]
+        by[k]["sessions"] += 1
+        by[k]["calls"] += v["calls"]  # 迭代轮次只认得到调用次数（反思 11-14 a 类）：日志里没有「第几轮」
+    if not by:
+        return []
+    lines = [f"按任务编号（会话里跑得最多的 board 命令编号；没跑过的取开工消息里的「任务板 #编号」，再没有按会话标题或首条用户话记「未标·标题」，"
+             f"两样都没有的归「未标任务」，按开销前 {n} 项）："]
+    for k, v in sorted(by.items(), key=lambda x: -x[1]["cost"])[:n]:
+        lines.append(f"- {k} ${v['cost']:.1f}（主会话 ${v['cost'] - v['sub']:.1f}，子 agent ${v['sub']:.1f}，"
+                     f"疑似过期重写 ${v['rewrite_cost']:.1f}）会话 {v['sessions']} 个，调用 {v['calls']} 次")
+    return lines
+
+
 def totals(S, slow):
     """The day's figures the next day compares against (ingest keeps them in its state db)."""
     return {"cost": sum(v["cost"] for v in S.values()), "sub": sum(v["sub"] for v in S.values()),
@@ -188,13 +291,17 @@ def hit_line(sessions):
 
 
 def rewrite_samples(n=REWRITE_SAMPLES):
+    """The n costliest write>read calls with what the log shows about each: time, session, reason, gap since the
+    file's previous call, the TTL that call wrote with, tokens still read (where the prefix broke)."""
     top = sorted(REWRITES, key=lambda r: -r["cost"])[:n]
+    if not top:
+        return []
     return [f"重写样本（写入多于读取、按写入额前 {len(top)} 条）："] + [
         f"- {hm(r['t'])} {r['sid'][:8]}{' 子 agent' if r['sub'] else ''} {r['reason']}：距上次调用 {r['gap'] / 60:.1f} 分钟，"
-        f"上次 TTL {r['ttl'] // 60} 分钟，仍读 {r['read'] // 1000}k，写入 ${r['cost']:.2f}，{r['model']}" for r in top] if top else []
+        f"上次 TTL {r['ttl'] // 60} 分钟，仍读 {r['read'] // 1000}k，写入 ${r['cost']:.2f}，写>读，{r['model']}" for r in top]
 
 
-def cost_part(S, slow):
+def cost_part(S, slow, tasks=None):
     T = totals(S, slow)
     lines = ["## 开销（按 Opus 5.5 API 价折算；订阅不按 token 收费，只看相对占比；算法同 usage_by_session.py）",
              f"- 合计 ${T['cost']:.1f}，其中子 agent ${T['sub']:.1f}；写缓存 ${T['write']:.1f}，"
@@ -203,13 +310,17 @@ def cost_part(S, slow):
              "5m/1h TTL，且这次写入多于读取；日志不能证明重写原因）",
              "- 写多于读的重写按日志证据分：" + ("，".join(
                  f"{r} {sum(v['rw_' + r] for v in S.values())} 次 ${sum(v['rwcost_' + r] for v in S.values()):.1f}"
-                 for r in REASONS)) + "（过期=间隔超 TTL；压缩=中间有压缩；换模型=模型变了；前缀变=都不是）",
+                 for r in REASONS)) + "（过期=间隔超 TTL；压缩=中间有压缩；换模型=模型变了；前缀变=都不是，注入/系统提示/工具变了或服务端清掉）",
              hit_line(S),
+             f"- 上下文超过 {BIG_CTX // 1000}k 的调用 {sum(v['over_ctx'] for v in S.values())} 次（"
+             + ("、".join(f"{sid[:8]} {v['over_ctx']} 次" for (_, sid), v in sorted(S.items(), key=lambda x: -x[1]['over_ctx'])[:5]
+                         if v["over_ctx"]) or "无") + "）",
              *rewrite_samples(),
+             *(task_part(S, tasks) if tasks is not None else []),
              f"会话（按开销前 {TOP} 个）："]
     for (proj, sid), v in sorted(S.items(), key=lambda x: -x[1]["cost"])[:TOP]:
         lines.append(f"- {sid[:8]} ${v['cost']:.1f}（子 agent ${v['sub']:.1f}）调用 {v['calls']} 次，最大上下文 "
-                     f"{v['maxctx'] // 1000}k，写缓存 ${v['write']:.1f}，疑似过期重写 {v['rewrites']} 次 ${v['rewrite_cost']:.1f}，"
+                     f"{v['maxctx'] // 1000}k（过 {BIG_CTX // 1000}k {v['over_ctx']} 次），写缓存 ${v['write']:.1f}，疑似过期重写 {v['rewrites']} 次 ${v['rewrite_cost']:.1f}，"
                      f"{hm(v['first'])}~{hm(v['last'])[6:]}，{proj[-28:]}")
     lines.append(f"## 慢命令（Bash 从发出到拿到结果超过 5 分钟：共 {T['slow']} 条，合计 {T['slow_min']:.0f} 分钟）")
     for secs, sid, sub, cmd in slow:
@@ -364,7 +475,8 @@ def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True
     head = [f"=== 当天数据包（脚本生成，{hm(start)} ~ {hm(end)}）==="]
     T = None
     if usage:
-        cost, T = cost_part(per_session(usage_calls(start, end, root)), slow_commands(start, end, root))
+        tasks = session_tasks(start, end, root)
+        cost, T = cost_part(per_session(usage_calls(start, end, root)), slow_commands(start, end, root), tasks)
     else:
         import codex_daypack
         cost, T = codex_daypack.part(start, end, sessions, **({"root": codex_root} if codex_root else {}))

@@ -716,6 +716,7 @@ type queuedMessage struct {
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
 	modelSettings SessionSettings // immutable startup selection; effort-only changes also recycle
+	handoffID     string          // immutable: the workspace task the process was started for (CC_HANDOFF), "" when none
 	quotaScope    quotaScope      // immutable attribution captured at session creation
 	authorization *AuthorizationTurn
 	// #618 K4 S1: resumeArmed is set while a resumed turn has not yet shown it
@@ -5618,6 +5619,14 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				wantID, needRecycle = "", true
 			}
 		}
+		restartForTask := false
+		if input == nil && !needRecycle && e.staleHandoffEnv(ccKey, state.handoffID) {
+			// The process was started outside the task now in work in this workspace; its
+			// CC_HANDOFF is fixed. Start it again (same agent session) for that task.
+			slog.Info("interactive session: started outside the workspace's task in work, restarting it for that task",
+				"session_key", sessionKey, "had_handoff", state.handoffID)
+			needRecycle, restartForTask = true, true
+		}
 		if !needRecycle {
 			state.mu.Lock()
 			state.processClaimed = true
@@ -5634,7 +5643,13 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		state.markStopped()
 		// Close synchronously to prevent race condition where old agent
 		// continues outputting while new agent starts (issue #327).
-		e.closeAgentSessionWithTimeout(sessionKey, state.agentSession)
+		if rc, isRestartCloser := state.agentSession.(AgentSessionRestartCloser); restartForTask && isRestartCloser {
+			// A process alive here was kept for its background work and does not
+			// leave on stdin close; the task's first turn must not wait that out.
+			e.closeAgentSessionBy(sessionKey, state.agentSession, nil, rc.CloseForRestart)
+		} else {
+			e.closeAgentSessionWithTimeout(sessionKey, state.agentSession)
+		}
 		delete(e.interactiveStates, sessionKey)
 		ok = false // prevent reading stale settings below
 	}
@@ -5646,8 +5661,10 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
+	env := e.roleSessionEnv(ccKey)
+	handoffID := roleEnvValue(env, "CC_HANDOFF") // kept for an agent that takes no env too, so it is not restarted every turn (staleHandoffEnv)
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		inj.SetSessionEnv(append(e.roleSessionEnv(ccKey), "CC_AGENT="+agent.Name()))
+		inj.SetSessionEnv(append(env, "CC_AGENT="+agent.Name()))
 	}
 	e.applySessionModel(agent, ccKey)
 	if m := e.turnModelFor(sessionKey); m != "" {
@@ -5829,6 +5846,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	newState := &interactiveState{
 		modelSettings:    settings,
+		handoffID:        handoffID,
 		agentSession:     agentSession,
 		processClaimed:   true,
 		quotaScope:       e.quotaScopeOfSession(agent, agentSession),
@@ -6208,7 +6226,12 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 		}
 		return
 	}
+	e.closeAgentSessionBy(sessionKey, agentSession, closed, agentSession.Close)
+}
 
+// closeAgentSessionBy is closeAgentSessionAndSignal with the close call given:
+// Close, or CloseForRestart of an AgentSessionRestartCloser.
+func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSession, closed chan struct{}, closeFn func() error) {
 	// Allow enough time for the agent's own graceful shutdown sequence:
 	// stdin close → Stop hooks (claude-mem summary etc.) → SIGTERM → SIGKILL.
 	// Claude Code's Stop hooks can take up to 120s (claude-mem uses a
@@ -6230,7 +6253,7 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 		done = make(chan struct{})
 	}
 	go func() {
-		agentSession.Close()
+		closeFn()
 		close(done)
 	}()
 

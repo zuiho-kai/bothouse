@@ -16,7 +16,10 @@ package core
 //     to: bots.json points her at it. A main wiki the user had is searched and indexed, never written to.
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +29,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -93,6 +97,57 @@ func InstallRoleWikiPrograms(dataDir string) (string, error) {
 		err = errors.New("no wiki programs are built into this binary")
 	}
 	return dir, err
+}
+
+// shippedSubWikiSums: subWikiSum of every contrib/wiki/sub-wiki.py a build has shipped (the develop history and the
+// release tags), this build's included. Add a line whenever sub-wiki.py changes: TestShippedSubWikiSums says which.
+var shippedSubWikiSums = []string{
+	"b899d4b21ee7ee2b3bb48a310e3d4ad1289b9553b39449866dd19dc829230e73",
+	"fbbdacba5fa0c7dd02bfb0859337b905a8cacb685757e91b6dfffe6d40ff4255",
+	"eb42de85a7490c22e4c8a71fa1c3b1b8b88e49e738283559f26554b2d1b4d46b",
+	"baf643694bcb1fb22ded8dd3e2dc22e53c622646eeed59abf0e5f590e0d40150",
+	"5f7035527c42047458e4e3c974ba66a53f142a8d6653a6e51f2a24d9505c7961",
+	"cec1f8e1a0b0c995eef56aeb29ceb96d2ff7db9ca78fc8e35944cda81f62a8e9",
+	"4f2b0d40bc4056ec15aba34e352d16d32fee17f9f350fec0459598657b4c57d0",
+	"2a2bcdac4a59c9d297e26be9cf4ccaca2cd0ee03cb8fa41d5c1bdd952982e8a9",
+	"485c8ca05e81e3f01964d94b5ca6d24775b5200b4021ec119ffbf4ce1cdb8eda",
+	"1b759cb4f0cc7d6cb65021d43767434d2fca3543f13393c99a641188615fb154",
+	"bf0523df6c09a883c893ea13fa2186092a799c87e2f60e20b26cc1293dc274cb",
+	"b6c68baf8ee11a36d653fb6c27e8be1a5ed95072dc3330f5de162b69cb74594a", // #1957: no console window on Windows
+}
+
+// subWikiSum: sha256 of a sub-wiki.py with LF line endings (a checkout with core.autocrlf has CRLF).
+func subWikiSum(b []byte) string {
+	h := sha256.Sum256(bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")))
+	return hex.EncodeToString(h[:])
+}
+
+// RefreshRoleWikiHookScript (#1943): the sub-wiki.py in the data dir is a copy from the day the wizard installed it,
+// and the agent.closed hook and the wiki cron jobs run that copy, so a fix in a new build never reached an existing
+// install. On start, a copy that is exactly a version some build shipped (shippedSubWikiSums) is replaced by this
+// build's; any other content is the user's own edit and is left alone. Both places InstallRoleWikiPrograms writes to
+// are looked at (RoleWikiDir). Returns the scripts it replaced.
+func RefreshRoleWikiHookScript(dataDir string) ([]string, error) {
+	if RoleWikiFS == nil || dataDir == "" {
+		return nil, nil
+	}
+	want, err := fs.ReadFile(RoleWikiFS, "contrib/wiki/sub-wiki.py")
+	if err != nil {
+		return nil, err
+	}
+	var done []string
+	for _, d := range []string{"wiki", "wiki-programs"} {
+		p := filepath.Join(dataDir, d, "sub-wiki.py")
+		have, err := os.ReadFile(p)
+		if err != nil || bytes.Equal(have, want) || !slices.Contains(shippedSubWikiSums, subWikiSum(have)) {
+			continue // not installed there, already this build's, or edited by the user
+		}
+		if err := AtomicWriteFile(p, want, 0o755); err != nil {
+			return done, err
+		}
+		done = append(done, p)
+	}
+	return done, nil
 }
 
 // roleWikiEngines: the wiki passes run on the role's own CLI (a machine with only that CLI still runs its wiki), or
