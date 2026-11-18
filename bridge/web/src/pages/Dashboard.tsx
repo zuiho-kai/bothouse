@@ -121,7 +121,7 @@ export default function Dashboard() {
   const liveRows: LiveRow[] = [
     ...(roles ?? []).map((r) => ({
       key: `r-${r.name}`, name: shownName(r) || r.name, sub: backendLabel(r.agent_type),
-      state: roleState(r), task: r.current_task, model: r.model, agentType: r.agent_type,
+      state: roleState(r), task: r.current_task, model: r.conversation_model || r.model, agentType: r.agent_type,
     })),
     ...dshMembers
       .filter((m) => !(roles ?? []).some((r) => (shownName(r) || r.name) === (m.display_name || m.name)))
