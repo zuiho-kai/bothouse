@@ -3,7 +3,7 @@
 ## English
 
 Model and reasoning selections are scoped to the current channel/session key.
-The web chat header follows the selected conversation. Bothouse records the model reported on each successful chat turn. Older Codex conversations can also recover the model from their saved transcript when available. The Roles page shows the model from each bot's most recent conversation or model change, with the role default as a fallback.
+The web chat header follows the selected conversation. Bothouse records the model reported on each successful chat turn. A conversation without a recorded model can show one after its next successful reply. The Roles page shows the model from each bot's most recent conversation or model change, with the role default as a fallback.
 Use `/model` and `/reasoning` in that channel, or let the agent use
 `bothouse model list --json` followed by `model set <exact-id> --effort <level>`.
 CLI changes are saved when accepted and take effect on the next turn.

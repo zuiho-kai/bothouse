@@ -37,9 +37,6 @@ func TestGetModelUsesCurrentRollout(t *testing.T) {
 	if got := cs.GetModel(); got != "actual-latest" {
 		t.Fatalf("latest model = %q", got)
 	}
-	if got := (&Agent{codexHome: home}).SessionModel(id); got != "actual-latest" {
-		t.Fatalf("saved session model = %q, want actual-latest", got)
-	}
 	// Huge tool output after the turn must not hide its model or overflow scanning.
 	write(`{"type":"turn_context","payload":{"model":"actual-large"}}` + "\n" + strings.Repeat("x", 3<<20) + "\n")
 	if got := cs.GetModel(); got != "actual-large" {

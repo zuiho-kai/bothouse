@@ -1174,25 +1174,15 @@ func TestMgmt_ProjectModel_ReadsSavedChoiceBySession(t *testing.T) {
 	}
 }
 
-type historyModelAgent struct {
-	stubModelModeAgent
-	models map[string]string
-}
-
-func (a *historyModelAgent) SessionModel(sessionID string) string { return a.models[sessionID] }
-
 func TestMgmt_ProjectModel_UsesSelectedConversation(t *testing.T) {
-	agent := &historyModelAgent{
-		stubModelModeAgent: stubModelModeAgent{model: "role-default"},
-		models:             map[string]string{"old-thread": "old-model"},
-	}
+	agent := &stubModelModeAgent{model: "role-default"}
 	e := NewEngine("test-project", agent, nil, "", LangEnglish)
 	t.Cleanup(func() { e.Stop() })
 	const key = "bridge:web-admin:test-project"
 	unknown := e.sessions.NewSession(key, "unknown model")
+	unknown.SetAgentSessionID("unrecorded-thread", "codex")
 	old := e.sessions.NewSession(key, "old")
-	old.SetAgentSessionID("old-thread", "codex")
-	old.SetAgentSessionID("", "") // /new retired this conversation before Bothouse recorded models.
+	old.SetLastModel("old-model")
 	active := e.sessions.NewSession(key, "active")
 	active.SetAgentSessionID("active-thread", "codex")
 	e.interactiveStates[key] = &interactiveState{agentSession: &statusModelSession{newControllableSession("active-thread"), "live-model"}}

@@ -1713,7 +1713,7 @@ func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Req
 			mgmtError(w, http.StatusBadRequest, "session_key is required")
 			return
 		}
-		agent, sessions := e.sessionContextForKey(key)
+		_, sessions := e.sessionContextForKey(key)
 		id := query.Get("session_id")
 		if id != "" {
 			// The management session list uses the project's session store.
@@ -1728,7 +1728,7 @@ func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Req
 		if id == "" {
 			id = activeID
 		}
-		model := e.conversationModel(agent, key, sessions.FindByID(id), id == activeID)
+		model := e.conversationModel(key, sessions.FindByID(id), id == activeID)
 		mgmtJSON(w, http.StatusOK, map[string]string{"model": displayModelName(model)})
 		return
 	}
@@ -1762,14 +1762,11 @@ func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Req
 	})
 }
 
-func (e *Engine) conversationModel(agent Agent, key string, session *Session, active bool) string {
+func (e *Engine) conversationModel(key string, session *Session, active bool) string {
 	var nativeID, lastModel string
 	if session != nil {
 		session.mu.Lock()
 		nativeID, lastModel = session.AgentSessionID, session.LastModel
-		if !active && nativeID == "" && len(session.PastAgentSessionIDs) > 0 {
-			nativeID = session.PastAgentSessionIDs[len(session.PastAgentSessionIDs)-1]
-		}
 		session.mu.Unlock()
 	}
 	if active {
@@ -1792,17 +1789,7 @@ func (e *Engine) conversationModel(agent Agent, key string, session *Session, ac
 			}
 		}
 	}
-	if lastModel != "" {
-		return lastModel
-	}
-	if nativeID != "" && nativeID != ContinueSession {
-		if history, ok := agent.(interface{ SessionModel(string) string }); ok {
-			if model := history.SessionModel(nativeID); model != "" {
-				return model
-			}
-		}
-	}
-	return ""
+	return lastModel
 }
 
 // ── Heartbeat endpoints ───────────────────────────────────────

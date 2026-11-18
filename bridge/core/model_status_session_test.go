@@ -49,7 +49,7 @@ func TestConversationModelPersistsAfterNormalTurn(t *testing.T) {
 		if saved == nil {
 			t.Fatalf("missing reloaded session %q", tc.id)
 		}
-		if got := reloaded.conversationModel(a, key, saved, tc.active); got != tc.want {
+		if got := reloaded.conversationModel(key, saved, tc.active); got != tc.want {
 			t.Fatalf("reloaded session %s model = %q, want %q", tc.id, got, tc.want)
 		}
 	}

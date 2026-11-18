@@ -271,20 +271,19 @@ func (m *ManagementServer) bridgeRoles(ctx context.Context) []RoleInfo {
 
 func (e *Engine) roleConversationModel() string {
 	key, session, at := e.sessions.latestActiveSession()
-	agent := e.agent
 	e.interactiveMu.Lock()
 	pool := e.workspacePool
 	e.interactiveMu.Unlock()
 	if pool != nil {
 		for _, ws := range pool.All() {
 			ws.mu.Lock()
-			wsAgent, sessions := ws.agent, ws.sessions
+			sessions := ws.sessions
 			ws.mu.Unlock()
 			if sessions == nil {
 				continue
 			}
 			if wsKey, wsSession, wsAt := sessions.latestActiveSession(); wsAt.After(at) {
-				key, session, at, agent = wsKey, wsSession, wsAt, wsAgent
+				key, session, at = wsKey, wsSession, wsAt
 			}
 		}
 	}
@@ -314,14 +313,13 @@ func (e *Engine) roleConversationModel() string {
 		e.sessionModelsMu.RUnlock()
 	}
 	if changedKey != "" {
-		var sessions *SessionManager
-		agent, sessions = e.sessionContextForKey(changedKey)
+		_, sessions := e.sessionContextForKey(changedKey)
 		key, session = changedKey, sessions.FindByID(sessions.ActiveSessionID(changedKey))
 	}
 	if key == "" {
 		return ""
 	}
-	return displayModelName(e.conversationModel(agent, key, session, true))
+	return displayModelName(e.conversationModel(key, session, true))
 }
 
 func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Request) {

@@ -18,23 +18,6 @@ func (cs *codexSession) rolloutModel() string {
 	return readSessionModel(home, cs.CurrentSessionID())
 }
 
-// SessionModel reads the last model recorded for a saved Codex conversation.
-func (a *Agent) SessionModel(sessionID string) string {
-	a.mu.RLock()
-	env := append([]string(nil), a.configEnv...)
-	env = append(env, a.providerEnvLocked()...)
-	env = append(env, a.sessionEnv...)
-	if a.codexHome != "" {
-		env = append(env, "CODEX_HOME="+a.codexHome)
-	}
-	a.mu.RUnlock()
-	home, err := resolveCodexHome(env)
-	if err != nil {
-		return ""
-	}
-	return readSessionModel(home, sessionID)
-}
-
 // CurrentLocalSessionModel is the read-only fallback for a CLI query running
 // inside Codex when the sandbox denies access to the bridge's IPC socket.
 // CODEX_THREAD_ID is supplied by Codex to its tools; never use the newest file
