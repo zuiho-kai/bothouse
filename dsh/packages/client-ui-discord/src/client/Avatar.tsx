@@ -22,6 +22,19 @@ export function initialOf(name: string): string {
   return chars.length >= 2 && '小阿老大'.includes(chars[0]!) ? chars[1]! : chars[0] ?? ''
 }
 
+/**
+ * #1798 (user 11-19「默认头像就是对应软件的图标」): what a member's software icon is matched on (avatars.ts
+ * matchAvatarSlug), for every `<Avatar>` that draws a member. The model is a CLI model ID or a DSH route
+ * pair { provider, model }; a channel-host member (kind 'dsh') with no CLI runs on DSH itself.
+ */
+export function memberLook(m: { cli?: string | null; model?: unknown; kind?: string } | undefined): { cli?: string; model?: string } {
+  if (m === undefined) return {}
+  const raw = m.model as { model?: unknown } | string | null | undefined
+  const model = typeof raw === 'string' ? raw : typeof raw?.model === 'string' ? raw.model : undefined
+  const cli = m.cli ?? (m.kind === 'dsh' ? 'dsh' : undefined)
+  return { ...(cli ? { cli } : {}), ...(model ? { model } : {}) }
+}
+
 /** Member portrait, or a colored initial badge when there is none or the image fails to load. */
 export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: { id: string; name: string; avatar?: string; avatarVersion?: string; small?: boolean; cli?: string; model?: string }) {
   const url = useCollabUrl()
@@ -43,7 +56,7 @@ export function Avatar({ id, name, avatar, avatarVersion, small, cli, model }: {
  * accessible name and text stay the room's own; the names go in `title`.
  */
 // 来源：#113 草图 v1，频道行与标题栏最多叠三个头像。
-export function AvatarStack({ members, max = 3, label }: { members: readonly { id: string; name: string; avatar?: string; avatarVersion?: string; cli?: string; model?: any }[]; max?: number; label?: string }) {
+export function AvatarStack({ members, max = 3, label }: { members: readonly { id: string; name: string; avatar?: string; avatarVersion?: string; cli?: string; model?: unknown; kind?: string }[]; max?: number; label?: string }) {
   const url = useCollabUrl()
   const style = useAvatarStyle()
   if (members.length === 0) return null
@@ -51,7 +64,7 @@ export function AvatarStack({ members, max = 3, label }: { members: readonly { i
   return (
     <span className={css.avatarStack} title={label ?? members.map(m => m.name).join('、')} aria-hidden>
       {shown.map(m => {
-        const base = avatarSrc({ avatar: m.avatar, name: m.name, cli: (m as any).cli, model: typeof (m as any).model === 'string' ? (m as any).model : (m as any).model?.model, id: m.id }, url, style)
+        const base = avatarSrc({ avatar: m.avatar, name: m.name, ...memberLook(m), id: m.id }, url, style)
         const src = base && m.avatar?.startsWith('upload:') && m.avatarVersion ? `${base}?v=${m.avatarVersion}` : base
         return <span key={m.id} className={css.stackDot} style={{ background: color(m.id), ...(src === undefined ? {} : { backgroundImage: `url("${src}")` }) }} />
       })}

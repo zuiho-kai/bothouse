@@ -25,7 +25,7 @@ function props(state: ChannelSnapshot, send: ChannelsPageProps['send'] = async (
   return {
     useChannels: (select: (s: ChannelSnapshot) => unknown) => select(state),
     selectRoom: vi.fn(), send, openModelSettings: () => false,
-    createRoom: vi.fn(async () => {}), renameRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []),
+    createRoom: vi.fn(async () => {}), renameRoom: vi.fn(async () => {}), listModels: vi.fn(async () => []), listClis: vi.fn(async () => []),
     addMember: vi.fn(async () => {}), updateMember: vi.fn(async () => {}), removeMember: vi.fn(async () => {}),
     setLead: vi.fn(async () => {}), setDispatchMode: vi.fn(async () => {}),
     t: (key: keyof typeof zh, values?: Record<string, unknown>) => Object.entries(values ?? {})
@@ -913,25 +913,45 @@ describe('channels page', () => {
       fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
       const dialog = await screen.findByRole('dialog')
       await act(async () => {})
-      fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
-      fireEvent.change(screen.getByLabelText(zh.memberModel), { target: { value: 'relay\u0000m1' } })
       await act(async () => { fireEvent.submit(dialog) })
-      expect(posted).toEqual([expect.objectContaining({ name: 'Coder', rooms: [2] })])
+      expect(posted).toEqual([expect.objectContaining({ name: 'DSH', rooms: [2] })])
       expect(screen.queryByRole('dialog')).toBeNull()
     } finally {
       unsubscribe()
     }
   })
 
-  it('submits member details and keeps the form on a refusal', async () => {
+  it('adds a member with one role pick and keeps the dialog on a refusal (#1798)', async () => {
     const p = props({ ...ready, thinking: {} })
+    ;(p as unknown as { listClis: unknown }).listClis = vi.fn(async () => [{ cli: 'codex', path: '/bin/codex' }])
+    ;(p.addMember as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('name Codex is already used by Codex'))
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
+    const dialog = await screen.findByRole('dialog')
+    await act(async () => {})
+    // Adding asks only which role to connect; name, persona, avatar and model live behind "More".
+    expect(screen.queryByLabelText(zh.memberName)).toBeNull()
+    expect(screen.queryByLabelText(zh.memberPersona)).toBeNull()
+    expect(screen.queryByLabelText(zh.memberModel)).toBeNull()
+    const group = within(screen.getByRole('radiogroup', { name: zh.memberRole }))
+    expect(group.getAllByRole('radio').map(r => (r as HTMLInputElement).disabled)).toEqual([false, true, false, true])
+    expect((group.getByRole('radio', { name: 'DSH' }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(group.getByRole('radio', { name: 'Codex' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.memberAddConfirm })) })
+    expect(p.addMember).toHaveBeenCalledWith({ name: 'Codex', nameCustomized: false, persona: '', avatar: '', cli: 'codex', permissionPreset: 'workspace-write' })
+    expect(screen.getByRole('alert').textContent).toContain('Codex')
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('edits name, persona, avatar and model under More', async () => {
+    const p = props({ ...ready, members: [...ready.members, { id: 'ds', name: '鲸鱼娘', kind: 'dsh', online: true, editable: true }], thinking: {} })
     ;(p.listModels as ReturnType<typeof vi.fn>).mockResolvedValue([
       { provider: 'relay', name: '中转站', models: [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }] },
       { provider: 'broken', name: 'Broken', models: [], error: 'no key' },
     ])
-    ;(p.addMember as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('name Coder is already used by Coder'))
     render(<ChannelsPage {...p} />)
-    fireEvent.click(screen.getByRole('button', { name: '+ ' + zh.addMember }))
+    fireEvent.click(screen.getAllByRole('button', { name: zh.editMember })[0])
     const dialog = await screen.findByRole('dialog')
     await act(async () => {})
     fireEvent.change(screen.getByLabelText(zh.memberName), { target: { value: 'Coder' } })
@@ -942,11 +962,7 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.addMember).toHaveBeenCalledWith({ name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
-    expect(screen.getByRole('alert').textContent).toContain('already used')
-    expect((screen.getByLabelText(zh.memberName) as HTMLInputElement).value).toBe('Coder')
-    await act(async () => { fireEvent.submit(dialog) })
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(p.updateMember).toHaveBeenCalledWith('ds', { name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
   })
 
   it('offers edit and remove only for members created in the UI', async () => {

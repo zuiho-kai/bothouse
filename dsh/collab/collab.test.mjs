@@ -394,6 +394,46 @@ test('cloud-web: a message goes to the bot as written with the room members; the
   assert.ok(frame.members.some(m => m.id === 'ju' && m.name === '橘'));
 });
 
+test('cloud-web: a person\'s message carries the room\'s default reply member; a bot\'s does not (#1798)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  connect(gw, 'bot=whale&name=鲸鱼娘');
+  hub.store.setLead(1, 'whale');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '在吗' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).default_reply, 'whale', 'the bridge gives it to the room\'s primary role alone');
+  hub.post(1, { authorKind: 'role', author: 'whale', name: '鲸鱼娘', text: '在的' });
+  await tick();
+  assert.equal('default_reply' in ju.of('message').at(-1), false);
+});
+
+test('cloud-web #1798: a message sent while the first start is prepared is held, answered, and delivered after', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  gw.hold();
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '在吗' });
+  await tick();
+  assert.match(hub.store.page(1, undefined, 1)[0].text, /还在准备，准备好会接着回这条/);
+  const ju = connect(gw, 'bot=ju&name=橘');
+  assert.equal(ju.of('message').length, 0);
+  gw.release();
+  assert.equal(ju.of('message').at(-1).content, '在吗', 'the held message is delivered once a member is online');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '再问一句' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).content, '再问一句', 'not held after the start');
+});
+
+test('hub #1798: a member whose CLI is not logged in shows 需登录 (login), not online', () => {
+  const hub = makeHub();
+  hub.setMember({ id: 'cx', name: 'Codex', kind: 'dsh', cli: 'codex', online: true });
+  hub.setLogin('cx', '在终端运行 codex login，按提示登录一次');
+  assert.deepEqual(pick(hub.memberView().find(m => m.id === 'cx')), { online: false, login: '在终端运行 codex login，按提示登录一次' });
+  hub.setLogin('cx', undefined);
+  assert.deepEqual(pick(hub.memberView().find(m => m.id === 'cx')), { online: true });
+  function pick(m) { return { online: m.online, ...(m.login ? { login: m.login } : {}) }; }
+});
+
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
@@ -467,6 +507,21 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
 // Pre-provisioned members, per-member credentials, revocation and offline
 // feedback are M1/M2 and are intentionally NOT asserted here; see
 // reports/issue-drafts/321-外部成员身份与权限设计说明-草案.md (§10, §18).
+
+test('cloud-web #1798: a plugin reload closes a socket still registering; its late register does not reach the closed store', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ws = new FakeWs();
+  gw.accept(ws, new URL('http://x/cloud-web/ws?bot=m-dsh&name=DSH'));
+  gw.closeAll();
+  hub.store.close();
+  assert.equal(ws.closed?.code, 1001);
+  // A frame already in flight still arrives while the socket is closing (CI dsh-plugin-solo: DSH died on it).
+  assert.doesNotThrow(() => ws.frame({ type: 'register', platform: 'cloud_web', client: 'cc-connect', project: 'p', transport: 'ws' }));
+  const late = new FakeWs();
+  gw.accept(late, new URL('http://x/cloud-web/ws?bot=m-dsh&name=DSH'));
+  assert.equal(late.closed?.code, 1001);
+});
 
 test('cloud-web external member: register is visible in the roster and scoped to its room', () => {
   const hub = makeHub();
