@@ -404,6 +404,9 @@ export class CloudWebGateway {
     // The replied-to row's id (same id space as a task card's preview_handle and a reply_ack),
     // so the bridge can find the work it belongs to (core.Message.Reference, reply_task.go).
     const replyTo = replyToFields(quoted, this.hub.store, msg);
+    // #1798: who answers a message calling no one here (the room's primary role, or its only agent);
+    // the bridge gives it that member alone (hub_message.go readHubMessage).
+    const defaultReply = fromAgent ? undefined : this.hub.defaultReplyIn(msg.room_id)?.id;
     // #1662: the raw text and the room's members go to every bot in the room; the bridge decides who
     // the message calls and how each bot reads it (bridge/platform/cloud-web/hub_message.go).
     for (const { ws, member } of this.bots.values()) {
@@ -422,6 +425,7 @@ export class CloudWebGateway {
       if (tooBig) frame.note = tooBig;
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
+      if (defaultReply !== undefined) frame.default_reply = defaultReply;
       send(ws, frame);
     }
   }

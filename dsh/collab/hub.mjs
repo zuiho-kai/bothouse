@@ -68,7 +68,7 @@ export class Hub {
     return members.find(member => member.id === id);
   }
 
-  /** UI-only fallback; message routing uses defaultReplyIn(), delegation uses primaryIn(). */
+  /** UI-only fallback; message routing uses defaultReplyIn() (sent to the bridge as default_reply), delegation uses primaryIn(). */
   primaryMember() {
     const fallback = this.fallbackLead === '' ? undefined : this.members.get(this.fallbackLead);
     return this.selectedPrimaryMember() ?? (fallback?.kind !== 'human' ? fallback : undefined);

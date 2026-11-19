@@ -394,6 +394,20 @@ test('cloud-web: a message goes to the bot as written with the room members; the
   assert.ok(frame.members.some(m => m.id === 'ju' && m.name === '橘'));
 });
 
+test('cloud-web: a person\'s message carries the room\'s default reply member; a bot\'s does not (#1798)', async () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  connect(gw, 'bot=whale&name=鲸鱼娘');
+  hub.store.setLead(1, 'whale');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '在吗' });
+  await tick();
+  assert.equal(ju.of('message').at(-1).default_reply, 'whale', 'the bridge gives it to the room\'s primary role alone');
+  hub.post(1, { authorKind: 'role', author: 'whale', name: '鲸鱼娘', text: '在的' });
+  await tick();
+  assert.equal('default_reply' in ju.of('message').at(-1), false);
+});
+
 test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replaces', async () => {
   const hub = makeHub();
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
