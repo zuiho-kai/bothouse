@@ -117,7 +117,7 @@ describe('service refusals in the panel language', () => {
       const t = translate(language)
       const onSubmit = vi.fn(async () => { throw conflict('name Coder is already used by Coder') })
       render(<MemberDialog
-        member={undefined} listModels={async () => []} listClis={async () => []}
+        member={{ id: 'm', name: 'DSH', kind: 'dsh', online: true, editable: true }} listModels={async () => []} listClis={async () => []}
         onSubmit={onSubmit} onClose={vi.fn()} t={t} />)
       fireEvent.change(screen.getByLabelText(t('memberName')), { target: { value: 'Coder' } })
       await act(async () => { fireEvent.submit(screen.getByRole('dialog')) })
@@ -132,7 +132,7 @@ describe('service refusals in the panel language', () => {
     const t = translate('zh')
     const onSubmit = vi.fn(async () => { throw new ServiceError(400, 'model relay/x is not available: 404', 'invalid') })
     render(<MemberDialog
-      member={undefined} listModels={async () => []} listClis={async () => []}
+      member={{ id: 'm', name: 'DSH', kind: 'dsh', online: true, editable: true }} listModels={async () => []} listClis={async () => []}
       onSubmit={onSubmit} onClose={vi.fn()} t={t} />)
     fireEvent.change(screen.getByLabelText(t('memberName')), { target: { value: 'Claude Code' } })
     await act(async () => { fireEvent.submit(screen.getByRole('dialog')) })

@@ -19,6 +19,7 @@ import { RemoteChannelsPage, type RemoteChannelsInjected } from './RemoteChannel
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
 import { followPanelHash, restorePanelFromHash } from './panel-hash.ts'
 import { bindHostTheme, type Scheme } from './scheme.ts'
+import './plugin-page.css'
 
 export type { ChannelsInjected, ChannelsPageProps } from './ChannelsPage.tsx'
 export type { ChannelsKey } from './locales.ts'

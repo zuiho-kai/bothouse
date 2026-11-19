@@ -1,10 +1,11 @@
 /**
- * Add/edit dialog for one channel member: name, persona, and either a DSH
- * model (grouped by provider route, as the host lists them) or, when adding, a
- * CLI agent installed on this machine (Claude Code, Codex, Gemini), plus one of the built-in
- * avatars or none (initial badge). Submission goes through the
- * injected action; the host's refusal (name taken, model unavailable) is shown
- * inline and the form keeps its values.
+ * Add/edit dialog for one channel member. Adding asks one thing only: which
+ * role to connect (DSH, or a CLI installed on this machine: Claude Code, Codex,
+ * Gemini); the name follows the software and the avatar is matched from it
+ * (#1798, user: 「最多搞个这个接入角色选择」「人设 名字 头像啥的都进阶玩法」).
+ * Editing an existing member ("More") shows name, persona, avatar, model and
+ * permission. Submission goes through the injected action; the host's refusal
+ * (name taken, model unavailable) is shown inline and the form keeps its values.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -38,6 +39,12 @@ const CLI_CHOICES: readonly { readonly cli: string; readonly label: string }[] =
   { cli: 'claude', label: 'Claude Code' },
   { cli: 'codex', label: 'Codex' },
   { cli: 'gemini', label: 'Gemini' },
+]
+
+/** Roles offered when adding a member (#1798): DSH first, then the local CLIs. */
+const ROLE_CHOICES: readonly { readonly cli: string; readonly label: string }[] = [
+  { cli: '', label: 'DSH' },
+  ...CLI_CHOICES,
 ]
 
 const NO_MEMBERS: readonly ChannelMember[] = []
@@ -129,20 +136,22 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     return () => { live = false }
   }, [listModels])
 
-  // Detect local CLIs once, the first time the "local CLI" type is picked.
-  const wantClis = type === 'cli' && clis === undefined
+  // Detect local CLIs once: right away when adding (the role list greys out what is missing), else when a CLI member is edited.
+  const adding = member === undefined
+  const wantClis = (adding || type === 'cli') && clis === undefined
   useEffect(() => {
     if (!wantClis) return
     let live = true
-    listClis().then((list) => {
+    listClis().then((found) => {
       if (!live) return
+      const list = Array.isArray(found) ? found : []
       setClis(list)
-      setCli(prev => prev !== '' ? prev : CLI_CHOICES.find(c => list.some(l => l.cli === c.cli))?.cli ?? '')
+      if (!adding) setCli(prev => prev !== '' ? prev : CLI_CHOICES.find(c => list.some(l => l.cli === c.cli))?.cli ?? '')
     }).catch((reason: unknown) => {
       if (live) { setClis([]); setError(errorText(reason, t)) }
     })
     return () => { live = false }
-  }, [wantClis, listClis])
+  }, [wantClis, listClis, adding])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
@@ -173,8 +182,26 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
         onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}
       >
         <h2 className={css.dialogTitle}>{member === undefined ? t('memberDialogAdd') : t('memberDialogEdit', { name: member.name })}</h2>
+        {adding && (
+          <div className={css.field} role="radiogroup" aria-label={t('memberRole')}>
+            <span>{clis === undefined ? t('memberCliLoading') : t('memberRole')}</span>
+            <span className={css.choiceRow}>
+              {ROLE_CHOICES.map(({ cli: id, label }) => {
+                const found = id === '' ? undefined : clis?.find(l => l.cli === id)
+                const missing = id !== '' && found === undefined
+                return (
+                  <label key={id || 'dsh'} className={css.choice} title={found?.path}>
+                    <input type="radio" name="member-role" value={id || 'dsh'} checked={id === '' ? type === 'dsh' : type === 'cli' && cli === id} disabled={missing}
+                      onChange={() => { setType(id === '' ? 'dsh' : 'cli'); setCli(id); setError(undefined) }} />
+                    {missing && clis !== undefined ? `${label} (${t('memberCliMissing')})` : label}
+                  </label>
+                )
+              })}
+            </span>
+          </div>
+        )}
+        {!adding && <>
         <p>{name === backend ? name : `${name}·${backend}`}</p>
-        <p>{t('memberNoPersona')}</p>
         <details><summary>{t('memberOptional')}</summary>
         <label className={css.field}>
           <span>{t('memberName')}</span>
@@ -223,19 +250,6 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
         }}><option value="">{t('memberPersonaNone')}</option>{personas.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select>
         <label className={css.field}><span>{t('memberPersona')}</span><textarea className={css.fieldInput} rows={4} value={persona} maxLength={4000} onChange={e => setPersona(e.target.value)} /></label>
         </details>
-        {member === undefined && (
-          <div className={css.field} role="radiogroup" aria-label={t('memberType')}>
-            <span>{t('memberType')}</span>
-            <span className={css.choiceRow}>
-              {(['dsh', 'cli'] as const).map(value => (
-                <label key={value} className={css.choice}>
-                  <input type="radio" name="member-type" value={value} checked={type === value} onChange={() => { setType(value); setError(undefined) }} />
-                  {value === 'dsh' ? t('memberTypeDsh') : t('memberTypeCli')}
-                </label>
-              ))}
-            </span>
-          </div>
-        )}
         {type === 'cli' && (
           <div className={css.field} role="radiogroup" aria-label={t('memberCli')}>
             <span>{clis === undefined ? t('memberCliLoading') : t('memberCli')}</span>
@@ -282,10 +296,11 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
             ))}
           </select>
         </label>}
+        </>}
         {error !== undefined && <div className={css.sendError} role="alert">{error}</div>}
         <div className={css.dialogActions}>
           <button type="button" className={css.secondaryButton} onClick={onClose}>{t('cancel')}</button>
-          <button type="submit" className={css.primaryButton} disabled={busy || name.trim() === '' || (type === 'cli' && cli === '')}>{t('save')}</button>
+          <button type="submit" className={css.primaryButton} disabled={busy || name.trim() === '' || (type === 'cli' && cli === '')}>{adding ? t('memberAddConfirm') : t('save')}</button>
         </div>
       </form>
       {cropImage && <AvatarCropDialog image={cropImage} t={t} onCancel={() => setCropImage(undefined)} onConfirm={png => {
