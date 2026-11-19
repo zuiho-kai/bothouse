@@ -23,6 +23,7 @@ type Session struct {
 	AgentSessionID      string   `json:"agent_session_id"`
 	AgentType           string   `json:"agent_type,omitempty"`
 	PastAgentSessionIDs []string `json:"past_agent_session_ids,omitempty"`
+	LastModel           string   `json:"last_model,omitempty"` // model reported on the last successful turn
 	// ActiveProvider is the agent provider name that was active when this
 	// session last took a turn. It is restored before --resume so that a
 	// cc-connect process restart does not silently drop a user's
@@ -271,6 +272,12 @@ func (s *Session) GetAgentSessionID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.AgentSessionID
+}
+
+func (s *Session) SetLastModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.LastModel = model
 }
 
 // SetName atomically updates the session's display name. The management
@@ -675,6 +682,33 @@ func (sm *SessionManager) AllSessions() []*Session {
 	return out
 }
 
+func (sm *SessionManager) latestActiveSession() (string, *Session, time.Time) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	var key string
+	var latest *Session
+	var latestAt time.Time
+	for sessionKey, id := range sm.activeSession {
+		session := sm.sessions[id]
+		if session == nil {
+			continue
+		}
+		session.mu.Lock()
+		at := session.UpdatedAt
+		if session.LastUserActivity.After(at) {
+			at = session.LastUserActivity
+		}
+		if n := len(session.History); n > 0 && session.History[n-1].Timestamp.After(at) {
+			at = session.History[n-1].Timestamp
+		}
+		session.mu.Unlock()
+		if at.After(latestAt) || at.Equal(latestAt) && (key == "" || sessionKey < key) {
+			key, latest, latestAt = sessionKey, session, at
+		}
+	}
+	return key, latest, latestAt
+}
+
 // KnownAgentSessionIDs returns the set of agent session IDs tracked by cc-connect.
 // This is used to filter agent.ListSessions() output to only sessions owned by
 // cc-connect, excluding sessions created by external CLI usage in the same work_dir.
@@ -820,6 +854,7 @@ func (sm *SessionManager) saveLocked() {
 			AgentSessionID:      agentSID,
 			AgentType:           s.AgentType,
 			PastAgentSessionIDs: append([]string(nil), s.PastAgentSessionIDs...),
+			LastModel:           s.LastModel,
 			PendingOutbound:     append([]ChannelHistoryMessage(nil), s.PendingOutbound...),
 			CreatedAt:           s.CreatedAt,
 			UpdatedAt:           s.UpdatedAt,

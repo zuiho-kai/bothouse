@@ -11,8 +11,8 @@ import (
 
 // PlatformModule is one row of the 接入应用 page.
 //
-// State is "enabled" when at least one project has an active section of this type, "disabled"
-// when every section is marked disabled, and "not_configured" when config.toml has none.
+// State is "enabled" when at least one configured entry is active, "disabled"
+// when every configured entry is disabled, and "not_configured" when none are found.
 type PlatformModule struct {
 	Name     string   `json:"name"`
 	Label    string   `json:"label"`
@@ -42,8 +42,7 @@ func (m *ManagementServer) SetPlatformModules(fn func() map[string]PlatformModul
 	m.platformModules = fn
 }
 
-// platformModuleRows builds the page's rows: config.toml modules from the callback, plus DSH,
-// whose state is the profile's plugin entries (core/setup_dsh_module.go) rather than a section.
+// platformModuleRows builds rows for config.toml modules and for the DSH web and desktop profiles.
 func (m *ManagementServer) platformModuleRows() []PlatformModule {
 	fromConfig := map[string]PlatformModule{}
 	if m.platformModules != nil {
@@ -69,19 +68,22 @@ func (m *ManagementServer) platformModuleRows() []PlatformModule {
 		row.AddPath = "/setup?add=1&platform=" + name
 		rows = append(rows, row)
 	}
-	// DSH is not a config.toml platform: its row is the installed plugin's own state.
+	// A working DSH profile can still be reported when the other profile is broken.
 	for i := range rows {
 		if rows[i].Name != "dsh" {
 			continue
 		}
-		st, err := GetDSHModuleState()
-		switch {
-		case err != nil || !st.Installed:
-			rows[i].State = "not_configured"
-		case st.Disabled:
+		rows[i].State = "not_configured"
+		for _, profile := range []string{DSHProfile, DSHDesktopProfile} {
+			st, _, _, err := dshModuleProfile(profile)
+			if err != nil || !st.Installed {
+				continue
+			}
+			if !st.Disabled {
+				rows[i].State = "enabled"
+				break
+			}
 			rows[i].State = "disabled"
-		default:
-			rows[i].State = "enabled"
 		}
 		// DSH is configured on its own page (setup wizard's DSH step), not by a platform param.
 		rows[i].AddPath = "/setup?add=1&platform=dsh"

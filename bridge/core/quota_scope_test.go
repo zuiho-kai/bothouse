@@ -146,7 +146,9 @@ func TestQuotaLegacyMigrationRequiresTargetEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.loadQuotaCooling()
-	e.queueSwitch("discord:one", pendingModelSwitch{model: "B"})
+	if err := e.queueSwitch("discord:one", pendingModelSwitch{Model: "B"}); err != nil {
+		t.Fatal(err)
+	}
 	a.probeErr = errors.New("probe unavailable")
 	target := e.admissionQuotaScope(a, "discord:one")
 	if e.quotaCoolingFor(target).IsZero() {

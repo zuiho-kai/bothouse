@@ -95,13 +95,16 @@ func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus)
 	return dshStateRoles(&st), status
 }
 
-// dshAPI calls the running `dsh web` signed in as its owner (the /dsh/ proxy's cookie).
+// dshAPI calls Channels through its local owner record or the legacy shell login.
 type dshAPI struct {
 	rt     http.RoundTripper
 	target string
 }
 
 func (m *ManagementServer) dshClient() (dshAPI, dshStatus) {
+	if c, ok := localDSHClient(m.dshProxyHandler().transport); ok {
+		return c, dshStatus{Status: "running"}
+	}
 	target, launchToken, err := runningDSHWeb()
 	if errors.Is(err, errDSHWebNotRunning) {
 		// Discovery may heal a missing or malformed file from its log first. If it

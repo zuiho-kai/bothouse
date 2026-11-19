@@ -130,9 +130,9 @@ func readDSHPatch(path string) (*yaml.Node, error) {
 // Read the bundles DSH actually registers, followed by the user patch. Merely
 // declaring a dependency does not load it. Only root insertions create our flat
 // plugin entries; ordinary patches match existing IDs and optional name guards.
-func dshModuleProfile() (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
+func dshModuleProfile(profile string) (DSHModuleState, []dshModulePlugin, *yaml.Node, error) {
 	var state DSHModuleState
-	dir := filepath.Join(dshHome(), "profiles", DSHProfile)
+	dir := filepath.Join(dshHome(), "profiles", profile)
 	var manifest struct {
 		DSH struct{ Profile struct{ Bundles []string } }
 	}
@@ -274,7 +274,7 @@ func applyDSHDisabled(plugin *dshModulePlugin, entry *yaml.Node) error {
 }
 
 func GetDSHModuleState() (DSHModuleState, error) {
-	st, _, _, err := dshModuleProfile()
+	st, _, _, err := dshModuleProfile(DSHProfile)
 	return st, err
 }
 
@@ -291,7 +291,7 @@ func validateDSHModuleChange(plugins []dshModulePlugin, disabled bool) error {
 // patch that Cordis may ignore. Return the actual write decision, not a comparison
 // of the aggregate enabled state (which loses mixed-bundle changes).
 func setDSHModuleDisabled(disabled bool) (DSHModuleState, bool, error) {
-	st, plugins, doc, err := dshModuleProfile()
+	st, plugins, doc, err := dshModuleProfile(DSHProfile)
 	if err != nil || !st.Installed {
 		return st, false, err
 	}
@@ -347,7 +347,7 @@ type DSHModuleResult struct {
 }
 
 func ApplyDSHModule(ctx context.Context, disable, dryRun bool, lang string) DSHModuleResult {
-	st, plugins, _, err := dshModuleProfile()
+	st, plugins, _, err := dshModuleProfile(DSHProfile)
 	r := DSHModuleResult{Platform: "dsh", DryRun: dryRun, DSH: st, NextSteps: []string{}}
 	if err != nil {
 		r.Error = err.Error()
