@@ -1348,6 +1348,13 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		if err := AtomicWriteFile(path, []byte(WithReplyLanguage(content, r.ReplyLanguage)), 0o644); err != nil {
 			return fail(step, err)
 		}
+		if !r.reused {
+			// the diary section has the role `tail diary.md` on a session's first turn; with no file that
+			// command fails and the first reply opens with a red "Bash · failed" step (#1797)
+			if err := ensureDiaryFile(r.workDir); err != nil {
+				return fail(step, err)
+			}
+		}
 		addStep(res, step, nil, stepPersonaWritten(req.Language, r.project, path))
 		dsh := wizardDSH(clis)
 		if r.AgentType == "dsh" && !r.reused {
