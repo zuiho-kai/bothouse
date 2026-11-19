@@ -23,10 +23,14 @@ export class LeadState {
     }
   }
 
-  set(id, name) {
+  /**
+   * auto: the install picked it, the user did not (same flag the bridge writes, core/setup_dsh_team.go
+   * selectDSHLeadIfUnset): the gate adds no "user switched the primary role" note for it.
+   */
+  set(id, name, { auto = false } = {}) {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temp = `${this.path}.tmp-${process.pid}`;
-    writeFileSync(temp, `${JSON.stringify({ lead: id, name, at: new Date().toISOString() })}\n`, { mode: 0o600 });
+    writeFileSync(temp, `${JSON.stringify({ lead: id, name, at: new Date().toISOString(), ...(auto ? { auto: true } : {}) })}\n`, { mode: 0o600 });
     renameSync(temp, this.path);
   }
 }

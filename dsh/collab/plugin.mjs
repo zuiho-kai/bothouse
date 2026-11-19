@@ -13,12 +13,13 @@ import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH, roomKey } from './cloudweb.mjs';
-import { Bridge, botToken } from './bridge.mjs';
+import { Bridge, botToken, checkPoster, prepText } from './bridge.mjs';
+import { selfUpdate } from './update.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
-import { handler as clisHandler } from './clis.mjs';
+import { detectClis, handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, INLINE_IMAGE, MAX_BOT_ATTACHMENT_BYTES, formatBytes } from './attachments.mjs';
 import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
@@ -178,10 +179,30 @@ export async function apply(ctx, rawConfig) {
   const token = botToken(config.botToken, config.dataDir);
   const gateway = r.gateway = new CloudWebGateway(hub, { token, logger: ctx.logger, files });
   const bridge = r.bridge = new Bridge({ dataDir: config.dataDir, token, logger: ctx.logger,
-    origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected() });
+    origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected(),
+    online: id => gateway.bots.has(id) });
+  // #1798: after each apply the bridge checks what a member needs (bridge, gate, memory wiki, members online) and
+  // the result is said once in #general; the same state is not said again (kept across restarts).
+  bridge.onCheck = checkPoster(hub, () => config.rooms[0]?.id ?? 1, join(config.dataDir, 'self-check.json'));
+  // #1798: the first start (about a minute) says its steps in #general: one system message, edited in place.
+  // Messages sent meanwhile to a room with no member online yet are held and delivered when it is over.
+  let prep;
+  bridge.onProgress = (p) => {
+    const text = prepText(p);
+    if (prep === undefined) prep = hub.post(config.rooms[0]?.id ?? 1, { authorKind: 'system', author: 'system', name: '系统', text }).message;
+    else if (prep.text !== text) prep = hub.edit(prep.id, 'system', 'system', text) ?? prep;
+    if (p.stage === 'done' || p.stage === 'stopped') { prep = undefined; gateway.release(); }
+    else gateway.hold();
+  };
+  // #1798: a member whose CLI is not logged in shows 需登录, not online (the apply's blocking warnings).
+  bridge.onBlocking = (items) => {
+    for (const m of store.members()) hub.setLogin(m.id, items.find(i => i.member === m.id)?.hint);
+  };
   // #1797: someone called a member whose role is not connected: apply again (starts a stopped bridge, picks up
   // a key saved since) and say in the channel what is missing; the card's 重试 sends the message again.
   gateway.onOfflineMember = (m, msg) => {
+    // The first start is still going: the member comes online at its end (the progress line says so).
+    if (bridge.preparing) return;
     bridge.sync();
     const text = bridge.noKey
       ? `${m.name} 还没法回话：还没填模型密钥。点「去填密钥」（或 设置 → 模型）填 DeepSeek API Key，保存后点「重试」。`
@@ -205,9 +226,8 @@ export async function apply(ctx, rawConfig) {
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   bridge.sync();
-  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh): the bridge's, so on
-  // a machine without bothouse this waits for the install — in the background, the channels open meanwhile.
-  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => bridge.personas('zh'), ctx.logger)
+  // First start of a plugin-only install: a DSH member plus one per local CLI found (in the background).
+  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => detectClis(), ctx.logger, leadState)
     .then(seeded => { if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', ')); })
     .catch(error => ctx.logger.warn('conest-collab: default members not added: %s', error?.message ?? error));
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
@@ -249,6 +269,15 @@ export async function apply(ctx, rawConfig) {
       .catch(err => ctx.logger.warn('conest-collab: keep pages: %s', err.message));
   }, 3000);
   ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');
+  // #1798: an npm install behind the registry's latest updates itself (pnpm's minimumReleaseAge held it back).
+  // Deferred like the pages above: the plugin manager swaps this very plugin, which must not happen inside its activation.
+  const updateTimer = setTimeout(() => {
+    const say = text => hub.post(config.rooms[0]?.id ?? 1, { authorKind: 'system', author: 'system', name: '系统', text });
+    selfUpdate({ pm: ctx.get('pluginManager'), markerFile: join(config.dataDir, 'self-update.json'), say, logger: ctx.logger })
+      .then(state => ctx.logger.info('conest-collab: self-update: %s', state))
+      .catch(err => ctx.logger.warn('conest-collab: self-update: %s', err?.message ?? err));
+  }, 5000);
+  ctx.effect(() => () => clearTimeout(updateTimer), 'conest-collab: self-update');
   const botUpgrade = (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const auth = gateway.authorize(req, url);

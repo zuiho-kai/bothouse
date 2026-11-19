@@ -167,6 +167,9 @@ type wireInboundMessage struct {
 	// ReplyToGone: the replied-to message is deleted or not in this room, so the reply names nobody.
 	ReplyToRoleID string `json:"reply_to_role_id,omitempty"`
 	ReplyToGone   bool   `json:"reply_to_gone,omitempty"`
+	// DefaultReply (#1798): the member that answers this room's messages calling no one (the
+	// collab hub's defaultReplyIn: the room's primary role, or its only agent). Empty: none.
+	DefaultReply string `json:"default_reply,omitempty"`
 }
 
 type wireCardAction struct {

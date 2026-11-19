@@ -6,8 +6,9 @@ built from this commit is put where that installer puts it (~/.local/bin), so th
 
   1. `dsh plugin add <the npm pack tarball>` into a scratch HOME, with an env built from nothing
      (no BOTHOUSE_*, GATE_*, CC_* variables, no ~/.bothouse/config.toml)
-  2. `dsh web`, open it with its login token: 鲸鱼娘 is seeded and comes online as a bothouse role
-  3. @ 鲸鱼娘 in the first channel: the role answers (the model is a local stub) and the model got her persona
+  2. `dsh web`, open it with its login token: the DSH member is seeded and comes online as a bothouse role
+  3. @DSH in the first channel: the role answers (the model is a local stub) and the model got the role's memory
+     block (the bridge writes the memory wiki section into every role; #1798: the seeded member has no persona)
 
 Every check prints PASS; the first failure prints FAIL and exits 1.
 
@@ -27,7 +28,9 @@ import time
 import urllib.error
 import urllib.request
 
-MEMBER = "鲸鱼娘"  # the member the plugin seeds into #general on first start (plugin-pkg/README.md)
+MEMBER = "DSH"  # the member the plugin seeds into #general on first start (plugin-pkg/README.md, roster.mjs seedDefaults)
+# The memory wiki section the bridge writes into a role (bridge/core/rolewiki.go wikiSection / leadWikiSection), any language.
+MEMORY_HEADINGS = ("## 记忆 wiki", "## 記憶 wiki", "## Memory wiki")
 REPLY = "CI-STUB-REPLY-solo"  # what the stub model answers
 LINK_RE = re.compile(r"dsh web: (http://127\.0\.0\.1:\d+)/\?token=(\S+)")
 # SPEC (Anthropic Messages API): usage token counts are required integers; DSH only displays them
@@ -218,11 +221,11 @@ try:
     wait(f"@{MEMBER} answers", answered, T_REPLY)
     ok(f"@{MEMBER} answered in #{room.get('name')}")
 
-    # ---- 3. what the role gave the model: her persona (the bridge writes it into the role) ----
+    # ---- 3. what the role gave the model: its memory block (the bridge writes it into the role) ----
     sent = "\n".join(json.dumps([b.get("system", ""), b.get("messages", [])], ensure_ascii=False) for b in bodies)
-    if MEMBER not in sent:
-        fail(f"no {MEMBER} persona in what the role sent the model: {sent[:600]}")
-    ok(f"the role's model request carries {MEMBER}'s persona")
+    if not any(h in sent for h in MEMORY_HEADINGS):
+        fail(f"no memory wiki block in what the role sent the model: {sent[:600]}")
+    ok(f"the role's model request carries {MEMBER}'s memory wiki block")
 finally:
     if proc.poll() is None:
         proc.terminate()
