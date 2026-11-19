@@ -14,6 +14,7 @@ import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH, roomKey } from './cloudweb.mjs';
 import { Bridge, botToken, checkPoster } from './bridge.mjs';
+import { selfUpdate } from './update.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
@@ -252,6 +253,15 @@ export async function apply(ctx, rawConfig) {
       .catch(err => ctx.logger.warn('conest-collab: keep pages: %s', err.message));
   }, 3000);
   ctx.effect(() => () => clearTimeout(pagesTimer), 'conest-collab: keep pages');
+  // #1798: an npm install behind the registry's latest updates itself (pnpm's minimumReleaseAge held it back).
+  // Deferred like the pages above: the plugin manager swaps this very plugin, which must not happen inside its activation.
+  const updateTimer = setTimeout(() => {
+    const say = text => hub.post(config.rooms[0]?.id ?? 1, { authorKind: 'system', author: 'system', name: '系统', text });
+    selfUpdate({ pm: ctx.get('pluginManager'), markerFile: join(config.dataDir, 'self-update.json'), say, logger: ctx.logger })
+      .then(state => ctx.logger.info('conest-collab: self-update: %s', state))
+      .catch(err => ctx.logger.warn('conest-collab: self-update: %s', err?.message ?? err));
+  }, 5000);
+  ctx.effect(() => () => clearTimeout(updateTimer), 'conest-collab: self-update');
   const botUpgrade = (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const auth = gateway.authorize(req, url);
