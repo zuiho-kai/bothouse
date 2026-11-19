@@ -97,6 +97,34 @@ export function wikiProblem(steps) {
   return '';
 }
 
+/** How to log in each local CLI, in plain words (the bridge's own fix text is long and points at bothouse commands). */
+const LOGIN_HINTS = {
+  claude: '在终端运行 claude，按提示登录一次',
+  codex: '在终端运行 codex login，按提示登录一次',
+  gemini: '在终端运行 gemini，选 Login with Google 登录一次',
+  dsh: '在 设置 → 模型 里填 DeepSeek API Key',
+};
+
+/**
+ * #1798: the `setup apply` warnings marked blocking (a member's CLI not logged in…: the role is written but
+ * cannot answer) as self-check items, in plain words. members: the stored members (warning.project = member id).
+ */
+export function blockingItems(warnings, members = []) {
+  const items = [];
+  for (const w of warnings ?? []) {
+    if (w?.blocking !== true) continue;
+    const m = members.find(x => x.id === w.project || x.name === w.project);
+    const name = m?.name ?? w.project ?? '';
+    // The bridge's fix up to its first sentence: the rest is about bothouse commands.
+    const fix = String(w.fix ?? '').split(/[；。]/)[0].trim();
+    const why = w.code === 'agent_not_logged_in'
+      ? `${name} 还没登录：${(m && LOGIN_HINTS[m.cli || 'dsh']) || fix || '按它自己的说明登录'}`
+      : `${String(w.message ?? w.code ?? '').replace(/[。.]\s*$/, '')}${fix ? `：${fix}` : ''}`;
+    items.push({ key: `blocking:${w.code ?? ''}:${w.project ?? ''}`, ok: false, why });
+  }
+  return items;
+}
+
 /** selfCheck()'s result as the one line said in the channel. */
 export function checkText(result) {
   if (result.ok) return `装好了：后台服务、记忆服务、记忆 wiki 都正常，成员 ${result.members.join('、')} 都已在线。@ 谁就找谁干活。`;
@@ -266,7 +294,7 @@ export class Bridge {
     // In the background: the next apply must not wait for the bridge to come up.
     if (this.onCheck !== undefined) {
       const run = ++this.checkRun;
-      this.selfCheck(res.steps ?? [], run).then(result => { if (result !== undefined) this.onCheck?.(result); })
+      this.selfCheck(res.steps ?? [], run, res.warnings ?? []).then(result => { if (result !== undefined) this.onCheck?.(result); })
         .catch(error => this.logger?.warn?.('conest-collab: self-check failed: %s', error?.message ?? error));
     }
   }
@@ -277,9 +305,12 @@ export class Bridge {
    * (GET /setup/gate; not running → POST /setup/gate/start), the memory wiki was made (the apply's wiki
    * steps), every member is connected. Waits up to checkWait for things still coming up. Returns
    * { ok, items: [{ key, ok, why }], members: [names] }; undefined when a newer apply's check took over.
+   * warnings: the apply's warnings; the blocking ones (a CLI not logged in) are items too, so「装好了」is not
+   * said while a member cannot answer (blockingItems).
    */
-  async selfCheck(steps, run = this.checkRun) {
+  async selfCheck(steps, run = this.checkRun, warnings = []) {
     const wiki = wikiProblem(steps);
+    const blocking = blockingItems(warnings, this.members());
     const deadline = Date.now() + this.checkWait;
     let items;
     for (;;) {
@@ -301,8 +332,8 @@ export class Bridge {
       items.push({ key: 'wiki', ok: wiki === '', why: wiki === '' ? '' : `记忆 wiki 没建好：${wiki}` });
       const offline = this.members().filter(m => !this.online(m.id)).map(m => m.name);
       items.push({ key: 'members', ok: offline.length === 0, why: offline.length === 0 ? '' : `成员没连上：${offline.join('、')}` });
-      // The wiki is what the apply did; waiting does not change it.
-      if (items.every(i => i.ok || i.key === 'wiki') || Date.now() >= deadline) break;
+      // The wiki and the blocking warnings are what the apply found; waiting does not change them.
+      if (items.every(i => i.ok || i.key === 'wiki') || Date.now() >= deadline) { items.push(...blocking); break; }
       await new Promise(resolve => setTimeout(resolve, this.checkPoll));
     }
     return { ok: items.every(i => i.ok), items, members: this.members().map(m => m.name) };
