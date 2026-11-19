@@ -53,6 +53,12 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 			if rt := filepath.Join(e.dataDir, "collaboration", "runtime", "lead"); dirExists(rt) {
 				path = append(path, rt)
 			}
+			// The board is read by this binary (wait_kind, team_task_board.go), so every script
+			// that writes it uses the gate written by this binary, as runLeadScript does: an
+			// installed copy left behind wrote another rule and flipped the task posts (#1791).
+			if root, err := e.leadRuntimeDir(); err == nil && root != "" {
+				env = append(env, "GATE_DIR="+filepath.Join(root, "gate"))
+			}
 		}
 	}
 	if exePath, err := os.Executable(); err == nil {
