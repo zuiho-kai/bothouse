@@ -35,7 +35,7 @@ export interface PanelLayout {
 
 /** What restoring needs from `ctx.slots` (the main-slot registry). */
 export interface PanelSlots {
-  entriesOfSlot(slot: string): readonly { options: { key?: string } }[]
+  entriesOfSlot(slot: string): readonly { options?: { key?: string } }[]
   subscribe(slot: string, listener: () => void): () => void
 }
 
@@ -68,7 +68,7 @@ export function followPanelHash(layout: PanelLayout): () => void {
 
 /** Whether a keyed `main` panel with this id is registered right now. */
 function hasMainPanel(slots: PanelSlots, id: MainPanelId): boolean {
-  return slots.entriesOfSlot('main').some(entry => entry.options.key === id)
+  return slots.entriesOfSlot('main').some(entry => entry.options?.key === id)
 }
 
 /**
@@ -106,4 +106,36 @@ export function restorePanelFromHash(layout: PanelLayout, slots: PanelSlots, has
   // be flipped back, and a panel another half restored must not be opened twice.
   stopWatching = layout.panelInfo.subscribe(done)
   return done
+}
+/** What openOnce keeps its "already opened" mark in (localStorage in the page). */
+export interface MarkStore {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+/**
+ * #1798 (user 11-19「点一下就能直接用」): the first time this plugin loads in a page (right after 插件 →
+ * 安装 → 立即启用, while the Plugins page is open), open panel `id` so the next click is already in
+ * the channel. Once per browser (`key` in `marks`): later loads keep the panel the reader was on. A
+ * fragment naming another panel (a deep link other than the Plugins page) wins and is left alone.
+ * Waits for the panel's registration like restorePanelFromHash (`selectPanel` throws before it).
+ * @returns unsubscribe from the pending open.
+ */
+export function openOnce(layout: PanelLayout, slots: PanelSlots, id: MainPanelId, marks: MarkStore | undefined, key: string, hash: string = location.hash): () => void {
+  try {
+    if (marks === undefined || marks.getItem(key) !== null) return () => {}
+    marks.setItem(key, new Date().toISOString())
+  } catch { return () => {} }
+  const named = panelIdFromHash(hash)
+  if (named !== null && named !== id && named !== 'plugins') return () => {}
+  if (hasMainPanel(slots, id)) {
+    layout.selectPanel(id)
+    return () => {}
+  }
+  const stop = slots.subscribe('main', () => {
+    if (!hasMainPanel(slots, id)) return
+    stop()
+    layout.selectPanel(id)
+  })
+  return stop
 }

@@ -17,7 +17,7 @@ import { ChannelsPage, type ChannelsInjected } from './ChannelsPage.tsx'
 import { mappedTransport, remoteCollabUrl } from './collab-url.ts'
 import { RemoteChannelsPage, type RemoteChannelsInjected } from './RemoteChannelsPage.tsx'
 import { en, NS, zh, type ChannelsKey } from './locales.ts'
-import { followPanelHash, restorePanelFromHash } from './panel-hash.ts'
+import { followPanelHash, openOnce, restorePanelFromHash } from './panel-hash.ts'
 import { bindHostTheme, type Scheme } from './scheme.ts'
 import './plugin-page.css'
 
@@ -41,6 +41,12 @@ const REMOTE_PANEL_ID = 'remote-channels' as MainPanelId
 const DEVICES_PANEL_ID = 'collab-devices' as MainPanelId
 /** Global the 其他电脑 page (same origin, in an iframe) calls to open a link's channels here. */
 export const OPEN_REMOTE = '__bothouseOpenRemoteChannels'
+
+/** localStorage key openOnce marks once the channel page was opened on the plugin's first load. */
+const FIRST_OPEN_KEY = 'bothouse-dsh:channels-first-open'
+function firstOpenMarks(): Storage | undefined {
+  try { return globalThis.localStorage } catch { return undefined }
+}
 
 /** Required browser services. */
 export const inject = ['slots', 'locale', 'layout']
@@ -149,6 +155,8 @@ export function apply(ctx: ClientContext): void {
       close()
     }
   })
+  // #1798: the first load (立即启用 on the Plugins page) lands in the channel, one click less.
+  ctx.effect(() => openOnce(ctx.layout, ctx.slots, PANEL_ID, firstOpenMarks(), FIRST_OPEN_KEY), 'client-ui-discord: first open')
   // 体检 #11: follow the DSH theme (ui-theme's ThemeRuntime) when it is loaded.
   if (typeof ctx.inject === 'function') ctx.inject(['theme'], (themed) => {
     const theme = Reflect.get(themed, 'theme') as { getTheme(): { active: { colorScheme: Scheme } }; setTheme(id: string): void } | undefined
