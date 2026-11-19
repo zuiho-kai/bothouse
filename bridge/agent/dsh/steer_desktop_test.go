@@ -51,15 +51,25 @@ func TestDesktopACPProcess(t *testing.T) {
 	}
 }
 
-func TestDesktopASARStartAndResumeWarn(t *testing.T) {
+func TestDesktopASARStartAndResumeLoadPatchedCopy(t *testing.T) {
+	fixture := os.Getenv("DSH_TEST_ASAR")
+	if fixture == "" {
+		t.Skip("DSH_TEST_ASAR must be a real @electron/asar archive")
+	}
 	root := t.TempDir()
+	if output := os.Getenv("DSH_TEST_OUTPUT"); output != "" {
+		root = output
+		if err := os.MkdirAll(root, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	home := filepath.Join(root, "dsh-home")
 	profile := filepath.Join(home, "profiles", "acp")
 	if err := os.MkdirAll(profile, 0755); err != nil {
 		t.Fatal(err)
 	}
 	// This profile intentionally has no local dsh-acp package.
-	if err := os.WriteFile(filepath.Join(profile, "package.json"), []byte(`{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-acp-app"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(profile, "package.json"), []byte(`{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-acp-app"]}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DSH_HOME", home)
@@ -67,9 +77,10 @@ func TestDesktopASARStartAndResumeWarn(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(archive), 0755); err != nil {
 		t.Fatal(err)
 	}
-	// The archive is a regular file, not an unpacked directory. No member read
-	// is possible through os.ReadFile; the healer must leave it untouched.
-	packed := []byte("packed desktop archive fixture")
+	packed, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(archive, packed, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +116,7 @@ func TestDesktopASARStartAndResumeWarn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a := &Agent{Agent: base.(*acp.Agent), home: home, cmd: shim}
+			a := &Agent{Agent: base.(*acp.Agent), home: home, cmd: shim, args: []string{"--profile", "acp"}}
 			var logs bytes.Buffer
 			old := slog.Default()
 			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
@@ -118,13 +129,22 @@ func TestDesktopASARStartAndResumeWarn(t *testing.T) {
 			}
 			defer session.Close()
 			got := logs.String()
-			for _, want := range []string{"cannot apply steer patch inside desktop ASAR", "app.asar", "busy messages will queue", "packed desktop component"} {
+			for _, want := range []string{"app.asar", "loaded="} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("missing %q in logs: %s", want, got)
 				}
 			}
-			if strings.Contains(got, "patched it back") {
-				t.Fatal("false patch success")
+			if !strings.Contains(got, "extracted and patched desktop ACP") && !strings.Contains(got, "loading patched desktop ACP profile package") {
+				t.Fatalf("missing successful ACP copy load log: %s", got)
+			}
+			copyPath := filepath.Join(home, "profiles", "acp", "node_modules", "@deepseek-ai", "dsh-acp", "lib", "index.js")
+			patched, err := os.ReadFile(copyPath)
+			if err != nil || !strings.Contains(string(patched), steerHealMarker) {
+				t.Fatalf("patched ACP copy was not written: %v", err)
+			}
+			profileManifest, err := os.ReadFile(filepath.Join(home, "profiles", "acp", "package.json"))
+			if err != nil || !strings.Contains(string(profileManifest), `"@deepseek-ai/dsh-acp":"0.2.2-rc.5"`) {
+				t.Fatalf("profile does not register the patched ACP package: %s (%v)", profileManifest, err)
 			}
 			requests, err := os.ReadFile(record)
 			if err != nil {
@@ -143,6 +163,47 @@ func TestDesktopASARStartAndResumeWarn(t *testing.T) {
 			t.Logf("%srequests:\n%s", got, requests)
 		})
 	}
+	// A desktop update can retain an older timestamp. Size changes must still
+	// invalidate the copy; timestamp-only updates must invalidate it as well.
+	copyPath := filepath.Join(profile, "node_modules", "@deepseek-ai", "dsh-acp", "lib", "index.js")
+	info, err := os.Stat(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"size", "mtime"} {
+		t.Run("upgrade-"+change, func(t *testing.T) {
+			if change == "size" {
+				if err := os.WriteFile(archive, append(packed, '\n'), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				info, err = os.Stat(archive)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			mtime := info.ModTime()
+			if change == "mtime" {
+				mtime = mtime.Add(-time.Hour)
+			}
+			if err := os.Chtimes(archive, mtime, mtime); err != nil {
+				t.Fatal(err)
+			}
+			copyBytes, err := os.ReadFile(copyPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(copyPath, append(copyBytes, []byte("\n// stale-copy")...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			prepareSteer(shim, []string{"--profile", "acp"}, home)
+			rebuilt, err := os.ReadFile(copyPath)
+			if err != nil || strings.Contains(string(rebuilt), "stale-copy") || !strings.Contains(string(rebuilt), steerHealMarker) {
+				t.Fatalf("archive %s change did not rebuild patched copy: %v", change, err)
+			}
+		})
+	}
+	packed = append(packed, '\n')
 	after, err := os.ReadFile(archive)
 	if err != nil || !bytes.Equal(after, packed) {
 		t.Fatal("desktop archive modified")

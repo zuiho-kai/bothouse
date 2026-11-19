@@ -11,10 +11,15 @@ package dsh
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -118,14 +123,6 @@ var steerHealed sync.Map
 // healSteer checks the dsh-acp the configured command runs and patches it when needed.
 func healSteer(cmd string, args []string) {
 	entry := dshEntryScript(cmd, args)
-	// Electron can read inside ASAR, but Go's filesystem calls cannot. Do not
-	// treat an archive as a directory or rewrite a signed desktop application.
-	if i := strings.Index(strings.ToLower(filepath.ToSlash(entry)), ".asar/"); i >= 0 {
-		archive := entry[:i+len(".asar")]
-		_, err := os.Stat(archive)
-		slog.Warn("dsh: cannot apply steer patch inside desktop ASAR; busy messages will queue unless the loaded ACP already advertises dsh/steer", "entry", entry, "archive", archive, "reason", "packed desktop component is not a writable standalone dsh-acp file", "err", err)
-		return
-	}
 	files := dshACPFiles(cmd, args)
 	for _, js := range files {
 		fi, err := os.Stat(js)
@@ -169,6 +166,181 @@ func healSteer(cmd string, args []string) {
 		return
 	}
 	slog.Warn("dsh: cannot locate dsh-acp for steer patch; busy messages will queue unless the loaded ACP already advertises dsh/steer", "command", cmd, "entry", entry, "candidates", files)
+}
+
+func prepareSteer(cmd string, args []string, home string) []string {
+	entry := dshEntryScript(cmd, args)
+	i := strings.Index(strings.ToLower(filepath.ToSlash(entry)), ".asar/")
+	if i < 0 {
+		healSteer(cmd, args)
+		return args
+	}
+	archive := entry[:i+len(".asar")]
+	const bundledACP = "dsh/node_modules/@deepseek-ai/dsh-acp/lib/index.js"
+	profile := dshProfile(args)
+	packageDir := filepath.Join(home, "profiles", profile, "node_modules", "@deepseek-ai", "dsh-acp")
+	copyPath := filepath.Join(packageDir, "lib", "index.js")
+	stampPath := filepath.Join(packageDir, ".bothouse-asar-source")
+	archiveInfo, archiveErr := os.Stat(archive)
+	sourceStamp := ""
+	if archiveErr == nil {
+		sourceStamp = fmt.Sprintf("%s|%d|%d", archive, archiveInfo.Size(), archiveInfo.ModTime().UnixNano())
+	}
+	stamp, _ := os.ReadFile(stampPath)
+	if sourceStamp != "" && string(stamp) == sourceStamp {
+		copyBytes, copyErr := os.ReadFile(copyPath)
+		_, manifestErr := os.Stat(filepath.Join(packageDir, "package.json"))
+		if copyErr == nil && manifestErr == nil && strings.Contains(string(copyBytes), steerHealMarker) {
+			slog.Info("dsh: loading patched desktop ACP profile package", "archive", archive, "loaded", copyPath)
+			return args
+		}
+	}
+	original, err := readASARFile(archive, bundledACP)
+	if err != nil {
+		slog.Warn("dsh: cannot extract desktop dsh-acp from ASAR; busy messages will queue", "archive", archive, "member", bundledACP, "err", err)
+		return args
+	}
+	manifest, err := readASARFile(archive, "dsh/node_modules/@deepseek-ai/dsh-acp/package.json")
+	if err != nil {
+		slog.Warn("dsh: cannot extract desktop dsh-acp manifest from ASAR; busy messages will queue", "archive", archive, "err", err)
+		return args
+	}
+	patched, ok := applySteerEdits(string(original))
+	if !ok {
+		slog.Warn("dsh: desktop dsh-acp version does not match the steer patch; busy messages will queue", "archive", archive, "member", bundledACP)
+		return args
+	}
+	var packageManifest map[string]any
+	if err := json.Unmarshal(manifest, &packageManifest); err != nil {
+		slog.Warn("dsh: cannot parse desktop dsh-acp manifest; busy messages will queue", "archive", archive, "err", err)
+		return args
+	}
+	version, _ := packageManifest["version"].(string)
+	if version == "" {
+		slog.Warn("dsh: desktop dsh-acp manifest has no version; busy messages will queue", "archive", archive)
+		return args
+	}
+	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
+		slog.Warn("dsh: cannot create desktop steer copy; busy messages will queue", "path", copyPath, "err", err)
+		return args
+	}
+	if err := os.WriteFile(copyPath, []byte(patched), 0o600); err != nil {
+		slog.Warn("dsh: cannot write desktop steer copy; busy messages will queue", "path", copyPath, "err", err)
+		return args
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "package.json"), manifest, 0o600); err != nil {
+		slog.Warn("dsh: cannot write desktop ACP package manifest", "path", packageDir, "err", err)
+		return args
+	}
+	profileManifestPath := filepath.Join(home, "profiles", profile, "package.json")
+	profileManifestBytes, err := os.ReadFile(profileManifestPath)
+	if err != nil {
+		slog.Warn("dsh: cannot read desktop ACP profile manifest; busy messages will queue", "path", profileManifestPath, "err", err)
+		return args
+	}
+	var profileManifest map[string]any
+	if err := json.Unmarshal(profileManifestBytes, &profileManifest); err != nil {
+		slog.Warn("dsh: cannot parse desktop ACP profile manifest; busy messages will queue", "path", profileManifestPath, "err", err)
+		return args
+	}
+	dependencies, _ := profileManifest["dependencies"].(map[string]any)
+	if dependencies == nil {
+		dependencies = make(map[string]any)
+		profileManifest["dependencies"] = dependencies
+	}
+	dependencies["@deepseek-ai/dsh-acp"] = version
+	updatedManifest, err := json.Marshal(profileManifest)
+	if err != nil {
+		slog.Warn("dsh: cannot encode desktop ACP profile manifest", "path", profileManifestPath, "err", err)
+		return args
+	}
+	if err := os.WriteFile(profileManifestPath, updatedManifest, 0o600); err != nil {
+		slog.Warn("dsh: cannot register desktop ACP profile package", "path", profileManifestPath, "err", err)
+		return args
+	}
+	if err := os.WriteFile(stampPath, []byte(sourceStamp), 0o600); err != nil {
+		slog.Warn("dsh: cannot record desktop ACP archive version; next start will rebuild the copy", "path", stampPath, "err", err)
+	}
+	slog.Info("dsh: extracted and patched desktop ACP; loading profile package", "archive", archive, "member", bundledACP, "loaded", copyPath, "version", version)
+	return args
+}
+
+func dshProfile(args []string) string {
+	for i := range args {
+		if args[i] == "--profile" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(args[i], "--profile=") {
+			return strings.TrimPrefix(args[i], "--profile=")
+		}
+	}
+	return "acp"
+}
+
+func readASARFile(archive, member string) ([]byte, error) {
+	f, err := os.Open(archive)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() < 16 {
+		return nil, fmt.Errorf("ASAR header is truncated")
+	}
+	sizeBuf := make([]byte, 16)
+	if _, err := io.ReadFull(f, sizeBuf); err != nil {
+		return nil, err
+	}
+	headerSize := int(binary.LittleEndian.Uint32(sizeBuf[4:8]))
+	jsonSize := int(binary.LittleEndian.Uint32(sizeBuf[12:16]))
+	if headerSize < 8 || int64(headerSize) > info.Size()-8 || jsonSize < 0 || jsonSize > headerSize-8 {
+		return nil, fmt.Errorf("invalid ASAR header sizes")
+	}
+	headerData := make([]byte, headerSize-8)
+	if _, err := io.ReadFull(f, headerData); err != nil {
+		return nil, err
+	}
+	var header struct {
+		Files map[string]asarEntry `json:"files"`
+	}
+	if err := json.Unmarshal(headerData[:jsonSize], &header); err != nil {
+		return nil, err
+	}
+	entry, ok := findASAREntry(header.Files, strings.Split(filepath.ToSlash(member), "/"))
+	if !ok || entry.Files != nil || entry.Unpacked {
+		return nil, fmt.Errorf("member %q is missing or unpacked", member)
+	}
+	offset, err := strconv.ParseInt(entry.Offset, 10, 64)
+	dataStart := 8 + headerSize
+	if err != nil || offset < 0 || entry.Size < 0 || int64(dataStart)+offset+int64(entry.Size) > info.Size() {
+		return nil, fmt.Errorf("member %q has invalid bounds", member)
+	}
+	if _, err := f.Seek(int64(dataStart)+offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+	content := make([]byte, entry.Size)
+	if _, err := io.ReadFull(f, content); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+type asarEntry struct {
+	Files    map[string]asarEntry `json:"files"`
+	Offset   string               `json:"offset"`
+	Size     int                  `json:"size"`
+	Unpacked bool                 `json:"unpacked"`
+}
+
+func findASAREntry(files map[string]asarEntry, parts []string) (asarEntry, bool) {
+	entry, ok := files[parts[0]]
+	if !ok || len(parts) == 1 {
+		return entry, ok
+	}
+	return findASAREntry(entry.Files, parts[1:])
 }
 
 func statTime(p string) string {
@@ -294,6 +466,6 @@ func dshShimScript(shim string) string {
 
 // StartSession checks the steer patch before each DSH session (cheap: one stat when unchanged).
 func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentSession, error) {
-	healSteer(a.cmd, a.args)
+	a.args = prepareSteer(a.cmd, a.args, a.home)
 	return a.Agent.StartSession(ctx, sessionID)
 }
