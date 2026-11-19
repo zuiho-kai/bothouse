@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input, Modal, Textarea } from '@/components/ui';
 import { createDSHMember, updateDSHMember, getDSHCliOptions, getDSHModelRoutes, type DSHCli, type DSHCliOptions, type DSHManagedMember, type DSHMemberInput, type DSHModelRoute } from '@/api/dsh';
@@ -43,7 +43,7 @@ export function DSHMemberEditor({ member, onClose, onSaved }: { member: DSHManag
 
   const route = routes?.find(r => r.provider === provider);
   const validConfig = !configChanged || cli !== 'codex' || (!probing && !optionError && !!options?.supported && (!cliModel || !!options.model?.options.some(o => o.value === cliModel)) && (!effort || !!options.reasoningEffort?.options.some(o => o.value === effort)));
-  const save = async (event: React.FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim() || !validConfig) return;
     const body: DSHMemberInput = { name: name.trim(), persona, cli: cli || null };
