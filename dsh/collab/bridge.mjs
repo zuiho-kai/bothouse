@@ -180,6 +180,8 @@ function run(cmd, args, { input, timeout, log, env }) {
     child.stderr.on('data', d => { out += d; });
     child.on('error', error => { clearTimeout(timer); resolve({ code: -1, out: String(error?.message ?? error) }); });
     child.on('close', code => { clearTimeout(timer); if (log) writeFileSync(log, out, { mode: 0o600 }); resolve({ code, out }); });
+    // A child that exits before reading its input breaks the pipe; its exit code and output still tell the result.
+    child.stdin.on('error', () => {});
     child.stdin.end(input ?? '');
   });
 }

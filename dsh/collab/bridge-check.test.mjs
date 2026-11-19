@@ -107,7 +107,7 @@ test('#1798 first start: no bridge running → progress steps, then 准备好了
   const dir = mkdtempSync(join(tmpdir(), 'bridge-prep-'));
   const bin = join(dir, 'bothouse');
   // A stand-in bothouse: setup apply answers saved with one blocking warning; nothing else answers.
-  writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\necho '{"saved":true,"steps":[],"warnings":[{"code":"agent_not_logged_in","project":"Codex","blocking":true,"message":"m","fix":"f"}]}'\n`, { mode: 0o755 });
+  writeFileSync(bin, `#!/bin/sh\n/bin/cat >/dev/null\necho '{"saved":true,"steps":[],"warnings":[{"code":"agent_not_logged_in","project":"Codex","blocking":true,"message":"m","fix":"f"}]}'\n`, { mode: 0o755 });
   const b = new Bridge({ dataDir: dir, configFile: join(dir, 'none.toml'), origin: () => 'http://127.0.0.1:1', token: 't', members: () => members,
     online: () => false, env: { PATH: dir, HOME: dir }, checkWait: 0, checkPoll: 1 });
   b.start = () => {};
