@@ -1425,3 +1425,100 @@ func finishAgyHooks(o AgentHookOptions, on []string, persona, python, dir string
 	}
 	return res, nil
 }
+
+// retiredHookCmd: whether cmd is one of our commands (marked or legacy) naming a retired guard.
+func retiredHookCmd(cmd string) bool {
+	cmd = strings.TrimSpace(cmd)
+	m := ourHookCmd.FindStringSubmatch(cmd)
+	if m == nil {
+		m = legacyHookCmd.FindStringSubmatch(cmd)
+	}
+	return m != nil && slices.Contains(retiredAgentHooks, m[1])
+}
+
+// pruneRetiredHooks removes, anywhere in a settings tree, each handler whose command names a retired guard, and the
+// groups/events left empty by that. Reports whether anything was removed.
+func pruneRetiredHooks(v any) (any, bool) {
+	switch x := v.(type) {
+	case []any:
+		var out []any
+		changed := false
+		for _, e := range x {
+			if hm, ok := e.(map[string]any); ok {
+				if cmd, ok := hm["command"].(string); ok && retiredHookCmd(cmd) {
+					changed = true
+					continue
+				}
+			}
+			ne, c := pruneRetiredHooks(e)
+			changed = changed || c
+			if c && isEmptyHookNode(ne) {
+				continue
+			}
+			out = append(out, ne)
+		}
+		return out, changed
+	case map[string]any:
+		changed := false
+		for k, e := range x {
+			ne, c := pruneRetiredHooks(e)
+			if !c {
+				continue
+			}
+			changed = true
+			if isEmptyHookNode(ne) && k != "hooks" { // an emptied "hooks" stays so the parent drops the whole group
+				delete(x, k)
+			} else {
+				x[k] = ne
+			}
+		}
+		return x, changed
+	}
+	return v, false
+}
+
+// isEmptyHookNode: an emptied list, or a group whose only hook list became empty (a matcher alone is nothing).
+func isEmptyHookNode(v any) bool {
+	switch x := v.(type) {
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		if hs, ok := x["hooks"]; ok {
+			l, _ := hs.([]any)
+			return len(l) == 0
+		}
+		return len(x) == 0
+	}
+	return false
+}
+
+// PruneRetiredAgentHooks drops the settings entries of retired guards from a role's hook file (and, with
+// workDir "", the user's global Claude Code settings). Retiring a guard only removed its script, so the
+// entries kept starting python on every event, and an upgrade never rewrote them (#1792). Returns the file
+// rewritten, "" when nothing was there.
+func PruneRetiredAgentHooks(cli, workDir string) (string, error) {
+	p := ""
+	if workDir == "" {
+		_, sp, err := GlobalHookOptions{}.paths()
+		if err != nil {
+			return "", err
+		}
+		p = sp
+	} else {
+		if cli == "kimi" || cli == "cursor" {
+			return "", nil
+		}
+		p = AgentHookSettingsPath(cli, workDir)
+	}
+	if _, err := os.Stat(p); err != nil {
+		return "", nil
+	}
+	m, err := readSettings(p)
+	if err != nil {
+		return "", err
+	}
+	if _, changed := pruneRetiredHooks(m); !changed {
+		return "", nil
+	}
+	return p, writeSettings(p, m)
+}
