@@ -508,6 +508,21 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
 // feedback are M1/M2 and are intentionally NOT asserted here; see
 // reports/issue-drafts/321-外部成员身份与权限设计说明-草案.md (§10, §18).
 
+test('cloud-web #1798: a plugin reload closes a socket still registering; its late register does not reach the closed store', () => {
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ws = new FakeWs();
+  gw.accept(ws, new URL('http://x/cloud-web/ws?bot=m-dsh&name=DSH'));
+  gw.closeAll();
+  hub.store.close();
+  assert.equal(ws.closed?.code, 1001);
+  // A frame already in flight still arrives while the socket is closing (CI dsh-plugin-solo: DSH died on it).
+  assert.doesNotThrow(() => ws.frame({ type: 'register', platform: 'cloud_web', client: 'cc-connect', project: 'p', transport: 'ws' }));
+  const late = new FakeWs();
+  gw.accept(late, new URL('http://x/cloud-web/ws?bot=m-dsh&name=DSH'));
+  assert.equal(late.closed?.code, 1001);
+});
+
 test('cloud-web external member: register is visible in the roster and scoped to its room', () => {
   const hub = makeHub();
   hub.store.ensureRoom(2, 'office');

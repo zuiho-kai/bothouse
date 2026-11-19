@@ -542,9 +542,11 @@ jobs:
       # what plugin-pkg/README.md tells users: DSH from npm, pnpm on PATH for `dsh plugin add`
       - name: Install DSH and pnpm (npm i -g, as the README tells users)
         run: npm i -g @deepseek-ai/dsh pnpm && dsh --version
+      # #1798: the plugin updates itself to npm's latest when it is behind; the checkout says 0.1.0, so without
+      # this the check would swap in the published release mid-run and test that instead of this commit.
       - name: Pack the plugin (npm run pack, the tarball npm publishes)
         working-directory: dsh/plugin-pkg
-        run: npm run pack
+        run: npm version 999.0.0 --no-git-tag-version && npm run pack
       # #1662: the plugin's members run as bothouse roles; the check runs this commit's bothouse
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:

@@ -210,6 +210,10 @@ export class CloudWebGateway {
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
+    /** Every accepted socket, registered or not, so closeAll() reaches one still mid-register too. */
+    this.sockets = new Set();
+    /** Set by closeAll(): the plugin is torn down and its store closed; late frames are dropped. */
+    this.closed = false;
     /** #1798: ids of messages held while the first start is prepared (hold/release); undefined = not holding. */
     this.held = undefined;
     /** #120: permission cards, shared with DSH members (approvals.mjs); meta = { gateway, bot, sessionKey } */
@@ -236,10 +240,12 @@ export class CloudWebGateway {
 
   /** Own one upgraded socket: register handshake, then frames until close. auth: what authorize() returned. */
   accept(ws, url, auth) {
+    if (this.closed) { ws.close(1001, 'server shutdown'); return; }
+    this.sockets.add(ws);
     let bot;
     const timer = setTimeout(() => ws.close(WS_BAD_REGISTER, 'register timeout'), REGISTER_TIMEOUT_MS);
     ws.on('message', (data, isBinary) => {
-      if (isBinary) return;
+      if (isBinary || this.closed) return;
       let frame;
       try { frame = JSON.parse(String(data)); } catch { return; }
       if (frame === null || typeof frame !== 'object') return;
@@ -255,6 +261,8 @@ export class CloudWebGateway {
     });
     ws.on('close', () => {
       clearTimeout(timer);
+      this.sockets.delete(ws);
+      if (this.closed) return;
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
         this.hub.setOnline(bot.member.id, false);
@@ -763,7 +771,10 @@ export class CloudWebGateway {
   }
 
   closeAll() {
-    for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
+    // #1798: a plugin reload (self-update) closed only registered bots; a socket still registering then
+    // reached the closed store ("statement has been finalized") and the uncaught error took DSH down.
+    this.closed = true;
+    for (const ws of this.sockets) ws.close(1001, 'server shutdown');
   }
 }
 
