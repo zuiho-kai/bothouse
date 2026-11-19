@@ -211,7 +211,7 @@ export async function apply(ctx, rawConfig) {
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   bridge.sync();
   // First start of a plugin-only install: a DSH member plus one per local CLI found (in the background).
-  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => detectClis(), ctx.logger)
+  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => detectClis(), ctx.logger, leadState)
     .then(seeded => { if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', ')); })
     .catch(error => ctx.logger.warn('conest-collab: default members not added: %s', error?.message ?? error));
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.

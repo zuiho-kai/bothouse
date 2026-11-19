@@ -71,3 +71,24 @@ test('first start seeds a DSH member plus one per local CLI, DSH leads, runs onc
  const s3=new Store(':memory:');const h3=new Hub(s3,{warn(){},info(){}});const r3=new Roster(h3,{putMember(m){h3.setMember({...m,kind:'dsh'});},dropMember(){}},undefined);r3.load([]);
  assert.deepEqual(await r3.seedDefaults(join(mkdtempSync(join(tmpdir(),'seed-')),'d.json'),async()=>{throw new Error('no which');}),['DSH']);
 });
+
+test('#1798 first start makes the seeded DSH member the global primary role before the first apply', async () => {
+ const {mkdtempSync,readFileSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {LeadState}=await import('./lead-state.mjs');const {applyRequest}=await import('./bridge.mjs');
+ const dir=mkdtempSync(join(tmpdir(),'seed-lead-'));const leadState=new LeadState(join(dir,'lead.json'));
+ const store=new Store(':memory:');store.ensureRoom(1,'general');const hub=new Hub(store,{warn(){},info(){}},leadState);
+ // Like plugin.mjs: every putMember schedules an apply (bridge.sync); record the lead each one would send.
+ const sent=[];const pending=[];
+ const roster=new Roster(hub,{putMember(m){hub.setMember({...m,kind:'dsh'});pending.push(new Promise(r=>setTimeout(()=>{sent.push(applyRequest(store.members().map(x=>({id:x.id,name:x.name,cli:x.cli})),{url:'u',token:'t',lead:leadState.selected()}).fallback_role);r();},0)));},dropMember(){}},undefined);roster.load([]);
+ await roster.seedDefaults(join(dir,'d.json'),async()=>[{cli:'claude'},{cli:'codex'}],undefined,leadState);
+ await Promise.all(pending);
+ const dsh=store.members().find(r=>r.name==='DSH');
+ assert.equal(leadState.selected(),dsh.id);assert.equal(hub.selectedPrimaryMember()?.id,dsh.id);
+ assert.equal(JSON.parse(readFileSync(join(dir,'lead.json'),'utf8')).auto,true,'an install pick, not a user switch');
+ assert.ok(sent.length>0);assert.deepEqual([...new Set(sent)],[dsh.id],'every apply, the first included, names DSH');
+ // A primary role already chosen is kept.
+ const d2=mkdtempSync(join(tmpdir(),'seed-lead-'));writeFileSync(join(d2,'lead.json'),JSON.stringify({lead:'mine'}));const ls2=new LeadState(join(d2,'lead.json'));
+ const s2=new Store(':memory:');const h2=new Hub(s2,{warn(){},info(){}},ls2);const r2=new Roster(h2,{putMember(m){h2.setMember({...m,kind:'dsh'});},dropMember(){}},undefined);r2.load([]);
+ await r2.seedDefaults(join(d2,'d.json'),async()=>[],undefined,ls2);
+ assert.equal(ls2.selected(),'mine');
+});

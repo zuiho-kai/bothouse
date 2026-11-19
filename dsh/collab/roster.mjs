@@ -188,9 +188,12 @@ export class Roster {
    * 自动识别用户本地的cli…人设 名字 头像啥的都进阶玩法」). Avatars stay empty: the page draws each one's
    * software icon from its cli / name (client avatars.ts matchAvatarSlug). The DSH member is the primary role.
    * Runs once (marker file); a channel that ever had members, or the wizard's roles, is left alone.
-   * detect: () => [{ cli }] (clis.mjs detectClis). Returns the names added.
+   * detect: () => [{ cli }] (clis.mjs detectClis). leadState (lead-state.mjs LeadState): when no product-wide
+   * primary role is selected yet, the DSH member becomes it, written before any apply can run (the apply's
+   * fallback_role reads it), so the bridge does not pick a CLI member itself (#1798: lead.json said
+   * claude-code while the page showed DSH). Returns the names added.
    */
-  async seedDefaults(markerPath, detect, logger) {
+  async seedDefaults(markerPath, detect, logger, leadState = undefined) {
     if (existsSync(markerPath)) return [];
     const added = [];
     if (this.store.db.prepare('SELECT COUNT(*) AS n FROM members').get().n === 0) {
@@ -201,6 +204,8 @@ export class Roster {
       for (const w of wanted) {
         try {
           const member = await this.create({ ...w, persona: '', nameCustomized: false });
+          // Right after create (its putMember only schedules the debounced apply): set before that apply reads it.
+          if (lead === undefined && leadState !== undefined && leadState.selected() === undefined) leadState.set(member.id, member.name, { auto: true });
           lead ??= member;
           added.push(member.name);
         } catch (error) {
