@@ -25,6 +25,16 @@ const SYNC_DEBOUNCE_MS = 1_000;
 // 来源：桥向频道主机发 team_workspace 帧等 ack 的上限是 10 秒（bridge/platform/cloud-web/workspaces.go），加命令启动的余量。
 const WORKSPACE_TIMEOUT_MS = 30_000;
 const TOKEN_FILE = 'bot-token';
+// 来源：装桥后首次起后台、gate 导入 scorer、各成员拨进频道，隔离 HOME 实测一分钟内（install-walk-1119）；给 90 秒。
+const CHECK_WAIT_MS = 90_000;
+const CHECK_POLL_MS = 3_000;
+/** Why the gate did not start (POST /setup/gate/start reason, bridge core/gate_proc.go), in plain words. */
+const GATE_REASONS = {
+  python_missing: '本机缺 Python',
+  python_too_old: '本机 Python 版本太旧',
+  starting: '还在启动，过一会儿再看',
+  not_managed: '后台服务没接管它，重启一次 bothouse 再试',
+};
 
 /** The bothouse binary: on PATH, else where the installer puts it (~/.local/bin). */
 export function bridgeBinary(env = process.env, platform = process.platform, exists = existsSync) {
@@ -70,6 +80,45 @@ export function applyRequest(members, { url, token, lead, remove = [] }) {
   return req;
 }
 
+/**
+ * What went wrong with the memory wiki in a `setup apply` answer's steps ('' = nothing): a failed
+ * "wiki" / "role N wiki" / "memory index" step, or a skip because there is no main wiki and none could be
+ * made (core/setup_wiki.go applyWizardWiki, core/rolewiki.go applyRoleWikis). The bridge makes the wiki
+ * when there is none, so a skip means it could not.
+ */
+export function wikiProblem(steps) {
+  for (const st of steps ?? []) {
+    const name = String(st?.step ?? '');
+    if (!/wiki|memory/i.test(name)) continue;
+    const detail = String(st?.detail ?? '');
+    if (st?.ok === false) return detail || name;
+    if (/^(skipped: no main wiki|跳过：没有主 wiki|スキップ：メイン wiki がな)/.test(detail)) return detail;
+  }
+  return '';
+}
+
+/** selfCheck()'s result as the one line said in the channel. */
+export function checkText(result) {
+  if (result.ok) return `装好了：后台服务、记忆服务、记忆 wiki 都正常，成员 ${result.members.join('、')} 都已在线。@ 谁就找谁干活。`;
+  return `还没完全装好，卡在这几项：\n${result.items.filter(i => !i.ok).map(i => `- ${i.why}`).join('\n')}`;
+}
+
+/**
+ * onCheck for the plugin: post selfCheck()'s result in room roomId() as a system message, once per state
+ * (all good, or the same failing items); the last state said is kept in stateFile across restarts.
+ */
+export function checkPoster(hub, roomId, stateFile) {
+  return (result) => {
+    const state = result.ok ? 'ok' : result.items.filter(i => !i.ok).map(i => `${i.key}:${i.why}`).join('|');
+    let last;
+    try { last = JSON.parse(readFileSync(stateFile, 'utf8')).state; } catch { last = undefined; }
+    if (state === last) return false;
+    hub.post(roomId(), { authorKind: 'system', author: 'system', name: '系统', text: checkText(result) });
+    writeFileSync(stateFile, JSON.stringify({ state, at: new Date().toISOString() }) + '\n', { mode: 0o600 });
+    return true;
+  };
+}
+
 function run(cmd, args, { input, timeout, log, env }) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
@@ -91,8 +140,11 @@ export class Bridge {
    * @param opts.members - () => the stored members (roster rows as members).
    * @param opts.lead - () => the selected primary role id, if any.
    */
-  constructor({ dataDir, origin, token, members, lead = () => undefined, logger, env = process.env, configFile = defaultBridgeConfig(env) }) {
-    Object.assign(this, { dataDir, origin, token, members, lead, logger, env, configFile });
+  constructor({ dataDir, origin, token, members, lead = () => undefined, online = () => false, logger, env = process.env, configFile = defaultBridgeConfig(env), checkWait = CHECK_WAIT_MS, checkPoll = CHECK_POLL_MS }) {
+    Object.assign(this, { dataDir, origin, token, members, lead, online, logger, env, configFile, checkWait, checkPoll });
+    /** #1798: called with selfCheck()'s result after each successful apply (the plugin posts it in #general). */
+    this.onCheck = undefined;
+    this.checkRun = 0;
     this.removed = new Set();
     this.changed = false;
     this.first = true;
@@ -196,6 +248,8 @@ export class Bridge {
       this.logger?.warn?.('conest-collab: bothouse setup apply failed: %s', res?.error ?? r.out.slice(-500));
       this.noKey = res?.error_code === 'dsh_no_key';
       if (this.noKey) this.watchKey();
+      // No key has its own card (plugin.mjs onOfflineMember); any other refusal is said in the channel.
+      else this.onCheck?.({ ok: false, items: [{ key: 'apply', ok: false, why: `成员没写进后台：${String(res?.error ?? r.out.trim().slice(-200)) || '没有输出'}（日志 ${join(this.dataDir, 'bothouse-apply.log')}）` }], members: [] });
       return;
     }
     this.noKey = false;
@@ -209,6 +263,49 @@ export class Bridge {
     this.changed = false;
     this.first = false;
     if (!await this.manage(restart ? 'restart' : 'reload')) this.start(bin);
+    // In the background: the next apply must not wait for the bridge to come up.
+    if (this.onCheck !== undefined) {
+      const run = ++this.checkRun;
+      this.selfCheck(res.steps ?? [], run).then(result => { if (result !== undefined) this.onCheck?.(result); })
+        .catch(error => this.logger?.warn?.('conest-collab: self-check failed: %s', error?.message ?? error));
+    }
+  }
+
+  /**
+   * #1798 (user 11-19「之前有人反应没装一些必备的东西导致没上下文啥的，这个也得强制装上」): after an apply, check
+   * the things a member needs, starting what can be started: the bridge answers (GET /status), the gate runs
+   * (GET /setup/gate; not running → POST /setup/gate/start), the memory wiki was made (the apply's wiki
+   * steps), every member is connected. Waits up to checkWait for things still coming up. Returns
+   * { ok, items: [{ key, ok, why }], members: [names] }; undefined when a newer apply's check took over.
+   */
+  async selfCheck(steps, run = this.checkRun) {
+    const wiki = wikiProblem(steps);
+    const deadline = Date.now() + this.checkWait;
+    let items;
+    for (;;) {
+      if (run !== this.checkRun) return undefined;
+      items = [];
+      const status = await this.api('GET', 'status');
+      items.push({ key: 'service', ok: status?.ok === true, why: status?.ok === true ? '' : `后台服务没起来：连不上 bothouse（日志 ${join(this.dataDir, 'bothouse.log')}）` });
+      if (status?.ok === true) {
+        let gate = (await this.api('GET', 'setup/gate'))?.data?.gate;
+        let reason = '';
+        if (gate?.running !== true) {
+          const started = await this.api('POST', 'setup/gate/start');
+          reason = started?.data?.reason ?? '';
+          if (started?.data?.running === true || started?.data?.started === true) gate = { running: true };
+          else gate = (await this.api('GET', 'setup/gate'))?.data?.gate;
+        }
+        items.push({ key: 'gate', ok: gate?.running === true, why: gate?.running === true ? '' : `记忆服务没起来：${GATE_REASONS[reason || gate?.status] ?? (reason || gate?.status || '原因不明')}` });
+      }
+      items.push({ key: 'wiki', ok: wiki === '', why: wiki === '' ? '' : `记忆 wiki 没建好：${wiki}` });
+      const offline = this.members().filter(m => !this.online(m.id)).map(m => m.name);
+      items.push({ key: 'members', ok: offline.length === 0, why: offline.length === 0 ? '' : `成员没连上：${offline.join('、')}` });
+      // The wiki is what the apply did; waiting does not change it.
+      if (items.every(i => i.ok || i.key === 'wiki') || Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, this.checkPoll));
+    }
+    return { ok: items.every(i => i.ok), items, members: this.members().map(m => m.name) };
   }
 
   /**
@@ -233,14 +330,24 @@ export class Bridge {
 
   /** POST /api/v1/<what> on the running bridge's management server. false = not reachable. */
   async manage(what) {
+    return (await this.api('POST', what))?.ok === true;
+  }
+
+  /**
+   * <method> /api/v1/<what> on the running bridge's management server: { ok, status, data } (data: the
+   * answer's "data", mgmtJSON), or undefined when it is not configured or not reachable.
+   */
+  async api(method, what) {
     let s;
-    try { s = managementSettings(readFileSync(this.configFile, 'utf8')); } catch { return false; }
-    if (!s.enabled) return false;
+    try { s = managementSettings(readFileSync(this.configFile, 'utf8')); } catch { return undefined; }
+    if (!s.enabled) return undefined;
     try {
-      const res = await fetch(`http://${dialHost(s.host)}:${s.port}/api/v1/${what}`, { method: 'POST', headers: s.token ? { authorization: `Bearer ${s.token}` } : {}, signal: AbortSignal.timeout(10_000) });
-      return res.ok;
+      const res = await fetch(`http://${dialHost(s.host)}:${s.port}/api/v1/${what}`, { method, headers: s.token ? { authorization: `Bearer ${s.token}` } : {}, signal: AbortSignal.timeout(10_000) });
+      let body;
+      try { body = await res.json(); } catch { body = undefined; }
+      return { ok: res.ok, status: res.status, data: body?.data };
     } catch {
-      return false;
+      return undefined;
     }
   }
 

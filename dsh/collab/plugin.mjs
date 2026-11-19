@@ -13,7 +13,7 @@ import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH, roomKey } from './cloudweb.mjs';
-import { Bridge, botToken } from './bridge.mjs';
+import { Bridge, botToken, checkPoster } from './bridge.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
@@ -178,7 +178,11 @@ export async function apply(ctx, rawConfig) {
   const token = botToken(config.botToken, config.dataDir);
   const gateway = r.gateway = new CloudWebGateway(hub, { token, logger: ctx.logger, files });
   const bridge = r.bridge = new Bridge({ dataDir: config.dataDir, token, logger: ctx.logger,
-    origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected() });
+    origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected(),
+    online: id => gateway.bots.has(id) });
+  // #1798: after each apply the bridge checks what a member needs (bridge, gate, memory wiki, members online) and
+  // the result is said once in #general; the same state is not said again (kept across restarts).
+  bridge.onCheck = checkPoster(hub, () => config.rooms[0]?.id ?? 1, join(config.dataDir, 'self-check.json'));
   // #1797: someone called a member whose role is not connected: apply again (starts a stopped bridge, picks up
   // a key saved since) and say in the channel what is missing; the card's 重试 sends the message again.
   gateway.onOfflineMember = (m, msg) => {
