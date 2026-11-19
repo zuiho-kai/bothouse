@@ -53,3 +53,21 @@ test('older SQLite members migrate without opting in to new config', async () =>
  const after=new Store(path); const row=after.member('legacy');
  assert.equal(row.cli,'codex'); assert.equal(row.cli_config,null); assert.equal(row.cli_config_managed,0); after.close();
 });
+
+test('first start seeds a DSH member plus one per local CLI, DSH leads, runs once', async () => {
+ const {mkdtempSync,existsSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const store=new Store(':memory:');store.ensureRoom(1,'general');const hub=new Hub(store,{warn(){},info(){}});hub.setMember({id:'owner',name:'owner',kind:'human'});
+ const roster=new Roster(hub,{putMember(m){hub.setMember({...m,kind:'dsh'});},dropMember(id){hub.removeMember(id);}},undefined);roster.load([]);
+ const marker=join(mkdtempSync(join(tmpdir(),'seed-')),'default-members.json');
+ const added=await roster.seedDefaults(marker,async()=>[{cli:'codex',path:'/x/codex'},{cli:'claude',path:'/x/claude'}]);
+ assert.deepEqual(added,['DSH','Claude Code','Codex']);assert.ok(existsSync(marker));
+ const rows=store.members();const dsh=rows.find(r=>r.name==='DSH');
+ assert.equal(dsh.cli??null,null);assert.equal(dsh.persona??'','');assert.equal(dsh.avatar??'','');assert.equal(dsh.name_customized,0);
+ assert.equal(rows.find(r=>r.name==='Codex').cli,'codex');assert.equal(rows.find(r=>r.name==='Claude Code').cli,'claude');
+ assert.equal(store.leadId(1),dsh.id);
+ assert.deepEqual(await roster.seedDefaults(marker,async()=>[{cli:'gemini'}]),[],'the marker keeps a second start from adding again');
+ // An existing install (members stored, no marker yet) is left alone; detection failing still seeds DSH.
+ const m2=join(mkdtempSync(join(tmpdir(),'seed-')),'d.json');assert.deepEqual(await roster.seedDefaults(m2,async()=>[{cli:'gemini'}]),[]);
+ const s3=new Store(':memory:');const h3=new Hub(s3,{warn(){},info(){}});const r3=new Roster(h3,{putMember(m){h3.setMember({...m,kind:'dsh'});},dropMember(){}},undefined);r3.load([]);
+ assert.deepEqual(await r3.seedDefaults(join(mkdtempSync(join(tmpdir(),'seed-')),'d.json'),async()=>{throw new Error('no which');}),['DSH']);
+});

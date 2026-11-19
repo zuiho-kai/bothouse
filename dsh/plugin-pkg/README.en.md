@@ -18,7 +18,7 @@ dsh plugin --profile web add "bothouse-dsh@$(npm view bothouse-dsh version)"
 
 Pin the version: DSH installs plugins with pnpm, and pnpm's supply-chain policy skips very fresh releases, so plain `bothouse-dsh` or `bothouse-dsh@latest` can install a version from days ago. An exact version goes through at once (pnpm records it as an exclusion). Measured 2026-11-08 with pnpm 12.16.1: `bothouse-dsh` resolved to 0.1.57, then the newest release older than a day — 0.1.59 was 19 hours old and 0.1.60 about 30 minutes; `bothouse-dsh@0.1.60` resolved to 0.1.60.
 
-Asked through DSH, "Channels" appears right after the install; installed from the command line while DSH is running, restart DSH once. Then click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has Whale Girl, running on the model you configured in DSH; nothing else to fill in. @ her to get a reply; tell her "hand this to a workspace: …" and she opens a workspace, does the work and reports back. For more characters or models, use "Add member".
+Asked through DSH, "Channels" appears right after the install; installed from the command line while DSH is running, restart DSH once. Then click "Channels" in the sidebar. Team desk, bothouse panel and other computers start off; switch the one you want on under "Plugins → bothouse" and it appears in the sidebar right away. #general already has members: one called "DSH", running on the model you configured in DSH, plus one for each of Claude Code, Codex and Gemini found on this computer, each with that software's icon; nothing else to fill in. @DSH to get a reply; tell it "hand this to a workspace: …" and it opens a workspace, does the work and reports back. Persona, name and avatar can be changed by editing a member.
 
 If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
@@ -36,7 +36,7 @@ If the terminal install says `pnpm was not found`, run `npm i -g pnpm` first.
 
 The plugin is the channels, and BotHouse runs the members behind them. Using BotHouse directly also gives you:
 
-- A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds one character (Whale Girl) on first start; add others with "Add member".
+- A setup wizard where you pick the characters and which local CLI each one runs. The plugin adds a DSH member and one member per local CLI it finds on first start; add others with "Add member".
 - Key storage: the wizard writes your DeepSeek key into DSH. With the plugin you enter it in DSH settings.
 - External bots: Discord, Feishu and other bots join channels through cc-connect.
 

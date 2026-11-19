@@ -18,7 +18,7 @@ import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
 import { avatarImage, checkAvatar } from './avatars.mjs';
 import { AvatarUploads } from './avatar-uploads.mjs';
-import { handler as clisHandler } from './clis.mjs';
+import { detectClis, handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, DEFAULT_MAX_UPLOAD_BYTES, INLINE_IMAGE, MAX_BOT_ATTACHMENT_BYTES, formatBytes } from './attachments.mjs';
 import { DeskEvents, DESK_NAMES_FILE, deskRoute } from './desk.mjs';
@@ -205,9 +205,8 @@ export async function apply(ctx, rawConfig) {
   const wizard = await roster.importWizard(join(config.dataDir, 'wizard-members.json'), ctx.logger);
   if (wizard.length) ctx.logger.info('conest-collab: added wizard members %s', wizard.join(', '));
   bridge.sync();
-  // Same catalog the add-member picker shows (GET /collab/api/personas defaults to zh): the bridge's, so on
-  // a machine without bothouse this waits for the install — in the background, the channels open meanwhile.
-  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => bridge.personas('zh'), ctx.logger)
+  // First start of a plugin-only install: a DSH member plus one per local CLI found (in the background).
+  roster.seedDefaults(join(config.dataDir, 'default-members.json'), () => detectClis(), ctx.logger)
     .then(seeded => { if (seeded.length) ctx.logger.info('conest-collab: added default members %s', seeded.join(', ')); })
     .catch(error => ctx.logger.warn('conest-collab: default members not added: %s', error?.message ?? error));
   // #876: only the plugin's own tail touches board-events.jsonl; board.py writes it.
