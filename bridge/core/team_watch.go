@@ -283,7 +283,8 @@ func (w *handoffWatch) run(ctx context.Context) {
 func (w *handoffWatch) sweepLoop(ctx context.Context) {
 	for {
 		freed := w.reconcileTeamWorkspaces(w.now())
-		slog.Info("team workspace: hourly sweep", "freed", len(freed))
+		deleted := w.e.sweepIdleTeamWorkspaces(w.now())
+		slog.Info("team workspace: hourly sweep", "freed", len(freed), "deleted", len(deleted))
 		t := time.NewTimer(teamWorkspaceReconcileEvery)
 		select {
 		case <-ctx.Done():
