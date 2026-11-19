@@ -1706,8 +1706,34 @@ func (m *ManagementServer) handleProjectModels(w http.ResponseWriter, r *http.Re
 }
 
 func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Request, e *Engine) {
+	if r.Method == http.MethodGet {
+		query := r.URL.Query()
+		key := strings.TrimSpace(query.Get("session_key"))
+		if key == "" {
+			mgmtError(w, http.StatusBadRequest, "session_key is required")
+			return
+		}
+		_, sessions := e.sessionContextForKey(key)
+		id := query.Get("session_id")
+		if id != "" {
+			// The management session list uses the project's session store.
+			sessions = e.sessions
+			keys, _ := sessions.SessionKeyMap()
+			if keys[id] != key {
+				mgmtError(w, http.StatusNotFound, "session not found")
+				return
+			}
+		}
+		activeID := sessions.ActiveSessionID(key)
+		if id == "" {
+			id = activeID
+		}
+		model := e.conversationModel(key, sessions.FindByID(id), id == activeID)
+		mgmtJSON(w, http.StatusOK, map[string]string{"model": displayModelName(model)})
+		return
+	}
 	if r.Method != http.MethodPost {
-		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
+		mgmtError(w, http.StatusMethodNotAllowed, "GET or POST only")
 		return
 	}
 	if _, ok := e.agent.(ModelSwitcher); !ok {
@@ -1734,6 +1760,36 @@ func (m *ManagementServer) handleProjectModel(w http.ResponseWriter, r *http.Req
 		"model":   model,
 		"message": "model updated",
 	})
+}
+
+func (e *Engine) conversationModel(key string, session *Session, active bool) string {
+	var nativeID, lastModel string
+	if session != nil {
+		session.mu.Lock()
+		nativeID, lastModel = session.AgentSessionID, session.LastModel
+		session.mu.Unlock()
+	}
+	if active {
+		interactiveKey := e.interactiveKeyForSessionKey(key)
+		e.modelSwitchMu.Lock()
+		request, ok := e.pendingSwitch[key]
+		if !ok {
+			request = e.pendingSwitch[interactiveKey]
+		}
+		e.modelSwitchMu.Unlock()
+		if request.Model != "" {
+			return request.Model
+		}
+		if model := e.sessionModelFor(key); model != "" {
+			return model
+		}
+		if live := e.liveModelSession(key); live != nil && live.Alive() && (nativeID == "" || nativeID == live.CurrentSessionID()) {
+			if model := replyFooterModel(live, nil); model != "" {
+				return model
+			}
+		}
+	}
+	return lastModel
 }
 
 // ── Heartbeat endpoints ───────────────────────────────────────

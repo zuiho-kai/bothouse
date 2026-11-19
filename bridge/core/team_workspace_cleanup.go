@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	// teamWorkspaceKeepIdle: idle workspaces left standing, so the next handoff need not create one.
-	// 来源：#1788 交接「我加的」把保留个数交给工作区按现场定；11-19 现场常用的是工作区1、2 两个。
-	teamWorkspaceKeepIdle = 2
+	// teamWorkspaceKeepIdle: idle workspaces left standing. 0 since #1793: user 11-19「以后自动删空闲
+	// 工作区」「工作区空闲问题还没解决」—— keeping two left 工作区6、7 standing idle; a handoff
+	// creates a workspace when none is free.
+	teamWorkspaceKeepIdle = 0
 	// teamWorkspaceIdleDelete: a workspace must have been quiet this long before it is deleted.
 	// 来源：同上交接由工作区定；沿用每小时收口（teamWorkspaceReconcileEvery）的两轮。
 	teamWorkspaceIdleDelete = 2 * teamWorkspaceReconcileEvery

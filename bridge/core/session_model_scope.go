@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"time"
 )
 
 // sessionModelSelection is independent of the native conversation ID: /new and
 // process reconstruction retain the channel's selection. Directory defaults and
 // configured session_models remain fallbacks for channels without a selection.
 type sessionModelSelection struct {
-	Model  string `json:"model,omitempty"`
-	Effort string `json:"effort,omitempty"`
+	Model     string    `json:"model,omitempty"`
+	Effort    string    `json:"effort,omitempty"`
+	ChangedAt time.Time `json:"changed_at,omitzero"`
 }
 
 type sessionSettingsContextKey struct{}
@@ -57,64 +60,49 @@ func (e *Engine) sessionSelection(key string) sessionModelSelection {
 // saveSessionSelection merges partial changes atomically. Failed disk writes
 // leave both the applied state and the queued request intact for a later retry.
 func (e *Engine) saveSessionSelection(key, model, effort string) error {
-	merge := func(s sessionModelSelection) sessionModelSelection {
-		if model != "" {
-			s.Model = model
-		}
-		if effort != "" {
-			s.Effort = effort
-		}
-		return s
-	}
-	if ps := e.projectState; ps != nil {
-		ps.mu.Lock()
-		defer ps.mu.Unlock()
-		selections := make(map[string]sessionModelSelection, len(ps.state.SessionModelOverrides)+1)
-		for k, v := range ps.state.SessionModelOverrides {
-			selections[k] = v
-		}
-		selections[key] = merge(selections[key])
-		next := ps.state
-		next.SessionModelOverrides = selections
-		if ps.storePath != "" {
-			data, err := json.MarshalIndent(next, "", "  ")
-			if err != nil {
-				return fmt.Errorf("encode session model: %w", err)
-			}
-			if err := ps.write(data); err != nil {
-				return fmt.Errorf("save session model: %w", err)
-			}
-		}
-		ps.state = next
-		return nil
-	}
-	e.sessionModelsMu.Lock()
-	defer e.sessionModelsMu.Unlock()
-	if e.sessionSelections == nil {
-		e.sessionSelections = make(map[string]sessionModelSelection)
-	}
-	e.sessionSelections[key] = merge(e.sessionSelections[key])
-	return nil
+	_, err := e.updateSessionModelState(key, sessionModelSelection{Model: model, Effort: effort}, false, nil)
+	return err
 }
 
-// clearSessionSelection drops a hand-picked model/effort for the session, so the
-// bot default (and, for team workspaces, the per-task route) applies again.
-// Reports whether there was anything to drop.
-func (e *Engine) clearSessionSelection(key string) (bool, error) {
+// updateSessionModelState commits a selection and the queue together. A nil
+// queue leaves stored requests untouched. A non-nil queue is owned by the caller
+// and only published after the write succeeds.
+func (e *Engine) updateSessionModelState(key string, selection sessionModelSelection, clear bool, pending map[string]pendingModelSwitch) (bool, error) {
+	update := func(selections map[string]sessionModelSelection) (map[string]sessionModelSelection, bool) {
+		current, exists := selections[key]
+		if clear {
+			delete(selections, key)
+			if request, queued := pending[key]; exists && queued && request.Auto {
+				request.Dropped = true
+				pending[key] = request
+			}
+			return selections, exists
+		}
+		if selection == (sessionModelSelection{}) {
+			return selections, false
+		}
+		if selections == nil {
+			selections = make(map[string]sessionModelSelection)
+		}
+		if selection.Model != "" {
+			current.Model = selection.Model
+			current.ChangedAt = time.Now()
+		}
+		if selection.Effort != "" {
+			current.Effort = selection.Effort
+		}
+		selections[key] = current
+		return selections, false
+	}
 	if ps := e.projectState; ps != nil {
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
-		if _, ok := ps.state.SessionModelOverrides[key]; !ok {
-			return false, nil
-		}
-		selections := make(map[string]sessionModelSelection, len(ps.state.SessionModelOverrides))
-		for k, v := range ps.state.SessionModelOverrides {
-			if k != key {
-				selections[k] = v
-			}
-		}
 		next := ps.state
+		selections, cleared := update(maps.Clone(next.SessionModelOverrides))
 		next.SessionModelOverrides = selections
+		if pending != nil {
+			next.PendingModelSwitches = pending
+		}
 		if ps.storePath != "" {
 			data, err := json.MarshalIndent(next, "", "  ")
 			if err != nil {
@@ -125,15 +113,13 @@ func (e *Engine) clearSessionSelection(key string) (bool, error) {
 			}
 		}
 		ps.state = next
-		return true, nil
+		return cleared, nil
 	}
 	e.sessionModelsMu.Lock()
 	defer e.sessionModelsMu.Unlock()
-	if _, ok := e.sessionSelections[key]; !ok {
-		return false, nil
-	}
-	delete(e.sessionSelections, key)
-	return true, nil
+	selections, cleared := update(e.sessionSelections)
+	e.sessionSelections = selections
+	return cleared, nil
 }
 
 func (e *Engine) sessionEffortFor(key string, agent Agent) string {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -46,15 +47,19 @@ func (g *deletingGuild) TeamChannelGone(_ context.Context, id string) (bool, err
 	return true, nil
 }
 
-// User 11-19「以后自动删空闲工作区，但是记录可以搞个日志系统压缩存起来」: the hourly sweep keeps the
-// two lowest idle workspaces, archives and deletes the quiet one beyond them, never touches one
-// with a task in work or a paused task, and drops the record of a channel deleted by hand.
+// User 11-19「以后自动删空闲工作区，但是记录可以搞个日志系统压缩存起来」「工作区空闲问题还没解决」: the
+// hourly sweep archives and deletes every quiet idle workspace, never touches one with a task in
+// work or a recent pause, lets a pause quiet for a day go (#1793), lets an unbound paused task hold
+// only the workspace it was last handed to, and drops the record of a channel deleted by hand.
 func TestSweepIdleTeamWorkspacesArchivesThenDeletes(t *testing.T) {
 	g := &deletingGuild{fakeWorkspaceGuild: newWorkspaceGuild()}
 	g.channels = append(g.channels,
 		TeamChannel{ID: "206", Name: "工作区6", ParentID: "catB"},
 		TeamChannel{ID: "207", Name: "工作区7", ParentID: "catB"},
-		TeamChannel{ID: "208", Name: "工作区8", ParentID: "catB"})
+		TeamChannel{ID: "208", Name: "工作区8", ParentID: "catB"},
+		TeamChannel{ID: "209", Name: "工作区9", ParentID: "catB"},
+		TeamChannel{ID: "210", Name: "工作区10", ParentID: "catB"},
+		TeamChannel{ID: "211", Name: "工作区11", ParentID: "catB"})
 	handoffFile := filepath.Join(t.TempDir(), "handoffs", "handoff-x.md")
 	if err := os.MkdirAll(filepath.Dir(handoffFile), 0o700); err != nil {
 		t.Fatal(err)
@@ -72,6 +77,7 @@ func TestSweepIdleTeamWorkspacesArchivesThenDeletes(t *testing.T) {
 	e.sessions.GetOrCreateActive("discord:200")
 
 	old := time.Now().Add(-5 * time.Hour)
+	longAgo := time.Now().Add(-30 * time.Hour)
 	path := teamWorkspacePath(dataDir)
 	teamWorkspaceStore.mu.Lock()
 	st, err := loadTeamWorkspacesLocked(path)
@@ -86,21 +92,29 @@ func TestSweepIdleTeamWorkspacesArchivesThenDeletes(t *testing.T) {
 		"discord:206": {{Chat: "discord:200", At: old, Closed: old}},
 		"discord:207": {{Chat: "discord:200", At: old, Parked: old, Board: 7}},
 		"discord:208": {{Chat: "discord:200", At: old, Closed: old, Name: "工作区8"}},
+		"discord:209": {{Chat: "discord:200", At: longAgo, Parked: longAgo, Board: 9}},
+		"discord:210": {{Chat: "discord:200", At: longAgo, Parked: longAgo, Board: 11}},
+		"discord:211": {{Chat: "discord:200", At: old, Parked: old, Board: 11}},
 	}
-	st.Tasks = map[int]TeamTask{7: {ID: 7, State: TeamTaskPaused, Chat: "discord:200", SessionWS: "discord:207"}}
+	st.Tasks = map[int]TeamTask{
+		7:  {ID: 7, State: TeamTaskPaused, Chat: "discord:200", SessionWS: "discord:207", Since: old},
+		9:  {ID: 9, State: TeamTaskPaused, Chat: "discord:200", SessionWS: "discord:209", Since: longAgo},
+		11: {ID: 11, State: TeamTaskPaused, Chat: "discord:200", Since: old},
+	}
 	if err := saveTeamWorkspacesLocked(path, st); err != nil {
 		t.Fatal(err)
 	}
 	teamWorkspaceStore.mu.Unlock()
 
 	deleted := e.sweepIdleTeamWorkspaces(time.Now())
-	if len(deleted) != 1 || deleted[0] != "discord:208" {
-		t.Fatalf("deleted = %v, want only discord:208 (205/206 kept as the two idle, 201 working, 207 paused)", deleted)
+	sort.Strings(deleted)
+	if strings.Join(deleted, ",") != "discord:205,discord:206,discord:208,discord:209,discord:210" {
+		t.Fatalf("deleted = %v, want 205 206 208 (idle), 209 (paused 30h ago), 210 (#11 last handed to 211); 201 working, 207 and 211 paused", deleted)
 	}
 	if gone, _ := g.TeamChannelGone(context.Background(), "208"); !gone {
 		t.Fatal("channel 208 not deleted")
 	}
-	for _, id := range []string{"201", "205", "206", "207"} {
+	for _, id := range []string{"201", "207", "211"} {
 		if gone, _ := g.TeamChannelGone(context.Background(), id); gone {
 			t.Fatalf("channel %s deleted", id)
 		}

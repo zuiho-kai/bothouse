@@ -7,7 +7,7 @@
 // out the roles of removed members (`remove_projects`); and keep the bridge running. With no bothouse
 // on the machine it runs the official installer first (install.sh / install.ps1, the README's one line).
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -99,6 +99,9 @@ export class Bridge {
     this.timer = undefined;
     this.running = Promise.resolve();
     this.personaCache = new Map();
+    /** #1797: 'no-key' = the last setup apply was refused because DSH has no model key yet. */
+    this.noKey = false;
+    this.keyWatch = undefined;
   }
 
   /** The bothouse binary, installing it once when the machine has none. */
@@ -143,7 +146,23 @@ export class Bridge {
     this.timer.unref?.();
   }
 
-  close() { clearTimeout(this.timer); }
+  close() { clearTimeout(this.timer); this.keyWatch?.close(); }
+
+  /**
+   * #1797: the key is saved in DSH (Settings → Models writes $DSH_HOME/.credentials.yaml; a key can also be
+   * in $DSH_HOME/.env): apply again then, so the roles are written and the bridge starts without reopening DSH.
+   */
+  watchKey() {
+    if (this.keyWatch !== undefined) return;
+    const dir = this.env.DSH_HOME || join(this.env.HOME || this.env.USERPROFILE || homedir(), '.dsh');
+    try {
+      this.keyWatch = watch(dir, (_event, name) => {
+        if (name == null || /^\.(credentials|env)/.test(String(name))) this.sync();
+      });
+    } catch (error) {
+      this.logger?.warn?.('conest-collab: cannot watch %s for the model key: %s', dir, error?.message ?? error);
+    }
+  }
 
   /** No bothouse yet: the official installer puts it in ~/.local/bin. Returns the binary or undefined. */
   async install() {
@@ -175,8 +194,13 @@ export class Bridge {
     // saved = the roles are written; its warnings (a CLI not logged in…) are for the user, the roles still run.
     if (res?.saved !== true) {
       this.logger?.warn?.('conest-collab: bothouse setup apply failed: %s', res?.error ?? r.out.slice(-500));
+      this.noKey = res?.error_code === 'dsh_no_key';
+      if (this.noKey) this.watchKey();
       return;
     }
+    this.noKey = false;
+    this.keyWatch?.close();
+    this.keyWatch = undefined;
     for (const w of res.warnings ?? []) this.logger?.warn?.('conest-collab: bothouse: %s', w.message);
     for (const id of remove) this.removed.delete(id);
     // New roles hot-load; a removed or edited one keeps its old setup until the bridge restarts, and so does
