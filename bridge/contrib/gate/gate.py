@@ -702,8 +702,13 @@ def _route(req, bot=""):
             return "reply", f"rule: 用户把主角色切到{lead.NAME[target]}", None
         return "context", f"rule: 用户把主角色切到{lead.NAME[target]}，不是我", None
     addr, why, asc = addressee(req, bot)
-    if addr is not None and bot != addr and _called_in_burst(req, bot):  # 连发前面有条叫的是她：按她自己的规则
+    called = addr is not None and bot != addr and _called_in_burst(req, bot)
+    if called:  # 连发前面有条叫的是她：按她自己的规则
         addr, why = None, f"{why}: 判给{lead.NAME[addr]}，但连发里叫了我"
+    # #827 用户 2026-11-16 23:4x「一个新的话题默认主bot。接着聊就是和你聊的那个bot接」：没 @ 的话 jev 没判给谁
+    # （看不出 / 新话题 / 收件人不在线 / 超时又没人在对话）就归主角色，其他成员只收；以前忙着的 sub 会按 SUB_PROMPT 插话
+    if why and addr is None and not called and bot != lead.current():
+        return "context", f"{why}；新话题归主角色", asc
     if addr is not None:
         if bot != addr:
             return "context", f"{why}: 判给{lead.NAME[addr]}", asc
