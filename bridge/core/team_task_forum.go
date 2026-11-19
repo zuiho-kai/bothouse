@@ -241,6 +241,11 @@ func (e *Engine) taskForumSaveLocked() {
 // taskForumTagOf maps the board's own state (teamTaskBoardStateOf, the same reading the pinned
 // team board shows) to the post's one tag, with the sentence the 现状卡 says.
 func taskForumTagOf(it teamTaskBoardItem, now time.Time) (string, string) {
+	if it.Paused == "" && it.Backlog == "" && it.waitsOn(teamWaitLead) {
+		// A status that waits on someone (「等用户 GitHub 授权…」) the dispatcher has not passed on
+		// to the user: it waits on the dispatcher, not 等你 (user 11-19 「谁给你发任务，你给谁说去啊」).
+		return TaskForumTagPaused, "等派活人定" + taskForumWhy(it.Status)
+	}
 	state, why := teamTaskBoardStateOf(it, now)
 	switch state {
 	case teamTaskWaiting:
@@ -357,6 +362,9 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	if tag == TaskForumTagReview && it.Reviewer != "" {
 		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
 	}
+	if tag == TaskForumTagPaused && it.waitsOn(teamWaitLead) {
+		head += " · 等 " + taskForumDispatcherName(it) + " 定"
+	}
 	head += "\n"
 	// 方案甲 (user 11-16 「让帖子显示的更精华一些」): 「现在」 shows only progress a person wrote,
 	// never the state sentence again or the bridge's auto-filled tool step.
@@ -444,9 +452,22 @@ func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
 		it.Who = strings.TrimSuffix(it.Who, who) + name
 	}
 	it.reviewerName = e.projectDisplayName(it.Reviewer)
+	it.dispatcherName = e.projectDisplayName(it.Dispatcher)
 	it.speakerNames = e.taskForumSpeakerNames()
 	it.quoteWho = e.taskForumQuoteWho(taskForumChat(it))
 	return it
+}
+
+// taskForumDispatcherName: who a waiting post waits on — the dispatcher (a role's name, or a
+// person as <@id>), "派活人" when the row does not say.
+func taskForumDispatcherName(it teamTaskBoardItem) string {
+	if it.dispatcherName != "" {
+		return it.dispatcherName
+	}
+	if id := watchOwnerID(it.Dispatcher); id != "" && strings.Trim(id, "0123456789") == "" {
+		return "<@" + id + ">"
+	}
+	return firstNonEmpty(it.Dispatcher, "派活人")
 }
 
 func runeLen(s string) int { return len([]rune(s)) }
@@ -549,7 +570,7 @@ func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sente
 		if it.askText != "" && it.waitsOn(teamWaitLead) {
 			// The lead decides first: the whole question is shown, nobody is mentioned and the
 			// post is not 等你 (team rule: only 方向/花钱/成品/权限 wait on the user).
-			return "⏸️ 工作区提了个问题，主角色先定（没叫你，不用回）：\n" + it.askText
+			return "⏸️ 工作区提了个问题，等派活的 " + taskForumDispatcherName(it) + " 先定（没叫你，不用回）：\n" + it.askText
 		}
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
@@ -907,6 +928,11 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
 		} else if waitingNow && canMention {
 			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
+		} else if lead := watchOwnerID(it.Dispatcher); canMention && tag != ps.Tag && tag == TaskForumTagPaused &&
+			it.waitsOn(teamWaitLead) && e.watchOwnerIsPerson(plat, chat, lead) {
+			// Waits on the dispatcher: a person who dispatched is called here; a role dispatcher
+			// already has the question in its chat channel (ws-up --ask, #1728) and is only named.
+			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, lead)
 		} else {
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
 		}
