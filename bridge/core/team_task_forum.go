@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,6 +160,12 @@ type taskForumPostState struct {
 	// Result: the passed report as the chat channel got it (taskForumExitText); the card shows
 	// its 【做了什么】 and 【要你做的】 so the first floor answers what came of it (#1732).
 	Result string `json:"result,omitempty"`
+	// Pause / Said: the pause (board paused_at, else paused) and the lines already posted during
+	// it. A paused item posts each line once per pause, so a reading that flips back and forth
+	// while nothing happened (two board.py copies writing wait_kind differently, #1791) does not
+	// post 「❓ 等你」+「⏸️ 暂停」 again on every flip.
+	Pause string   `json:"pause,omitempty"`
+	Said  []string `json:"said,omitempty"`
 }
 
 type taskForumState struct {
@@ -896,6 +903,8 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			// Initial waiting is a question, not a new transition mentioning a user.
 			if err := poster.PostTaskNode(ctx, id, node); err != nil {
 				slog.Warn("task forum: initial question not posted", "board_item", it.ID, "error", err)
+			} else if pause := firstNonEmpty(it.PausedAt, it.Paused); pause != "" {
+				s.Posts[key].Pause, s.Posts[key].Said = pause, []string{node}
 			}
 		}
 		slog.Info("task forum: post opened", "board_item", it.ID, "thread", id, "tag", tag, "owner", e.name)
@@ -913,6 +922,13 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			e.taskForumFailed(ctx, p, chat, it, err)
 			return adopted, false
 		}
+	}
+	pause := firstNonEmpty(it.PausedAt, it.Paused)
+	if pause != ps.Pause {
+		ps.Pause, ps.Said = pause, nil
+	}
+	if pause != "" && node != "" && slices.Contains(ps.Said, node) {
+		node = "" // said already during this pause: the card and tag still follow the board
 	}
 	if node != "" {
 		var err error
@@ -938,6 +954,8 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		}
 		if err != nil {
 			slog.Warn("task forum: key move not posted", "board_item", it.ID, "thread", ps.Thread, "error", err)
+		} else if pause != "" {
+			ps.Said = append(ps.Said, node)
 		}
 	}
 	if tag == TaskForumTagDone && ps.Tag != TaskForumTagDone {
