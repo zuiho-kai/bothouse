@@ -50,12 +50,11 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 		mgmtError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://"+c.target+target, bytes.NewReader(body))
+	req, err := c.newRequest(r.Context(), r.Method, target, bytes.NewReader(body))
 	if err != nil {
 		mgmtError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	req.Host = c.target
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.rt.RoundTrip(req)
 	if errors.Is(err, errDSHWebNotRunning) {
