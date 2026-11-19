@@ -7,6 +7,7 @@ package core
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,12 +24,14 @@ func resetDSHWebHeal(t *testing.T) {
 	t.Helper()
 	dshWebHealMu.Lock()
 	dshWebHealFailedAt = time.Time{}
+	dshWebDeadQuiet = ""
 	dshWebHealLast.at, dshWebHealLast.state = time.Time{}, nil
 	dshWebHealMu.Unlock()
 	dshWebSuspect.Store(false)
 	t.Cleanup(func() {
 		dshWebHealMu.Lock()
 		dshWebHealFailedAt = time.Time{}
+		dshWebDeadQuiet = ""
 		dshWebHealMu.Unlock()
 		dshWebSuspect.Store(false)
 	})
@@ -580,3 +583,61 @@ func TestDSHWebSelfHealNoEmptyBackup(t *testing.T) {
 		t.Fatalf("backups = %v, want none (there was no file to keep)", backups(t))
 	}
 }
+
+// A recorded host that is gone and a log that has not changed since the last failed scan cannot
+// sign in now either: the scan is not repeated and the WARN is not written again, past the cooldown
+// too. A new announcement in the log changes it and the heal adopts as before (#1785: the tray's
+// 45-second poll wrote the same WARN 3524 times after the host had exited).
+func TestDSHWebSelfHealDeadHostUnchangedLogStaysQuiet(t *testing.T) {
+	fake := newProxyFakeDSH(t)
+	_ = setupDSHProxyTest(t, nil, "secret")
+	resetDSHWebHeal(t)
+	prevAlive := dshWebAliveFn
+	dshWebAliveFn = func(pid int) bool { return pid != 424242 }
+	t.Cleanup(func() { dshWebAliveFn = prevAlive })
+	logPath := staleState(t, "http://127.0.0.1:1/?token=old", 424242, "dsh web: http://127.0.0.1:1/?token=old")
+
+	var buf strings.Builder
+	var mu sync.Mutex
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(writerFunc(func(b []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.Write(b)
+	}), nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	warns := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Count(buf.String(), "dsh web self-heal: keeping")
+	}
+
+	web, _, _ := readDSHWebState()
+	if _, _, ok := healDSHWebState(web); ok {
+		t.Fatal("first scan adopted a stale token")
+	}
+	for i := 0; i < 3; i++ {
+		dshWebHealMu.Lock()
+		dshWebHealFailedAt = time.Now().Add(-2 * dshWebHealCooldown)
+		dshWebHealMu.Unlock()
+		if _, _, ok := healDSHWebState(web); ok {
+			t.Fatal("quiet scan adopted")
+		}
+	}
+	if n := warns(); n != 1 {
+		t.Fatalf("WARN written %d times, want 1", n)
+	}
+	if err := os.WriteFile(logPath, []byte("dsh web: "+fake.srv.URL+"/?token=launch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dshWebHealMu.Lock()
+	dshWebHealFailedAt = time.Time{}
+	dshWebHealMu.Unlock()
+	if _, _, ok := healDSHWebState(web); !ok {
+		t.Fatal("a new announcement in the log was not adopted")
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(b []byte) (int, error) { return f(b) }

@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,7 +77,30 @@ var (
 	// dead" sees what a Windows host sees. 来源：验收 2026-11-06 03:2x 的注入实验 —— 不改这一处，
 	// 删掉 web.PID > 0 守卫在 mac/linux 上没有任何用例会失败。
 	dshWebAliveFn = processAlive
+	// dshWebDeadQuiet is what the last heal that failed on a dead recorded pid saw: the pid and the
+	// candidate logs' sizes and mtimes. Until one of those logs changes (a new `dsh web` announces
+	// itself there) the same scan can only fail the same way, so it is not repeated or logged again.
+	// 来源：2026-11-19 现场，宿主 78208 11-11 退出后托盘每 45 秒查角色，冷却 30 秒挡不住，
+	// 同一条 WARN 刷了 3524 次（任务板 #1785）。
+	dshWebDeadQuiet string
 )
+
+// dshWebDeadKey is the pid plus each candidate log's size and mtime ("" when the pid is alive or
+// unknown: only a dead recorded host makes a failed scan certain to fail again).
+func dshWebDeadKey(web DSHWeb, logs []string) string {
+	if web.PID <= 0 || dshWebAliveFn(web.PID) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(strconv.Itoa(web.PID))
+	for _, p := range logs {
+		b.WriteString("|" + p)
+		if info, err := os.Stat(p); err == nil {
+			b.WriteString(":" + strconv.FormatInt(info.Size(), 10) + ":" + strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		}
+	}
+	return b.String()
+}
 
 // loopbackTarget reports whether host:port points at this machine, which is the only thing the
 // proxy can dial: it forwards to the url's host, so a tailnet name would be dialled from here
@@ -372,6 +396,10 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 		return "", "", false
 	}
 	logPath := dshWebLogPaths(web)[0]
+	deadKey := dshWebDeadKey(web, dshWebLogPaths(web))
+	if deadKey != "" && deadKey == dshWebDeadQuiet {
+		return "", "", false
+	}
 	// The panel's own "Open DSH" writes this file too (openDSHWeb, under dshWebMu); its write is the
 	// newer truth. If the bytes moved while we were probing, leave the file to it.
 	orig, _ := os.ReadFile(dshWebStatePath())
@@ -419,6 +447,7 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 		}
 	}
 	if port == "" {
+		dshWebDeadQuiet = deadKey
 		return fail("no announcement in the logs tried has a token that signs in",
 			"logs_tried", triedLogs)
 	}
@@ -447,6 +476,7 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 		return fail("the state file could not be replaced", "error", err)
 	}
 	dshWebHealFailedAt = time.Time{}
+	dshWebDeadQuiet = ""
 	dshWebHealLast.at, dshWebHealLast.state = time.Now(), b
 	dshWebHealLast.target, dshWebHealLast.token = "127.0.0.1:"+port, token
 	dshWebSuspect.Store(false)
