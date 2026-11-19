@@ -556,6 +556,27 @@ def notes_chat(notes: str, chat: str) -> str:
     return want
 
 
+COOLING = "cooling down after quota exhaustion"  # 桥 ErrTeamWorkspaceCooling 的报错原文
+BUSY_ERRS = ("is still running there", "belongs to another chat channel")  # 桥报这两种 = 工作区真占着，可以新建
+NEW_GAP = 30 * 60  # 同一件活 30 分钟内只新建一次工作区（#1786）
+
+
+def _new_recent(save=None) -> dict:
+    """<数据目录>/ws-new-recent.json：{任务板编号: 上次为它新建工作区的时间}；传 save 就写回（只留 1 天内的）。"""
+    p = _team.datadir.data_dir() / "ws-new-recent.json"
+    if save is not None:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({k: v for k, v in save.items() if time.time() - v < 86400}), encoding="utf-8")
+        except OSError as e:
+            print(f"ws-handoff: 记不下新建时间（{e}）", file=sys.stderr)
+        return save
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     """共享池里挑一个工作区并 claim（记一件交接），返回（工作区会话 key <平台>:<id>，工作区名，交接的聊天频道 parent）；
     没有空位时新建工作区。
@@ -572,14 +593,30 @@ def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
           and str(w.get("owner") or "") in ("", parent) and str(w.get("home") or "") in ("", parent)
           and int(w.get("open") or 0) < BUSY]  # home：只有平台自己记归属的（自建平台）才有；Discord、飞书空着的谁都能拿（#1729）
     ok.sort(key=lambda w: (f"{plat}:{w['id']}" != preferred, int(w.get("open") or 0), num(w.get("name"))))
+    idle_failed = []
     for w in ok:
         c = subprocess.run(claim_cmd(chat, w["id"], task, nid), capture_output=True, text=True)
         if c.returncode == 0:
             return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
-        print(f"ws-handoff: {w.get('name')} 认领不了（{c.stderr.strip()}），换下一个", file=sys.stderr)
+        err = c.stderr.strip() or c.stdout.strip()
+        if COOLING in err:
+            # 项目额度冷却：哪个工作区都一样跑不了，换下一个、新建都没用（#1786：11-18 每 10 分钟新建一个，涨到 37 个）
+            sys.exit(f"ws-handoff: 项目额度冷却中，这次不派、不新建工作区：{err}")
+        if not any(b in err for b in BUSY_ERRS):  # 不是「其实在忙/归别的频道」，就是空闲工作区认领失败
+            idle_failed.append(f"{w.get('name')}（{err}）")
+        print(f"ws-handoff: {w.get('name')} 认领不了（{err}），换下一个", file=sys.stderr)
+    if idle_failed:
+        sys.exit("ws-handoff: 池里有空闲工作区但认领失败，不新建工作区（新建的也会同样失败）：" + "；".join(idle_failed))
+    recent = _new_recent()
+    last = recent.get(str(nid), 0)
+    if nid and time.time() - last < NEW_GAP:
+        sys.exit(f"ws-handoff: #{nid} {int((time.time() - last) // 60)} 分钟前刚为它新建过工作区，不再新建")
     w = (ws_cmd(chat, "new").get("workspace") or {})
     if not w.get("id"):
         sys.exit("ws-handoff: workspace new 没回工作区")
+    if nid:
+        recent[str(nid)] = time.time()
+        _new_recent(recent)
     c = subprocess.run(claim_cmd(chat, w["id"], task, nid), capture_output=True, text=True)
     if c.returncode != 0:
         sys.exit(f"ws-handoff: workspace claim 失败：{c.stderr.strip() or c.stdout.strip()}")

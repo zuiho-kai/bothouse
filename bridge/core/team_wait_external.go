@@ -68,6 +68,13 @@ func (w *handoffWatch) retryWaitingExternal(now time.Time) {
 			if !it.waitingExternal() || it.WS != "" || it.WaitUntil <= 0 || it.Chat == "" || now.Unix() < it.WaitUntil {
 				continue
 			}
+			// #1786: the project is cooling down after quota exhaustion — every workspace claim would fail the
+			// same way, and ws-handoff used to create a new workspace each time (11-18: 工作区12–37, one per
+			// ten minutes). Skip this round; the item stays due and is tried once the cooldown is over.
+			if until := e.quotaCoolingFor(e.admissionQuotaScope(e.agent, it.Chat)); !until.IsZero() {
+				coolingSkipLog(e.team.dir, it.ID, until)
+				continue
+			}
 			key := e.team.dir + "#" + strconv.Itoa(it.ID)
 			waitExternalTried.Lock()
 			last := waitExternalTried.at[key]
@@ -80,6 +87,23 @@ func (w *handoffWatch) retryWaitingExternal(now time.Time) {
 			resumeWaitingExternalFn(e, it)
 		}
 	}
+}
+
+var waitExternalCoolLogged = struct {
+	sync.Mutex
+	at map[string]time.Time
+}{at: map[string]time.Time{}}
+
+// coolingSkipLog logs a skipped retry once per cooldown, not every watch tick.
+func coolingSkipLog(dir string, id int, until time.Time) {
+	key := dir + "#" + strconv.Itoa(id)
+	waitExternalCoolLogged.Lock()
+	defer waitExternalCoolLogged.Unlock()
+	if waitExternalCoolLogged.at[key].Equal(until) {
+		return
+	}
+	waitExternalCoolLogged.at[key] = until
+	slog.Info("team workspace: project cooling, retry of a task waiting on external skipped", "board_item", id, "until", until)
 }
 
 // resumeWaitingExternalFn is swapped in tests.
