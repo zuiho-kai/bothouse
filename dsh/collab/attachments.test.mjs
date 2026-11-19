@@ -253,7 +253,14 @@ test('#197: a cut-off or empty upload leaves no file behind', async () => {
     await new Promise(done => setTimeout(done, 50));
     controller.abort();
     await cut;
-    await new Promise(done => setTimeout(done, 50));
+    // The client's fetch rejects before the server has noticed the cut and removed its temp
+    // file; on a Windows runner that gap outlived the fixed 50 ms pause and left a `.part`
+    // behind at the assert. Wait for the cleanup instead of sampling once — a real leak
+    // still fails, after 5 s instead of 50 ms.
+    const deadline = Date.now() + 5_000;
+    while (readdirSync(server.files.dir).length > 0 && Date.now() < deadline) {
+      await new Promise(done => setTimeout(done, 25));
+    }
     assert.deepEqual(readdirSync(server.files.dir), [], 'a half-received upload leaves no file');
   } finally { await server.close(); }
 });
