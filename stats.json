@@ -1,17 +1,17 @@
 {
   "repository": "zuiho-kai/bothouse",
-  "updatedAt": "2026-11-18T20:31:58Z",
+  "updatedAt": "2026-11-19T07:26:19Z",
   "defaultBranch": "main",
-  "defaultBranchSha": "143c5c8d2d292045ca4977fa5665f67e0da378d4",
-  "stars": 273,
-  "forks": 27,
-  "issues": 19,
-  "pullRequests": 14,
-  "release": "v0.1.83",
+  "defaultBranchSha": "8be7b7efd9da7f4e06667f3b83bbfd36efb10cc7",
+  "stars": 275,
+  "forks": 28,
+  "issues": 17,
+  "pullRequests": 12,
+  "release": "v0.1.84",
   "activity": {
-    "since": "2026-10-19T20:31:58Z",
-    "until": "2026-11-18T20:31:58Z",
-    "closedPullRequests": 1585,
-    "commits": 2781
+    "since": "2026-10-20T07:26:19Z",
+    "until": "2026-11-19T07:26:19Z",
+    "closedPullRequests": 1602,
+    "commits": 2793
   }
 }
