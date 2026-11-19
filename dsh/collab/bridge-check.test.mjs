@@ -103,7 +103,8 @@ test('#1798 blockingItems: one login item per member named in the warning, with 
   assert.deepEqual(items.map(i => [i.member, i.hint]), [['cx', '在终端运行 codex login，按提示登录一次'], ['cx2', '在终端运行 codex login，按提示登录一次']]);
 });
 
-test('#1798 first start: no bridge running → progress steps, then 准备好了 and the result said even if said before', async () => {
+// The stand-in bothouse is a /bin/sh script, which Windows cannot spawn.
+test('#1798 first start: no bridge running → progress steps, then 准备好了 and the result said even if said before', { skip: process.platform === 'win32' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bridge-prep-'));
   const bin = join(dir, 'bothouse');
   // A stand-in bothouse: setup apply answers saved with one blocking warning; nothing else answers.
