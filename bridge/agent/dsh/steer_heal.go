@@ -117,7 +117,17 @@ var steerHealed sync.Map
 
 // healSteer checks the dsh-acp the configured command runs and patches it when needed.
 func healSteer(cmd string, args []string) {
-	for _, js := range dshACPFiles(cmd, args) {
+	entry := dshEntryScript(cmd, args)
+	// Electron can read inside ASAR, but Go's filesystem calls cannot. Do not
+	// treat an archive as a directory or rewrite a signed desktop application.
+	if i := strings.Index(strings.ToLower(filepath.ToSlash(entry)), ".asar/"); i >= 0 {
+		archive := entry[:i+len(".asar")]
+		_, err := os.Stat(archive)
+		slog.Warn("dsh: cannot apply steer patch inside desktop ASAR; busy messages will queue unless the loaded ACP already advertises dsh/steer", "entry", entry, "archive", archive, "reason", "packed desktop component is not a writable standalone dsh-acp file", "err", err)
+		return
+	}
+	files := dshACPFiles(cmd, args)
+	for _, js := range files {
 		fi, err := os.Stat(js)
 		if err != nil {
 			continue
@@ -158,6 +168,7 @@ func healSteer(cmd string, args []string) {
 		slog.Warn("dsh: dsh-acp had lost the steer patch (DSH reinstalled or upgraded); patched it back so busy messages join the running turn", "file", js, "backup", js+".bak-presteer")
 		return
 	}
+	slog.Warn("dsh: cannot locate dsh-acp for steer patch; busy messages will queue unless the loaded ACP already advertises dsh/steer", "command", cmd, "entry", entry, "candidates", files)
 }
 
 func statTime(p string) string {
@@ -201,16 +212,32 @@ func dshACPFiles(cmd string, args []string) []string {
 // dshPackageDir finds the @deepseek-ai/dsh package directory from the command ("dsh" on PATH, a
 // symlink to lib/bin.js) or, when the command is node, from its first .js argument.
 func dshPackageDir(cmd string, args []string) string {
+	start := dshEntryScript(cmd, args)
+	if start == "" {
+		return ""
+	}
+	dir := filepath.Dir(start)
+	for i := 0; i < 4 && dir != filepath.Dir(dir); i++ {
+		if b, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil && strings.Contains(string(b), `"name": "@deepseek-ai/dsh"`) {
+			return dir
+		}
+		dir = filepath.Dir(dir)
+	}
+	return ""
+}
+
+func dshEntryScript(cmd string, args []string) string {
 	var start string
 	base := strings.ToLower(filepath.Base(cmd))
-	if base == "node" || base == "node.exe" {
+	if base == "node" || base == "node.exe" || strings.HasSuffix(base, ".exe") {
 		for _, a := range args {
 			if strings.HasSuffix(a, ".js") || strings.HasSuffix(a, ".mjs") {
 				start = a
 				break
 			}
 		}
-	} else if cmd != "" {
+	}
+	if start == "" && cmd != "" {
 		if p, err := exec.LookPath(cmd); err == nil {
 			start = p
 		}
@@ -226,14 +253,7 @@ func dshPackageDir(cmd string, args []string) string {
 			start = script
 		}
 	}
-	dir := filepath.Dir(start)
-	for i := 0; i < 4 && dir != filepath.Dir(dir); i++ {
-		if b, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil && strings.Contains(string(b), `"name": "@deepseek-ai/dsh"`) {
-			return dir
-		}
-		dir = filepath.Dir(dir)
-	}
-	return ""
+	return start
 }
 
 func dshShimScript(shim string) string {
@@ -255,11 +275,17 @@ func dshShimScript(shim string) string {
 			arg, tail := rest[:end], rest[end+1:]
 			rest = tail
 			lower := strings.ToLower(strings.ReplaceAll(arg, "\\", "/"))
-			if !strings.Contains(lower, "@deepseek-ai/dsh/") || !strings.HasSuffix(lower, ".js") {
+			if (!strings.Contains(lower, "@deepseek-ai/dsh/") && !strings.Contains(lower, ".asar/")) || !strings.HasSuffix(lower, ".js") {
 				continue
 			}
-			if len(arg) >= len("%dp0%") && strings.EqualFold(arg[:len("%dp0%")], "%dp0%") {
-				rel := strings.ReplaceAll(arg[len("%dp0%"):], "\\", string(os.PathSeparator))
+			prefix := 0
+			if strings.HasPrefix(strings.ToLower(arg), "%dp0%") {
+				prefix = len("%dp0%")
+			} else if strings.HasPrefix(strings.ToLower(arg), "%~dp0") {
+				prefix = len("%~dp0")
+			}
+			if prefix != 0 {
+				rel := strings.ReplaceAll(arg[prefix:], "\\", string(os.PathSeparator))
 				return filepath.Clean(filepath.Join(filepath.Dir(shim), strings.TrimLeft(rel, `/\\`)))
 			}
 			arg = strings.ReplaceAll(arg, "\\", string(os.PathSeparator))
