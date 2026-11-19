@@ -43,3 +43,32 @@ func TestTaskForumPausedFlipPostsOncePerPause(t *testing.T) {
 		t.Fatalf("new pause nodes = %q", got.nodes)
 	}
 }
+
+// #1791 acceptance: an old paused row that says 等用户 but was never passed on to the user
+// (no ask.to = user) waits on its dispatcher whichever board.py copy saved it: three restarts with
+// both writings give no new floor and no mention.
+func TestTaskForumOldPausedRowWaitsOnDispatcher(t *testing.T) {
+	row := func(kind string) string {
+		return `{"id":1230,"what":"续办#1203","short":"iot轮流气泡","status":"待接手：截图交橘，不等用户","dispatcher":"longniang","chat":"discord:111","sk":"discord:222","paused":"11-08 10:48","paused_at":"2026-11-08T01:48:44Z","pause_why":"等待用户答复","wait_kind":"` + kind + `"}` + "\n"
+	}
+	e, p, dir := forumRoutingEngine(t)
+	e.adminFrom = "42"
+	writeTaskBoard(t, dir, team.TaskBoardFile, row("user"))
+	e.syncTaskForum()
+	if got := p.post("th1"); got.tag != TaskForumTagPaused || len(got.nodes) != 0 || len(p.mentions) != 0 {
+		t.Fatalf("old paused row = %+v mentions %v", got, p.mentions)
+	}
+	for restart := 0; restart < 3; restart++ {
+		e2, _, _ := forumRoutingEngine(t)
+		e2.adminFrom = "42"
+		e2.team = e.team
+		e2.platforms = e.platforms
+		for _, kind := range []string{"lead", "user"} {
+			writeTaskBoard(t, dir, team.TaskBoardFile, row(kind))
+			e2.syncTaskForum()
+		}
+	}
+	if got := p.post("th1"); len(got.nodes) != 0 || len(p.mentions) != 0 || got.tag != TaskForumTagPaused {
+		t.Fatalf("after restarts: tag %s nodes %q mentions %v", got.tag, got.nodes, p.mentions)
+	}
+}

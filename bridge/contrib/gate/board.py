@@ -315,6 +315,14 @@ def _user_or_lead(it):
     return "user" if (it.get("ask") or {}).get("to") == "user" else "lead"
 
 
+TEST_TITLE = re.compile(r"^\s*[\[【(（]?\s*(验收探针|提问探针|探针|测试|自检|自验|test|probe|self-?check)\s*[\]】)）:：]", re.I)
+
+
+def is_test(title):
+    """事情是测试/探针活（标题以「测试」「探针」「自检」等开头）：本地 ws-up 据此不往用户的聊天频道报（#1702 起本机副本里的补丁，#1791 合回）。"""
+    return bool(TEST_TITLE.match(title or ""))
+
+
 def waits_user(it):
     """等用户拍板/看片的条目：暂停原因或状态写着等用户。"""
     return wait_kind_of(it) == "user"

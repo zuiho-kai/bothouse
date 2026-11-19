@@ -82,19 +82,20 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 var leadRuntimeMu sync.Mutex
 
 func (e *Engine) leadRuntimeDir() (string, error) {
-	if LeadToolFS == nil || e.dataDir == "" {
+	tools := LeadToolFS // read once: role sessions call this while tests swap the embedded tools
+	if tools == nil || e.dataDir == "" {
 		return "", nil
 	}
 	leadRuntimeMu.Lock()
 	defer leadRuntimeMu.Unlock()
 	root := filepath.Join(e.dataDir, "collaboration", "runtime")
-	err := fs.WalkDir(LeadToolFS, "contrib", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(tools, "contrib", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		rel := strings.TrimPrefix(p, "contrib/")
 		dst := filepath.Join(root, filepath.FromSlash(rel))
-		b, err := fs.ReadFile(LeadToolFS, p)
+		b, err := fs.ReadFile(tools, p)
 		if err != nil {
 			return err
 		}
