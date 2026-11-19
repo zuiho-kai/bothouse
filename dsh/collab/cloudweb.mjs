@@ -441,7 +441,7 @@ export class CloudWebGateway {
     return true;
   }
 
-  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release | delete. */
+  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release | delete | messages. */
   teamWorkspace(d) {
     const { store } = this.hub;
     if (!supportsWorkspaces(store)) return { ok: false, error: 'unsupported' };
@@ -492,6 +492,19 @@ export class CloudWebGateway {
         store.removeWorkspace(id);
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
+      }
+      if (d.op === 'messages') {
+        // #1788: before the bridge deletes an idle workspace it archives it, and the archive wants
+        // the room's whole history. One page at a time, oldest first; `before` is the oldest id of
+        // the page just read. Rows look like publicMessage rows so the bridge maps them the same way.
+        const raw = d.before == null ? '' : String(d.before).replace(/^hub-/, '');
+        const before = /^\d+$/.test(raw) ? Number(raw) : undefined;
+        const messages = store.page(id, before, Number(d.limit) || 200).map(r => ({
+          id: `hub-${r.id}`, author_kind: r.author_kind, author: r.author, name: r.name,
+          text: r.text, created_at: r.created_at,
+          ...(messageAttachments(r).length ? { attachments: messageAttachments(r).map(a => ({ name: a.name })) } : {}),
+        }));
+        return { ok: true, messages };
       }
       if (d.op === 'create') {
         // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
