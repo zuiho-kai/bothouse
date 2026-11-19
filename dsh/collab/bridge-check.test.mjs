@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Bridge, blockingItems, checkPoster, wikiProblem } from './bridge.mjs';
+import { Bridge, blockingItems, checkPoster, prepText, wikiProblem } from './bridge.mjs';
 
 /** A fake bridge management server; gate: { running, status }, start: what POST /setup/gate/start answers. */
 async function fakeBridge({ gate, start }) {
@@ -95,4 +95,41 @@ test('#1798 self-check: a blocking apply warning (CLI not logged in) is where it
   } finally { f.close(); }
   // Unknown codes and members fall back to the bridge's own words, cut to the first sentence.
   assert.deepEqual(blockingItems([{ code: 'x_missing', project: 'p', blocking: true, message: '缺了 X。', fix: '装上 X；再试' }]).map(i => i.why), ['缺了 X：装上 X']);
+});
+
+test('#1798 blockingItems: one login item per member named in the warning, with its id and hint', () => {
+  const ms = [{ id: 'cx', name: 'Codex', cli: 'codex' }, { id: 'cx2', name: '小码', cli: 'codex' }];
+  const items = blockingItems([{ code: 'agent_not_logged_in', project: 'Codex,小码', blocking: true, message: 'x', fix: 'y' }], ms);
+  assert.deepEqual(items.map(i => [i.member, i.hint]), [['cx', '在终端运行 codex login，按提示登录一次'], ['cx2', '在终端运行 codex login，按提示登录一次']]);
+});
+
+test('#1798 first start: no bridge running → progress steps, then 准备好了 and the result said even if said before', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bridge-prep-'));
+  const bin = join(dir, 'bothouse');
+  // A stand-in bothouse: setup apply answers saved with one blocking warning; nothing else answers.
+  writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\necho '{"saved":true,"steps":[],"warnings":[{"code":"agent_not_logged_in","project":"Codex","blocking":true,"message":"m","fix":"f"}]}'\n`, { mode: 0o755 });
+  const b = new Bridge({ dataDir: dir, configFile: join(dir, 'none.toml'), origin: () => 'http://127.0.0.1:1', token: 't', members: () => members,
+    online: () => false, env: { PATH: dir, HOME: dir }, checkWait: 0, checkPoll: 1 });
+  b.start = () => {};
+  const steps = [];
+  const blocking = [];
+  b.onProgress = p => steps.push(prepText(p));
+  b.onBlocking = items => blocking.push(...items.map(i => i.member));
+  const said = new Promise(resolve => { b.onCheck = (result, force) => resolve({ result, force }); });
+  await b.apply();
+  const { result, force } = await said;
+  assert.equal(b.preparing, false);
+  assert.equal(force, true, 'the progress line points at the result, so it is said again');
+  assert.equal(result.ok, false);
+  assert.deepEqual(blocking, ['m-codex']);
+  assert.match(steps[0], /正在写成员和记忆 wiki/);
+  assert.match(steps[1], /正在起后台服务/);
+  assert.match(steps.at(-1), /^准备结束（用时 \d+ 秒）/);
+  const posted = [];
+  const post = checkPoster({ post: (_room, m) => posted.push(m.text) }, () => 1, join(dir, 'self-check.json'));
+  post(result);
+  assert.equal(post(result), false);
+  assert.equal(post(result, true), true);
+  assert.equal(prepText({ stage: 'done', seconds: 78 }), '准备好了（用时 78 秒）');
+  assert.match(prepText({ stage: 'members', online: 1, total: 2 }), /成员上线 1\/2/);
 });

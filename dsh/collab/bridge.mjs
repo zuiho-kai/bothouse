@@ -113,14 +113,19 @@ export function blockingItems(warnings, members = []) {
   const items = [];
   for (const w of warnings ?? []) {
     if (w?.blocking !== true) continue;
-    const m = members.find(x => x.id === w.project || x.name === w.project);
-    const name = m?.name ?? w.project ?? '';
     // The bridge's fix up to its first sentence: the rest is about bothouse commands.
     const fix = String(w.fix ?? '').split(/[；。]/)[0].trim();
-    const why = w.code === 'agent_not_logged_in'
-      ? `${name} 还没登录：${(m && LOGIN_HINTS[m.cli || 'dsh']) || fix || '按它自己的说明登录'}`
-      : `${String(w.message ?? w.code ?? '').replace(/[。.]\s*$/, '')}${fix ? `：${fix}` : ''}`;
-    items.push({ key: `blocking:${w.code ?? ''}:${w.project ?? ''}`, ok: false, why });
+    if (w.code === 'agent_not_logged_in') {
+      // One warning per CLI; project = the display names of the members on it, joined by commas
+      // (core/setup_wizard_warnings.go warnAgentLogins). member + hint: the member list shows 需登录 (hub.setLogin).
+      for (const who of String(w.project ?? '').split(',').map(s => s.trim()).filter(Boolean)) {
+        const m = members.find(x => x.id === who || x.name === who);
+        const hint = (m && LOGIN_HINTS[m.cli || 'dsh']) || fix || '按它自己的说明登录';
+        items.push({ key: `blocking:${w.code}:${m?.id ?? who}`, ok: false, why: `${m?.name ?? who} 还没登录：${hint}`, member: m?.id, hint });
+      }
+      continue;
+    }
+    items.push({ key: `blocking:${w.code ?? ''}:${w.project ?? ''}`, ok: false, why: `${String(w.message ?? w.code ?? '').replace(/[。.]\s*$/, '')}${fix ? `：${fix}` : ''}` });
   }
   return items;
 }
@@ -131,16 +136,35 @@ export function checkText(result) {
   return `还没完全装好，卡在这几项：\n${result.items.filter(i => !i.ok).map(i => `- ${i.why}`).join('\n')}`;
 }
 
+/** Bridge.onProgress's stages in plain words (the one progress message in #general, edited in place). */
+const PREP_STAGES = {
+  install: '正在装后台程序（第一次要下载，慢网一两分钟）',
+  apply: '正在写成员和记忆 wiki',
+  service: '正在起后台服务',
+  gate: '正在起记忆服务',
+};
+
+/**
+ * #1798: the first-start progress line. p: { stage, online?, total?, seconds?, ok?, noKey? } (Bridge.onProgress).
+ */
+export function prepText(p) {
+  if (p.stage === 'done') return p.ok === false ? `准备结束（用时 ${p.seconds} 秒），还有没装好的，见下一条。` : `准备好了（用时 ${p.seconds} 秒）`;
+  if (p.stage === 'stopped') return p.noKey ? '准备停下了：还没填模型密钥。在 设置 → 模型 里填 DeepSeek API Key，保存后会自动接着装。' : '准备停下了，原因见下一条。';
+  const now = p.stage === 'members' ? `成员上线 ${p.online}/${p.total}` : PREP_STAGES[p.stage];
+  return `第一次启用，正在准备（约一分钟）：${now}……\n这期间发的消息先记着，准备好会接着回。`;
+}
+
 /**
  * onCheck for the plugin: post selfCheck()'s result in room roomId() as a system message, once per state
  * (all good, or the same failing items); the last state said is kept in stateFile across restarts.
+ * force: progress was shown this time (the first start), so the result is said even when it was said before.
  */
 export function checkPoster(hub, roomId, stateFile) {
-  return (result) => {
+  return (result, force = false) => {
     const state = result.ok ? 'ok' : result.items.filter(i => !i.ok).map(i => `${i.key}:${i.why}`).join('|');
     let last;
     try { last = JSON.parse(readFileSync(stateFile, 'utf8')).state; } catch { last = undefined; }
-    if (state === last) return false;
+    if (state === last && !force) return false;
     hub.post(roomId(), { authorKind: 'system', author: 'system', name: '系统', text: checkText(result) });
     writeFileSync(stateFile, JSON.stringify({ state, at: new Date().toISOString() }) + '\n', { mode: 0o600 });
     return true;
@@ -172,6 +196,13 @@ export class Bridge {
     Object.assign(this, { dataDir, origin, token, members, lead, online, logger, env, configFile, checkWait, checkPoll });
     /** #1798: called with selfCheck()'s result after each successful apply (the plugin posts it in #general). */
     this.onCheck = undefined;
+    /** #1798: called with each first-start progress step ({ stage, … }, prepText) while preparing is true. */
+    this.onProgress = undefined;
+    /** #1798: called with blockingItems() after each successful apply (the plugin marks members 需登录). */
+    this.onBlocking = undefined;
+    /** #1798: the first start is still being prepared (no bridge was running before the first apply). */
+    this.preparing = false;
+    this.prepStarted = 0;
     this.checkRun = 0;
     this.removed = new Set();
     this.changed = false;
@@ -256,16 +287,37 @@ export class Bridge {
     return bin;
   }
 
+  /** #1798: say the next first-start step (only while preparing). */
+  progress(p) {
+    if (this.preparing) this.onProgress?.(p);
+  }
+
+  /** #1798: the first start is over (a self-check result, a refused apply, no key): say it and stop reporting. */
+  endPrep(p) {
+    if (!this.preparing) return false;
+    this.onProgress?.({ ...p, seconds: Math.round((Date.now() - this.prepStarted) / 1000) });
+    this.preparing = false;
+    return true;
+  }
+
   /** Write the roles (setup apply), then have the running bridge load them, or start it. */
   async apply() {
     const url = this.origin();
     if (url === undefined) return;
+    // #1798 (user「点一下就能直接用」): the first start with no bridge running takes about a minute (install, roles,
+    // the bridge, the gate, members dialling in); say each step in #general instead of a silent minute.
+    if (this.first && !this.preparing && (await this.api('GET', 'status'))?.ok !== true) {
+      this.preparing = true;
+      this.prepStarted = Date.now();
+    }
+    if (bridgeBinary(this.env) === undefined) this.progress({ stage: 'install' });
     const bin = await this.binary();
     if (bin === undefined) return;
     const remove = [...this.removed];
     const members = this.members();
     // No member yet (the default one is still being added): nothing to hand over; setup apply refuses an empty list.
     if (members.length === 0 && remove.length === 0) return;
+    this.progress({ stage: 'apply' });
     const req = applyRequest(members, { url, token: this.token, lead: this.lead(), remove });
     const before = this.configText();
     const r = await run(bin, ['setup', 'apply', '--json', '-'], { input: JSON.stringify(req), timeout: APPLY_TIMEOUT_MS, log: join(this.dataDir, 'bothouse-apply.log'), env: this.env });
@@ -275,6 +327,7 @@ export class Bridge {
     if (res?.saved !== true) {
       this.logger?.warn?.('conest-collab: bothouse setup apply failed: %s', res?.error ?? r.out.slice(-500));
       this.noKey = res?.error_code === 'dsh_no_key';
+      this.endPrep({ stage: 'stopped', noKey: this.noKey });
       if (this.noKey) this.watchKey();
       // No key has its own card (plugin.mjs onOfflineMember); any other refusal is said in the channel.
       else this.onCheck?.({ ok: false, items: [{ key: 'apply', ok: false, why: `成员没写进后台：${String(res?.error ?? r.out.trim().slice(-200)) || '没有输出'}（日志 ${join(this.dataDir, 'bothouse-apply.log')}）` }], members: [] });
@@ -285,16 +338,23 @@ export class Bridge {
     this.keyWatch = undefined;
     for (const w of res.warnings ?? []) this.logger?.warn?.('conest-collab: bothouse: %s', w.message);
     for (const id of remove) this.removed.delete(id);
+    this.onBlocking?.(blockingItems(res.warnings ?? [], members));
     // New roles hot-load; a removed or edited one keeps its old setup until the bridge restarts, and so does
     // one edited while this DSH was closed (the first apply after a start that changed the config).
     const restart = remove.length > 0 || this.changed || (this.first && this.configText() !== before);
     this.changed = false;
     this.first = false;
+    this.progress({ stage: 'service' });
     if (!await this.manage(restart ? 'restart' : 'reload')) this.start(bin);
     // In the background: the next apply must not wait for the bridge to come up.
     if (this.onCheck !== undefined) {
       const run = ++this.checkRun;
-      this.selfCheck(res.steps ?? [], run, res.warnings ?? []).then(result => { if (result !== undefined) this.onCheck?.(result); })
+      this.selfCheck(res.steps ?? [], run, res.warnings ?? []).then(result => {
+        if (result === undefined) return;
+        // The result is said even when it was said before: the progress line points at it.
+        const prepared = this.endPrep({ stage: 'done', ok: result.ok });
+        this.onCheck?.(result, prepared);
+      })
         .catch(error => this.logger?.warn?.('conest-collab: self-check failed: %s', error?.message ?? error));
     }
   }
@@ -334,6 +394,8 @@ export class Bridge {
       items.push({ key: 'members', ok: offline.length === 0, why: offline.length === 0 ? '' : `成员没连上：${offline.join('、')}` });
       // The wiki and the blocking warnings are what the apply found; waiting does not change them.
       if (items.every(i => i.ok || i.key === 'wiki') || Date.now() >= deadline) { items.push(...blocking); break; }
+      const stuck = items.find(i => !i.ok && i.key !== 'wiki')?.key;
+      this.progress(stuck === 'members' ? { stage: 'members', online: this.members().length - offline.length, total: this.members().length } : { stage: stuck });
       await new Promise(resolve => setTimeout(resolve, this.checkPoll));
     }
     return { ok: items.every(i => i.ok), items, members: this.members().map(m => m.name) };

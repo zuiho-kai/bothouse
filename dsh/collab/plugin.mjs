@@ -13,7 +13,7 @@ import { localConnection, isLocalOwner, mountSharedHost, refuse } from './local-
 import { startBotPort } from './bot-port.mjs';
 import { Hub } from './hub.mjs';
 import { CloudWebGateway, WS_PATH, roomKey } from './cloudweb.mjs';
-import { Bridge, botToken, checkPoster } from './bridge.mjs';
+import { Bridge, botToken, checkPoster, prepText } from './bridge.mjs';
 import { selfUpdate } from './update.mjs';
 import { Roster, rowToMember } from './roster.mjs';
 import { managementMembers, managementCreate, managementUpdate, managementDelete, managementOptions } from './member-management.mjs';
@@ -184,9 +184,25 @@ export async function apply(ctx, rawConfig) {
   // #1798: after each apply the bridge checks what a member needs (bridge, gate, memory wiki, members online) and
   // the result is said once in #general; the same state is not said again (kept across restarts).
   bridge.onCheck = checkPoster(hub, () => config.rooms[0]?.id ?? 1, join(config.dataDir, 'self-check.json'));
+  // #1798: the first start (about a minute) says its steps in #general: one system message, edited in place.
+  // Messages sent meanwhile to a room with no member online yet are held and delivered when it is over.
+  let prep;
+  bridge.onProgress = (p) => {
+    const text = prepText(p);
+    if (prep === undefined) prep = hub.post(config.rooms[0]?.id ?? 1, { authorKind: 'system', author: 'system', name: '系统', text }).message;
+    else if (prep.text !== text) prep = hub.edit(prep.id, 'system', 'system', text) ?? prep;
+    if (p.stage === 'done' || p.stage === 'stopped') { prep = undefined; gateway.release(); }
+    else gateway.hold();
+  };
+  // #1798: a member whose CLI is not logged in shows 需登录, not online (the apply's blocking warnings).
+  bridge.onBlocking = (items) => {
+    for (const m of store.members()) hub.setLogin(m.id, items.find(i => i.member === m.id)?.hint);
+  };
   // #1797: someone called a member whose role is not connected: apply again (starts a stopped bridge, picks up
   // a key saved since) and say in the channel what is missing; the card's 重试 sends the message again.
   gateway.onOfflineMember = (m, msg) => {
+    // The first start is still going: the member comes online at its end (the progress line says so).
+    if (bridge.preparing) return;
     bridge.sync();
     const text = bridge.noKey
       ? `${m.name} 还没法回话：还没填模型密钥。点「去填密钥」（或 设置 → 模型）填 DeepSeek API Key，保存后点「重试」。`

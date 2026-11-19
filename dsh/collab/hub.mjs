@@ -128,6 +128,14 @@ export class Hub {
     this.emit({ type: 'members', members: this.memberView() });
   }
 
+  /** #1798: login = how to log in the member's CLI (not logged in: shown as 需登录, not online); undefined clears it. */
+  setLogin(id, login) {
+    const member = this.members.get(id);
+    if (member === undefined || member.login === login) return;
+    member.login = login;
+    this.emit({ type: 'members', members: this.memberView() });
+  }
+
   setThinking(roomId, id, on) {
     if (on) this.setError(id, undefined);
     const set = this.thinking.get(roomId) ?? new Set();
@@ -153,8 +161,8 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms, external }) => ({
-      id, name, kind, ...(external ? { external: true } : {}), ...(rooms ? { rooms } : {}), online: online !== false && !error, ...(error ? { error } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms, external, login }) => ({
+      id, name, kind, ...(external ? { external: true } : {}), ...(rooms ? { rooms } : {}), online: online !== false && !error && !login, ...(error ? { error } : {}), ...(login ? { login } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
       ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
       ...(this.presence.get(id) ?? {}),
     }));
