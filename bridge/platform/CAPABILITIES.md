@@ -103,9 +103,18 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 删除空闲工作区：只删除平台上的频道，不删除桥的工作区记录；支持的平台由 `core/team_workspace_delete.go` 调用。
 
 - cloud-web: 已接
-- discord: 不支持：按 #1904 的设计，在 Discord 上删除频道；桥不提供删除实现
+- discord: 已接
 - feishu: 不支持：按 #1904 的设计，在飞书上删除频道；桥不提供删除实现
 - dsh: 不支持：DSH 工作区由 cloud-web 提供，此能力目前未接
+
+## TeamChannelArchiver
+
+删除空闲工作区前，先把工作区频道整段消息读出来，和桥的记录、会话、交接文件一起写进一个压缩归档（core/team_workspace_cleanup.go archiveTeamWorkspace，#1788）。没接的平台也能删工作区，只是归档里没有频道消息这一段。
+
+- discord: 已接
+- feishu: 不支持：飞书的工作区是一个群，读整段群消息要先开通读群消息的权限，再按时间段翻页拉全量；桥现在只按消息 id 取单条，本机没有真实飞书环境验证，这次不发
+- cloud-web: 不支持：网页频道的工作区是 collab 网关的房间，消息只有网关转给桥的实时一份，桥没有回读整段历史的接口；删除时归档里是桥自己的记录、会话和交接文件
+- dsh: 不支持：同 cloud-web
 
 ## TeamChannelGoneChecker
 
