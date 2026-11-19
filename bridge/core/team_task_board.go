@@ -112,6 +112,8 @@ type teamTaskBoardItem struct {
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
+	// dispatcherName: the dispatcher's name for people (taskForumDisplayItem), "" = unknown.
+	dispatcherName string
 	// forumResult: the passed report the item's post remembers (taskForumPostState.Result).
 	forumResult string
 	// quoteWho/speakerNames: who said each 原话 line on the forum card (team_task_forum_quote.go).
