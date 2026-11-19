@@ -376,8 +376,11 @@ export class CloudWebGateway {
     // #321: a person calls an external member that is not connected: say so in the channel.
     if (msg.author_kind === 'user') {
       for (const m of this.hub.routableIn(msg.room_id)) {
-        if (!m.external || this.bots.has(m.id) || !mentionsMember(msg.text, m)) continue;
-        this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: `${m.name} 现在不在线，这条消息它没有收到。` });
+        if (this.bots.has(m.id) || !mentionsMember(msg.text, m)) continue;
+        if (m.external) this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: `${m.name} 现在不在线，这条消息它没有收到。` });
+        // #1797: a member of this host whose bothouse role is not connected (no model key yet, the bridge
+        // stopped): the plugin says what is missing and tries again (plugin.mjs onOfflineMember).
+        else if (m.kind === 'dsh') this.onOfflineMember?.(m, msg);
       }
     }
     if (this.bots.size === 0) return;

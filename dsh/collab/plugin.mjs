@@ -179,6 +179,16 @@ export async function apply(ctx, rawConfig) {
   const gateway = r.gateway = new CloudWebGateway(hub, { token, logger: ctx.logger, files });
   const bridge = r.bridge = new Bridge({ dataDir: config.dataDir, token, logger: ctx.logger,
     origin: () => ctx.webServer.getOrigin(), members: () => store.members().map(rowToMember), lead: () => leadState.selected() });
+  // #1797: someone called a member whose role is not connected: apply again (starts a stopped bridge, picks up
+  // a key saved since) and say in the channel what is missing; the card's 重试 sends the message again.
+  gateway.onOfflineMember = (m, msg) => {
+    bridge.sync();
+    const text = bridge.noKey
+      ? `${m.name} 还没法回话：还没填模型密钥。点「去填密钥」（或 设置 → 模型）填 DeepSeek API Key，保存后点「重试」。`
+      : `${m.name} 现在不在线：后台服务没在运行，正在重新启动。十几秒后点「重试」。`;
+    hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text,
+      card: JSON.stringify({ title: '成员出错', state: 'failed', ...(bridge.noKey ? { action: 'configure-model' } : {}), member_id: m.id, trigger_id: msg.id }) });
+  };
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
   // A stored member (kind 'dsh': defined in this channel host) is shown at once, offline until its bothouse
   // role connects, and handed to the bridge.

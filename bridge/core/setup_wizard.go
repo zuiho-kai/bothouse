@@ -223,6 +223,9 @@ type WizardResult struct {
 	CloudWeb     *CloudWebTestResult `json:"cloud_web,omitempty"`     // cloud_web: the connection test (page_url = the platform's web page)
 	QQ           *QQTestResult       `json:"qq,omitempty"`            // qq: the NapCat connection test
 	Error        string              `json:"error,omitempty"`
+	// ErrorCode names an Error a caller acts on: "dsh_no_key" = a DSH role has no model key yet
+	// (the DSH channels plugin then waits for the key to be saved and applies again).
+	ErrorCode string `json:"error_code,omitempty"`
 }
 
 // ── store (implemented in cmd/cc-connect on top of config/) ─────
@@ -472,8 +475,10 @@ func HardwarePresent() bool {
 func SystemReplyLanguage() string {
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		if v := os.Getenv(k); v != "" {
-			if v == "C" || v == "POSIX" || strings.HasPrefix(v, "C.") {
-				return "en"
+			// C / POSIX names no language: the DSH desktop app runs its plugins (and the bothouse it starts)
+			// with LANG=C.UTF-8, so a Chinese Mac read as English (#1797). Ask the OS below.
+			if isCLocale(v) {
+				continue
 			}
 			if l := NormalizeLanguage(v); l != "" {
 				return l
@@ -487,11 +492,14 @@ func SystemReplyLanguage() string {
 	return "en"
 }
 
+// isCLocale: the C / POSIX locale (LANG=C, C.UTF-8, POSIX), which says nothing about the user's language.
+func isCLocale(v string) bool { return v == "C" || v == "POSIX" || strings.HasPrefix(v, "C.") }
+
 // SystemLanguage: "zh" or "en" from the process locale (LC_ALL / LANG). Windows does not set
 // LANG, so there the user's locale name (zh-CN, en-US, …) is asked from the OS instead.
 func SystemLanguage() string {
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := os.Getenv(k); v != "" {
+		if v := os.Getenv(k); v != "" && !isCLocale(v) {
 			if isZH(v) {
 				return "zh"
 			}
@@ -854,6 +862,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	fail := func(step string, err error) *WizardResult {
 		addStep(res, step, err, "")
 		res.Error = err.Error()
+		var coded *wizardCodedError
+		if errors.As(err, &coded) {
+			res.ErrorCode = coded.code
+		}
 		return res
 	}
 	// The reply language: a role's reply_language, else the request's language, else this
