@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 )
 
 // TeamWorkspaceDeleter is implemented by platforms whose workspace channels the bridge can take
@@ -128,14 +129,25 @@ func teamWorkspaceForgetLocked(st *teamWorkspaceState, plat, id string) {
 	delete(st.ScriptWatches, key)
 }
 
+// teamWorkspacePausedStale: in the idle sweep a pause older than this no longer holds its
+// workspace. 来源：#1793 现场 11-19：工作区2–5 被 11-12〜11-14 起再没动过的暂停活占着，工作区 6、7
+// 被保留空闲留下，清扫 deleted=0。沿用十分钟看门以外最长的「隔天再看」节奏（等外部的活一般次日再看）。
+// The task stays on the board; when it resumes it takes a free workspace, its records are in the
+// archive.
+const teamWorkspacePausedStale = 24 * time.Hour
+
 // teamWorkspaceInUseLocked says why workspace id of platform plat cannot be deleted, nil when it
-// is idle. staleOwner: an owner record with no task in work there does not count (the paused
-// check below still does). Caller holds teamWorkspaceStore.mu.
+// is idle. staleOwner (the idle sweep): an owner record with no task in work there does not
+// count, a pause quiet for teamWorkspacePausedStale does not count, and a paused task bound to no
+// workspace holds only the workspace it was last handed to (#1793: one such task held every
+// workspace it ever ran in). Caller holds teamWorkspaceStore.mu.
 func teamWorkspaceInUseLocked(st *teamWorkspaceState, plat, id string, staleOwner bool) *TeamWorkspaceInUseError {
 	key := plat + ":" + id
 	if owner, _ := teamWorkspaceOwnerLocked(st, plat, id); owner != "" && !(staleOwner && teamWorkspaceNothingOpenLocked(st, key)) {
 		return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " belongs to " + owner + " now (a task is in work there)"}
 	}
+	now := time.Now()
+	stale := func(t time.Time) bool { return staleOwner && now.Sub(t) >= teamWorkspacePausedStale }
 	hs := st.Handoffs[key]
 	tasks := teamTasksOfLocked(st)
 	for i, h := range hs {
@@ -146,13 +158,34 @@ func teamWorkspaceInUseLocked(st *teamWorkspaceState, plat, id string, staleOwne
 		case h.Board > 0:
 			// The task's state is the record: paused here until it is handed off again or closed.
 			t := tasks[h.Board]
-			if (t.State == TeamTaskPaused || t.State == TeamTaskAsking) && (t.SessionWS == "" || teamChatKey(t.SessionWS) == key) {
+			here := teamChatKey(t.SessionWS) == key || t.SessionWS == "" && (!staleOwner || teamTaskLastWorkspaceLocked(st, plat, h.Board) == key)
+			if (t.State == TeamTaskPaused || t.State == TeamTaskAsking) && here && !stale(t.Since) {
 				return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUsePaused, Detail: fmt.Sprintf("task #%d is paused and continues in %s", h.Board, key)}
 			}
 		case i == len(hs)-1:
 			// No task record: the workspace's last task was paused, not finished.
-			return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUsePaused, Detail: "the last task of " + key + " is paused, not finished"}
+			if !stale(h.Parked) {
+				return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUsePaused, Detail: "the last task of " + key + " is paused, not finished"}
+			}
 		}
 	}
 	return nil
+}
+
+// teamTaskLastWorkspaceLocked: the workspace of platform plat that board item n was last handed
+// to. Caller holds teamWorkspaceStore.mu.
+func teamTaskLastWorkspaceLocked(st *teamWorkspaceState, plat string, n int) string {
+	var last time.Time
+	ws := ""
+	for key, hs := range st.Handoffs {
+		if p, _, _ := strings.Cut(key, ":"); p != plat {
+			continue
+		}
+		for _, h := range hs {
+			if h.Board == n && !h.At.Before(last) {
+				last, ws = h.At, key
+			}
+		}
+	}
+	return ws
 }
