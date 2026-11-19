@@ -11,7 +11,9 @@ import (
 // cap used to cover the rules file only, so the duty layer grew outside it and each 「加一删一」 inside cut
 // half sentences instead; it now covers the whole injection. Value: the largest injection on develop
 // 590a4aa23 (mixed + lead chat duty + aboutHint) before #1588 merged the dispatch rules into one place.
-const teamModeInjectMaxBytes = 6215 + 1 + len(aboutHint)
+// #1792 raised it to 6389: the review/test rule now names when the core tests must run before a merge
+// and where the other member walks the change through; the three per-mode self-check lines merged into it.
+const teamModeInjectMaxBytes = 6389 + 1 + len(aboutHint)
 
 func TestTeamModeRulesSizeCap(t *testing.T) {
 	for _, mode := range []string{DispatchSolo, DispatchTeam, DispatchMixed} {

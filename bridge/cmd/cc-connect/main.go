@@ -477,6 +477,13 @@ func runMain() {
 	core.UpdateStateDir = cfg.DataDir
 	// After an upgrade, installed hook scripts follow this version too (they were only written by setup hooks on).
 	refreshInstalledHookScripts(cfg.DataDir)
+	// #1792: retired guards' entries leave the role settings too, not only their scripts
+	pruneRetiredHooks("claudecode", "") // the user's global Claude Code settings
+	for _, proj := range cfg.Projects {
+		if wd, _ := proj.Agent.Options["work_dir"].(string); wd != "" {
+			pruneRetiredHooks(proj.Agent.Type, wd)
+		}
+	}
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 

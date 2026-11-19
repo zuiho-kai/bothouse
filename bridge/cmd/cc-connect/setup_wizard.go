@@ -293,6 +293,14 @@ func refreshInstalledHookScripts(dataDir string) {
 	}
 }
 
+func pruneRetiredHooks(cli, workDir string) {
+	if p, err := core.PruneRetiredAgentHooks(cli, workDir); err != nil {
+		slog.Warn("retired hook entries not pruned", "work_dir", workDir, "error", err)
+	} else if p != "" {
+		slog.Info("retired hook entries pruned", "file", p)
+	}
+}
+
 // startSetupWizard serves only the setup wizard for a config without projects
 // (writing the first-run config when there is none). lock is already held.
 func startSetupWizard(configPath string, release func()) {
