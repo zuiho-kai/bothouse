@@ -238,6 +238,7 @@ func (s *APIServer) rewatchIfServing() {
 func (w *handoffWatch) run(ctx context.Context) {
 	w.started = w.now()
 	go w.sweepLoop(ctx)
+	go w.idleDeleteLoop(ctx)
 	go w.stallLoop(ctx)
 	go w.autostartLoop(ctx)
 	var recovered, reviewHour time.Time
@@ -283,8 +284,7 @@ func (w *handoffWatch) run(ctx context.Context) {
 func (w *handoffWatch) sweepLoop(ctx context.Context) {
 	for {
 		freed := w.reconcileTeamWorkspaces(w.now())
-		deleted := w.e.sweepIdleTeamWorkspaces(w.now())
-		slog.Info("team workspace: hourly sweep", "freed", len(freed), "deleted", len(deleted))
+		slog.Info("team workspace: hourly sweep", "freed", len(freed))
 		t := time.NewTimer(teamWorkspaceReconcileEvery)
 		select {
 		case <-ctx.Done():
@@ -292,6 +292,25 @@ func (w *handoffWatch) sweepLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// idleDeleteLoop deletes idle workspaces hourly (#1788). Its first run waits
+// teamWorkspaceReconcileGrace: 11-19 10:16 the run at start came 2 s before Discord connected, so
+// every channel check failed and nothing was deleted or dropped until the next hour.
+func (w *handoffWatch) idleDeleteLoop(ctx context.Context) {
+	wait := teamWorkspaceReconcileGrace
+	for {
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+		deleted := w.e.sweepIdleTeamWorkspaces(w.now())
+		slog.Info("team workspace: idle delete sweep", "deleted", len(deleted))
+		wait = teamWorkspaceReconcileEvery
 	}
 }
 
