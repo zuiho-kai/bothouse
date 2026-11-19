@@ -449,7 +449,7 @@ func (m *ManagementServer) handlePluginsConfig(w http.ResponseWriter, r *http.Re
 			ID     string `json:"id"`
 			Config string `json:"config_yaml"`
 		}
-		// 来源：management_dsh_members.go handleDSHMembersAPI 的管理请求体上限 1 MiB。
+		// 来源：management_dsh_members.go 的 DSH 成员管理请求体上限 1 MiB。
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {

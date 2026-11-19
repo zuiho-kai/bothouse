@@ -62,9 +62,10 @@ type dshStatus struct {
 	Error  string `json:"error,omitempty"`
 }
 type dshStateRoom struct {
-	ID   json.Number `json:"id"`
-	Name string      `json:"name"`
-	Kind string      `json:"kind"`
+	ID       json.Number `json:"id"`
+	Name     string      `json:"name"`
+	Kind     string      `json:"kind"`
+	DMMember string      `json:"dm_member"`
 }
 
 type dshState struct {

@@ -12,14 +12,18 @@ func localDSHClient(transport http.RoundTripper) (dshAPI, bool) {
 	if !ok {
 		return dshAPI{}, false
 	}
+	return host.channelsClient(transport), true
+}
+
+func (h LocalDSHHost) channelsClient(transport http.RoundTripper) dshAPI {
 	return dshAPI{
-		target: host.target,
+		target: h.target,
 		rt: &dshLocalTransport{
 			transport: transport,
-			target:    host.target,
-			token:     host.ownerToken,
+			target:    h.target,
+			token:     h.ownerToken,
 		},
-	}, true
+	}
 }
 
 // The local owner credential applies to Channels routes, not the DSH shell.
