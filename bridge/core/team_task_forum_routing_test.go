@@ -352,7 +352,7 @@ func TestTaskForumRunningStepIsNotAQuestion(t *testing.T) {
 			if len(p.mentions) != 0 {
 				t.Fatalf("a workspace running a command mentioned %v", p.mentions)
 			}
-			row(`,"wait_kind":"user","paused":"11-16 19:44","pause_why":"` + tc.why + `"`)
+			row(`,"wait_kind":"user","ask":{"to":"user"},"paused":"11-16 19:44","pause_why":"` + tc.why + `"`) // passed on to the user (#1791)
 			e.syncTaskForum()
 			if len(p.mentions) != tc.mentions {
 				t.Fatalf("mentions=%v, want %d", p.mentions, tc.mentions)
