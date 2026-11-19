@@ -766,7 +766,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
                 <span className={css.memberModel}>{typeof m.model === 'string' ? m.model : m.model ? `${m.model.provider}/${m.model.model}` : t('defaultModel')}</span>
               )}
             </span>
-            <span className={css.memberStatus} data-status={m.error ? 'error' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'}>{m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
+            <span className={css.memberStatus} data-status={m.error ? 'error' : m.login ? 'login' : busy.has(m.id) ? 'busy' : m.online ? 'online' : 'offline'} title={m.login}>{m.error ? t('memberFailed') : m.login ? t('needsLogin') : busy.has(m.id) ? t('working') : m.online ? t('online') : t('offline')}</span>
           </button>
           {(m.kind === 'dsh' || (onDm !== undefined && m.kind !== 'human')) && (
             <span className={css.memberActions} title={m.kind === 'dsh' && m.editable !== true ? t('configMember') : undefined}>
@@ -1963,8 +1963,8 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
                     <KindTag name={m.name} kind={m.kind} cli={m.cli} t={t} />
-                    <span className={css.mentionMeta}>
-                      {m.error ? t('memberFailed') : busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
+                    <span className={css.mentionMeta} title={m.login}>
+                      {m.error ? t('memberFailed') : m.login ? t('needsLogin') : busy.has(m.id) ? t('working') : m.online ? `@${m.id}` : t('offline')}
                     </span>
                   </div>
                 ))}

@@ -31,7 +31,9 @@ const STATE_KEY = { busy: 'mateBusy', idle: 'mateIdle', error: 'mateError', offl
 
 export function mateLabel(mate: Mate, t: T): string {
   const doing = mate.task !== undefined ? t('mateTask', { id: String(mate.task.id), title: mate.task.title }) : mate.replying ? t('mateReplying') : ''
-  return [mate.member.name, t(STATE_KEY[mate.state]), doing].filter(Boolean).join(' · ')
+  // #1798: a member whose CLI is not logged in is offline; say so, with how to log in.
+  const state = mate.member.login ? `${t('needsLogin')}：${mate.member.login}` : t(STATE_KEY[mate.state])
+  return [mate.member.name, state, doing].filter(Boolean).join(' · ')
 }
 
 export function HeadTeam({ mates, t, onOpen }: { mates: readonly Mate[]; t: T; onOpen: () => void }) {
