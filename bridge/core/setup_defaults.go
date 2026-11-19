@@ -7,6 +7,8 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -127,6 +129,18 @@ func WithDiary(persona, lang string) string {
 		persona += eol + eol
 	}
 	return persona + diaryMarker + eol + body
+}
+
+// ensureDiaryFile creates the role's empty diary.md (the file diarySection tells it to read) unless it exists.
+func ensureDiaryFile(workDir string) error {
+	f, err := os.OpenFile(filepath.Join(workDir, "diary.md"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if os.IsExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // applyWizardMood: step "mood cron" of ApplyWizard, the new roles' hourly 「想不想说」 (AddMoodCronJobs).
