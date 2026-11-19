@@ -9,7 +9,7 @@
  */
 import type { ChannelMember, ChannelTask } from './channel-source.ts'
 import { isLiveTask, type T } from './task-board.ts'
-import { Avatar } from './Avatar.tsx'
+import { Avatar, memberLook } from './Avatar.tsx'
 import css from './ChannelsPage.module.css'
 
 export type MateState = 'busy' | 'idle' | 'error' | 'offline'
@@ -44,7 +44,7 @@ export function HeadTeam({ mates, t, onOpen }: { mates: readonly Mate[]; t: T; o
         const label = mateLabel(mate, t)
         return (
           <button key={mate.member.id} type="button" className={css.mate} data-state={mate.state} title={label} aria-label={label} onClick={onOpen}>
-            <Avatar id={mate.member.id} name={mate.member.name} avatar={mate.member.avatar} avatarVersion={mate.member.avatarVersion} small />
+            <Avatar id={mate.member.id} name={mate.member.name} avatar={mate.member.avatar} avatarVersion={mate.member.avatarVersion} {...memberLook(mate.member)} small />
             <span className={css.mateDot} aria-hidden />
           </button>
         )

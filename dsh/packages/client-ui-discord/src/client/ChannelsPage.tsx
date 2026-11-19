@@ -27,7 +27,7 @@ import { activeMention, applyMention, insertMention, rankMembers } from './menti
 import { HighlightedMarkdown, renderQuoteMentions, splitMentions } from './mention-highlight.tsx'
 import { MemberDialog } from './MemberDialog.tsx'
 import { ChannelSettingsDialog, type SettingsTab } from './ChannelSettingsDialog.tsx'
-import { Avatar } from './Avatar.tsx'
+import { Avatar, memberLook } from './Avatar.tsx'
 import { HeadTeam, headTeam } from './HeadTeam.tsx'
 import { PermissionCard, type PermissionCardData } from './PermissionCard.tsx'
 import { DecideTray, openQuestions } from './DecideTray.tsx'
@@ -552,14 +552,14 @@ function MessageRow({ message, member, members, t, onConfigure, menuOpen, onAvat
       {grouped
         ? <time className={css.gutterTime} title={fullTime} dateTime={new Date(message.created_at * 1000).toISOString()}>{clockOf(message.created_at)}</time>
         : member === undefined || message.author_kind === 'system'
-        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} />
+        ? <Avatar id={message.author} name={message.name} avatar={member?.avatar} avatarVersion={member?.avatarVersion} {...memberLook(member)} />
         : (
             // Avatar opens this author's member menu; `data-avatar-menu` marks the
             // area an outside press must not land in to keep the menu open.
             <span className={css.avatarAnchor} data-avatar-menu onKeyDown={(event) => { if (event.key === 'Escape') onCloseMenu() }}>
               <button type="button" className={css.avatarButton} aria-label={t('memberMenu', { name: member.name })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={onAvatar}
                 onContextMenu={(event) => { event.preventDefault(); onMention(member) }}>
-                <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} />
+                <Avatar id={member.id} name={message.name} avatar={member.avatar} avatarVersion={member.avatarVersion} {...memberLook(member)} />
               </button>
               {menuOpen && (
                 <div className={css.avatarMenu} role="menu" aria-label={t('memberMenu', { name: member.name })}>
@@ -694,7 +694,7 @@ function PermTrayItem({ message, author, members, onMention, t, onDecide }: { me
   const card = useMemo(() => parseCard(message), [message])
   return (
     <div className={css.permTrayItem} data-message-id={message.id}>
-      <Avatar id={message.author} name={message.name} avatar={author?.avatar} avatarVersion={author?.avatarVersion} small />
+      <Avatar id={message.author} name={message.name} avatar={author?.avatar} avatarVersion={author?.avatarVersion} {...memberLook(author)} small />
       <div className={css.permTrayText}>
         <span className={css.permTrayWho}>{t('permAsks', { name: message.name })}</span>
         <HighlightedMarkdown text={markdown} labels={labels} members={members} className={css.text} onMention={onMention} />
@@ -757,7 +757,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, onDm, t }
             onClick={() => { onPick(m) }}
           >
             <span className={css.memberAvatar}>
-              <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
+              <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} {...memberLook(m)} small />
               <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />
             </span>
             <span className={css.memberText}>
@@ -1691,7 +1691,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             title={`${lead === undefined ? leadStatus : `${lead.name} · ${leadStatus}`}\n${t('leadCardChange')}`}
             onClick={() => { settingsReturnRef.current = leadCardRef.current; setDrawer(undefined); setSettingsTab('dispatch'); setSettingsOpen(true) }}
           >
-            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} />}
+            {lead !== undefined && <Avatar id={lead.id} name={lead.name} avatar={lead.avatar} avatarVersion={lead.avatarVersion} {...memberLook(lead)} />}
             <span className={css.leadCardText}>
               <span className={css.leadCardName}>{lead?.name ?? t('headLead')}</span>
               <span className={css.leadCardStatus}>{t('leadPinned')} · {leadStatus}</span>
@@ -1768,7 +1768,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
               ? <div className={css.dmPickNone}>{t('dmPickNone')}</div>
               : state.members.filter(m => m.kind !== 'human').map(m => (
                   <button key={m.id} type="button" role="menuitem" className={css.room} onClick={() => { setDmPicker(false); startDm(m) }}>
-                    <span className={css.dmAvatar}><Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small /></span>
+                    <span className={css.dmAvatar}><Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} {...memberLook(m)} small /></span>
                     <span className={css.roomLabel}>{m.name}</span>
                   </button>
                 ))}
@@ -1791,7 +1791,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                 data-dm-room={r.dm_member}
                 onClick={() => { stickRef.current = true; setDrawer(undefined); void selectRoom(r.id) }}
               >
-                <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={label} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} small /></span>
+                <span className={css.dmAvatar}><Avatar id={r.dm_member ?? ''} name={label} avatar={peer?.avatar} avatarVersion={peer?.avatarVersion} {...memberLook(peer)} small /></span>
                 <span className={css.roomLabel}>{label}</span>
                 {fresh > 0 && <span className={css.unreadBadge} aria-label={t('roomUnread', { count: String(fresh) })}>{fresh > 99 ? '99+' : fresh}</span>}
               </button>
@@ -1958,7 +1958,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
                     onClick={() => { choose(m) }}
                   >
                     <span className={css.memberAvatar}>
-                      <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} small />
+                      <Avatar id={m.id} name={m.name} avatar={m.avatar} avatarVersion={m.avatarVersion} {...memberLook(m)} small />
                       {m.online && <span className={m.error ? `${css.presence} ${css.errorPresence}` : css.presence} />}
                     </span>
                     <span className={css.mentionName}>{m.name}</span>
@@ -2095,7 +2095,7 @@ export function ChannelsPage({ useChannels, selectRoom, send, uploadAttachment, 
             <h3 className={css.groupTitle}>{t('activityNow')}</h3>
             {activity.map(a => (
               <button key={a.member.id} type="button" className={css.activityItem} onClick={() => { pickFromList(a.member) }}>
-                <Avatar id={a.member.id} name={a.member.name} avatar={a.member.avatar} avatarVersion={a.member.avatarVersion} small />
+                <Avatar id={a.member.id} name={a.member.name} avatar={a.member.avatar} avatarVersion={a.member.avatarVersion} {...memberLook(a.member)} small />
                 <span className={css.activityText}>
                   <span className={css.activityName}>{a.member.name}</span>
                   <span className={css.activityWhat}>{a.task !== undefined ? `#${a.task.id} ${a.task.title}` : t('activityThinking')}{a.room !== undefined && a.room.id !== state.roomId ? ` · ${a.room.name}` : ''}</span>
