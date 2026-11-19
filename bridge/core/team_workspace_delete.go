@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
-	"time"
 )
 
 // TeamWorkspaceDeleter is implemented by platforms whose workspace channels the bridge can take
-// out for good (cloud_web/DSH: the room leaves the channel list). On a platform without it the
-// channel is deleted on the platform itself.
+// out for good (cloud_web/DSH: the room leaves the channel list; Discord: the channel is deleted,
+// #1788).
 type TeamWorkspaceDeleter interface {
 	// DeleteTeamWorkspaceChannel removes workspace channel workspaceID. The platform refuses one
 	// it still records as owned (ErrTeamWorkspaceInUse).
@@ -44,48 +44,96 @@ func (e *TeamWorkspaceInUseError) Unwrap() error { return ErrTeamWorkspaceInUse 
 // (restoreTeamTaskSession). The platform removes the channel; the bridge resets its sessions
 // there. Runs under teamWorkspaceOpMu, so a claim cannot take the workspace in between.
 func (e *Engine) DeleteTeamWorkspace(workspace string) error {
+	_, err := e.deleteTeamWorkspace(workspace, false, "delete")
+	return err
+}
+
+// deleteTeamWorkspace is DeleteTeamWorkspace; staleOwner also lets go of a workspace whose owner
+// record has no task in work or paused there (the idle sweep, #1788: 工作区2–11 stayed owned with
+// nothing open and were never reused). Before the channel goes, its records are archived
+// (archiveTeamWorkspace, user 11-19「记录可以搞个日志系统压缩存起来」); no archive, no delete.
+// After the platform deleted it, its pool record, handoffs and script watches go and the sessions
+// of every role there are reset. Returns the archive path.
+func (e *Engine) deleteTeamWorkspace(workspace string, staleOwner bool, why string) (string, error) {
 	if e == nil || e.dataDir == "" || workspace == "" {
-		return fmt.Errorf("team workspace delete: no workspace")
+		return "", fmt.Errorf("team workspace delete: no workspace")
 	}
 	key := teamChatKey(workspace)
 	plat, id, _ := strings.Cut(key, ":")
 	d, ok := e.platformForName(plat).(TeamWorkspaceDeleter)
 	if !ok {
-		return fmt.Errorf("team workspace delete: %s: workspace channels of this platform are deleted on the platform itself", plat)
+		return "", fmt.Errorf("team workspace delete: %s: this platform cannot delete workspace channels", plat)
 	}
 	teamWorkspaceOpMu.Lock()
 	defer teamWorkspaceOpMu.Unlock()
+	path := teamWorkspacePath(e.dataDir)
 	teamWorkspaceStore.mu.Lock()
-	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(path)
 	var inUse *TeamWorkspaceInUseError
+	var rec teamWorkspaceRecords
 	if err == nil {
-		inUse = teamWorkspaceInUseLocked(st, plat, id)
+		inUse = teamWorkspaceInUseLocked(st, plat, id, staleOwner)
+		rec = teamWorkspaceRecordsLocked(st, plat, id)
 	}
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("team workspace delete: %w", err)
+		return "", fmt.Errorf("team workspace delete: %w", err)
 	}
 	if inUse != nil {
-		return inUse
+		return "", inUse
 	}
-	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	if staleOwner && teamTurnRunning(key) {
+		return "", &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " has a turn running"}
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, leadScriptTimeout) // 沿用 lead 脚本上限：存档要翻完频道历史
 	defer cancel()
-	if err := d.DeleteTeamWorkspaceChannel(ctx, id); err != nil {
-		if errors.Is(err, ErrTeamWorkspaceInUse) {
-			return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " is owned on the platform (a task is in work there)"}
-		}
-		return fmt.Errorf("team workspace delete: %w", err)
+	archive, err := e.archiveTeamWorkspace(ctx, key, rec, why)
+	if err != nil {
+		return "", fmt.Errorf("team workspace delete: archive %s failed, not deleted: %w", key, err)
 	}
-	e.ResetTeamWorkspaceSessions(key)
-	slog.Info("team workspace: deleted", "workspace", key)
-	return nil
+	if err := d.DeleteTeamWorkspaceChannel(ctx, id); err != nil {
+		_ = os.Remove(archive)
+		if errors.Is(err, ErrTeamWorkspaceInUse) {
+			return "", &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " is owned on the platform (a task is in work there)"}
+		}
+		return "", fmt.Errorf("team workspace delete: %w", err)
+	}
+	teamWorkspaceStore.mu.Lock()
+	if st, err := loadTeamWorkspacesLocked(path); err == nil {
+		teamWorkspaceForgetLocked(st, plat, id)
+		err = saveTeamWorkspacesLocked(path, st)
+		if err != nil {
+			slog.Error("team workspace: deleted, but its records could not be dropped", "workspace", key, "error", err)
+		}
+	}
+	teamWorkspaceStore.mu.Unlock()
+	for _, x := range e.watchEngines() {
+		x.ResetTeamWorkspaceSessions(key)
+	}
+	slog.Info("team workspace: deleted", "workspace", key, "name", rec.Name, "why", why, "archive", archive)
+	return archive, nil
+}
+
+// teamWorkspaceForgetLocked drops every record of deleted workspace id of platform plat: the
+// pool/ownership record, its handoffs and script watches (they are in the archive). Caller holds
+// teamWorkspaceStore.mu.
+func teamWorkspaceForgetLocked(st *teamWorkspaceState, plat, id string) {
+	key := plat + ":" + id
+	for parent := range st.Parents {
+		if p, _, _ := strings.Cut(parent, ":"); p == plat {
+			teamWorkspaceDropLocked(st, parent, id)
+		}
+	}
+	delete(st.Handoffs, key)
+	delete(st.ScriptWatches, key)
 }
 
 // teamWorkspaceInUseLocked says why workspace id of platform plat cannot be deleted, nil when it
-// is idle. Caller holds teamWorkspaceStore.mu.
-func teamWorkspaceInUseLocked(st *teamWorkspaceState, plat, id string) *TeamWorkspaceInUseError {
+// is idle. staleOwner: an owner record with no task in work there does not count (the paused
+// check below still does). Caller holds teamWorkspaceStore.mu.
+func teamWorkspaceInUseLocked(st *teamWorkspaceState, plat, id string, staleOwner bool) *TeamWorkspaceInUseError {
 	key := plat + ":" + id
-	if owner, _ := teamWorkspaceOwnerLocked(st, plat, id); owner != "" {
+	if owner, _ := teamWorkspaceOwnerLocked(st, plat, id); owner != "" && !(staleOwner && teamWorkspaceNothingOpenLocked(st, key)) {
 		return &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " belongs to " + owner + " now (a task is in work there)"}
 	}
 	hs := st.Handoffs[key]

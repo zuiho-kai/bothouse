@@ -300,10 +300,27 @@ def wait_kind_of(it):
             return "external"
         if why.startswith(ASK_LEAD_WHY):
             return "lead"  # 提问先到主角色：不算等用户，帖子不标「等你」、不 @ 用户
-        return "user" if WAIT_USER_RE.search(why) else ""
+        if WAIT_USER_RE.search(why):
+            return _user_or_lead(it)
+        return ""
     if it.get("await_deploy") or _status_awaits_release(it.get("status")):
         return "release"
-    return "user" if WAIT_STATUS_RE.search(it.get("status") or "") else ""
+    return _user_or_lead(it) if WAIT_STATUS_RE.search(it.get("status") or "") else ""
+
+
+def _user_or_lead(it):
+    """写着等用户的条目：只有派活人用 ws-forward --ask-user 转给了用户（ask.to = user）才算等用户；
+    其余（工作区自己在状态里写「等用户…」、返工上限等）先等派活人定，帖子不标「等你」、不 @ 用户
+    （11-19 用户：「谁给你发任务，你给谁说去啊」）。"""
+    return "user" if (it.get("ask") or {}).get("to") == "user" else "lead"
+
+
+TEST_TITLE = re.compile(r"^\s*[\[【(（]?\s*(验收探针|提问探针|探针|测试|自检|自验|test|probe|self-?check)\s*[\]】)）:：]", re.I)
+
+
+def is_test(title):
+    """事情是测试/探针活（标题以「测试」「探针」「自检」等开头）：本地 ws-up 据此不往用户的聊天频道报（#1702 起本机副本里的补丁，#1791 合回）。"""
+    return bool(TEST_TITLE.match(title or ""))
 
 
 def waits_user(it):

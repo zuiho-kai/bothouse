@@ -112,6 +112,8 @@ type teamTaskBoardItem struct {
 	ReturnedAt   time.Time         `json:"returned_at,omitzero"`
 	reviewAfter  time.Duration
 	reviewerName string
+	// dispatcherName: the dispatcher's name for people (taskForumDisplayItem), "" = unknown.
+	dispatcherName string
 	// forumResult: the passed report the item's post remembers (taskForumPostState.Result).
 	forumResult string
 	// quoteWho/speakerNames: who said each 原话 line on the forum card (team_task_forum_quote.go).
@@ -201,6 +203,17 @@ const (
 // field) falls back to the old text matching; that fallback goes one release after every
 // installed board.py writes wait_kind (board.py rewrites every row on its next save).
 func (it teamTaskBoardItem) waitsOn(kind string) bool {
+	if it.WaitKind != nil && *it.WaitKind == teamWaitUser && (it.Ask == nil || it.Ask.To != teamWaitUser) {
+		// Only a question the lead passed on (ask.to = user, ws-forward --ask-user) waits on the
+		// user; a row saved as user without it waits on its dispatcher, whichever board.py copy
+		// saved it (board.py _user_or_lead; #1791: an older copy wrote user and the post flipped).
+		return kind == teamWaitLead
+	}
+	return it.waitsOnRaw(kind)
+}
+
+// waitsOnRaw: the wait kind as the row stores it (wait_kind), else as an older row's text reads.
+func (it teamTaskBoardItem) waitsOnRaw(kind string) bool {
 	if it.WaitKind != nil {
 		return *it.WaitKind == kind
 	}

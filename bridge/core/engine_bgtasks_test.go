@@ -111,3 +111,25 @@ func TestAgentSessionIdleDeferral_NoReporter(t *testing.T) {
 		t.Fatalf("wait = %v, want 0", wait)
 	}
 }
+
+// A one-off scheduled run whose agent still runs background work keeps the process
+// after its turn (#1780); without background work it closes as before.
+func TestCleanupSideRunState_KeepsProcessWhileBackgroundWorkRuns(t *testing.T) {
+	e, key, sess, _ := newBgIdleFixture(t, 0)
+	sess.set(1, time.Time{})
+	e.cleanupSideRunState(key)
+	select {
+	case <-sess.closed:
+		t.Fatal("side run closed while a background task was running")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	e2, key2, sess2, _ := newBgIdleFixture(t, 0)
+	e2.cleanupSideRunState(key2)
+	select {
+	case <-sess2.closed:
+	case <-time.After(time.Second):
+		t.Fatal("side run without background work was not closed")
+	}
+	waitForInteractiveStateRemoved(t, e2, key2)
+}

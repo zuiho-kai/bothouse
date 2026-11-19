@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -18,6 +19,8 @@ var (
 	_ core.TeamWorkspaceChannels = (*Platform)(nil)
 	_ core.TeamWorkspaceRenamer  = (*Platform)(nil)
 	_ core.TeamWorkspaceShelver  = (*Platform)(nil)
+	_ core.TeamWorkspaceDeleter  = (*Platform)(nil)
+	_ core.TeamChannelArchiver   = (*Platform)(nil)
 )
 
 // workspaceAPI is the slice of discordgo the workspace channels need, so tests can stub it.
@@ -66,6 +69,82 @@ func teamChannelGone(api workspaceAPI, channelID string, options ...discordgo.Re
 		return true, nil
 	}
 	return false, err
+}
+
+// DeleteTeamWorkspaceChannel deletes a workspace channel for good (#1788, user 11-19「以后自动删空闲
+// 工作区」); core archives it first. A channel already gone counts as deleted; a channel that is not
+// a 「工作区」 channel is refused.
+func (p *Platform) DeleteTeamWorkspaceChannel(ctx context.Context, workspaceID string) error {
+	api, err := p.workspaceSession()
+	if err != nil {
+		return err
+	}
+	return workspaceErr(p.missingPermissionErr(deleteTeamWorkspaceChannel(api, workspaceID, discordgo.WithContext(ctx)), permManageChannels))
+}
+
+func deleteTeamWorkspaceChannel(api workspaceAPI, workspaceID string, options ...discordgo.RequestOption) error {
+	c, err := api.Channel(workspaceID, options...)
+	if err != nil {
+		if gone, _ := teamChannelGone(api, workspaceID, options...); gone {
+			return nil
+		}
+		return err
+	}
+	if !strings.Contains(c.Name, core.TeamWorkspacePrefix) {
+		return fmt.Errorf("discord: %s (%s) is not a workspace channel", workspaceID, c.Name)
+	}
+	_, err = api.ChannelDelete(workspaceID, options...)
+	return err
+}
+
+// channelMessagesAPI: the discordgo call reading a channel's history.
+type channelMessagesAPI interface {
+	ChannelMessages(channelID string, limit int, beforeID, afterID, aroundID string, options ...discordgo.RequestOption) ([]*discordgo.Message, error)
+}
+
+// TeamChannelMessages reads a workspace channel's whole history, oldest first, for its archive.
+func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
+	s := p.boardSession()
+	if s == nil {
+		return nil, errors.New("discord: workspace: not connected")
+	}
+	return teamChannelMessages(s, channelID, discordgo.WithContext(ctx))
+}
+
+func teamChannelMessages(api channelMessagesAPI, channelID string, options ...discordgo.RequestOption) ([]core.TeamArchivedMessage, error) {
+	var out []core.TeamArchivedMessage
+	before := ""
+	for {
+		page, err := api.ChannelMessages(channelID, 100, before, "", "", options...) // Discord 单页上限 100
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range page {
+			a := core.TeamArchivedMessage{ID: m.ID, Time: m.Timestamp, Content: m.Content}
+			if m.Author != nil {
+				a.Author = m.Author.Username
+			}
+			for _, e := range m.Embeds {
+				if e != nil && (e.Title != "" || e.Description != "") {
+					a.Content += "\n" + strings.TrimSpace(e.Title+"\n"+e.Description)
+				}
+			}
+			for _, at := range m.Attachments {
+				if at != nil {
+					a.Attachments = append(a.Attachments, at.URL)
+				}
+			}
+			out = append(out, a)
+		}
+		if len(page) < 100 {
+			break
+		}
+		before = page[len(page)-1].ID
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
 }
 
 func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (core.TeamChannel, error) {

@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -20,6 +24,7 @@ type workspaceGateway struct {
 	parent  map[string]string // room id → parent room id ("" = chat room)
 	names   map[string]string
 	active  map[string]int // tasks in progress per workspace (list)
+	msgs    []map[string]any // room history rows (messages), oldest first
 	frames  []map[string]any
 	next    int
 }
@@ -39,6 +44,20 @@ func (g *workspaceGateway) Send(_ context.Context, msg map[string]any) error {
 		ack["ok"], ack["error"] = false, g.errOut
 	case msg["op"] == "dispatch_mode":
 		ack["ok"], ack["dispatch_mode"], ack["dispatch_explicit"] = true, "team", true
+	case msg["op"] == "messages":
+		// #1788: history for the archive; `before` is the oldest id of the page just read.
+		before, _ := msg["before"].(string)
+		var rows []map[string]any
+		for _, m := range g.msgs {
+			if before != "" && hubIDAtLeast(m["id"].(string), before) {
+				continue
+			}
+			rows = append(rows, m)
+		}
+		if len(rows) > 200 {
+			rows = rows[len(rows)-200:]
+		}
+		ack["ok"], ack["messages"] = true, rows
 	case msg["op"] == "list":
 		var rooms []map[string]any
 		for id, par := range g.parent {
@@ -181,4 +200,55 @@ func TestChannelDispatchModeGatewayQuery(t *testing.T) {
 	if _, _, err = p.ChannelDispatchMode(context.Background(), "cloud_web:missing"); err == nil {
 		t.Fatal("missing context must fail")
 	}
+}
+
+// #1788: the archive read before an idle workspace is deleted reads the room's whole history
+// through the gateway, one page at a time, oldest first; system notices stay out (as in
+// ChannelHistory).
+func TestTeamChannelMessagesReadsGatewayHistory(t *testing.T) {
+	p, g := newWorkspaceGateway("text", capTeamWorkspace)
+	for i := 1; i <= 205; i++ {
+		kind := "user"
+		if i == 7 {
+			kind = "system"
+		}
+		g.msgs = append(g.msgs, map[string]any{
+			"id": fmt.Sprintf("hub-%d", i), "author_kind": kind, "author": "u-" + kind,
+			"name": "用户", "text": fmt.Sprintf("第%d句", i), "created_at": 1760000000 + float64(i),
+		})
+	}
+	got, err := p.TeamChannelMessages(context.Background(), "room-1000000")
+	if err != nil {
+		t.Fatalf("TeamChannelMessages: %v", err)
+	}
+	if len(got) != 204 {
+		t.Fatalf("got %d messages, want 204 (205 rows, one system notice)", len(got))
+	}
+	if got[0].ID != "hub-1" || got[len(got)-1].ID != "hub-205" || got[0].Content != "第1句" {
+		t.Fatalf("first=%+v last=%+v, want oldest first from hub-1 to hub-205", got[0], got[len(got)-1])
+	}
+	if want := time.Unix(1760000000+1, 0); !got[0].Time.Equal(want) {
+		t.Fatalf("time = %v, want %v", got[0].Time, want)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.frames) != 2 {
+		t.Fatalf("frames = %d, want 2 pages", len(g.frames))
+	}
+	if g.frames[0]["op"] != "messages" || g.frames[0]["session_key"] != "cloud_web:room-1000000" || g.frames[0]["reply_ctx"] != "room-1000000" {
+		t.Fatalf("frame = %v", g.frames[0])
+	}
+	if g.frames[1]["before"] != "hub-6" {
+		t.Fatalf("second page before = %v, want hub-6 (oldest of the first page)", g.frames[1]["before"])
+	}
+}
+
+// hubIDAtLeast: id a is at least id b ("hub-<n>" ids compared as numbers).
+func hubIDAtLeast(a, b string) bool {
+	na, errA := strconv.Atoi(strings.TrimPrefix(a, hubIDPrefix))
+	nb, errB := strconv.Atoi(strings.TrimPrefix(b, hubIDPrefix))
+	if errA != nil || errB != nil {
+		return a >= b
+	}
+	return na >= nb
 }

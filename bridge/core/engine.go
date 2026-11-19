@@ -2077,7 +2077,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		e.noteScheduledTurn(job.ID, iKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.forgetScheduledTurn(job.ID, iKey)
-		e.cleanupInteractiveState(iKey)
+		e.cleanupSideRunState(iKey)
 		// Empty-response detection via session history delta: processInteractiveMessageWith
 		// always adds a "user" entry (prevHistLen+1), then an "assistant" entry on success
 		// (prevHistLen+2). This approach correctly detects empty responses across all
@@ -2453,7 +2453,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
-		e.cleanupInteractiveState(iKey)
+		e.cleanupSideRunState(iKey)
 		return nil
 	}
 
@@ -6055,6 +6055,29 @@ func agentSessionResumable(agent Agent, as AgentSession) bool {
 		return r.CanResume()
 	}
 	return true
+}
+
+// cleanupSideRunState ends a one-off scheduled run (cron/timer new_per_run) after its
+// turn. When the agent still runs background work, the turn-end idle close has already
+// kept the process until that work reports back; closing it here would kill the work
+// and the turn that reads its result, and that turn closes the process when it ends.
+// maomao fork, 2026-11-19 #1780: the 11-18 premarket cron put its data script in the
+// background and ended its first turn; this cleanup stopped the process (SIGTERM after
+// 2m) while the woken turn was still writing the judgment, so none was written.
+func (e *Engine) cleanupSideRunState(iKey string) {
+	e.interactiveMu.Lock()
+	keep := false
+	if state := e.interactiveStates[iKey]; state != nil {
+		state.mu.Lock()
+		keep = state.agentSession != nil && state.agentSession.Alive() && agentHasBackgroundWork(state.agentSession)
+		state.mu.Unlock()
+	}
+	e.interactiveMu.Unlock()
+	if keep {
+		slog.Info("scheduled run: agent still runs background work, process kept until it reports back", "session_key", iKey)
+		return
+	}
+	e.cleanupInteractiveState(iKey)
 }
 
 // agentHasBackgroundWork reports whether the agent process still runs work of its own

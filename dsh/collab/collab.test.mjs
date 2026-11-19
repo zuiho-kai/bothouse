@@ -1450,6 +1450,33 @@ test('cloud-web: team_workspace create on the real store (A #134) makes 工作�
   assert.equal(ju2.of('team_workspace_ack').at(-1).error, 'room-missing');
 });
 
+test('cloud-web: team_workspace messages reads a room page for the archive (#1788)', async () => {
+  const hub3 = makeHub();
+  const { store } = hub3;
+  const gw3 = new CloudWebGateway(hub3, { token: 't', logger: quiet });
+  const ju3 = connect(gw3, 'bot=ju&name=橘');
+  ju3.frame({ type: 'team_workspace', ref_id: 'm1', op: 'create', reply_ctx: 'room-1' });
+  await tick();
+  const room = Number(ju3.of('team_workspace_ack').at(-1).room.id.replace('room-', ''));
+  store.append(room, { authorKind: 'user', author: 'u1', name: '用户', text: '第一句' });
+  store.append(room, { authorKind: 'role', author: 'ju', name: '橘', text: '第二句' });
+  const last = store.append(room, { authorKind: 'role', author: 'ju', name: '橘', text: '第三句' }).message;
+  ju3.frame({ type: 'team_workspace', ref_id: 'm2', op: 'messages', reply_ctx: roomKey(room) });
+  await tick();
+  const ack = ju3.of('team_workspace_ack').at(-1);
+  assert.equal(ack.ok, true);
+  assert.deepEqual(ack.messages.map(m => m.text), ['第一句', '第二句', '第三句'], 'oldest first, the whole room');
+  assert.equal(ack.messages[0].id, `hub-${ack.messages[0].id.slice(4)}`);
+  // before = a message id reads only the older rows: the bridge pages backwards to the start.
+  ju3.frame({ type: 'team_workspace', ref_id: 'm3', op: 'messages', reply_ctx: roomKey(room), before: `hub-${last.id}` });
+  await tick();
+  assert.deepEqual(ju3.of('team_workspace_ack').at(-1).messages.map(m => m.text), ['第一句', '第二句']);
+  // Another room is not readable through this id (roomOf refuses it): nothing leaks across rooms.
+  ju3.frame({ type: 'team_workspace', ref_id: 'm4', op: 'messages', reply_ctx: 'room-9' });
+  await tick();
+  assert.equal(ju3.of('team_workspace_ack').at(-1).error, 'room-missing');
+});
+
 test('dispatch settings: migration distinguishes generated mixed rows and persists explicit mixed', () => {
   const s = new Store(':memory:');
   s.ensureRoom(1, 'general'); s.ensureRoom(2, 'other');

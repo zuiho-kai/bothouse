@@ -214,7 +214,7 @@ func TestTeamTaskTableRowLinksToTheItemsOwnPost(t *testing.T) {
 			ProgressAt: float64(now.Add(-time.Minute).Unix())},
 		{ID: 4, Short: "交回了", Status: "已交接", WS: "feishu:oc_ws2", Chat: "feishu:oc_a", Bound: at(50 * time.Minute),
 			ReturnedAt: now.Add(-5 * time.Minute), Post: "https://example.test/post4"},
-		{ID: 5, Short: "等你", Status: "等用户拍板", Paused: now.Add(-time.Hour).Format("01-02 15:04"), WaitKind: &user,
+		{ID: 5, Short: "等你", Status: "等用户拍板", Paused: now.Add(-time.Hour).Format("01-02 15:04"), WaitKind: &user, Ask: &teamTaskAsk{To: teamWaitUser}, // passed on to the user (#1791)
 			SK: "feishu:oc_a", Post: "https://example.test/post5"},
 	})
 	links := []teamTaskLink{
