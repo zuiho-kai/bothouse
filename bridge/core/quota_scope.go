@@ -31,8 +31,8 @@ func (e *Engine) admissionQuotaScope(agent Agent, keys ...string) quotaScope {
 	}
 	e.modelSwitchMu.Lock()
 	for _, key := range keys {
-		if p, ok := e.pendingSwitch[key]; ok && p.model != "" {
-			model = p.model
+		if p, ok := e.pendingSwitch[key]; ok && p.Model != "" {
+			model = p.Model
 		}
 	}
 	e.modelSwitchMu.Unlock()

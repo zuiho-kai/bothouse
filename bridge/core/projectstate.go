@@ -10,6 +10,7 @@ import (
 
 type projectStateData struct {
 	SessionModelOverrides   map[string]sessionModelSelection `json:"session_model_overrides,omitempty"`
+	PendingModelSwitches    map[string]pendingModelSwitch    `json:"pending_model_switches,omitempty"`
 	WorkDirOverride         string                           `json:"work_dir_override,omitempty"`
 	WorkspaceDirOverrides   map[string]string                `json:"workspace_dir_overrides,omitempty"`
 	WorkspaceModelOverrides map[string]string                `json:"workspace_model_overrides,omitempty"`

@@ -5,6 +5,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RoleInfo } from '@/api/roles';
 import Dashboard from './Dashboard';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : typeof fallback === 'object' && fallback && 'defaultValue' in fallback ? String((fallback as { defaultValue: string; count?: number }).defaultValue).replace('{{count}}', String((fallback as { count?: number }).count)) : k, i18n: { language: 'zh' } }) }));
@@ -12,12 +13,12 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string, fallba
 let root: Root; let container: HTMLDivElement;
 
 const now = new Date().toISOString();
-async function renderDashboard(channels: unknown[]) {
+async function renderDashboard(channels: unknown[], roles: RoleInfo[] = []) {
   const responses: Record<string, unknown> = {
     '/status': { version: 'test', uptime_seconds: 1, projects_count: 1, connected_platforms: ['discord'], bridge_adapters: [] },
     '/projects': { projects: [{ name: 'cjiang', sessions_count: 3 }] },
     '/dsh/summary': { running: true, status: 'running', members: [], channels },
-    '/roles': { roles: [], dsh: { status: 'running' } },
+    '/roles': { roles, dsh: { status: 'running' } },
     '/modules': { modules: [], configured: 0 },
   };
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -34,6 +35,20 @@ async function renderDashboard(channels: unknown[]) {
 }
 
 afterEach(() => { act(() => root?.unmount()); container?.remove(); vi.unstubAllGlobals(); });
+
+it('shows the conversation model with the role default as a fallback', async () => {
+  const role: RoleInfo = {
+    name: 'active', agent_type: 'codex', model: 'configured-default', online: true,
+    busy: false, current_task: '', paused: false, platforms: [], sessions_count: 1,
+  };
+  const el = await renderDashboard([], [
+    { ...role, conversation_model: 'conversation-model' },
+    { ...role, name: 'idle', model: 'fallback-model', sessions_count: 0 },
+  ]);
+  expect(el.textContent).toContain('conversation-model');
+  expect(el.textContent).toContain('fallback-model');
+  expect(el.textContent).not.toContain('configured-default');
+});
 
 describe('overview layout (#610)', () => {
   it('puts sessions per project in the left column, under 正在发生', async () => {

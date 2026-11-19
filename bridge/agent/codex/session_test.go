@@ -331,6 +331,11 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
 	if got := cs.GetReasoningEffort(); got != "xhigh" {
 		t.Fatalf("GetReasoningEffort() = %q, want xhigh", got)
 	}
+
+	agent := &Agent{cmd: bin, cliExtraArgs: args, workDir: workDir, activeIdx: -1}
+	if got := agent.DefaultModel(context.Background()); got != "gpt-5.4" {
+		t.Fatalf("DefaultModel() = %q, want gpt-5.4", got)
+	}
 }
 
 func TestRefreshContextUsageFromRollout_UsesLastTokenCount(t *testing.T) {

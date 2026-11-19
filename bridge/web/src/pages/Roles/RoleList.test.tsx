@@ -42,6 +42,24 @@ async function renderRoleList() {
   return container;
 }
 
+it('shows the conversation model on the role card', async () => {
+  vi.mocked(listRoles).mockResolvedValue({ roles: [{
+    name: 'codex',
+    agent_type: 'codex',
+    model: 'role-default',
+    conversation_model: 'conversation-model',
+    online: true,
+    busy: false,
+    paused: false,
+    current_task: '',
+    platforms: [],
+    sessions_count: 1,
+  }] });
+  const container = await renderRoleList();
+  expect(container.textContent).toContain('conversation-model');
+  expect(container.textContent).not.toContain('role-default');
+});
+
 describe('RoleList quota display', () => {
   it('displays both 5h and week quota when present', async () => {
     const roles: RoleInfo[] = [

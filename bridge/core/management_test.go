@@ -1143,6 +1143,75 @@ func TestMgmt_MethodNotAllowed(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestMgmt_ProjectModel_ReadsSavedChoiceBySession(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	e := NewEngine("test-project", &stubModelModeAgent{model: "gpt-6-astra"}, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
+	if err := e.saveSessionSelection("discord:work", "gpt-6-luna", "high"); err != nil {
+		t.Fatal(err)
+	}
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
+
+	mgmt := NewManagementServer(0, "tok", nil)
+	mgmt.RegisterEngine("test-project", e)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	for _, tc := range []struct{ key, model string }{
+		{"discord:work", "gpt-6-luna"},
+		{"bridge:web-admin:test-project", ""},
+	} {
+		r := mgmtGet(t, ts.URL+"/api/v1/projects/test-project/model?session_key="+tc.key, "tok")
+		if !r.OK {
+			t.Fatalf("read saved model for %s: %s", tc.key, r.Error)
+		}
+		var data struct{ Model string }
+		if err := json.Unmarshal(r.Data, &data); err != nil || data.Model != tc.model {
+			t.Fatalf("model for %s = %q, want %q (decode error: %v)", tc.key, data.Model, tc.model, err)
+		}
+	}
+}
+
+func TestMgmt_ProjectModel_UsesSelectedConversation(t *testing.T) {
+	agent := &stubModelModeAgent{model: "role-default"}
+	e := NewEngine("test-project", agent, nil, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	const key = "bridge:web-admin:test-project"
+	unknown := e.sessions.NewSession(key, "unknown model")
+	unknown.SetAgentSessionID("unrecorded-thread", "codex")
+	old := e.sessions.NewSession(key, "old")
+	old.SetLastModel("old-model")
+	active := e.sessions.NewSession(key, "active")
+	active.SetAgentSessionID("active-thread", "codex")
+	e.interactiveStates[key] = &interactiveState{agentSession: &statusModelSession{newControllableSession("active-thread"), "live-model"}}
+
+	assertModel := func(id, want string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/model?session_key="+key+"&session_id="+id, nil)
+		res := httptest.NewRecorder()
+		(&ManagementServer{}).handleProjectModel(res, req, e)
+		var body struct{ Data struct{ Model string } }
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil || res.Code != http.StatusOK || body.Data.Model != want {
+			t.Fatalf("model for %s = %s (HTTP %d), want %q; decode error: %v", id, res.Body, res.Code, want, err)
+		}
+	}
+	assertModel(active.ID, "live-model")
+	assertModel(old.ID, "old-model")
+	assertModel(unknown.ID, "")
+	if err := e.queueSwitch(key, pendingModelSwitch{Model: "queued-model"}); err != nil {
+		t.Fatal(err)
+	}
+	assertModel(active.ID, "queued-model")
+	assertModel(old.ID, "old-model")
+	if err := e.applyPendingSwitchOnAgent(agent, key, key); err != nil {
+		t.Fatal(err)
+	}
+	assertModel(active.ID, "queued-model")
+	assertModel(old.ID, "old-model")
+}
+
 func TestMgmt_ProjectModel_UsesSwitchModelWithActiveProvider(t *testing.T) {
 	agent := &stubModelModeAgent{
 		model: "gpt-4.1-mini",

@@ -163,6 +163,9 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	if event.Error == nil && !turn.state.isStopped() {
 		if _, exhausted := QuotaExhaustedReset(event); !exhausted {
 			e.confirmLeadHandoff(turn.session)
+			if model := replyFooterModel(turn.agentSession, nil); model != "" {
+				turn.session.SetLastModel(model)
+			}
 		}
 	}
 	if fullResponse == "" {

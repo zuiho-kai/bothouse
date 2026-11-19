@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -103,9 +104,11 @@ func containsFold(list []string, s string) bool {
 // --- queued switches requested by the agent itself ---
 
 type pendingModelSwitch struct {
-	model, effort string
-	auto          bool
-	dropped       bool // auto already deleted a saved pick: recycle the live process on apply
+	Model    string    `json:"model,omitempty"`
+	Effort   string    `json:"effort,omitempty"`
+	Auto     bool      `json:"auto,omitempty"`
+	Dropped  bool      `json:"dropped,omitempty"` // auto already deleted a saved pick: recycle on apply
+	QueuedAt time.Time `json:"queued_at,omitzero"`
 }
 
 // ModelStatus is what `cc-connect model list` shows the agent.
@@ -146,8 +149,8 @@ func (e *Engine) ModelStatus(ctx context.Context, sessionKey string) ModelStatus
 	}
 	e.modelSwitchMu.Lock()
 	if p, ok := e.pendingSwitch[sessionKey]; ok {
-		st.Pending = strings.TrimSpace(fmt.Sprintf("%s %s", p.model, p.effort))
-		if p.auto {
+		st.Pending = strings.TrimSpace(fmt.Sprintf("%s %s", p.Model, p.Effort))
+		if p.Auto {
 			st.Pending = "auto"
 		}
 	}
@@ -201,14 +204,11 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	if auto {
 		// auto also drops a hand-picked model saved for this session: without that the
 		// pick stays forever, and team workspaces skip the per-task route. Drop it now, not
-		// on the next user message: timer-started workspace turns never pass that point, and
-		// a queued switch does not survive a restart. The live process (if any) is recycled
-		// before its next turn.
-		dropped, err := e.clearSessionSelection(sessionKey)
-		if err != nil {
+		// on the next user message: timer-started workspace turns can use the selection
+		// before applying the queue. The live process is recycled before its next turn.
+		if err := e.queueSwitch(sessionKey, pendingModelSwitch{Auto: true}); err != nil {
 			return ModelSwitchResult{Message: err.Error()}
 		}
-		e.queueSwitch(sessionKey, pendingModelSwitch{auto: true, dropped: dropped})
 		if e.tiers == nil {
 			return ModelSwitchResult{OK: true, Message: "from the next message the hand-picked model is dropped: back to this bot's default model (team workspaces: picked per task)"}
 		}
@@ -264,19 +264,29 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	if target == "" && eff == "" {
 		return ModelSwitchResult{Message: "nothing to change: give a model and/or --effort"}
 	}
-	e.queueSwitch(sessionKey, pendingModelSwitch{model: target, effort: eff})
+	if err := e.queueSwitch(sessionKey, pendingModelSwitch{Model: target, Effort: eff}); err != nil {
+		return ModelSwitchResult{Message: err.Error()}
+	}
 	return ModelSwitchResult{OK: true, Model: target, Effort: eff,
 		Message: "queued: takes effect from the user's next message (the conversation is kept)"}
 }
 
-func (e *Engine) queueSwitch(key string, p pendingModelSwitch) {
+func (e *Engine) queueSwitch(key string, p pendingModelSwitch) error {
 	e.modelSwitchMu.Lock()
 	defer e.modelSwitchMu.Unlock()
-	if e.pendingSwitch == nil {
-		e.pendingSwitch = map[string]pendingModelSwitch{}
+	pending := maps.Clone(e.pendingSwitch)
+	if pending == nil {
+		pending = make(map[string]pendingModelSwitch)
 	}
-	e.pendingSwitch[key] = p
-	slog.Info("model switch queued", "session", key, "model", p.model, "effort", p.effort, "auto", p.auto)
+	p.Dropped = p.Auto && pending[key].Dropped
+	p.QueuedAt = time.Now()
+	pending[key] = p
+	if _, err := e.updateSessionModelState(key, sessionModelSelection{}, p.Auto, pending); err != nil {
+		return err
+	}
+	e.pendingSwitch = pending
+	slog.Info("model switch queued", "session", key, "model", p.Model, "effort", p.Effort, "auto", p.Auto)
+	return nil
 }
 
 // applyPendingSwitch runs before an idle turn starts. keys: the session's interactive key and
@@ -293,15 +303,18 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	e.modelSwitchMu.Lock()
 	var p pendingModelSwitch
 	scopeKey := ""
-	matched := make(map[string]pendingModelSwitch)
+	var pending map[string]pendingModelSwitch
 	for _, k := range append([]string{interactiveKey}, keys...) {
 		if v, ok := e.pendingSwitch[k]; ok {
 			p, scopeKey = v, k
-			matched[k] = v
+			if pending == nil {
+				pending = maps.Clone(e.pendingSwitch)
+			}
+			delete(pending, k)
 		}
 	}
-	e.modelSwitchMu.Unlock()
 	if scopeKey == "" {
+		e.modelSwitchMu.Unlock()
 		return nil
 	}
 	// Startup uses CC_SESSION_KEY. An interactive key can include a directory
@@ -314,30 +327,21 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 			}
 		}
 	}
-	cleared := false
-	if p.auto {
-		var err error
-		if cleared, err = e.clearSessionSelection(selectionKey); err != nil {
-			return err
-		}
-	} else if err := e.saveSessionSelection(selectionKey, p.model, p.effort); err != nil {
+	cleared, err := e.updateSessionModelState(selectionKey, sessionModelSelection{Model: p.Model, Effort: p.Effort}, p.Auto, pending)
+	if err != nil {
+		e.modelSwitchMu.Unlock()
 		return err
 	}
-	e.modelSwitchMu.Lock()
-	for key, request := range matched {
-		if e.pendingSwitch[key] == request {
-			delete(e.pendingSwitch, key)
-		}
-	}
+	e.pendingSwitch = pending
 	e.modelSwitchMu.Unlock()
 	if e.tiers != nil {
-		if p.auto {
+		if p.Auto {
 			e.tiers.clearManual(interactiveKey)
 		} else {
 			e.tiers.setManual(interactiveKey, manualTierHold)
 		}
 	}
-	if p.auto && !cleared && !p.dropped {
+	if p.Auto && !cleared && !p.Dropped {
 		return nil
 	}
 	// Only the addressed live process is recycled; its saved native ID and
@@ -346,6 +350,6 @@ func (e *Engine) applyPendingSwitchOnAgent(agent Agent, interactiveKey string, k
 	_, sessions := e.sessionContextForKey(scopeKey)
 	sessions.Save()
 	e.capacityRecover("model switch applied")
-	slog.Info("model switch applied", "session", scopeKey, "model", p.model, "effort", p.effort)
+	slog.Info("model switch applied", "session", scopeKey, "model", p.Model, "effort", p.Effort)
 	return nil
 }
