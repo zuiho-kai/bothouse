@@ -278,14 +278,8 @@ func dshShimScript(shim string) string {
 			if (!strings.Contains(lower, "@deepseek-ai/dsh/") && !strings.Contains(lower, ".asar/")) || !strings.HasSuffix(lower, ".js") {
 				continue
 			}
-			prefix := 0
-			if strings.HasPrefix(strings.ToLower(arg), "%dp0%") {
-				prefix = len("%dp0%")
-			} else if strings.HasPrefix(strings.ToLower(arg), "%~dp0") {
-				prefix = len("%~dp0")
-			}
-			if prefix != 0 {
-				rel := strings.ReplaceAll(arg[prefix:], "\\", string(os.PathSeparator))
+			if strings.HasPrefix(strings.ToLower(arg), "%dp0%") || strings.HasPrefix(strings.ToLower(arg), "%~dp0") {
+				rel := strings.ReplaceAll(arg[5:], "\\", string(os.PathSeparator))
 				return filepath.Clean(filepath.Join(filepath.Dir(shim), strings.TrimLeft(rel, `/\\`)))
 			}
 			arg = strings.ReplaceAll(arg, "\\", string(os.PathSeparator))

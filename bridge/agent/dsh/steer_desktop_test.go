@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/chenhg5/cc-connect/agent/acp"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/agent/acp"
 )
 
 // The transport is real; only the external desktop ACP server is replaced.
@@ -86,7 +87,21 @@ func TestDesktopASARStartAndResumeWarn(t *testing.T) {
 	for _, id := range []string{"", "desktop-test"} {
 		t.Run("session="+id, func(t *testing.T) {
 			record := filepath.Join(root, "requests-"+id+".log")
-			base, err := acp.New(map[string]any{"cmd": os.Args[0], "args": []string{"-test.run=^TestDesktopACPProcess$"}, "work_dir": root, "env": map[string]any{"DSH_DESKTOP_TEST_RECORD": record}})
+			opts := map[string]any{}
+			if config := os.Getenv("DSH_TEST_OPTIONS"); config != "" {
+				data, err := os.ReadFile(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(data, &opts); err != nil {
+					t.Fatal(err)
+				}
+			}
+			opts["cmd"] = os.Args[0]
+			opts["args"] = []string{"-test.run=^TestDesktopACPProcess$"}
+			opts["work_dir"] = root
+			opts["env"] = map[string]any{"DSH_DESKTOP_TEST_RECORD": record}
+			base, err := acp.New(opts)
 			if err != nil {
 				t.Fatal(err)
 			}
