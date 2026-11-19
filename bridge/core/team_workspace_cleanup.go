@@ -281,18 +281,26 @@ func (e *Engine) sweepIdleTeamWorkspaces(now time.Time) []string {
 		return nil
 	}
 	e.dropGoneTeamWorkspaceRecords()
-	byPlat := map[string]string{}
+	byPlat := map[string][]string{}
 	for _, c := range e.teamLeadChats() {
 		plat, _, _ := strings.Cut(c, ":")
-		if _, ok := e.platformForName(plat).(TeamWorkspaceDeleter); ok && byPlat[plat] == "" && !e.isTeamWorkspaceChat(c) {
-			byPlat[plat] = c
+		if _, ok := e.platformForName(plat).(TeamWorkspaceDeleter); ok && !e.isTeamWorkspaceChat(c) {
+			byPlat[plat] = append(byPlat[plat], c)
 		}
 	}
 	var deleted []string
-	for plat, chat := range byPlat {
-		pool, err := e.TeamWorkspacePool(chat)
-		if err != nil {
+	for plat, chats := range byPlat {
+		// Any chat of the platform lists the shared pool; one whose channel is gone (11-19 10:29:
+		// a deleted chat, Unknown Channel) cannot, so the next is tried.
+		var pool []TeamWorkspace
+		var err error
+		for _, chat := range chats {
+			if pool, err = e.TeamWorkspacePool(chat); err == nil {
+				break
+			}
 			slog.Warn("team workspace idle sweep: pool unreadable", "chat", chat, "error", err)
+		}
+		if err != nil {
 			continue
 		}
 		type cand struct {
