@@ -210,13 +210,13 @@ func TestApplyWizardFreshConfigNoBackupClaim(t *testing.T) {
 	noHardware(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
-	res := ApplyWizard(context.Background(), WizardEnv{Store: freshStore{newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs},
-		n150Req(WizardRole{Token: t1}))
+	req := n150Req(WizardRole{Token: t1})
+	req.Language = "en" // step text follows the host language when unset; a zh Mac would fail the English match
+	res := ApplyWizard(context.Background(), WizardEnv{Store: freshStore{newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs}, req)
 	if !res.Saved || res.ConfigBackup != "" || hasStep(res, "previous config kept") || !hasStep(res, "first run") {
 		t.Errorf("fresh config: backup=%q steps=%+v", res.ConfigBackup, res.Steps)
 	}
-	res = ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs},
-		n150Req(WizardRole{Token: t1}))
+	res = ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, req)
 	if res.ConfigBackup == "" || !hasStep(res, "previous config kept") {
 		t.Errorf("existing config: backup=%q", res.ConfigBackup)
 	}
