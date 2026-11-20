@@ -171,6 +171,8 @@ class WsUpTest(unittest.TestCase):
         self.assertNotIn("proxy", msg)
         self.assertEqual((team / "asks" / "7.md").read_text(encoding="utf-8").strip(), plain)
         self.assertIn("proxy log", (team / "asks" / "7.raw.md").read_text(encoding="utf-8"))
+        row = json.loads((team / "board.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["ask"]["title"], "Grok 每小时那条定时消息老是超时，原因是电脑上一个网络工具的记录写太多卡住了。")
 
     def test_internal_ask_goes_to_lead_never_user(self):
         """#1827：任务状态转不过去（paused → failed）这类桥内部问题只给主角色处理，转用户被拒。"""

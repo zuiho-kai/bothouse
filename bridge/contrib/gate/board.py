@@ -818,6 +818,8 @@ def ask_to_user(nid, kind, plain=""):
                 os.replace(f, f.with_suffix(".raw.md"))
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(plain.strip() + "\n", encoding="utf-8")
+            # 任务帖顶上「要你做的」读短标题：也换成大白话的第一句，不留工作区的原标题
+            hit["ask"]["title"] = re.split(r"(?<=[。？！?!])", plain.strip(), maxsplit=1)[0].strip()
         hit["ask"].update({"to": "user", "kind": kind})
         hit["pause_why"] = ASK_WHY
         hit["paused"] = hit["at"] = _now()  # 「等了多久」从转给用户这一刻算
