@@ -28,6 +28,12 @@ func TestWaitExternalOf(t *testing.T) {
 	if _, after, _ := team.WaitExternalOf("等外部：等对方回\n再看：1h30m"); after != 90*time.Minute {
 		t.Fatalf("1h30m: %v", after)
 	}
+	if _, after, _ := team.WaitExternalOf("等外部：卡在今晚那份判断还没写。再看：7h（16:20 JST 复查仍未出）"); after != 7*time.Hour {
+		t.Fatalf("再看 on the 等外部 line: after = %v, want 7h", after)
+	}
+	if _, after, _ := team.WaitExternalOf("等外部：等对方回"); after != team.WaitExternalDefault {
+		t.Fatalf("no 再看: after = %v, want default", after)
+	}
 	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：1 分钟"); after != team.WaitExternalMin {
 		t.Fatalf("min clamp: %v", after)
 	}
