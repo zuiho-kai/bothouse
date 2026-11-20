@@ -23,6 +23,7 @@ func (p *Platform) addEventHandlers(s *discordgo.Session) {
 	s.AddHandler(p.handleChannelDelete)
 	s.AddHandler(p.handleThreadCreate)
 	s.AddHandler(p.handleVoiceState)
+	s.AddHandler(p.meetingVoiceServer)
 	s.AddHandler(p.handlePinsUpdate)
 }
 
@@ -157,6 +158,7 @@ func (p *Platform) handleVoiceState(s *discordgo.Session, v *discordgo.VoiceStat
 	if v == nil || v.VoiceState == nil {
 		return
 	}
+	p.meetingVoiceState(s, v)
 	before := ""
 	if v.BeforeUpdate != nil {
 		before = v.BeforeUpdate.ChannelID
