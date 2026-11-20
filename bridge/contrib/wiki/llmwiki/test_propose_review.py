@@ -60,8 +60,8 @@ class ProposeReview(unittest.TestCase):
         with patch.object(I, "REPO", self.root), patch.object(I, "user_texts", return_value=[]), \
                 patch.object(I, "api_json", return_value=(True, json.dumps(dict(
                     title="配置", nothing_reason="", facts=[fact()])), False)) as api:
-            result = worker.work("ingest aaaaaaaa", "USER: 现在配置用新值", [self.root / "source.jsonl"])
-        self.assertIsInstance(result[0], str, "unreadable source must fail, never return dropped facts")
+            with self.assertRaises(I.discord_said.Unavailable):
+                worker.work("ingest aaaaaaaa", "USER: 现在配置用新值", [self.root / "source.jsonl"])
         api.assert_not_called()
 
     def test_omitted_fact_is_preserved_in_unplaced_log(self):
@@ -121,6 +121,22 @@ class ProposeReview(unittest.TestCase):
             self.assertIsNone(P.prepare(self.root, "USER: 现在配置用新值", self.rules, call,
                                         "ingest", cache=self.root / "cache"))
         self.assertEqual(calls, ["ingest facts", "ingest ops", "ingest ops"])
+
+    def test_unreadable_source_cannot_advance_through_another_engine(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "s.jsonl", title="配置",
+                    cwd="/test", date="2026-11-20", text="USER: 现在配置用新值")
+        with patch.object(I, "propose_pass", side_effect=I.discord_said.Unavailable("unreadable")), \
+                patch.object(I, "model_pass", return_value=True) as fallback, \
+                patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
+                patch.object(I, "reject_streaks"):
+            I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
+        fallback.assert_not_called()
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
 
     def test_correction_sends_only_rejected_facts_and_remaps_their_ids(self):
         facts = [fact("已经接受的独有事实"), fact("需要修正的独有事实")]

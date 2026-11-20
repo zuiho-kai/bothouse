@@ -2684,7 +2684,7 @@ def api_json(prompt, schema, label):
 def role_rules(sources, text=""):
     said = [t for p in sources for t in user_texts(p, strict=True)]
     if not said and re.search(r"^USER", text, re.M):
-        raise ValueError("the user's words of this session are unreadable now; retry on a later run")
+        raise discord_said.Unavailable("the user's words of this session are unreadable now; retry on a later run")
     return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
                                todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
 
@@ -2725,6 +2725,8 @@ class Prefetch:
         try:
             got = propose.prepare(REPO, text, role_rules(sources, text)[1], call, label,
                                   cache=PROPOSE_DIR / "facts")
+        except (HouseholdError, discord_said.Unavailable):
+            raise  # source failures retain their type through Future.result(); never try another writing route
         except Exception as e:  # noqa: BLE001 — reported by the loop like propose_pass's own script errors
             return f"proposal: {type(e).__name__}: {e}"[:300], False
         if got is None:
@@ -2791,12 +2793,7 @@ def propose_pass(label, it, text, sids, sources, engine):
         failed.append(out)
         return None
 
-    try:
-        said, rules = role_rules(sources, text)
-    except (HouseholdError, discord_said.Unavailable, ValueError) as exc:
-        log(f"{label} REVERTED: {exc}; retried on a later run")
-        REJECT_REASONS.append(str(exc))
-        return False
+    said, rules = role_rules(sources, text)
     prepared = None
     if name == "openai" and PREFETCH is not None:
         prepared = PREFETCH.take(label, text, sources)
@@ -2881,7 +2878,12 @@ def _ingest_batches(db, batches, engines, pending):
             if family(engine) in ("codex", "openai"):
                 item = {**batch[0][0], "_sessions": list(dict.fromkeys(
                     (it["id"][:8], it["date"]) for it, _ in batch))}
-                res = propose_pass(label, item, text, sids, sources, engine)
+                try:
+                    res = propose_pass(label, item, text, sids, sources, engine)
+                except (HouseholdError, discord_said.Unavailable) as exc:
+                    log(f"{label} REVERTED: {exc}; retried on a later run")
+                    REJECT_REASONS.append(str(exc))
+                    break  # unreadable evidence cannot become readable by switching writing engines
             else:
                 prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
                 res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
