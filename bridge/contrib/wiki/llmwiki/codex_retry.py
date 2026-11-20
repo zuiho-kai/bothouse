@@ -49,15 +49,45 @@ def events(stdout, resume=None):
     return usage, turns, errors, tid, terminal, active, progress
 
 
+def response_statuses(errors, stderr):
+    """Read response metadata first; bare numbers inside a message are not HTTP evidence."""
+    statuses, messages = [], []
+    for error in errors:
+        if isinstance(error, dict):
+            error = error.get("error", error)
+        if isinstance(error, dict):
+            for key in ("status", "http_status", "status_code", "http_status_code"):
+                status = error.get(key)
+                if isinstance(status, (int, str)) and str(status).isdecimal():
+                    statuses.append(int(status))
+                    break
+            messages.append(str(error.get("message", "")))
+        else:
+            messages.append(str(error))
+    if statuses:
+        return statuses
+    # Source: #906 review permits a leading response code or an explicit HTTP/status diagnostic.
+    for message in messages + [stderr]:
+        match = re.search(r'(?:^\s*(?:error:\s*)?(?:HTTP(?:/\d(?:\.\d)?)?\s+)?|'
+                          r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*)'
+                          r'([45]\d\d)\b', message, re.I | re.M)
+        if match:
+            statuses.append(int(match.group(1)))
+    return statuses
+
+
 def failure(errors, tid, terminal, active, progress=False, result="", stderr="", usage=None):
     text = json.dumps(errors, ensure_ascii=False) + "\n" + stderr
     lower = text.lower()
+    statuses = response_statuses(errors, stderr)
+    # Source: #906: an identified bad request cannot become an outage through its body or stderr.
+    request_local = any(status in (400, 404, 422) for status in statuses) or "invalid_request_error" in lower
     # Source: #848 returned production diagnostics and Codex thread/turn/item events. A failed
     # connection plus no output, item or usage proves this invocation did no local work.
     # Empty usage alone proves nothing; diagnostic reason codes alone prove no tool outcome.
-    rejected = any(word in lower for word in ("usage limit", "quota", "rate limit",
+    rejected = request_local or any(word in lower for word in ("usage limit", "quota", "rate limit",
                    "hit your session limit", "invalid_request_error", "authentication_error",
-                   "permission_denied")) or bool(re.search(r'\b(400|401|403|404|422)\b', text))
+                   "permission_denied")) or any(status in (401, 403) for status in statuses)
     connection_failed = "failed to connect to responses websocket" in lower
     empty = not (progress or result or active or any((usage or {}).values()))
     settled = bool(tid) and terminal == "turn.failed" and not active
@@ -72,14 +102,14 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
         reason, retryable = ("empty_connection" if connection_failed else "capacity"), True
     elif settled and (transport or capacity):
         reason, retryable = "interrupted", True
-    elif transport or capacity or re.search(r'\b429\b', text):
+    elif transport or capacity or 429 in statuses:
         reason, retryable = "ambiguous_transport", False
     else:
         reason, retryable = "failure", False
     # Source: #906 review distinguishes request-local 400/404/422 from global auth/quota/rate failures.
-    down = transport or capacity or any(word in lower for word in (
-        "usage limit", "quota", "rate limit", "hit your session limit", "authentication_error", "permission_denied"))
-    down = down or any(provider_unavailable(int(status)) for status in re.findall(r'\b[45]\d\d\b', text))
+    down = not request_local and (any(provider_unavailable(status) for status in statuses) if statuses else
+        transport or capacity or any(word in lower for word in (
+            "usage limit", "quota", "rate limit", "hit your session limit", "authentication_error", "permission_denied")))
     value = Failure(text, reason, retryable, provider_down=down)
     value.resumable = retryable and bool(tid)
     return value
