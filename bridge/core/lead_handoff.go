@@ -543,7 +543,12 @@ func buildLeadHandoffSnapshotLimit(dataDir, self, from string, known, chats map[
 			if a == nil || a.ID == "" {
 				continue
 			}
-			if len(chats) > 0 && !chats[a.Parent] {
+			// The ask store keeps the platform and the bare channel id apart
+			// (team_exit.go putAsk); every other snapshot entry names its chat as
+			// "<platform>:<id>" (Task.Chat, Workspace.Chat, the chats filter), so
+			// the question's Parent is written in that form here (#912).
+			parent := leadHandoffAskChat(a)
+			if len(chats) > 0 && !chats[parent] {
 				continue
 			}
 			snap.Questions = append(snap.Questions, LeadHandoffQuestion{
@@ -551,7 +556,7 @@ func buildLeadHandoffSnapshotLimit(dataDir, self, from string, known, chats map[
 				Bot:        a.Bot,
 				Platform:   a.Platform,
 				Workspace:  a.Workspace,
-				Parent:     a.Parent,
+				Parent:     parent,
 				SessionKey: a.SessionKey,
 				Text:       leadHandoffCut(leadHandoffAskText(a), leadHandoffQuestionRunes),
 				At:         a.At,
@@ -844,6 +849,19 @@ func (e *Engine) ackLeadHandoff(id string, snap *LeadHandoffSnapshot) {
 	if err := saveLeadHandoffStateLocked(e.dataDir, st); err != nil {
 		slog.Warn("lead handoff: save acknowledgement", "error", err)
 	}
+}
+
+// leadHandoffAskChat is the chat key ("<platform>:<id>") of the chat an ask was
+// forwarded to. Records hold the bare id plus Platform; a record without
+// Platform falls back to teamChatKey's default platform.
+func leadHandoffAskChat(a *teamAsk) string {
+	if a.Parent == "" || strings.Contains(a.Parent, ":") {
+		return a.Parent
+	}
+	if a.Platform != "" {
+		return a.Platform + ":" + a.Parent
+	}
+	return teamChatKey(a.Parent)
 }
 
 // leadHandoffTaskChat: a task run in a workspace belongs to the chat that

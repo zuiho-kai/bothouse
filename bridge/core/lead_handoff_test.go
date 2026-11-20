@@ -624,8 +624,34 @@ func TestLeadHandoffDeltaTagsOtherChannels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, teamWorkspaceFile), wb, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Ask records store the bare chat id beside Platform (team_exit.go putAsk).
+	asks := []*teamAsk{
+		{ID: "ask-here", Platform: "discord", Workspace: "999", Parent: "111", Bot: "lead-a", Forwarded: []string{"本频道提问"}, At: now},
+		{ID: "ask-there", Platform: "discord", Workspace: "998", Parent: "222", Bot: "lead-a", Forwarded: []string{"别处提问"}, At: now},
+	}
+	ab, err := json.Marshal(asks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "team-asks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "team-asks", "lead-a.json"), ab, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	e := handoffTestEngine(t, dir, "lead-d", "Lead D", &namedTestAgent{name: "claudecode"})
 	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", now.Add(-time.Minute), nil, nil, e.leadHandoffChatTag("discord:111"))
+	for _, line := range strings.Split(delta, "\n") {
+		switch {
+		case strings.Contains(line, "新等待用户：ask-here") && strings.Contains(line, "别的频道"):
+			t.Fatalf("this channel's ask (bare parent 111) tagged as another channel: %q", line)
+		case strings.Contains(line, "新等待用户：ask-there") && !strings.HasPrefix(line, "- 〔别的频道：discord:222〕新等待用户"):
+			t.Fatalf("another channel's ask not tagged: %q", line)
+		}
+	}
+	if !strings.Contains(delta, "ask-here") || !strings.Contains(delta, "ask-there") {
+		t.Fatalf("asks missing from delta:\n%s", delta)
+	}
 	lines := map[string]string{}
 	for _, line := range strings.Split(delta, "\n") {
 		if _, rest, ok := strings.Cut(line, "[task-"); ok {
