@@ -2162,7 +2162,7 @@ def run(a, engines=None):
         return  # nothing new: no model call
     if os.environ.get("WIKI_NEWEST_FIRST"):  # 用户 11-09 19:2x 选「先整理最近的」：补旧账时新会话先进 wiki
         items.sort(key=lambda it: it["path"].stat().st_mtime, reverse=True)
-    if pending and (engines or [ENGINE])[0].partition(":")[0] != "openai":
+    if pending and not openai_route(engines):
         # One existing batch per cron round; SQLite offsets leave the rest ready. The openai route runs several
         # batches at once instead and takes what the run's deadline allows (user 2026-11-20 「可以多并发」).
         # Oversized single records resume from their accepted-piece checkpoint.
@@ -2817,10 +2817,15 @@ def propose_pass(label, it, text, sids, sources, engine):
     return "changed" if deliver(label) is True else False
 
 
+def openai_route(engines):
+    """The openai route runs a pending round's batches concurrently; every other route takes one batch per round."""
+    return (engines or [ENGINE])[0].partition(":")[0] == "openai"
+
+
 def ingest_batches(db, items, engines, pending=False):
     global PREFETCH
     batches = [b for it in items for b in batches_of([it])]  # one session per pass (design 2026-11-20 §3.1)
-    if engines and engines[0].partition(":")[0] == "openai":  # batches' calls run ahead; writes stay one at a time
+    if openai_route(engines):  # batches' calls run ahead; writes stay one at a time
         PREFETCH = Prefetch(("ingest " + ", ".join(dict.fromkeys(it["id"][:8] for it, _ in b)),
                              "".join(piece for _, piece in b), list(dict.fromkeys(it["path"] for it, _ in b)))
                             for b in batches)
@@ -2903,9 +2908,11 @@ def _ingest_batches(db, batches, engines, pending):
                 REJECT_REASONS.clear()
             reject_streaks(db, len(ids))
         db.commit()
-        # run() already gives a pending round of the other routes a single batch; the openai route's several
-        # sessions are each their own record, so only an unfinished oversized record stops the round here
-        if not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch):
+        # run() keeps a pending round of the other routes to one session, but an oversized session still splits
+        # into several batches here: stop after the first so each round's cost stays one batch. The openai route
+        # takes several batches per round (user 2026-11-20 「可以多并发」).
+        if (pending and not openai_route(engines)) or \
+                (not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch)):
             return  # never skip ahead within an unfinished record
 
 
