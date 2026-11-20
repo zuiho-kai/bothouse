@@ -25,7 +25,7 @@
 | 任务卡、任务子话题里的事实楼层 | 有。任务卡下开子区，关键事实发进子区 | 有。任务卡是卡片消息，事实用「话题回复」挂在卡片下面 | 不缺 | 已支持 | discord：platform/discord/public_progress.go:27、:65、:279；飞书：platform/feishu/public_progress.go:29、:45、:72、:215 |
 | 任务子话题的归档、重开 | 有。任务做完把子区归档，有新事实再重开，按最后活动时间决定何时归档 | 没有 | `TaskThreadArchiver`、`TaskThreadReopener`、`TaskThreadActivityReader` | 平台不支持（没核到飞书有归档话题的接口，官方也没有明写「不支持」）。不补不影响用，话题一直留着 | discord：platform/discord/public_progress.go:188、:220、:242；core：core/public_progress.go:846、:946、:827 |
 | 任务帖（论坛频道，每件活一个帖子，带状态标签；等你拍板时在帖里提醒；在帖里回复能回到原频道会话） | 有 | 没有。任务进度由上面的任务卡展示 | `TaskForumPoster`、`TaskForumUserNotifier`、`ChannelSessionKeyer` | 平台不支持（飞书群没有论坛频道和帖子标签） | discord：platform/discord/task_forum.go:43、:371，platform/discord/live_options.go:91，platform/discord/task_forum_inbound.go:17；core：core/team_task_forum.go:729；platform/CAPABILITIES.md:151、:159、:167 |
-| 进度卡（一轮里每一步在干什么） | 有。可按 bot 配卡片条数、每行长度、藏不藏思考；编辑有限速 | 有卡片样式、结构化进度卡、流式预览和原地更新。按 bot 配条数、行长、藏思考已补，选项名和 Discord 一样（`progress_card_entries`、`progress_line_len`、`progress_hide_thinking`），不配就和原来一样；编辑最快每 0.2 秒一次 | 已补（单测，未真机）：`ProgressCardSizer`、`ProgressUpdateThrottler` | 纯代码 | discord：platform/discord/discord.go:296、:309、:313、:1617；飞书：platform/feishu/progress_size.go:25、:27；core：core/progress_compact.go:355、:352 |
+| 进度卡（一轮里每一步在干什么） | 有。可按 bot 配卡片条数、每行长度、藏不藏思考；编辑有限速 | 有卡片样式、结构化进度卡、流式预览和原地更新。按 bot 配条数、行长、藏思考已补，选项名和 Discord 一样（`progress_card_entries`、`progress_line_len`、`progress_hide_thinking`），不配就和原来一样；编辑最快每 0.2 秒一次 | 已补（单测，未真机）：`ProgressCardSizer`、`ProgressUpdateThrottler` | 纯代码 | discord：platform/discord/discord.go:296、:309、:313、:1617；飞书：platform/feishu/progress_size.go:27、:28；core：core/progress_compact.go:355、:352 |
 | 进度卡同步进任务子话题（点开任务就看到每一步） | 有 | 没有。飞书任务卡不填话题 id，core 找不到往哪发 | `TaskThreadTarget`，并先让飞书任务卡把话题根消息 id 记到任务上 | 纯代码，要真机验证（话题里的卡片能不能原地编辑） | discord：platform/discord/task_thread_progress.go:9；core：core/task_thread_progress.go:67；platform/CAPABILITIES.md:39 |
 | 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 没有，飞书上看不到这张表 | `SubTaskTablePayloadSupport`（渲染成卡片）、`LatestMessageChecker`（要先有历史读取） | 纯代码 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
 | 引用回复（回复某条消息，bot 知道回的是哪件活） | 有 | 有。入站把被回复消息 id 填进 Reference，出站登记每条发出消息的 id | 不缺 | 已支持 | discord：platform/discord/discord.go:932，platform/discord/turn_sent.go:123；飞书：platform/feishu/feishu.go:1121（Reference 在 :1133）、:3783；core：core/reply_task.go:145；platform/CAPABILITIES.md:12、:21 |
@@ -38,7 +38,7 @@
 | 斜杠命令 | 有。把命令注册进 Discord 原生的 / 菜单，输入 / 有提示 | 打字发「/命令」照常能用。单聊里的机器人菜单，点一下当成一条命令。没有输入 / 的提示 | `CommandRegistrar`（原生注册） | 平台不支持（飞书机器人菜单只能在开发者后台手配，且只在单聊出现） | discord：platform/discord/discord.go:655；飞书：platform/feishu/feishu.go:5199；core：core/engine.go:3327 |
 | 定时任务回帖 | 有。回到原频道；开了话题隔离时，每次定时任务新开一个子区 | 有。回到原群或原话题；开了话题隔离（`thread_isolation`）时，每次定时任务先在群里发一条标题消息，再在它的话题里回；单聊不开话题，回原会话 | 已补（单测，未真机）：`CronReplyTargetResolver` | 纯代码，要真机验证 | discord：platform/discord/discord.go:1784、:613；飞书：platform/feishu/cron_target.go:30，platform/feishu/feishu.go:3979；core：core/interfaces.go:100，core/engine.go:1930、:2284 |
 | 会议助手、语音频道（@bot 开会，bot 进语音频道听，结束后出纪要）、语音台交接 | 有。bot 进语音频道收音频，本机转写，结束时把转写稿交给 agent 出纪要 | 没有 | 整条都缺。飞书有「智能体入会」接口：用 9 位会议号入会、轮询会中事件、发会中消息、离会。会中事件里的「发言」带字幕文字，但拿不到原始音频 | 纯代码，要真机验证（细节见第三节「会议」） | discord：platform/discord/meeting.go:178、:197、:498，platform/discord/meeting_listener.go:100，platform/discord/self_mention.go:29；core：core/voice_desk.go:370 |
-| 停、插话 | 有。`/stop all` 不用 @ 就到每个 bot；只发一个「停」字（没 @ 谁、没回复谁）也到每个 bot；说话能插进正在跑的一轮 | `/stop all` 免 @ 有。插话走 core，飞书一样能用。只发一个「停」字不行，没 @ 就被丢掉 | 「只发停字」免 @ 这一条 | 纯代码 | discord：platform/discord/discord.go:927、:929、:1019，platform/discord/reply_routing.go:52；飞书：platform/feishu/feishu.go:1442、:6850；core：core/gate.go:817 |
+| 停、插话 | 有。`/stop all` 不用 @ 就到每个 bot；只发一个「停」字（没 @ 谁、没回复谁）也到每个 bot；说话能插进正在跑的一轮 | 有。`/stop all` 免 @；只发一个「停」字（纯文本、没 @ 谁、不是回复、不在话题里）也到每个 bot，标成全群停；插话走 core | 已补（单测，未真机）：只发停字免 @ | 纯代码 | discord：platform/discord/discord.go:927、:929、:1019，platform/discord/reply_routing.go:52；飞书：platform/feishu/feishu.go:1491、:6907；core：core/gate.go:817，core/stop_all.go:38 |
 | 表情回应（收到贴一个表情，做完或出错换一个） | 有（`TurnReactor`，可开关） | 有自己的一套：`reaction_emoji` 收到时贴、结束时撤，`done_emoji` 做完贴 | 不缺。出错时贴不贴「失败」表情，没核 | 已支持（不再接 `TurnReactor`，接了会重复） | discord：platform/discord/ack_reaction.go:115；飞书：platform/feishu/feishu.go:302、:309、:975、:988；platform/CAPABILITIES.md:184 |
 | 平台事件触发器（进出群、别人贴表情、频道建删、子区、语音进出、置顶） | 有，11 种事件 | 有 5 种：表情加、表情撤、成员进群、成员退群、群解散 | 建群、新开话题、置顶变化、语音进出四类事件 | 语音进出：平台不支持（群里没有语音频道）；其余三类：没核飞书有没有对应事件 | discord：platform/discord/events.go:13；飞书：platform/feishu/events.go:14、:70、:78、:98、:105、:112；core：core/member_events.go:25-35 |
 | 权限审批（点按钮允许或拒绝）、指定别人代批 | 有。按钮消息；可配哪些身份能代批 | 有卡片按钮。没有代批 | `PermissionDelegationPlatform` | 纯代码 | discord：platform/discord/discord.go:1577，platform/discord/permission_delegation.go:43；飞书：platform/feishu/card.go:38、:58；core：core/engine.go:11763-11767，core/permission_delegation.go:26 |
@@ -118,7 +118,7 @@
    - 风险：小。子 agent 表「被顶上去后在底部重发」要等第 7 条的历史读取。
    - 要真飞书验证：建议（看卡片排版）。
 
-10. **只发一个「停」字免 @**
+10. **只发一个「停」字免 @** —— 已补（单测，未真机）。和 Discord 一样要群里能收到没 @ 机器人的消息，也就是「获取群组中所有消息」权限；没这个权限飞书根本不推这条消息过来。
     - 补法：入站对「没 @ 任何人、不是回复、内容只是停字」的用户消息放行，并标成 StopAll。
     - 要动的文件：platform/feishu/feishu.go（:1442 的放行分支、:6850 isStopAllEvent）。参照 platform/discord/reply_routing.go:52。
     - 预估：代码约 25 行，单测约 30 行。

@@ -116,6 +116,9 @@ type replyContext struct {
 	mentioned bool
 	direct    bool
 	fromBot   bool
+	// stopAll: a person's bare stop word that calls no bot (isBareStopEvent); copied onto
+	// core.Message.StopAll so every bot in the chat stops its own work there.
+	stopAll bool
 	// replyTo: the message this one replies to (parent_id); dispatchCoreMessage puts it in
 	// core.Message.Reference so core can find the work it belongs to (core/reply_task.go).
 	replyTo string
@@ -1157,6 +1160,7 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
 		msg.Direct = msg.Direct || rc.direct
 		msg.FromBot = msg.FromBot || rc.fromBot
+		msg.StopAll = msg.StopAll || rc.stopAll
 		if rc.replyTo != "" && msg.Reference == nil {
 			// Only the id: the quoted text already is in ExtraContent (fetchQuotedMessage).
 			msg.Reference = &core.MessageReference{ID: rc.replyTo}
@@ -1483,6 +1487,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 			// "/stop all" from a user reaches every bot in the chat, mentioned or not.
 			case isStopAllEvent(sender, msgType, msg.Content):
 				slog.Debug(p.tag()+": passing /stop all without mention", "chat_id", chatID)
+			// A bare stop word that calls no bot also reaches every bot, as on Discord.
+			case isBareStopEvent(sender, msg):
+				slog.Debug(p.tag()+": passing bare stop word without mention", "chat_id", chatID)
 			default:
 				slog.Debug(p.tag()+": ignoring group message without bot mention", "chat_id", chatID)
 				return nil
@@ -1521,7 +1528,8 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
 		fromBot:   fromBot,
-		direct:    chatType == "p2p", replyTo: parentID}
+		direct:    chatType == "p2p", replyTo: parentID,
+		stopAll:   chatType == "group" && isBareStopEvent(sender, msg)}
 	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
@@ -6890,6 +6898,32 @@ func (p *Platform) SetPreviewStatus(previewHandle any, status core.CardStatus) {
 	if !resp.Success() {
 		slog.Debug("feishu: set preview status patch failed", "code", resp.Code, "msg", resp.Msg)
 	}
+}
+
+// isBareStopEvent reports whether a person's group message is only a stop word that calls no
+// bot: plain text, no @ at all, not a reply, not in a topic (same rule as Discord isBareStop;
+// core checks it again in isUnaddressedStop). A teammate named at the start ("龙娘，停") is not a
+// bare stop word, so core.IsBareStopWord already leaves it out.
+func isBareStopEvent(sender *larkim.EventSender, msg *larkim.EventMessage) bool {
+	if msg == nil || len(msg.Mentions) > 0 || stringValue(msg.ParentId) != "" || stringValue(msg.RootId) != "" {
+		return false
+	}
+	text, ok := plainTextOf(sender, stringValue(msg.MessageType), msg.Content)
+	return ok && core.IsBareStopWord(text)
+}
+
+// plainTextOf is the text of a person's plain-text message (ok=false for bots and other types).
+func plainTextOf(sender *larkim.EventSender, msgType string, content *string) (string, bool) {
+	if msgType != "text" || content == nil || senderIsBot(sender) {
+		return "", false
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(*content), &body) != nil {
+		return "", false
+	}
+	return body.Text, true
 }
 
 // isStopAllEvent reports whether a Feishu event is a user's plain-text "/stop all".
