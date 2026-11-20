@@ -281,7 +281,7 @@ func TestParseClaudeUsageResetTime_AllowsWholeHourWithTimezone(t *testing.T) {
 	loc := mustLoadLocation(t, "America/Los_Angeles")
 	now := time.Date(2026, time.March, 30, 11, 0, 0, 0, loc)
 
-	resetAt, err := parseClaudeUsageResetTime("2pm (America/Los_Angeles)", now)
+	resetAt, err := parseClaudeUsageResetTime("2pm (America/Los_Angeles)", now, claudeUsageSessionWindowSeconds)
 	if err != nil {
 		t.Fatalf("parseClaudeUsageResetTime returned error: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestParseClaudeUsageResetTime_AllowsMonthDayWholeHour(t *testing.T) {
 	loc := mustLoadLocation(t, "America/Los_Angeles")
 	now := time.Date(2026, time.March, 30, 11, 0, 0, 0, loc)
 
-	resetAt, err := parseClaudeUsageResetTime("Apr 2, 4pm (America/Los_Angeles)", now)
+	resetAt, err := parseClaudeUsageResetTime("Apr 2, 4pm (America/Los_Angeles)", now, claudeUsageWeekWindowSeconds)
 	if err != nil {
 		t.Fatalf("parseClaudeUsageResetTime returned error: %v", err)
 	}

@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +18,17 @@ func TestClaudeUsageProbeWaitsForCompleteWeek(t *testing.T) {
 	dir := t.TempDir()
 	// Reproduce the production missing-week-percentage error through the real
 	// PTY/poll loop: leave a partial panel stable longer than its settle window.
-	script := "#!/bin/sh\nprintf 'Current session\\r\\n10%% used\\r\\nResets 3pm\\r\\nCurrent week\\r\\n'\nsleep 1\nprintf '\\033[2J\\033[HCurrent session\\r\\n10%% used\\r\\nResets 3pm\\r\\nCurrent week\\r\\n61%% used\\r\\nResets Nov 5, 3pm\\r\\n'\nsleep 1\n"
+	// Keep the panel's dates current; expired windows are deliberately omitted.
+	reset := time.Now().Add(time.Hour).Format("Jan 2, 3:04pm")
+	script := fmt.Sprintf("#!/bin/sh\nprintf 'Current session\\r\\n10%%%% used\\r\\nResets %s\\r\\nCurrent week\\r\\n'\nsleep 1\nprintf '\\033[2J\\033[HCurrent session\\r\\n10%%%% used\\r\\nResets %s\\r\\nCurrent week\\r\\n61%%%% used\\r\\nResets %s\\r\\n'\nsleep 1\n", reset, reset, reset)
+	oldReadAuthStatus := readAuthStatus
+	defer func() { readAuthStatus = oldReadAuthStatus }()
+	readAuthStatus = func(env []string, _ string) (authStatus, error) {
+		if !strings.Contains(strings.Join(env, "\n"), "HOME=") {
+			t.Fatal("auth query lost the usage probe environment")
+		}
+		return authStatus{LoggedIn: true, Email: "usage@example.invalid"}, nil
+	}
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +39,9 @@ func TestClaudeUsageProbeWaitsForCompleteWeek(t *testing.T) {
 	report, err := a.GetUsage(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if report.Email != "usage@example.invalid" {
+		t.Fatalf("usage account = %q", report.Email)
 	}
 	if got := report.Buckets[0].Windows[1].UsedPercent; got != 61 {
 		t.Fatalf("week=%d", got)
