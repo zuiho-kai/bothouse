@@ -121,6 +121,10 @@ type replyContext struct {
 	replyTo string
 	// recordSent gets the id of every message posted with this context (core.SentMessageRecorder).
 	recordSent func(string)
+	// lead: the primary role this turn's final answer is handed back to (lead_return.go); final:
+	// this send carries the turn's final answer (core.FinalReplyMarker).
+	lead  string
+	final bool
 }
 
 type Platform struct {
@@ -137,6 +141,9 @@ type Platform struct {
 	doneEmoji                  string
 	allowFrom                  string
 	allowChat                  string
+	allowBots                  string   // maomao fork: bot sender ids whose @-mentions of this bot are accepted (lead_return.go)
+	teamLead                   string   // maomao fork: team_lead_bot, the primary role's id
+	leadReturned               sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
 	groupOnly                  bool
 	groupReplyAll              bool
 	respondToAtEveryoneAndHere bool
@@ -313,6 +320,8 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	allowFrom, _ := opts["allow_from"].(string)
 	core.CheckAllowFrom(name, allowFrom)
 	allowChat, _ := opts["allow_chat"].(string)
+	allowBots, _ := opts["allow_bots"].(string)
+	teamLead, _ := opts["team_lead_bot"].(string)
 	groupOnly, _ := opts["group_only"].(bool)
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
 	// require_mention = false is equivalent to group_reply_all = true:
@@ -416,6 +425,8 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		doneEmoji:                  doneEmoji,
 		allowFrom:                  allowFrom,
 		allowChat:                  allowChat,
+		allowBots:                  allowBots,
+		teamLead:                   teamLead,
 		groupOnly:                  groupOnly,
 		groupReplyAll:              groupReplyAll,
 		respondToAtEveryoneAndHere: respondToAtEveryoneAndHere,
@@ -1425,6 +1436,14 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	// thread set; sessionKey is also used downstream for dispatch.
 	sessionKey := p.makeSessionKey(msg, chatID, userID)
 
+	// maomao fork: other bots get through only if listed in allow_bots, and only when they @
+	// this bot, so bots can hand work to each other without loops (same rule as Discord).
+	fromBot := senderIsBot(sender)
+	if fromBot && !(p.botAllowed(userID) && isBotMentioned(msg.Mentions, p.getBotOpenID())) {
+		slog.Debug(p.tag()+": ignoring bot message", "sender", userID, "chat_id", chatID)
+		return nil
+	}
+
 	if chatType == "group" && !p.groupReplyAll && p.getBotOpenID() != "" {
 		if !isBotMentioned(msg.Mentions, p.getBotOpenID()) {
 			switch {
@@ -1449,7 +1468,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		}
 	}
 
-	if !core.AllowList(p.allowFrom, userID) {
+	if !fromBot && !core.AllowList(p.allowFrom, userID) {
 		slog.Debug(p.tag()+": message from unauthorized user", "user", userID)
 		p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
 		return nil
@@ -1479,8 +1498,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
-		fromBot:   sender.SenderType != nil && *sender.SenderType == "app",
+		fromBot:   fromBot,
 		direct:    chatType == "p2p", replyTo: parentID}
+	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
 		"session_key", sessionKey,
@@ -2861,6 +2881,7 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	}
 
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	msgType, msgBody := buildReplyContent(content)
 
 	if !p.shouldUseThreadOrReplyAPI(rc) {
@@ -2883,6 +2904,7 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	}
 
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	msgType, msgBody := buildReplyContent(content)
 	return p.sendNewMessageToChat(ctx, rc, msgType, msgBody)
 }
@@ -2900,6 +2922,7 @@ func (p *Platform) SendWithStatusFooter(ctx context.Context, rctx any, content, 
 	}
 	// Resolve mentions first so we can detect whether a real @mention is
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	if strings.TrimSpace(footer) == "" || strings.Contains(content, `<at user_id=`) || strings.Contains(content, `<at id=`) {
 		if strings.TrimSpace(footer) != "" {
 			content += "\n\n" + footer
@@ -6851,7 +6874,7 @@ func isStopAllEvent(sender *larkim.EventSender, msgType string, content *string)
 	if msgType != "text" || content == nil {
 		return false
 	}
-	if sender != nil && sender.SenderType != nil && *sender.SenderType == "app" {
+	if senderIsBot(sender) {
 		return false
 	}
 	var body struct {

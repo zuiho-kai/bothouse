@@ -160,6 +160,7 @@ app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 | 获取群组中所有消息（敏感权限） | `im:message.group_msg` | 读取群消息内容 |
 | 读取单聊消息 | `im:message.p2p_msg:readonly` | 读取私聊内容 |
 | 以应用身份发送群消息 | `im:message:send_as_bot` | 发送消息回复用户 |
+| 获取群组中其他机器人和用户@当前机器人的消息 | `im:message.group_at_msg.include_bot:readonly` | 接收群里别的机器人 @ 本机器人的消息。多个机器人组队派活（`allow_bots`、`team_lead_bot`）时才需要；不申请就收不到别的机器人发的群消息 |
 
 ### 4.3 发布权限申请
 

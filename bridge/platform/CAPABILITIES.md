@@ -189,3 +189,37 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书已有 reaction_emoji（收到时贴、结束撤）和 done_emoji，再接一套会重复
 - cloud-web: 不支持：网页聊天没有消息反应
 - dsh: 不支持：同 cloud-web
+
+## ConfiguredTeamLead
+
+配了 `team_lead_bot`（这个角色属于一个队）：没配 gate 时，群里没点名的消息 sub 不接（core/addressee.go teamRole）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## ConfiguredTeamLeadSelf
+
+`team_lead_bot` 写的就是自己：没有 gate、没有队伍状态板时，core 靠它分出主和 sub（core/addressee.go teamRole）。cloud-web 的缺口还在 platform/capability_baseline.txt 里。
+
+- discord: 已接
+- feishu: 已接
+
+## FinalReplyMarker
+
+一轮的最终答复和中途发的消息分开标：主派的活，sub 的最终答复开头自动 @ 主（core/backfill.go markFinalReply）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## InjectedReplyMerger
+
+主的 @ 插进正在跑的一轮时，这一轮记成「主派的活」，最终答复照样交回主（core/backfill.go mergeInjectedReplies）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
