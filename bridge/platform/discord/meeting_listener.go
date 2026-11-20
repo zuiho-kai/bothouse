@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -54,10 +55,11 @@ type listenerEvent struct {
 }
 
 type voiceListener struct {
-	cmd    *exec.Cmd
-	mu     sync.Mutex
-	stdin  io.WriteCloser
-	exited chan struct{}
+	cmd     *exec.Cmd
+	mu      sync.Mutex
+	stdin   io.WriteCloser
+	drained chan struct{} // every event it wrote has been handled (its stdout is at EOF)
+	exited  chan struct{} // drained, and the process is gone
 }
 
 func (l *voiceListener) send(v any) error {
@@ -76,6 +78,23 @@ func (l *voiceListener) kill() {
 		return
 	}
 	_ = l.cmd.Process.Kill()
+}
+
+// waitExit waits for the listener to exit by itself. After limit it kills it and waits only for
+// the events it had already written, so a stuck listener cannot hold the meeting. It reports
+// whether the listener exited by itself.
+func (l *voiceListener) waitExit(limit time.Duration) bool {
+	t := time.NewTimer(limit)
+	defer t.Stop()
+	select {
+	case <-l.exited:
+		return true
+	case <-t.C:
+	}
+	l.kill()
+	// not l.exited: a transcriber that hangs keeps the stderr pipe open after the listener is dead
+	<-l.drained
+	return false
 }
 
 func expandHomePath(p string) string {
@@ -182,6 +201,11 @@ func (p *Platform) startVoiceListener(mt *meeting) (*voiceListener, error) {
 	}
 	cmd := exec.Command(node, filepath.Join(dir, "listener.mjs"), python)
 	cmd.Dir = dir
+	return p.runVoiceListener(mt, cmd)
+}
+
+// runVoiceListener starts cmd as the listener of mt and feeds its events to onListenerEvent.
+func (p *Platform) runVoiceListener(mt *meeting, cmd *exec.Cmd) (*voiceListener, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -197,7 +221,7 @@ func (p *Platform) startVoiceListener(mt *meeting) (*voiceListener, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	l := &voiceListener{cmd: cmd, stdin: stdin, exited: make(chan struct{})}
+	l := &voiceListener{cmd: cmd, stdin: stdin, drained: make(chan struct{}), exited: make(chan struct{})}
 	var readers sync.WaitGroup
 	readers.Add(2)
 	go func() {
@@ -219,6 +243,7 @@ func (p *Platform) startVoiceListener(mt *meeting) (*voiceListener, error) {
 			}
 			p.onListenerEvent(mt, ev)
 		}
+		close(l.drained)
 	}()
 	go func() {
 		readers.Wait() // every event is handled before the meeting is told the listener is gone

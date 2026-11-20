@@ -1,11 +1,14 @@
 package discord
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestMeetingCommand(t *testing.T) {
@@ -146,4 +149,64 @@ func TestListenerEventsFillTheMeeting(t *testing.T) {
 func testGuildMessage(guildID, content string) *discordgo.MessageCreate {
 	return &discordgo.MessageCreate{Message: &discordgo.Message{ID: "m1", GuildID: guildID, ChannelID: "c1",
 		Content: content, Author: &discordgo.User{ID: "u1", Username: "u1"}}}
+}
+
+// A listener that never exits must not hold the meeting: after meetingDrainTimeout it is killed and
+// the minutes are written from the segments that had arrived.
+func TestEndMeetingKillsStuckListener(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("needs sh")
+	}
+	old := meetingDrainTimeout
+	meetingDrainTimeout = 300 * time.Millisecond
+	defer func() { meetingDrainTimeout = old }()
+
+	var got *core.Message
+	p := &Platform{handler: func(_ core.Platform, m *core.Message) { got = m }}
+	p.channelNameCache.Store("c1", "常规")
+	mt := &meeting{guildID: "g1", textID: "c1", starterID: "u1", starterName: "u1", startMsgID: "m1",
+		voiceName: "常规", startedAt: time.UnixMilli(0), readyCh: make(chan struct{}), failCh: make(chan string, 1),
+		present: map[string]bool{}, names: map[string]string{"a": "阿明"}}
+	p.meetings = map[string]*meeting{"g1": mt}
+	// one segment, then it ignores "leave" and stays
+	l, err := p.runVoiceListener(mt, exec.Command("sh", "-c",
+		`echo '{"op":"segment","user_id":"a","start":1000,"end":3000,"text":"周五前写完"}'; exec sleep 600`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.kill()
+	mt.listener = l
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		mt.mu.Lock()
+		n := len(mt.segments)
+		mt.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the segment did not arrive")
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		p.endMeeting(mt, "大家都离开了语音频道", "")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("endMeeting still waits for a listener that does not exit")
+	}
+	select {
+	case <-l.exited:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the stuck listener was not killed")
+	}
+	if p.meetingIn("g1") != nil {
+		t.Error("the meeting is still registered")
+	}
+	if got == nil || !strings.Contains(got.Content, "阿明：周五前写完") {
+		t.Fatalf("minutes prompt = %+v", got)
+	}
 }

@@ -407,6 +407,14 @@ func (p *Platform) onListenerEvent(mt *meeting, ev listenerEvent) {
 	}
 }
 
+// meetingDrainTimeout is how long endMeeting waits for the listener to transcribe what is still
+// queued and exit. After that the listener is killed and the minutes are written from the
+// segments that have arrived. A variable so that the test can shorten it.
+// 来源：用户只要求「加等待上限」，没给时长，这个值是自定的：实测最慢一段的转写耗时 × 60。
+// 实测（#1817 e2e 三轮，共 16 段、每段 3–9 秒的话）：说完到收到这段的字，扣掉 1 秒切段停顿后
+// 是 0.5–1 秒；队列空时从发 leave 到 listener 退出约 0.04 秒。按最慢 1 秒算，60 秒够转完 60 段积压。
+var meetingDrainTimeout = 60 * time.Second
+
 // endMeeting leaves the voice channel, waits for the queued speech to be transcribed and hands
 // the transcript to the agent. replyTo is the message that asked for the minutes, if any.
 func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
@@ -421,7 +429,10 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 	endedAt := time.Now()
 
 	_ = l.send(map[string]any{"op": "leave"})
-	<-l.exited // it leaves the channel, transcribes what is still queued, then exits
+	// it leaves the channel, transcribes what is still queued, then exits
+	if !l.waitExit(meetingDrainTimeout) {
+		slog.Warn("discord: meeting listener did not exit, killed", "guild", mt.guildID, "waited", meetingDrainTimeout)
+	}
 	// the listener asked for this already; again in case it died before it could
 	_ = voiceStateOp4(p.liveSession(), mt.guildID, "", false, false)
 	p.forgetMeeting(mt)
