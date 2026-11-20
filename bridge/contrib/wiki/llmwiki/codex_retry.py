@@ -58,7 +58,7 @@ def response_statuses(errors, stderr):
         if isinstance(error, dict):
             for key in ("status", "http_status", "status_code", "http_status_code"):
                 status = error.get(key)
-                if isinstance(status, (int, str)) and str(status).isdecimal():
+                if isinstance(status, (int, str)) and str(status).strip().isdecimal():
                     statuses.append(int(status))
                     break
             messages.append(str(error.get("message", "")))
@@ -66,14 +66,14 @@ def response_statuses(errors, stderr):
             messages.append(str(error))
     if statuses:
         return statuses
-    # Source: #906 review permits a leading response code or an explicit HTTP/status diagnostic.
+    # Source: #906 r6: bare zero can be a tool count; status zero requires HTTP/status context.
     for source in (messages, [stderr]):
         for message in source:
-            match = re.search(r'(?:^[ \t]*(?:error:[ \t]*)?(?:HTTP(?:/\d(?:\.\d)?)?[ \t]+)?|'
-                              r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*)'
+            match = re.search(r'^[ \t]*(?:error:[ \t]*)?([45]\d\d)\b|'
+                              r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*'
                               r'(0|[45]\d\d)\b', message, re.I)
             if match:
-                statuses.append(int(match.group(1)))
+                statuses.append(int(match.group(1) or match.group(2)))
         if statuses:
             return statuses  # stderr is a fallback diagnostic, not a second response body.
     return statuses
@@ -86,11 +86,12 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
     # Source: #906 r5: response status decides classification; only missing status admits text evidence.
     request_local = (any(status in (400, 404, 422) for status in statuses) if statuses else
                      "invalid_request_error" in lower)
-    # Source: #906 r5: quota/rate field names are not refusals; match diagnostic codes or complete messages.
+    # Source: #906 r6: match complete refusal phrases; relay diagnostics can continue with details.
     text_refused = any(word in lower for word in ("usage limit", "hit your session limit",
                         "authentication_error", "permission_denied")) or bool(re.search(
         r'\b(?:insufficient_quota|quota_exceeded|quota_exhausted|rate_limit_exceeded)\b|'
-        r'\b(?:quota (?:exceeded|exhausted)|rate limit)[.!]?(?=[\"\'\n]|$)', lower))
+        r'\b(?:rate limit (?:exceeded|reached)|quota (?:exceeded|exhausted)|'
+        r'too many requests|exceeded your current quota)\b', lower))
     # Source: #848 returned production diagnostics and Codex thread/turn/item events. A failed
     # connection plus no output, item or usage proves this invocation did no local work.
     # Empty usage alone proves nothing; diagnostic reason codes alone prove no tool outcome.

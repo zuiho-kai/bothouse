@@ -1,5 +1,6 @@
 """A bad request must reach the failure cap, while a provider outage stops uncounted."""
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -36,7 +37,7 @@ class ProviderFailure(unittest.TestCase):
 
     def test_auth_quota_rate_and_transport_failures_are_provider_outages(self):
         for message in ("401 Unauthorized", "403 Forbidden", "429 Too Many Requests", "usage limit",
-                        "quota exceeded", "rate limit", "authentication_error", "permission_denied",
+                        "quota exceeded", "rate limit exceeded", "authentication_error", "permission_denied",
                         "503 Service Unavailable", "failed to connect to responses websocket"):
             with self.subTest(message=message):
                 self.assertTrue(failure(message).provider_down)
@@ -92,7 +93,7 @@ class ProviderFailure(unittest.TestCase):
                 self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
 
     def test_quota_field_text_without_status_is_not_an_outage(self):
-        message = "Quota exceeded for field x (400)"
+        message = "Invalid quota field x (400)"
         self.assertEqual(I.codex_retry.response_statuses([{"message": message}], ""), [])
         db, logs, invoke, down = self.run_queue(message)
         self.assertFalse(down)
@@ -116,6 +117,59 @@ class ProviderFailure(unittest.TestCase):
                         "exceeded retry limit, last status: 429 Too Many Requests", "status code=401"):
             with self.subTest(message=message):
                 self.assertTrue(failure(message).provider_down)
+
+    def assert_text_refusal_stops_uncounted(self, message):
+        self.assertEqual(I.codex_retry.response_statuses([message], ""), [])
+        db, logs, invoke, down = self.run_queue(message, paid_fallback=True)
+        self.assertTrue(down)
+        self.assertEqual({call.args[2] for call in invoke.call_args_list}, {"ingest aaaaaaaa facts"})
+        self.assertEqual(db.execute("SELECT id,n FROM fails").fetchall(),
+                         [("aaaaaaaa", I.MAX_FAILS - 1)])
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
+
+    def test_rate_limit_exceeded_without_status_stops_uncounted(self):
+        self.assert_text_refusal_stops_uncounted("Rate limit exceeded")
+
+    def test_rate_limit_reached_with_details_without_status_stops_uncounted(self):
+        self.assert_text_refusal_stops_uncounted("Rate limit reached for gpt-x in organization example")
+
+    def test_quota_exceeded_with_details_without_status_stops_uncounted(self):
+        self.assert_text_refusal_stops_uncounted(
+            "Quota exceeded for quota metric 'Generate Content API requests per minute'")
+
+    def test_complete_refusal_phrases_allow_trailing_details(self):
+        for message in ("Quota exhausted for this account", "Too many requests, try again later",
+                        "You exceeded your current quota, please check billing"):
+            with self.subTest(message=message):
+                self.assert_text_refusal_stops_uncounted(message)
+
+    def test_leading_zero_tool_count_is_not_status_but_http_zero_is(self):
+        message = "0 tool calls succeeded"
+        self.assertEqual(I.codex_retry.response_statuses([message], ""), [])
+        self.assertFalse(failure(message).provider_down)
+        for diagnostic in ("HTTP 0: transport error", "status=0", "unexpected HTTP status: 0"):
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(I.codex_retry.response_statuses([diagnostic], ""), [0])
+                self.assertTrue(failure(diagnostic).provider_down)
+
+    def test_structured_status_strips_surrounding_whitespace(self):
+        for field in ("status", "http_status", "status_code", "http_status_code"):
+            for status in (400, 404, 422, 0, 401, 403, 429, 500, 503):
+                with self.subTest(field=field, status=status):
+                    error = {field: " " + str(status) + " ", "type": "invalid_request_error",
+                             "message": "400: quota field has maximum 503 items"}
+                    self.assertEqual(I.codex_retry.response_statuses([error], ""), [status])
+                    self.assertEqual(failure(error).provider_down, status in (0, 401, 403, 429, 500, 503))
+
+    def test_production_diagnostics_from_main_and_three_roles(self):
+        samples = json.loads(Path(__file__).with_name("provider_failure_samples.json").read_text())
+        for sample in samples:
+            with self.subTest(source=sample["source"]):
+                self.assertEqual(I.codex_retry.response_statuses(sample["errors"], sample["stderr"]),
+                                 sample["statuses"])
+                out = I.codex_retry.failure(sample["errors"], "thread", "turn.failed", set(),
+                                            stderr=sample["stderr"])
+                self.assertEqual(out.provider_down, sample["provider_down"])
 
     def run_queue(self, message, paid_fallback=False):
         role = hasattr(I, "ROUTE_DOWN")
