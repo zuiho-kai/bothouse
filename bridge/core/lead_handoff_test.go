@@ -483,7 +483,7 @@ func TestLeadHandoffDeltaIncludesRoutineUpdateAfterSwitch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(taskDir, "task-1.json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", since, nil, nil)
+	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", since, nil, nil, nil)
 	if !strings.Contains(delta, "状态更新为") || !strings.Contains(delta, "普通进展：已补测试") {
 		t.Fatalf("routine update after the switch was dropped:\n%s", delta)
 	}
@@ -559,7 +559,7 @@ func TestLeadHandoffDeltaKeepsTaskOutsideTop12(t *testing.T) {
 			t.Fatal("the 13th task should not be in the capped snapshot")
 		}
 	}
-	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", now.Add(-10*time.Minute), nil, nil)
+	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", now.Add(-10*time.Minute), nil, nil, nil)
 	if !strings.Contains(delta, "task-old-result") || !strings.Contains(delta, "成员结果：旧任务完成") {
 		t.Fatalf("delta dropped the 13th task's result:\n%s", delta)
 	}
@@ -586,5 +586,61 @@ func TestHandoffTargetWithoutTeamStatusKeepsLead(t *testing.T) {
 	}
 	if sel, _ := readLeadSelectionFull(dir); sel.Lead != "lead-a" {
 		t.Fatalf("refused switch changed the lead: %+v", sel)
+	}
+}
+
+// #912: the lead's delta still lists other channels' items (needed to spot
+// conflicts) but each carries 〔别的频道：…〕; this channel's items carry none.
+func TestLeadHandoffDeltaTagsOtherChannels(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	taskDir := filepath.Join(dir, "public-progress", "abc123")
+	if err := os.MkdirAll(taskDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []*Task{
+		{ID: "task-here", Title: "本频道活", SessionKey: "discord:111", Agent: "lead-a", State: TaskStateInProgress, LatestProgress: "进行中", UpdatedAt: now},
+		{ID: "task-there", Title: "别处活", SessionKey: "discord:222:u", Agent: "lead-a", State: TaskStateInProgress, LatestProgress: "进行中", UpdatedAt: now},
+		// Workspace 999 ran a job for 222, then one for 111: each task keeps the chat of its own job.
+		{ID: "task-ws-early", Title: "工作区早活", SessionKey: "discord:999", Agent: "lead-a", State: TaskStateInProgress, LatestProgress: "进行中", CreatedAt: now.Add(-30 * time.Minute), UpdatedAt: now},
+		{ID: "task-ws-late", Title: "工作区新活", SessionKey: "discord:999", Agent: "lead-a", State: TaskStateInProgress, LatestProgress: "进行中", CreatedAt: now.Add(-5 * time.Minute), UpdatedAt: now},
+	} {
+		b, err := json.Marshal(progressRecord{Task: task, Platform: "discord", Lang: LangChinese})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDir, task.ID+".json"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws := teamWorkspaceState{Handoffs: map[string][]TeamHandoff{"discord:999": {
+		{Chat: "discord:222", Title: "早活", At: now.Add(-40 * time.Minute)},
+		{Chat: "discord:111", Title: "新活", At: now.Add(-10 * time.Minute)},
+	}}}
+	wb, err := json.Marshal(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, teamWorkspaceFile), wb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := handoffTestEngine(t, dir, "lead-d", "Lead D", &namedTestAgent{name: "claudecode"})
+	delta := buildLeadHandoffDelta(dir, "lead-d", "lead-a", now.Add(-time.Minute), nil, nil, e.leadHandoffChatTag("discord:111"))
+	lines := map[string]string{}
+	for _, line := range strings.Split(delta, "\n") {
+		if _, rest, ok := strings.Cut(line, "[task-"); ok {
+			id, _, _ := strings.Cut(rest, "「")
+			lines["task-"+id] = line
+		}
+	}
+	for _, id := range []string{"task-here", "task-ws-late"} {
+		if l := lines[id]; l == "" || strings.Contains(l, "别的频道") {
+			t.Fatalf("%s is this channel's, tagged or missing: %q\n%s", id, l, delta)
+		}
+	}
+	for _, id := range []string{"task-there", "task-ws-early"} {
+		if !strings.HasPrefix(lines[id], "- 〔别的频道：discord:222〕[") {
+			t.Fatalf("%s is another channel's, not tagged: %q\n%s", id, lines[id], delta)
+		}
 	}
 }

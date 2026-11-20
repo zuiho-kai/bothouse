@@ -132,6 +132,8 @@ type LeadHandoffTask struct {
 	Relays          []LeadHandoffRelay `json:"relays,omitempty"`
 	Events          []TaskEvent        `json:"events,omitempty"`
 	Source          string             `json:"source,omitempty"`
+	// Chat is the chat the task was reported from (chatOf its session key).
+	Chat string `json:"chat,omitempty"`
 }
 
 // LeadHandoffRelay is one task relay receipt without its response body: the
@@ -520,6 +522,9 @@ func buildLeadHandoffSnapshotLimit(dataDir, self, from string, known, chats map[
 				}
 			}
 			sort.SliceStable(snap.Workspaces, func(i, j int) bool { return snap.Workspaces[i].At.After(snap.Workspaces[j].At) })
+			for i := range snap.Tasks {
+				snap.Tasks[i].Chat = leadHandoffTaskChat(&st, snap.Tasks[i].Chat, snap.Tasks[i].CreatedAt)
+			}
 		}
 	}
 	snap.WorkspaceTotal = len(snap.Workspaces)
@@ -615,6 +620,7 @@ func leadHandoffTaskFromRecord(dataDir, path string, rec progressRecord) LeadHan
 		UpdatedAt:       t.UpdatedAt,
 		Members:         append([]TaskMember(nil), t.Members...),
 		Source:          leadHandoffRel(dataDir, path),
+		Chat:            chatOf(t.SessionKey),
 	}
 	for _, relay := range rec.Relays {
 		out.Relays = append(out.Relays, LeadHandoffRelay{Target: relay.Target, Status: relay.Status, LastSeq: relay.LastSeq, Error: relay.Error})
@@ -731,7 +737,7 @@ func (e *Engine) leadHandoffBlock(session *Session, sessionKey string) string {
 			snap = buildLeadHandoffSnapshot(e.dataDir, e.name, h.From, e.handoffKnownProjects(h.From, e.name), e.handoffChats())
 		}
 		text := renderLeadHandoffBlockFolded(e.dataDir, h, snap)
-		if delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, snap.GeneratedAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats()); delta != "" {
+		if delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, snap.GeneratedAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats(), e.leadHandoffChatTag(chat)); delta != "" {
 			text += "\n\n" + delta
 		}
 		// Assembling the prompt is not taking over: the switch stays pending
@@ -740,7 +746,7 @@ func (e *Engine) leadHandoffBlock(session *Session, sessionKey string) string {
 		session.takeLeadHandoff(h, snap)
 		return text
 	}
-	delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, sentAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats())
+	delta := buildLeadHandoffDelta(e.dataDir, e.name, h.From, sentAt, e.handoffKnownProjects(h.From, e.name), e.handoffChats(), e.leadHandoffChatTag(chat))
 	if delta == "" {
 		return ""
 	}
@@ -840,11 +846,55 @@ func (e *Engine) ackLeadHandoff(id string, snap *LeadHandoffSnapshot) {
 	}
 }
 
+// leadHandoffTaskChat: a task run in a workspace belongs to the chat that
+// handed the workspace the job it was doing then, i.e. the latest handoff to
+// that workspace at or before the task started. The workspace's current owner
+// is not that chat: 11-21 工作区2 ran 秦始皇 jobs for one channel at 04:00 and
+// 04:11, then this #912 job for another at 04:19. A chat that is not a
+// workspace, or a task older than any handoff, stays as it is.
+func leadHandoffTaskChat(st *teamWorkspaceState, chat string, started time.Time) string {
+	if chat == "" || started.IsZero() {
+		return chat
+	}
+	out, at := chat, time.Time{}
+	for _, h := range st.Handoffs[teamChatKey(chat)] {
+		if h.Chat != "" && !h.At.After(started) && h.At.After(at) {
+			out, at = chatOf(h.Chat), h.At
+		}
+	}
+	return out
+}
+
+// leadHandoffChatTag returns, for the lead's turn in chat here, the prefix of a
+// delta line from chat: empty for this channel, 「〔别的频道：<name>〕」 for
+// another. The lead still sees
+// other channels' items (it needs them to spot conflicts, #912) but must tell
+// them apart; the user wants answers about this channel only unless asked.
+func (e *Engine) leadHandoffChatTag(here string) func(string) string {
+	return func(chat string) string {
+		if chat == "" {
+			return ""
+		}
+		if chat == here {
+			return ""
+		}
+		name := chat
+		if _, n, ok := e.sentChannel(chat); ok {
+			name = n
+		}
+		return "〔别的频道：" + name + "〕"
+	}
+}
+
 // buildLeadHandoffDelta lists what changed after since: task key facts, new
 // [ask]s and new workspace handoffs that still belong to the original tasks.
-func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, chats map[string]bool) string {
+// tag(chat) prefixes each line with where it came from (leadHandoffChatTag).
+func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, chats map[string]bool, tag func(string) string) string {
 	if since.IsZero() {
 		return ""
+	}
+	if tag == nil {
+		tag = func(string) string { return "" }
 	}
 	snap := buildLeadHandoffSnapshotLimit(dataDir, self, from, known, chats, 0)
 	var lines []string
@@ -853,24 +903,24 @@ func buildLeadHandoffDelta(dataDir, self, from string, since time.Time, known, c
 		for _, ev := range task.Events {
 			if ev.Timestamp.After(since) {
 				hasNewEvent = true
-				lines = append(lines, fmt.Sprintf("- [%s「%s」] %s：%s（%s）", task.TaskID, task.Title, leadHandoffEventLabel(ev.Kind), leadHandoffOneLine(ev.Summary), handoffTime(ev.Timestamp)))
+				lines = append(lines, fmt.Sprintf("- %s[%s「%s」] %s：%s（%s）", tag(task.Chat), task.TaskID, task.Title, leadHandoffEventLabel(ev.Kind), leadHandoffOneLine(ev.Summary), handoffTime(ev.Timestamp)))
 			}
 		}
 		// The event window keeps only the latest key facts, so a routine update
 		// after the switch can coexist with older events in that window. Use the
 		// task timestamp, not "has any events", to decide whether it is new.
 		if !hasNewEvent && task.UpdatedAt.After(since) {
-			lines = append(lines, fmt.Sprintf("- [%s「%s」] 状态更新为%s：%s（%s）", task.TaskID, task.Title, taskStateLabel(task.State), leadHandoffOneLine(task.LatestProgress), handoffTime(task.UpdatedAt)))
+			lines = append(lines, fmt.Sprintf("- %s[%s「%s」] 状态更新为%s：%s（%s）", tag(task.Chat), task.TaskID, task.Title, taskStateLabel(task.State), leadHandoffOneLine(task.LatestProgress), handoffTime(task.UpdatedAt)))
 		}
 	}
 	for _, q := range snap.Questions {
 		if q.At.After(since) {
-			lines = append(lines, fmt.Sprintf("- 新等待用户：%s（%s 提问，%s）：%s", q.ID, q.Bot, handoffTime(q.At), leadHandoffOneLine(q.Text)))
+			lines = append(lines, fmt.Sprintf("- %s新等待用户：%s（%s 提问，%s）：%s", tag(q.Parent), q.ID, q.Bot, handoffTime(q.At), leadHandoffOneLine(q.Text)))
 		}
 	}
 	for _, w := range snap.Workspaces {
 		if w.At.After(since) {
-			lines = append(lines, fmt.Sprintf("- 新工作区交接：%s「%s」← %s（%s）", leadHandoffWorkspaceName(w), w.Task, w.Chat, handoffTime(w.At)))
+			lines = append(lines, fmt.Sprintf("- %s新工作区交接：%s「%s」（%s）", tag(w.Chat), leadHandoffWorkspaceName(w), w.Task, handoffTime(w.At)))
 		}
 	}
 	if len(lines) == 0 {
