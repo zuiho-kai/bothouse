@@ -126,18 +126,18 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## DMMemberChecker
 
-`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查。
+`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查；飞书列当前群的成员（platform/feishu/dm.go IsDMMember），当前对话不是飞书会话就报错。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener（platform/capability_baseline.txt 里的旧缺口），--dm 本身就开不了私聊，核成员没有用处
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊（同样没接 DirectMessageOpener），--dm 在这里直接报错
 
 ## DMRefusalDetector
 
-`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007。
+`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007；飞书认 230013（对方不在应用可用范围）和 230053（对方不让机器人发消息）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，--dm 开不了私聊，不会出现被拒收
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊，--dm 直接报错
 
 ## PrivateThreadOpener
@@ -145,7 +145,7 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 私信被拒收时的兜底：在当前频道开一个只有本人（和管理员）能看的私密子区发过去（#1352）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
+- feishu: 不支持：飞书群没有只有一个人能看的私密话题
 - cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底
 
 ## TaskForumPoster

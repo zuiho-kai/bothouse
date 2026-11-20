@@ -188,6 +188,7 @@ type Platform struct {
 	// stale entries can be expired by a future TTL sweep if needed.
 	activeThreadSessions sync.Map // sessionKey -> time.Time
 	boardPinned          sync.Map // team board message ID -> struct{} once pinned by this process
+	dmChats              sync.Map // open_id -> p2p chat_id, for OpenDM (dm.go)
 
 	richCardImageMu         sync.Mutex
 	richCardImageResolved   map[string]string
@@ -1435,6 +1436,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	// Pre-compute sessionKey so the @bot filter below can consult the active
 	// thread set; sessionKey is also used downstream for dispatch.
 	sessionKey := p.makeSessionKey(msg, chatID, userID)
+	if chatType == "p2p" && userID != "" && chatID != "" {
+		p.dmChats.Store(userID, chatID) // OpenDM reuses this chat (dm.go)
+	}
 
 	// maomao fork: other bots get through only if listed in allow_bots, and only when they @
 	// this bot, so bots can hand work to each other without loops (same rule as Discord).

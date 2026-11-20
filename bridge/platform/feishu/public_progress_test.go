@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,10 @@ type fakeFeishuIM struct {
 	recallExpired bool
 	createFail    int          // fail this many creates with HTTP 500 before succeeding
 	refuse        *fakeRefusal // when set, every create/patch/reply answers with it
+	// dm_test.go: receive_id_type of each create, the p2p chat of an open_id, chat member pages.
+	createIDTypes []string
+	p2pChats      map[string]string
+	members       map[string][][]string // chat ID -> pages of member open_ids
 }
 
 type fakeRefusal struct {
@@ -71,6 +76,14 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 				return
 			}
 			f.creates = append(f.creates, body)
+			idType := r.URL.Query().Get("receive_id_type")
+			f.createIDTypes = append(f.createIDTypes, idType)
+			if idType == "open_id" {
+				receiver, _ := body["receive_id"].(string)
+				f.nextID++
+				ok(map[string]any{"message_id": "om_" + string(rune('a'+f.nextID)), "chat_id": f.p2pChats[receiver]})
+				return
+			}
 			uuid, _ := body["uuid"].(string)
 			if id, seen := f.byUUID[uuid]; seen && uuid != "" {
 				ok(map[string]any{"message_id": id})
@@ -127,6 +140,25 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/pins/"):
 			f.unpins = append(f.unpins, strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/pins/"))
 			ok(map[string]any{})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/") && strings.HasSuffix(r.URL.Path, "/members"):
+			chat := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/chats/"), "/members")
+			pages, page := f.members[chat], 0
+			if tok := r.URL.Query().Get("page_token"); tok != "" {
+				page, _ = strconv.Atoi(tok)
+			}
+			items := []map[string]any{}
+			if page < len(pages) {
+				for _, id := range pages[page] {
+					items = append(items, map[string]any{"member_id": id})
+				}
+			}
+			data := map[string]any{"items": items, "has_more": page+1 < len(pages)}
+			if page+1 < len(pages) {
+				data["page_token"] = strconv.Itoa(page + 1)
+			}
+			ok(data)
+		case r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/open-apis/contact/v3/users/") || strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/")):
+			ok(map[string]any{}) // sender name and chat name lookups of an inbound message
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

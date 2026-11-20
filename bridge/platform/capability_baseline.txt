@@ -20,7 +20,6 @@ ConfiguredTeamLeadSelf cloud-web
 CronReplyTargetResolver cloud-web
 CronReplyTargetResolver feishu
 DirectMessageOpener cloud-web
-DirectMessageOpener feishu
 InlineButtonSender feishu
 LatestMessageChecker cloud-web
 LatestMessageChecker feishu

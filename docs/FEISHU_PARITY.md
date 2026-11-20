@@ -15,8 +15,8 @@
 
 | 功能 | Discord 现状 | 飞书现状 | 缺什么 | 做不做得了 | 出处（文件:行） |
 | --- | --- | --- | --- | --- | --- |
-| 团队派活：bot 之间互相 @、接话 | 有。别的 bot 发的消息只有在白名单（`allow_bots`、`allow_bots_file`）里且 @ 了本 bot 才放行；`Mentioned`、`FromBot` 都填 | 一半。入站代码不丢机器人消息，`FromBot` 按 `sender_type=="app"` 填，`Mentioned` 按 mentions 填；出站用 `mention_map` 把「@名字」转成飞书 at 标签；建工作区群时会拉上 `peer_bots`。但手动权限表没有「含机器人消息」的权限，所以实际收不到别的 bot 的群消息；也没有白名单 | 1）申请 `im:message.group_at_msg.include_bot:readonly`；2）`allow_bots` 白名单（防两个 bot 互 @ 打转）；3）官方文档写 `sender_type` 取值是 `"user"` 或 `"bot"`，代码只认 `"app"`，要两个都认 | 纯代码，要真机验证 | discord：platform/discord/discord.go:849、:1015；飞书：platform/feishu/feishu.go:1363、:1481、:1482、:1130、:345、:1986，platform/feishu/workspaces.go:164；权限表 docs/feishu.md:158-160；旧说明 仓库根 docs/connect-discord-feishu.md:272-278 |
-| 团队派活：主和 sub 的判定、干完交回主 | 有。`team_lead_bot` 定主；sub 的最终答复结尾 @ 主；插进正在跑的一轮时保留「主派的活」标记 | 只有「@ 自己」这一小块（`SelfMention`）。没有 `team_lead_bot`，core 认不出谁是主、谁是 sub，没被点名的群消息不会按 sub 规则压住 | `ConfiguredTeamLead`、`ConfiguredTeamLeadSelf`、`FinalReplyMarker`、`InjectedReplyMerger` 四个接口 | 纯代码，要真机验证（主 bot 的 id 在别的应用眼里是什么，没核） | discord：platform/discord/discord.go:163，platform/discord/lead_return.go:78、:85、:88，platform/discord/turn_sent.go:132；飞书：platform/feishu/self_mention.go:4；core：core/addressee.go:78、:85，core/backfill.go:90、:106 |
+| 团队派活：bot 之间互相 @、接话 | 有。别的 bot 发的消息只有在白名单（`allow_bots`、`allow_bots_file`）里且 @ 了本 bot 才放行；`Mentioned`、`FromBot` 都填 | 有。别的 bot 的消息只有发送者在 `allow_bots` 里且 @ 了本 bot 才放行；机器人发送者类型 `"app"` 和 `"bot"` 都认；`FromBot`、`Mentioned` 都填；出站用 `mention_map` 把「@名字」转成飞书 at 标签；建工作区群时会拉上 `peer_bots`；手动权限表有「含机器人消息」的权限 | 已补（单测，未真机）：`allow_bots` 白名单、两种发送者类型、权限表加 `im:message.group_at_msg.include_bot:readonly` | 纯代码，要真机验证 | discord：platform/discord/discord.go:849、:1015；飞书：platform/feishu/feishu.go:1363、:1481、:1482、:1130、:345、:1986，platform/feishu/workspaces.go:164；权限表 docs/feishu.md:158-160；旧说明 仓库根 docs/connect-discord-feishu.md:272-278 |
+| 团队派活：主和 sub 的判定、干完交回主 | 有。`team_lead_bot` 定主；sub 的最终答复结尾 @ 主；插进正在跑的一轮时保留「主派的活」标记 | 有。`team_lead_bot` 定主；主派的活，sub 的最终答复带上 @ 主；插进正在跑的一轮时保留「主派的活」标记 | 已补（单测，未真机）：`ConfiguredTeamLead`、`ConfiguredTeamLeadSelf`、`FinalReplyMarker`、`InjectedReplyMerger` 四个接口（platform/feishu/lead_return.go） | 纯代码，要真机验证（主 bot 的 id 在别的应用眼里是什么，没核） | discord：platform/discord/discord.go:163，platform/discord/lead_return.go:78、:85、:88，platform/discord/turn_sent.go:132；飞书：platform/feishu/self_mention.go:4；core：core/addressee.go:78、:85，core/backfill.go:90、:106 |
 | 工作区频道：建、改名、列出 | 有。工作区是服务器里的频道，统一放「工作区」分类 | 有。工作区是一个群：列 bot 所在的全部群、建群、改群名 | 不缺。飞书没有分类，「放进工作区分类」这一步不适用（见第三节） | 已支持 | discord：platform/discord/workspaces.go:43、:161、:185；飞书：platform/feishu/workspaces.go:77、:146、:166；platform/CAPABILITIES.md:93 |
 | 工作区删除、删前归档 | 有。删频道；删之前把整段频道消息读出来打进归档 | 没有。空闲工作区群删不掉，归档里也没有群消息这一段 | `TeamWorkspaceDeleter`（解散群）、`TeamChannelArchiver`（翻页读整段群消息） | 纯代码，要真机验证。解散群要 bot 是群主或创建者；官方原话「解散群组后，群聊天记录将不会保存」 | discord：platform/discord/workspaces.go:77、:106；core：core/team_workspace_delete.go:64，core/team_workspace_cleanup.go:129；已有表态 platform/CAPABILITIES.md:101、:110 |
 | 用户要求建新频道（`bothouse channel create`） | 有。建在聊天频道同一分类里，排在「工作区n」上面 | 没有 | `TeamChannelCreator`。建群本身能做（建工作区群的代码可复用），「同分类、排在工作区上面」飞书没有 | 建群：纯代码；排序：平台不支持 | discord：platform/discord/channels.go:25；飞书可复用 platform/feishu/workspaces.go:181；core：core/team_channel.go:50；platform/CAPABILITIES.md:75 |
@@ -29,7 +29,7 @@
 | 进度卡同步进任务子话题（点开任务就看到每一步） | 有 | 没有。飞书任务卡不填话题 id，core 找不到往哪发 | `TaskThreadTarget`，并先让飞书任务卡把话题根消息 id 记到任务上 | 纯代码，要真机验证（话题里的卡片能不能原地编辑） | discord：platform/discord/task_thread_progress.go:9；core：core/task_thread_progress.go:67；platform/CAPABILITIES.md:39 |
 | 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 没有，飞书上看不到这张表 | `SubTaskTablePayloadSupport`（渲染成卡片）、`LatestMessageChecker`（要先有历史读取） | 纯代码 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
 | 引用回复（回复某条消息，bot 知道回的是哪件活） | 有 | 有。入站把被回复消息 id 填进 Reference，出站登记每条发出消息的 id | 不缺 | 已支持 | discord：platform/discord/discord.go:932，platform/discord/turn_sent.go:123；飞书：platform/feishu/feishu.go:1121（Reference 在 :1133）、:3783；core：core/reply_task.go:145；platform/CAPABILITIES.md:12、:21 |
-| 私信 `send --dm`、`--dm --to <id>` | 有。开私聊；`--to` 先核对方在不在本服务器；对方拒收私信时改开一个只有他能看的私密子区 | 没有。`--dm` 直接报「没有平台能开私聊」 | `DirectMessageOpener`（按 open_id 发消息）、`DMMemberChecker`（查群成员）、`DMRefusalDetector`（认出「对方不在应用可用范围」的错）；私密子区飞书没有 | 前三个：纯代码，要真机验证；私密子区：平台不支持 | discord：platform/discord/discord.go:1671、:1690、:1736、:1747；core：core/dm.go:102、:156、:34、:48；platform/CAPABILITIES.md:127、:135、:143 |
+| 私信 `send --dm`、`--dm --to <id>` | 有。开私聊；`--to` 先核对方在不在本服务器；对方拒收私信时改开一个只有他能看的私密子区 | 有开私聊、`--to` 核对方在不在当前群、认出拒收。没和机器人聊过的人，第一次要先按 open_id 发一条「私信」两个字的消息换出单聊。拒收时没有私密子区兜底，直接报发不出 | 已补（单测，未真机）：`DirectMessageOpener`、`DMMemberChecker`、`DMRefusalDetector`；私密子区飞书没有 | 前三个：纯代码，要真机验证；私密子区：平台不支持 | discord：platform/discord/discord.go:1671、:1690、:1736、:1747；飞书：platform/feishu/dm.go:51、:98、:125；core：core/dm.go:102、:156、:34、:48；platform/CAPABILITIES.md:127、:135、:143 |
 | 按名字发频道 `send --channel <名字>` | 有。只在当前对话所在的服务器里按名字找，重名或找不到就报错、不发 | 没有。报「cannot find channels by name (Discord only)」 | `GuildChannelLister`、`ChannelNameResolver`。飞书没有「服务器」，能做的是在 bot 所在的全部群里按群名找 | 纯代码，但语义变了（从「同服务器」变成「bot 在的所有群」） | discord：platform/discord/channel_names.go:18，platform/discord/discord.go:2001；飞书可复用 platform/feishu/workspaces.go:77；core：core/send_channel.go:84；platform/CAPABILITIES.md:84 |
 | 发图片、发文件 | 有 | 有 | 不缺 | 已支持 | discord：platform/discord/discord.go:1441、:1495；飞书：platform/feishu/feishu.go:2918、:2966；core：core/engine.go:13639、:13657 |
 | 发语音、TTS 念出来 | 有。语音消息 | 有。音频消息 | 不缺 | 已支持 | discord：platform/discord/voice_message.go:32；飞书：platform/feishu/feishu.go:4976；core：core/tts.go:69，core/engine.go:14042 |
@@ -45,7 +45,7 @@
 | 工作区静音（工作区里的消息不推送通知） | 有 | 没有 | `SilentChannelAware` | 没核。没查到飞书发消息有「不通知」的参数 | discord：platform/discord/silent.go:31；core：core/engine.go:3143 |
 | 运行维护：改配置不重启就生效、断线后自己恢复 | 有 | 没有。改飞书选项要重启桥；断线恢复没核飞书长连接自己会不会重连 | `OptionsReloader`、`AsyncRecoverablePlatform` | 纯代码 | discord：platform/discord/live_options.go:61，platform/discord/discord.go:734；core：core/engine.go:1452、:2148 |
 
-表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。任务板缺的「换主后删旧板」已补（单测，未真机），真机验过再算进完整支持。
+表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。有缺口的 22 行里，4 行的缺口已补（单测，未真机）：bot 之间互相 @、主和 sub 交回、任务板「换主后删旧板」、私信（私密子区兜底除外，平台不支持）。真机验过再算进完整支持，所以上面的 7 和 22 先不动。
 
 飞书有、Discord 没有的（不算缺口，列出来免得误删）：原生视频消息（feishu.go:5053）、消息撤回感知（feishu.go:1058）、富文本卡片和表格拆分（feishu.go:6805、:6810）、状态脚注（feishu.go:2896）、卡片翻页（feishu.go:279）。
 
@@ -53,26 +53,28 @@
 
 排序依据：团队派活、私信、任务板这三类是每天都在用的，排前面；其余按「不补用户会不会撞上」往后排。行数是代码加单测的粗估，参照 Discord 侧同功能文件的大小。
 
-1. **bot 之间互相 @ 派活（入站放行）**
+1. **bot 之间互相 @ 派活（入站放行）** —— 已补（单测，未真机）
+   - 单测：platform/feishu/lead_return_test.go 的 `TestSenderIsBotAcceptsAppAndBot`、`TestOnMessageAllowedBotMentioningSelfGetsIn`、`TestOnMessageDropsOtherBotMessages`、`TestTeamOptionsParsed`。下面是补之前写的方案，留作对照。
    - 补法：飞书入站认两种机器人发送者类型（`"app"` 和 `"bot"`）；加 `allow_bots` 白名单，名单外的机器人消息丢掉，名单内的也要 @ 了本 bot 才放行；权限表加 `im:message.group_at_msg.include_bot:readonly`。
    - 要动的文件：platform/feishu/feishu.go（选项解析 :313 一带、onMessage :1363、isStopAllEvent :6850）、docs/feishu.md（权限表 :158）、仓库根 docs/connect-discord-feishu.md（:272-278 的旧说法要改）。扫码向导自动申请的权限清单在哪个文件，没核到（按权限串在 bridge 的 go 文件里没搜到）。
    - 预估：代码约 80 行，单测约 60 行。
    - 风险：白名单没配好，两个 bot 互相 @ 会打转；`sender_type` 的真实取值没在真机上见过，文档和旧版 SDK 注释说法不一致（SDK 注释还写着「目前只支持用户发送的消息」）。
    - 要真飞书验证：要。至少两个应用进同一个群，互相 @ 一次。
 
-2. **主和 sub 的判定、干完交回主**
+2. **主和 sub 的判定、干完交回主** —— 已补（单测，未真机）
+   - 单测：platform/feishu/lead_return_test.go 的 `TestConfiguredTeamLead`、`TestOnMessageMarksLeadDispatch`、`TestFinalReplyReturnsToLead`、`TestMergeInjectedReplyKeepsLead`。下面是补之前写的方案，留作对照。
    - 补法：加 `team_lead_bot` 选项；实现 `HasConfiguredTeamLead`、`IsConfiguredTeamLead`；sub 的最终答复结尾带上 @ 主（`MarkFinalReply`）；插话时保留「主派的活」标记（`MergeInjectedReply`）。
    - 要动的文件：新增 platform/feishu/lead_return.go；platform/feishu/feishu.go（replyContext :118 一带加「是主派的」字段、发送处拼 at 标签）。参照 platform/discord/lead_return.go（132 行）和 platform/discord/turn_sent.go（173 行）。
    - 预估：代码约 180 行，单测约 100 行。
    - 风险：依赖第 1 条先通；飞书里同一个用户在不同应用下的 open_id 不同（官方「发送消息」文档原话），机器人的 id 是不是也这样没核，`team_lead_bot` 该填 app_id 还是 open_id 要真机定。
    - 要真飞书验证：要。
 
-3. **私信 `send --dm`、`--dm --to`**
-   - 补法：`OpenDM` 用 `receive_id_type=open_id` 给人发消息并返回单聊会话键；`IsDMMember` 用「获取群成员列表」核对方在不在当前群；`IsDMRefused` 认出「对方不在应用可用范围」的错误，报清楚而不是瞎转发。
-   - 要动的文件：platform/feishu/feishu.go（新增三个方法；`ReconstructReplyCtx` :3943 要能认单聊会话键）。参照 platform/discord/discord.go:1671-1783。
-   - 预估：代码约 120 行，单测约 80 行。
-   - 风险：现在的会话键是「平台:群 id:用户 id」，私聊要么先换出单聊的 chat_id，要么让回复上下文带 open_id，改到发送主路径；对方不在机器人可用范围就发不出；私密子区这个兜底飞书没有。
-   - 要真飞书验证：要。
+3. **私信 `send --dm`、`--dm --to`** —— 已补（单测，未真机）
+   - 做法：`OpenDM`（platform/feishu/dm.go:51）返回单聊会话键「平台:单聊 chat_id:open_id」，和这个人私聊机器人时入站消息的键是同一个，所以他回的话接得上。单聊的 chat_id 机器人只能从「按 open_id 发一条消息」的响应里拿，所以对没和机器人聊过的人，第一次会先发一条「私信」两个字的消息；聊过的人（入站单聊消息里记下了 chat_id）和第二次起不再发。记在内存里，桥重启后重新来一次。
+   - `--to` 核对：`IsDMMember`（dm.go:98）列当前群的成员找这个人（翻页）；收件人就是当前对话的发言人时不用查；当前对话不是飞书会话就报错、不发。
+   - 拒收：`IsDMRefused`（dm.go:125）认 230013（对方不在应用可用范围）和 230053（对方不让机器人给他发消息）。飞书没有私密子区，认出来后不改道，报发不出；core 这句报错里写的还是「Discord refused the DM」，没改。
+   - 单测：platform/feishu/dm_test.go 的 `TestFeishuOpenDMUsesP2PChatSessionKey`、`TestFeishuOpenDMNeedsChatID`、`TestFeishuIsDMMember`、`TestFeishuIsDMRefused`。
+   - 要真飞书验证：要。没验过的有三处：按 open_id 发消息的响应里 chat_id 是不是单聊的；两个拒收错误码真机上长什么样；机器人列单聊成员会不会被拒（从别人的单聊里 `--to` 第三个人时会走到）。
 
 4. **任务板收尾：换主后删旧板** —— 已补（单测，未真机）
    - 做法：`RemoveBoard`（platform/feishu/public_progress.go:130）先取消置顶，再调「撤回消息」撤掉自己发的那张板；消息已不在（错误码 230110、230011）算删成功。
