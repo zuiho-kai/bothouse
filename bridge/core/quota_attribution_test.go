@@ -50,6 +50,8 @@ func TestCUJ_QuotaExhaustedTurnEndsOnceWithAttributedNotice(t *testing.T) {
 			Metadata: WithQuotaExhausted(nil, "10pm (Asia/Tokyo)")}},
 		{"error", Event{Type: EventError, Error: errors.New("You've hit your usage limit. Try again at 10pm (Asia/Tokyo)."),
 			Metadata: WithQuotaExhausted(nil, "10pm (Asia/Tokyo)")}},
+		{"error-with-answer", Event{Type: EventError, Content: "partial quota answer", Error: errors.New("antigravity: stream turn failed (ERROR)"),
+			ErrorKind: ErrorKindPermanent, ErrorStatus: 429, Metadata: WithQuotaExhausted(nil, "10pm (Asia/Tokyo)")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			as := &errorQuotaSession{inputTestSession: &inputTestSession{
@@ -72,6 +74,11 @@ func TestCUJ_QuotaExhaustedTurnEndsOnceWithAttributedNotice(t *testing.T) {
 			want := "whale (gemini-4-argon-medium) 额度已用完，10pm (Asia/Tokyo) 恢复"
 			if strings.Count(out, want) != 1 || strings.Contains(out, "hit your") || strings.Contains(out, "❌") {
 				t.Fatalf("sent = %q, want one %q and no raw CLI text", out, want)
+			}
+			if tc.ev.Type == EventError && tc.ev.Content != "" {
+				if strings.Count(out, tc.ev.Content) != 1 || strings.Index(out, tc.ev.Content) > strings.Index(out, want) || strings.Contains(out, tc.ev.Error.Error()) {
+					t.Fatalf("answer must precede one quota notice without the generic error: %q", out)
+				}
 			}
 			// The turn is closed, but the provider stays cooling until its reset:
 			// a teammate bot waits. (A person's message retries once instead,
