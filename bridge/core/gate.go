@@ -670,7 +670,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	} else {
 		content = withLatestMark(content)
 	}
-	markSeen(session, msg)
+	markSeen(p, session, msg)
 	session.backfillMu.Unlock()
 
 	inject := content

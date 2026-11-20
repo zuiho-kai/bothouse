@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,9 @@ type fakeFeishuIM struct {
 	createIDTypes []string
 	p2pChats      map[string]string
 	members       map[string][][]string // chat ID -> pages of member open_ids
+	// history_test.go: chat ID -> its messages oldest first, and the query of each list request.
+	history     map[string][]map[string]any
+	listQueries []url.Values
 }
 
 type fakeRefusal struct {
@@ -157,6 +161,18 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 				data["page_token"] = strconv.Itoa(page + 1)
 			}
 			ok(data)
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/messages":
+			ok(f.listHistory(r.URL.Query()))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/"):
+			items := []map[string]any{}
+			for _, msgs := range f.history {
+				for _, m := range msgs {
+					if m["message_id"] == strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/") {
+						items = append(items, m)
+					}
+				}
+			}
+			ok(map[string]any{"items": items})
 		case r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/open-apis/contact/v3/users/") || strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/")):
 			ok(map[string]any{}) // sender name and chat name lookups of an inbound message
 		default:

@@ -2543,7 +2543,7 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 	}
 	e.teamNoteTurn(msg, session)
 	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
-		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+		markSeen(msg.scheduledFrom, session, &Message{MessageID: msg.handoffSeenMark})
 	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)

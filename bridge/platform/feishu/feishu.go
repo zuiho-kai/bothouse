@@ -121,6 +121,10 @@ type replyContext struct {
 	replyTo string
 	// recordSent gets the id of every message posted with this context (core.SentMessageRecorder).
 	recordSent func(string)
+	// agent: this send carries the agent's own text (core.AgentReplyMarker, history.go);
+	// recordAgentReply gets the id of each such post (core.SessionAgentReplyMarker).
+	agent            bool
+	recordAgentReply func(string)
 	// lead: the primary role this turn's final answer is handed back to (lead_return.go); final:
 	// this send carries the turn's final answer (core.FinalReplyMarker).
 	lead  string
@@ -189,6 +193,9 @@ type Platform struct {
 	activeThreadSessions sync.Map // sessionKey -> time.Time
 	boardPinned          sync.Map // team board message ID -> struct{} once pinned by this process
 	dmChats              sync.Map // open_id -> p2p chat_id, for OpenDM (dm.go)
+	// maomao fork (history.go): this bot's agent posts, and the create_time of messages seen.
+	turnSent turnSentLog
+	msgTimes msgTimes
 
 	richCardImageMu         sync.Mutex
 	richCardImageResolved   map[string]string
@@ -446,6 +453,7 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		imageBatch:                 make(map[string]*imageBatchEntry),
 		imageBatchWindow:           imageBatchWindow,
 	}
+	base.loadTurnSent(opts)
 	if !useInteractiveCard {
 		base.self = base
 		return base, nil
@@ -1413,6 +1421,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 				return nil
 			}
 			createTimeMs = ms
+			p.msgTimes.put(messageID, ms)
 		}
 	}
 
@@ -3041,7 +3050,7 @@ func (p *Platform) sendMediaMessage(ctx context.Context, rc replyContext, msgTyp
 	if p.shouldUseThreadOrReplyAPI(rc) {
 		return p.replyMessage(ctx, rc, msgType, content)
 	}
-	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send media message", rc.recordSent)
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send media message", p.sentRecorder(rc))
 }
 
 func detectFeishuFileType(mimeType, fileName string) string {
@@ -3732,7 +3741,7 @@ func (p *Platform) sendNewMessageToChat(ctx context.Context, rc replyContext, ms
 	if rc.chatID == "" {
 		return fmt.Errorf("%s: chatID is empty, cannot send new message", p.tag())
 	}
-	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send", rc.recordSent)
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send", p.sentRecorder(rc))
 }
 
 func (p *Platform) buildReplyMessageReqBody(rc replyContext, msgType, content string) *larkim.ReplyMessageReqBody {
@@ -3760,7 +3769,7 @@ func (p *Platform) replyMessage(ctx context.Context, rc replyContext, msgType, c
 				return fmt.Errorf("%s: reply failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
 			}
 			if resp.Data != nil {
-				noteSent(rc.recordSent, resp.Data.MessageId)
+				noteSent(p.sentRecorder(rc), resp.Data.MessageId)
 			}
 			return nil
 		})
@@ -4692,6 +4701,7 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	if msgID == "" {
 		return nil, fmt.Errorf("%s: send preview: no message ID returned", p.tag())
 	}
+	p.noteAgentReply(rc, msgID)
 
 	return &feishuPreviewHandle{messageID: msgID, chatID: chatID, cardID: cardID}, nil
 }

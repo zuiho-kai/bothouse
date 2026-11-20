@@ -223,3 +223,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 已接
 - cloud-web: 已接
 - dsh: 已接
+
+## MessageOrderer
+
+回看频道历史时由平台判断两条消息的先后（core/backfill.go messageAfter）。飞书消息 id 是散列形式，不保证按时间排，按 create_time 比。
+
+- feishu: 已接
+- discord: 不支持：不需要，消息 id 是雪花数，按数值比就是按时间比（core 默认比法）
+- cloud-web: 不支持：不需要，hub 的 id 是递增整数，core 默认比法就对
+- dsh: 不支持：不需要，走 cloud-web 帧，id 递增，core 默认比法就对

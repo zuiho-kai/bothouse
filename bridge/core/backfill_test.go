@@ -75,14 +75,74 @@ func TestChannelBackfill_ShowsMissedMessagesInOrder(t *testing.T) {
 		t.Fatalf("empty message should be shown:\n%s", got)
 	}
 
-	markSeen(session, msg)
+	markSeen(nil, session, msg)
 	if session.GetLastSeenMsgID() != "106" {
 		t.Fatalf("last seen = %q, want 106", session.GetLastSeenMsgID())
 	}
 	msg.SeenUpToID = "107"
-	markSeen(session, msg)
+	markSeen(nil, session, msg)
 	if session.GetLastSeenMsgID() != "107" {
 		t.Fatalf("folded burst should advance last seen, got %q", session.GetLastSeenMsgID())
+	}
+}
+
+// timeOrderedPlatform has message IDs that do not sort by time (Feishu's om_ IDs): its history
+// is in time order and MessageAfter answers by position.
+type timeOrderedPlatform struct {
+	historyPlatform
+}
+
+func (p *timeOrderedPlatform) pos(id string) int {
+	for i, m := range p.history {
+		if m.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (p *timeOrderedPlatform) MessageAfter(a, b string) bool { return p.pos(a) > p.pos(b) }
+
+func (p *timeOrderedPlatform) ChannelHistory(_, beforeID string, _ int) ([]ChannelHistoryMessage, error) {
+	if beforeID == "" {
+		return p.history, nil
+	}
+	return p.history[:p.pos(beforeID)], nil
+}
+
+func TestChannelBackfill_UsesPlatformMessageOrder(t *testing.T) {
+	now := time.Now()
+	p := &timeOrderedPlatform{historyPlatform{history: []ChannelHistoryMessage{
+		{ID: "om_y", Author: "zuiho", Content: "更早的", Time: now},
+		{ID: "om_z", Author: "zuiho", Content: "看过了", Time: now},
+		{ID: "om_c", Author: "zuiho", Content: "没看过的第一条", Time: now},
+		{ID: "om_a", Author: "龙娘", IsBot: true, Content: "没看过的第二条", Time: now},
+		{ID: "om_b", Author: "zuiho", Content: "你看看", Time: now},
+	}}}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	session := e.sessions.GetOrCreateActive("feishu:oc_chat")
+	session.SetLastSeenMsgID("om_z")
+
+	msg := &Message{ChannelID: "oc_chat", MessageID: "om_b", Content: "你看看"}
+	got, _, ok := e.channelBackfill(p, msg, session)
+	if !ok {
+		t.Fatal("backfill should succeed")
+	}
+	if strings.Contains(got, "更早的") || strings.Contains(got, "看过了") {
+		t.Fatalf("messages up to the last seen one must be skipped:\n%s", got)
+	}
+	i, j := strings.Index(got, "没看过的第一条"), strings.Index(got, "没看过的第二条")
+	if i < 0 || j < 0 || i > j {
+		t.Fatalf("messages after the last seen one missing or out of order:\n%s", got)
+	}
+	markSeen(p, session, msg)
+	if session.GetLastSeenMsgID() != "om_b" {
+		t.Fatalf("last seen = %q, want om_b", session.GetLastSeenMsgID())
+	}
+	markSeen(p, session, &Message{MessageID: "om_c"})
+	if session.GetLastSeenMsgID() != "om_b" {
+		t.Fatalf("an older message moved last seen back to %q", session.GetLastSeenMsgID())
 	}
 }
 

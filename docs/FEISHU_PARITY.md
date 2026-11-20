@@ -97,7 +97,7 @@
    - 风险：话题里的进度卡能不能原地编辑没验过（CAPABILITIES.md:39 已写明这一点）。
    - 要真飞书验证：要。
 
-7. **频道历史回看**
+7. **频道历史回看** —— 已补（单测，未真机）。真机没核：飞书 om_ id 是否按时间有序（已改按 create_time 比，不依赖它）、bot 自己消息的 sender.id 是否等于 app_id、需 im:message.group_msg 权限且 bot 在群里；普通群按群读只拿到话题根消息。
    - 补法：实现 `ChannelHistory`，调「获取会话历史消息」按群翻页，转成 core 的历史消息；出站时记下哪些是 agent 自己的话（`MarkAgentReply`），补读时好过滤。
    - 要动的文件：新增 platform/feishu/history.go；platform/feishu/feishu.go（消息内容解析复用 :2115 fetchSingleMessage 的那套）。参照 platform/discord/discord.go:1934-2000、platform/discord/turn_sent.go:141。
    - 预估：代码约 150 行，单测约 80 行。
