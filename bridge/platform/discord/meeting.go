@@ -30,6 +30,13 @@ import (
 // ChannelVoiceJoinManual never adds one.
 //
 // Audio is never stored: the listener transcribes each stretch of speech and deletes the wav.
+//
+// Pictures: a bot cannot see a camera or a screen share. Discord does not support video or Go
+// Live for bots (discord/discord-api-docs#1995, staff answer), the voice documentation covers
+// audio only, and @discordjs/voice drops every packet that is not Opus. So what the meeting wants
+// the bot to see is posted as a picture in the text channel the meeting was called from: those
+// pictures are remembered with their time and sender (noteMeetingImages) and go to the agent with
+// the transcript.
 
 // defaultMeetingASRPython: the python that has mlx_whisper, for contrib/discord-voice/asr_worker.py.
 const defaultMeetingASRPython = "~/ai-voice/voice-train/.venv-asr/bin/python"
@@ -66,6 +73,24 @@ type meetingSegment struct {
 	Text       string
 }
 
+// meetingPost is a message with pictures posted in the meeting's text channel during the meeting.
+type meetingPost struct {
+	At     time.Time
+	UserID string
+	Text   string // what the sender wrote with the pictures
+	Images []*discordgo.MessageAttachment
+}
+
+// meetingShot is one posted picture in the transcript. N is its number among the pictures handed
+// to the agent, 0 when it could not be fetched.
+type meetingShot struct {
+	At       time.Time
+	UserID   string
+	Text     string
+	FileName string
+	N        int
+}
+
 type meetingPresence struct {
 	At     time.Time
 	UserID string
@@ -91,6 +116,7 @@ type meeting struct {
 	names     map[string]string // user ID → display name
 	segments  []meetingSegment
 	presence  []meetingPresence
+	posts     []meetingPost
 }
 
 func (mt *meeting) theListener() *voiceListener {
@@ -284,7 +310,7 @@ func (p *Platform) startMeeting(s *discordgo.Session, m *discordgo.MessageCreate
 	name := mt.voiceName
 	mt.mu.Unlock()
 	slog.Info("discord: meeting started", "guild", m.GuildID, "voice", voiceID, "text", m.ChannelID)
-	p.meetingSay(m.ChannelID, "已进入语音频道「"+name+"」，开始记录会议。大家都离开语音频道，或者 @ 我说「会议纪要」，我就退出并发出详细记录和标准纪要。")
+	p.meetingSay(m.ChannelID, "已进入语音频道「"+name+"」，开始记录会议。大家都离开语音频道，或者 @ 我说「会议纪要」，我就退出并发出详细记录和标准纪要。摄像头和屏幕共享我看不到，要我看的画面请截图发到这个频道，会一起记进纪要。")
 	if empty { // everyone left while the bot was connecting
 		go p.endMeeting(mt, "大家都离开了语音频道", "")
 	}
@@ -313,6 +339,55 @@ func (mt *meeting) leave(userID string, at time.Time) (empty bool) {
 	delete(mt.present, userID)
 	mt.presence = append(mt.presence, meetingPresence{At: at, UserID: userID, Joined: false})
 	return len(mt.present) == 0
+}
+
+// noteMeetingImages remembers the pictures of a message posted in the meeting's text channel
+// while the meeting is being recorded, whoever posts them. The message itself is handled as usual.
+func (p *Platform) noteMeetingImages(m *discordgo.MessageCreate) {
+	if !p.meetingOn || m.GuildID == "" {
+		return
+	}
+	mt := p.meetingIn(m.GuildID)
+	if mt == nil || mt.textID != m.ChannelID {
+		return
+	}
+	var images []*discordgo.MessageAttachment
+	for _, att := range m.Attachments {
+		// the same test as classifyAttachments
+		if att == nil {
+			continue
+		}
+		if ct := strings.ToLower(att.ContentType); strings.HasPrefix(ct, "image/") || ct == "" && att.Width > 0 && att.Height > 0 {
+			images = append(images, att)
+		}
+	}
+	if len(images) == 0 {
+		return
+	}
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	if mt.startedAt.IsZero() || mt.ending {
+		return
+	}
+	mt.names[m.Author.ID] = discordDisplayName(m)
+	mt.posts = append(mt.posts, meetingPost{At: time.Now(), UserID: m.Author.ID, Text: strings.TrimSpace(m.Content), Images: images})
+	slog.Info("discord: meeting picture", "guild", mt.guildID, "user", m.Author.ID, "images", len(images))
+}
+
+// meetingShots fetches the posted pictures: one transcript entry per picture, and the pictures
+// that go to the agent, in the order of their numbers.
+func meetingShots(posts []meetingPost, download func(string) ([]byte, error)) (shots []meetingShot, images []core.ImageAttachment) {
+	for _, po := range posts {
+		for _, att := range po.Images {
+			sh := meetingShot{At: po.At, UserID: po.UserID, Text: po.Text, FileName: att.Filename}
+			if got, _, _, _ := classifyAttachments([]*discordgo.MessageAttachment{att}, download); len(got) == 1 {
+				images = append(images, got[0])
+				sh.N = len(images)
+			}
+			shots = append(shots, sh)
+		}
+	}
+	return shots, images
 }
 
 // meetingVoiceState follows who is in the meeting's voice channel and relays the bot's own
@@ -441,6 +516,7 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 	mt.mu.Lock()
 	segs := append([]meetingSegment(nil), mt.segments...)
 	presence := append([]meetingPresence(nil), mt.presence...)
+	posts := append([]meetingPost(nil), mt.posts...)
 	names := map[string]string{}
 	for k, v := range mt.names {
 		names[k] = v
@@ -458,7 +534,12 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 		p.meetingSay(mt.textID, "会议结束（"+reason+"）。这次没有收到任何发言，不出纪要。")
 		return
 	}
-	p.meetingSay(mt.textID, fmt.Sprintf("会议结束（%s），共 %d 段发言。正在整理详细记录和标准纪要。", reason, len(segs)))
+	shots, images := meetingShots(posts, downloadURL)
+	said := fmt.Sprintf("共 %d 段发言", len(segs))
+	if len(shots) > 0 {
+		said += fmt.Sprintf("、%d 张图", len(shots))
+	}
+	p.meetingSay(mt.textID, fmt.Sprintf("会议结束（%s），%s。正在整理详细记录和标准纪要。", reason, said))
 
 	if replyTo == "" {
 		replyTo = mt.startMsgID
@@ -467,7 +548,8 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 		SessionKey: p.makeSessionKey(mt.textID, mt.starterID), Platform: "discord",
 		ChannelID: mt.textID, MessageID: replyTo,
 		UserID: mt.starterID, UserName: mt.starterName,
-		Content:   meetingPrompt(meetingTranscript(info, segs, presence, names)),
+		Content:   meetingPrompt(meetingTranscript(info, segs, shots, presence, names), len(images)),
+		Images:    images,
 		ReplyCtx:  replyContext{channelID: mt.textID, messageID: replyTo, msgChannelID: mt.textID},
 		Mentioned: true,
 	}
@@ -504,9 +586,10 @@ func meetingClock(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", sec/60, sec%60)
 }
 
-// meetingTranscript is the text the agent gets: the header, who was there and one line per
-// stretch of speech, "[start–end] name：text", times counted from the start of the recording.
-func meetingTranscript(info meetingInfo, segs []meetingSegment, presence []meetingPresence, names map[string]string) string {
+// meetingTranscript is the text the agent gets: the header, who was there and, in order of time,
+// one line per stretch of speech, "[start–end] name：text", and one per posted picture,
+// "[time] name 发图（图N，file）：text". Times are counted from the start of the recording.
+func meetingTranscript(info meetingInfo, segs []meetingSegment, shots []meetingShot, presence []meetingPresence, names map[string]string) string {
 	name := func(id string) string {
 		if n := names[id]; n != "" {
 			return n
@@ -529,21 +612,53 @@ func meetingTranscript(info meetingInfo, segs []meetingSegment, presence []meeti
 		fmt.Fprintf(&b, "- [%s] %s %s\n", meetingClock(pr.At.Sub(info.Started)), name(pr.UserID), what)
 	}
 	b.WriteString("发言：\n")
+	k := 0 // shots[:k] are written
 	for _, sg := range segs {
+		for ; k < len(shots) && shots[k].At.Before(sg.Start); k++ {
+			b.WriteString(meetingShotLine(info, shots[k], name(shots[k].UserID)))
+		}
 		fmt.Fprintf(&b, "[%s–%s] %s：%s\n", meetingClock(sg.Start.Sub(info.Started)), meetingClock(sg.End.Sub(info.Started)), name(sg.UserID), sg.Text)
+	}
+	for ; k < len(shots); k++ {
+		b.WriteString(meetingShotLine(info, shots[k], name(shots[k].UserID)))
 	}
 	return b.String()
 }
 
-// meetingPrompt is the message the agent of the text channel gets when a meeting ends.
-func meetingPrompt(transcript string) string {
+func meetingShotLine(info meetingInfo, sh meetingShot, name string) string {
+	what := fmt.Sprintf("图%d，%s", sh.N, sh.FileName)
+	if sh.N == 0 {
+		what = sh.FileName + "，图片没取到"
+	}
+	line := fmt.Sprintf("[%s] %s 发图（%s）", meetingClock(sh.At.Sub(info.Started)), name, what)
+	if sh.Text != "" {
+		line += "：" + sh.Text
+	}
+	return line + "\n"
+}
+
+// meetingPrompt is the message the agent of the text channel gets when a meeting ends. images is
+// the number of posted pictures that come with it.
+func meetingPrompt(transcript string, images int) string {
 	var b strings.Builder
 	b.WriteString("【会议助手】下面是刚结束的一场语音会议的转写稿。这条消息是桥自动生成的，不是用户打的字。\n")
-	b.WriteString("转写稿里每行发言是「[开始–结束] 说话人：内容」，时间从开始记录算起。说话人按 Discord 账号区分，是确定的；文字是语音识别出来的，可能有错字、同音字。\n\n")
-	b.WriteString("<转写稿>\n" + transcript + "</转写稿>\n\n")
+	b.WriteString("转写稿里每行发言是「[开始–结束] 说话人：内容」，时间从开始记录算起。说话人按 Discord 账号区分，是确定的；文字是语音识别出来的，可能有错字、同音字。\n")
+	if images > 0 {
+		// The engine may put older channel pictures in front of these, never behind them.
+		fmt.Fprintf(&b, "会议进行中有人在这个文字频道发了图，转写稿里是「[时间] 发图人 发图（图N，文件名）：附言」。这些图随本条消息附上：本条消息所带图片的最后 %d 张，按顺序就是图1 到图%d。先看图再写。\n", images, images)
+	}
+	b.WriteString("\n<转写稿>\n" + transcript + "</转写稿>\n\n")
 	b.WriteString("请直接在这个频道回复下面两份内容，不要寒暄，不要反问：\n\n")
-	b.WriteString("一、详细记录。按时间顺序逐条写，每条一行，不用表格：时间、谁说的、对谁说、内容。「对谁说」Discord 给不出来，由你根据点名、称呼和上下文推断，每一条都标明「推断」，判断不出就写「全体（推断）」。内容照原话整理，只改明显的识别错字，不删观点、不加没说过的话。\n\n")
-	b.WriteString("二、标准纪要。四部分：议题；结论；待办（每条写清做什么、负责人、期限，会上没说的写「未定」）；分歧（没有就写「无」）。\n\n")
+	b.WriteString("一、详细记录。按时间顺序逐条写，每条一行，不用表格：时间、谁说的、对谁说、内容。「对谁说」Discord 给不出来，由你根据点名、称呼和上下文推断，每一条都标明「推断」，判断不出就写「全体（推断）」。内容照原话整理，只改明显的识别错字，不删观点、不加没说过的话。")
+	if images > 0 {
+		b.WriteString("发图的行也按时间插在里面，写成「[时间] 某人 发图：画面内容」，画面内容写图上看得到的标题、文字、数字，看不清的写看不清，不猜。")
+	}
+	b.WriteString("\n\n")
+	b.WriteString("二、标准纪要。四部分：议题；结论；待办（每条写清做什么、负责人、期限，会上没说的写「未定」）；分歧（没有就写「无」）。")
+	if images > 0 {
+		b.WriteString("图上的信息可以用，用到时写明出自谁发的图。")
+	}
+	b.WriteString("\n\n")
 	b.WriteString("另外，按你本机的记忆或笔记约定把这份纪要存一份（没有这类约定就不用存），存了就在回复最后写一句存在哪。")
 	return b.String()
 }

@@ -1538,7 +1538,7 @@ app_secret = "your-feishu-app-secret"
 # reply_hud = false  # If true, append final-reply HUD line (model/context/tokens) in Discord only
 #                    # 设为 true 时，仅在 Discord 最终回复末尾附加 HUD（模型/上下文/tokens）
 # ack_reaction = false  # If true: 👀 on a message once the bot takes it, swapped for ✅ (done) or ❌ (error) when its turn ends; stale 👀 cleared at startup
-# meeting_assistant = false  # If true: "@bot 开会" / "@bot 会议助手" makes the bot join the caller's voice channel and transcribe who says what; when everyone has left, or on "@bot 会议纪要" / "@bot 结束", it leaves and posts a detailed record and standard minutes in the text channel. No audio is kept. Needs Node.js 22.12+ with npm and a python with mlx_whisper
+# meeting_assistant = false  # If true: "@bot 开会" / "@bot 会议助手" makes the bot join the caller's voice channel and transcribe who says what; when everyone has left, or on "@bot 会议纪要" / "@bot 结束", it leaves and posts a detailed record and standard minutes in the text channel. The bot cannot see cameras or screen shares: pictures posted in that text channel during the meeting go into the minutes with their time and sender. No audio is kept. Needs Node.js 22.12+ with npm and a python with mlx_whisper
 # meeting_asr_python = "~/ai-voice/voice-train/.venv-asr/bin/python"  # The python that has mlx_whisper (this is the default)
 #                       # 设为 true 时：bot 接下消息先贴 👀，这一轮结束换成 ✅（完成）或 ❌（出错），重启后清掉卡住的 👀（默认关）
 # respond_to_at_everyone_and_here = true  # Default true: @everyone/@here counts as a direct mention so every bot responds; set false to ignore it
