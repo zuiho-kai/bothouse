@@ -474,6 +474,13 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     items = list(pages.items())
     if len(items) > k and not defer:  # 没有旧说法要沉底：多留的那页不推
         items = items[:k]
+    # 历史词只用于找候选；明确的本句话题不能靠旧话题行占推送额度。
+    # 来源：沿用 rare_toks 的索引实词、FRAG_CH/COMMON 和 PREV_TOKS；无实词的短回复仍用历史。
+    terms = set(search.toks(rare_toks(focus))) if focus else set()
+    if terms:
+        items = [(rel, dict(it, rows=[r for r in it["rows"] if terms & set(search.toks(r["text"]))]))
+                 for rel, it in items]
+        items = [(rel, it) for rel, it in items if it["rows"]]  # 只收紧选定行，不用别页补满
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in items]
 
 
