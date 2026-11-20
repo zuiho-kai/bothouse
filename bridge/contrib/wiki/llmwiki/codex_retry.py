@@ -4,11 +4,17 @@ import re
 
 
 class Failure(str):
-    def __new__(cls, text, reason, retryable=False, started=True):
+    def __new__(cls, text, reason, retryable=False, started=True, provider_down=False):
         value = super().__new__(cls, text)
         value.reason, value.retryable, value.started = reason, retryable, started
         value.resumable = retryable
+        value.provider_down = provider_down
         return value
+
+
+def provider_unavailable(status):
+    """Source: api_json's existing outage policy; a malformed request only fails its own batch."""
+    return status in (0, 401, 403, 429) or status >= 500
 
 
 def events(stdout, resume=None):
@@ -70,7 +76,11 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
         reason, retryable = "ambiguous_transport", False
     else:
         reason, retryable = "failure", False
-    value = Failure(text, reason, retryable)
+    # Source: #906 review distinguishes request-local 400/404/422 from global auth/quota/rate failures.
+    down = transport or capacity or any(word in lower for word in (
+        "usage limit", "quota", "rate limit", "hit your session limit", "authentication_error", "permission_denied"))
+    down = down or any(provider_unavailable(int(status)) for status in re.findall(r'\b[45]\d\d\b', text))
+    value = Failure(text, reason, retryable, provider_down=down)
     value.resumable = retryable and bool(tid)
     return value
 

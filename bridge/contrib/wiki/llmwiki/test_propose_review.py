@@ -214,7 +214,7 @@ class ProposeReview(unittest.TestCase):
 
     def test_codex_request_refusal_stops_paid_fallback(self):
         I.ROUTE_DOWN = False
-        refusal = I.codex_retry.Failure('usage limit', 'request_rejected')
+        refusal = I.codex_retry.failure(['usage limit'], None, 'turn.failed', set())
         with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / 'cache'), \
                 patch.object(I, 'sync_work'), patch.object(I, 'discard'), patch.object(I, 'log'), \

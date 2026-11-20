@@ -2678,7 +2678,7 @@ def api_json(prompt, schema, label):
         with open(USAGE, "a") as f:
             f.write("\t".join(map(str, row)) + "\n")
     log(f"{label} tokens: in={row[4]} cache_read={row[5]} out={row[7]} think={row[8]} http={status}")
-    return ok, out, not ok and (status in (0, 401, 403, 429) or status >= 500)
+    return ok, out, not ok and codex_retry.provider_unavailable(status)
 
 
 def role_rules(sources, text=""):
@@ -2797,8 +2797,8 @@ def propose_pass(label, it, text, sids, sources, engine):
                 return json.loads(out)
             except ValueError:
                 out = f"not JSON: {out[:300]}"
-        if getattr(out, "reason", "") == "request_rejected":
-            ROUTE_DOWN = True  # source: #906 Codex refusal must not enter a paid fallback this run
+        if getattr(out, "provider_down", False):
+            ROUTE_DOWN = True  # source: #906 only global failures stop the run uncounted
         failed.append(out)
         return None
 
