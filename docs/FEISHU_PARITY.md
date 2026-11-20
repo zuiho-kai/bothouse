@@ -21,7 +21,7 @@
 | 工作区删除、删前归档 | 有。删频道；删之前把整段频道消息读出来打进归档 | 没有。空闲工作区群删不掉，归档里也没有群消息这一段 | `TeamWorkspaceDeleter`（解散群）、`TeamChannelArchiver`（翻页读整段群消息） | 纯代码，要真机验证。解散群要 bot 是群主或创建者；官方原话「解散群组后，群聊天记录将不会保存」 | discord：platform/discord/workspaces.go:77、:106；core：core/team_workspace_delete.go:64，core/team_workspace_cleanup.go:129；已有表态 platform/CAPABILITIES.md:101、:110 |
 | 用户要求建新频道（`bothouse channel create`） | 有。建在聊天频道同一分类里，排在「工作区n」上面 | 没有 | `TeamChannelCreator`。建群本身能做（建工作区群的代码可复用），「同分类、排在工作区上面」飞书没有 | 建群：纯代码；排序：平台不支持 | discord：platform/discord/channels.go:25；飞书可复用 platform/feishu/workspaces.go:181；core：core/team_channel.go:50；platform/CAPABILITIES.md:75 |
 | 任务板（团队任务板，一条置顶消息） | 有。置顶 embed，原地编辑；换主后旧主把自己的旧板删掉 | 有发板、置顶、原地编辑。换主后旧主先取消置顶再撤回旧板；超过撤回时限的撤不掉，只取消置顶 | 已补（单测，未真机）：`BoardRemover` | 纯代码 | discord：platform/discord/board.go:58、:30；飞书：platform/feishu/public_progress.go:95、:130、:264、:280、:296；core：core/team_board.go:424、:191 |
-| 频道任务看板（每个频道一条置顶：在跑的、排队的、今天做完的） | 有 | 没有 | `ChannelBoardPoster`：发卡片、Pin、编辑、重启后找回原来那条 | 纯代码，要真机验证（卡片编辑和 Pin 列表的实际表现） | discord：platform/discord/channel_board.go:48；core：core/channel_board.go:49、:272 |
+| 频道任务看板（每个频道一条置顶：在跑的、排队的、今天做完的） | 有 | 有。每个群一张置顶卡片，原地编辑；卡片被撤回或超过 14 天改不动就重发一张；重启后先在群置顶里、再在最近 50 条里按卡片底部的 `cc-board` 标记找回自己那张。时间写成「15:04」，没有 Discord 那种「3 分钟前」 | 已补（单测，未真机）：`ChannelBoardPoster`；core 的看板从只认 Discord 改成 Discord、飞书各发各的 | 纯代码，要真机验证（卡片编辑和 Pin 列表的实际表现） | discord：platform/discord/channel_board.go:48；飞书：platform/feishu/channel_board.go:51、:66、:82、:91；core：core/channel_board.go:135、:299 |
 | 任务卡、任务子话题里的事实楼层 | 有。任务卡下开子区，关键事实发进子区 | 有。任务卡是卡片消息，事实用「话题回复」挂在卡片下面 | 不缺 | 已支持 | discord：platform/discord/public_progress.go:27、:65、:279；飞书：platform/feishu/public_progress.go:29、:45、:72、:215 |
 | 任务子话题的归档、重开 | 有。任务做完把子区归档，有新事实再重开，按最后活动时间决定何时归档 | 没有 | `TaskThreadArchiver`、`TaskThreadReopener`、`TaskThreadActivityReader` | 平台不支持（没核到飞书有归档话题的接口，官方也没有明写「不支持」）。不补不影响用，话题一直留着 | discord：platform/discord/public_progress.go:188、:220、:242；core：core/public_progress.go:846、:946、:827 |
 | 任务帖（论坛频道，每件活一个帖子，带状态标签；等你拍板时在帖里提醒；在帖里回复能回到原频道会话） | 有 | 没有。任务进度由上面的任务卡展示 | `TaskForumPoster`、`TaskForumUserNotifier`、`ChannelSessionKeyer` | 平台不支持（飞书群没有论坛频道和帖子标签） | discord：platform/discord/task_forum.go:43、:371，platform/discord/live_options.go:91，platform/discord/task_forum_inbound.go:17；core：core/team_task_forum.go:729；platform/CAPABILITIES.md:151、:159、:167 |
@@ -83,7 +83,7 @@
    - 没核的：真飞书上取消置顶和撤回的实际返回、机器人撤回自己消息的时限是多久。
    - 要真飞书验证：建议。
 
-5. **频道任务看板（每频道一条置顶）**
+5. **频道任务看板（每频道一条置顶）** —— 已补（单测，未真机）。合并间隔沿用 Discord 的 2 秒（飞书同一条消息限 5 次每秒）。真机没核：按 user_card_content 读回的卡片 JSON 是否原样带着 `cc-board` 标记、群设置「仅群主可置顶」时置顶失败的错误码。
    - 补法：实现 `ChannelBoardPoster` 四个方法：发卡片、编辑卡片、Pin、用「获取群内 Pin 消息」找回原来那条。
    - 要动的文件：新增 platform/feishu/channel_board.go；卡片渲染可复用 platform/feishu/public_progress.go:293 的 buildFeishuBoardCard。参照 platform/discord/channel_board.go（257 行）。
    - 预估：代码约 200 行，单测约 100 行。

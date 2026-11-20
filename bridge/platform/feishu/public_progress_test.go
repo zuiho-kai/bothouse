@@ -46,6 +46,8 @@ type fakeFeishuIM struct {
 	listQueries []url.Values
 	// channel_names_test.go: the groups the bot is in (chat_id, name, chat_mode), in pages.
 	chatPages [][]map[string]any
+	// channel_board_test.go: chat ID -> pinned message IDs (what「获取群内 Pin 消息」lists).
+	pinList map[string][]string
 }
 
 type fakeRefusal struct {
@@ -120,6 +122,12 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 			body["root"] = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/"), "/reply")
 			f.replies = append(f.replies, body)
 			ok(map[string]any{"message_id": "om_reply"})
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/pins":
+			items := []map[string]any{}
+			for _, id := range f.pinList[r.URL.Query().Get("chat_id")] {
+				items = append(items, map[string]any{"message_id": id})
+			}
+			ok(map[string]any{"items": items, "has_more": false})
 		case r.Method == http.MethodPost && r.URL.Path == "/open-apis/im/v1/pins":
 			if f.pinFail {
 				writeJSON(t, w, map[string]any{"code": 99991672, "msg": "no permission"})

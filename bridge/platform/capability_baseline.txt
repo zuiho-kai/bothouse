@@ -5,7 +5,6 @@ CardNavigable discord
 CardRefresher discord
 CardSender discord
 ChannelBoardPoster cloud-web
-ChannelBoardPoster feishu
 ChannelDispatchModeProvider discord
 ChannelDispatchModeProvider feishu
 ChannelNameResolver cloud-web
