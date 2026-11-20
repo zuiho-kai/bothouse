@@ -72,7 +72,9 @@ func cloudQuotaAccount(home string) string {
 		home, _ = os.UserHomeDir()
 	}
 	dir := filepath.Join(home, ".gemini", "antigravity-cli")
-	raw, _ := os.ReadFile(filepath.Join(dir, "antigravity-oauth-token"))
+	// Same lookup as the quota fetch (usage_cloud.go readQuotaToken): the
+	// attribution key must come from the credential the fetch would use.
+	raw, _ := readQuotaToken(home)
 	return quotaTokenAccount(raw, dir)
 }
 

@@ -32,13 +32,18 @@ import (
 // which returns, per model group, a 5h and a weekly bucket with a
 // remainingFraction. We call the same endpoint.
 //
-// Credentials: agy keeps its live token in the macOS keychain, which we do not
-// touch (reading another app's keychain item opens a prompt). The token file
-// ~/.gemini/antigravity-cli/antigravity-oauth-token holds a refresh token for
-// the same account; we exchange it for an access token in memory and never
-// write anything back. The OAuth client id comes from the token file's
-// id_token audience and the client secret is read out of the agy binary, so no
-// credential is stored in this repository.
+// Credentials: agy authenticates through the macOS keychain (log lines
+// "keyringAuth: loaded token" / "ChainedAuth: authenticated via keyring"),
+// which we do not touch (reading another app's keychain item opens a prompt).
+// When the keychain write fails, agy falls back to a token file; that file is
+// what we read, at ~/.gemini/jetski-standalone-oauth-token for agy 1.5.10
+// (checked 2026-11-18 on this machine: the binary carries that name and no
+// longer contains "antigravity-oauth-token") and at
+// ~/.gemini/antigravity-cli/antigravity-oauth-token for older versions. The
+// file holds a refresh token for the same account; we exchange it for an
+// access token in memory and never write anything back. The OAuth client id
+// comes from the file's id_token audience and the client secret is read out of
+// the agy binary, so no credential is stored in this repository.
 
 const (
 	antigravityQuotaURL = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
@@ -198,9 +203,9 @@ func (q *quotaState) fetch(ctx context.Context, cmd, model string) (*core.UsageR
 		return nil, errors.New("antigravity: empty project id")
 	}
 
-	raw, err := os.ReadFile(filepath.Join(cliDir, "antigravity-oauth-token"))
+	raw, err := readQuotaToken(home)
 	if err != nil {
-		return nil, fmt.Errorf("antigravity: read token file: %w", err)
+		return nil, err
 	}
 	account := quotaTokenAccount(raw, cliDir)
 	token, err := q.accessToken(ctx, raw, account, cmd)
@@ -372,6 +377,36 @@ func modelFromArgs(args []string) string {
 		}
 	}
 	return ""
+}
+
+// quotaTokenFiles are the file-backed credentials agy writes, in the order we
+// look for them. agy 1.5.10 keeps its fallback file at
+// <home>/.gemini/jetski-standalone-oauth-token (checked 2026-11-18 on this
+// machine: `strings` on the agy binary shows that name once and
+// "antigravity-oauth-token" not at all, and its log authenticates via the
+// keyring); older versions wrote <home>/.gemini/antigravity-cli/antigravity-oauth-token,
+// which stays as the compatibility fallback.
+func quotaTokenFiles(home string) []string {
+	return []string{
+		filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
+		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
+	}
+}
+
+// readQuotaToken returns the first credential file that exists. When none
+// does, the error names every path that was tried, so a moved credential is
+// visible in the quota error instead of a bare "no such file".
+func readQuotaToken(home string) ([]byte, error) {
+	files := quotaTokenFiles(home)
+	var tried []string
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			return raw, nil
+		}
+		tried = append(tried, err.Error())
+	}
+	return nil, fmt.Errorf("antigravity: read token file: %s", strings.Join(tried, "; "))
 }
 
 // accessToken returns a usable access token: the one in the token file if it
