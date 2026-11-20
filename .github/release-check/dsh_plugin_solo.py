@@ -70,10 +70,6 @@ VOTE_LINE = "CI 隔离测试：仓库门牌 7319 号。"
 VOTE_ID = hashlib.sha1(VOTE_LINE.encode()).hexdigest()[:10]
 VOTE_CMD = f"python3 ~/.bothouse/gate/memvote.py +{VOTE_ID}"
 LEAK_WORDS = ("沙盒", "投票", "sandbox", "memvote")  # what the reply must not carry (screenshot 1798/shots6/35)
-# #1823: the wiki line the stub votes on (memvote.py looks ids up in ~/wiki)
-os.makedirs(os.path.join(home, "wiki"), exist_ok=True)
-with open(os.path.join(home, "wiki", "ci-solo.md"), "w", encoding="utf-8") as f:
-    f.write("# CI\n\n" + VOTE_LINE + "\n")
 REPLY_TO = "回一句话就行"  # the @ message below; the stub votes only on that turn
 
 # ---- stub model (windows_e2e.py's, keeping each request body) ----
@@ -248,6 +244,15 @@ try:
         return code == HTTP_OK and any(m.get("name") == MEMBER and m.get("online") for m in s.get("members", []))
     wait(f"{MEMBER} comes online as a bothouse role (the plugin set it up and started bothouse)", online, T_INSTALL)
     ok(f"{MEMBER} is online: the plugin set up and started bothouse")
+    # #1823: the line the stub votes on, in the role's own memory wiki (memvote.py looks ids up in <data>/roles/*/wiki;
+    # a ~/wiki made before the install would turn the setup into the has-a-wiki one, with another memory block)
+    roles = [d for d in glob.glob(os.path.join(home, ".bothouse", "roles", "*")) if os.path.isdir(d)]
+    if not roles:
+        fail(f"no role directory under {home}/.bothouse/roles")
+    for d in roles:
+        os.makedirs(os.path.join(d, "wiki"), exist_ok=True)
+        with open(os.path.join(d, "wiki", "ci-solo.md"), "w", encoding="utf-8") as f:
+            f.write("# CI\n\n" + VOTE_LINE + "\n")
 
     code, r = call(f"/collab/api/rooms/{room['id']}/messages",
                    {"text": f"@{MEMBER} {REPLY_TO}", "client_key": f"ci-solo-{time.time()}"})
