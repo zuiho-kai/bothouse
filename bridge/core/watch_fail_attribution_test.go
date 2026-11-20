@@ -15,13 +15,15 @@ type attributedFailSession struct {
 	events      chan Event
 	mu          sync.Mutex
 	sends       int
+	prompts     []string
 	event       *Event
 	exitOnError bool
 }
 
-func (s *attributedFailSession) Send(string, string, []ImageAttachment, []FileAttachment) error {
+func (s *attributedFailSession) Send(prompt string, _ string, _ []ImageAttachment, _ []FileAttachment) error {
 	s.mu.Lock()
 	s.sends++
+	s.prompts = append(s.prompts, prompt)
 	s.mu.Unlock()
 	go func() {
 		event := Event{Type: EventError, Error: errors.New("agent crashed: turn failed")}
@@ -133,8 +135,16 @@ func TestWatchTurnEnginePassesScheduledToTheWatch(t *testing.T) {
 				inputWait(t, func() bool { return !session.Busy() })
 				t.Logf("turn %d: %+v", i+1, handoffsOf(e, ws)[0].Idle)
 			}
+			// Only the turns' own prompts: after the second human failure the watch also wakes the
+			// primary role in the chat (escalateIdle), on the same stub session and asynchronously,
+			// so counting every prompt raced that wake (#2000 CI, core-2: 3 prompts for 2 turns).
 			as.mu.Lock()
-			sends := as.sends
+			sends := 0
+			for _, p := range as.prompts {
+				if strings.HasSuffix(p, "\nran") {
+					sends++
+				}
+			}
 			as.mu.Unlock()
 			if sends != watchFailLimit {
 				t.Fatalf("%d agent prompts for %d turns: a retried turn would count twice", sends, watchFailLimit)
