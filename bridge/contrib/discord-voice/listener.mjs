@@ -7,6 +7,8 @@
 //   stdout  {"op":"gateway","d":{…}}     a gateway payload (op 4) the bridge must send
 //           {"op":"ready"}               connected to the voice channel, recording
 //           {"op":"segment","user_id","start","end","text"}   one stretch of speech (times: epoch ms)
+//           {"op":"frame","user_id","kind":"camera","at","jpg"}   a still of a member's camera (at: epoch ms,
+//                                        jpg: base64), only when the picture changed (video.mjs)
 //           {"op":"done"}                everything transcribed, about to exit
 //           {"op":"error","message"}     fatal
 // Voice itself (voice gateway, UDP, transport encryption and DAVE end-to-end encryption) is
@@ -21,6 +23,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { EndBehaviorType, VoiceConnectionStatus, entersState, joinVoiceChannel } from '@discordjs/voice';
 import OpusScript from 'opusscript';
+import { CameraReceiver } from './video.mjs';
 
 const RATE = 16000; // source: whisper's input sample rate (mlx_whisper/audio.py SAMPLE_RATE)
 // A speaker's silence this long ends the segment. 来源：用户只说按停顿切段，没给时长，这个值是自定的；
@@ -84,6 +87,13 @@ function transcribe(userId, start, end, pcm) {
   asr.stdin.write(wav + '\n');
 }
 
+// --- camera stills (video.mjs) ---
+const camera = new CameraReceiver({
+  tmp,
+  log,
+  onShot: (s) => emit({ op: 'frame', user_id: s.user_id, kind: s.kind, at: s.at, jpg: s.jpg.toString('base64') }),
+});
+
 // --- voice ---
 let connection = null;
 let leaving = false;
@@ -131,6 +141,7 @@ function join_(guildId, channelId) {
       };
     },
   });
+  camera.attach(connection);
   connection.on('debug', (m) => {
     if (m.includes('[DAVE]')) log(m); // the other debug lines carry the voice token and the secret key
   });
@@ -161,6 +172,7 @@ async function leave() {
   if (leaving) return;
   leaving = true;
   for (const s of open) s.destroy(); // close → transcribe what was being said
+  await camera.flush(); // the last still of each camera that is still on
   if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy(); // sends the op 4 that leaves
   if (waiting.length) await new Promise((r) => (idle = r));
   emit({ op: 'done' });

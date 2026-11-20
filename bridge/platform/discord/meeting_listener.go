@@ -30,7 +30,7 @@ var VoiceListenerFS fs.FS
 
 const voiceListenerSrc = "contrib/discord-voice"
 
-var voiceListenerFiles = []string{"listener.mjs", "asr_worker.py", "package.json"}
+var voiceListenerFiles = []string{"listener.mjs", "video.mjs", "asr_worker.py", "package.json"}
 
 var voiceListenerInstallMu sync.Mutex
 
@@ -44,6 +44,9 @@ type listenerEvent struct {
 	End     int64  `json:"end"`
 	Text    string `json:"text"`
 	Message string `json:"message"`
+	Kind    string `json:"kind"` // frame: "camera"
+	At      int64  `json:"at"`   // frame: epoch ms
+	JPG     []byte `json:"jpg"`  // frame: the still (base64 in the JSON line)
 	D       struct {
 		Op int `json:"op"`
 		D  struct {

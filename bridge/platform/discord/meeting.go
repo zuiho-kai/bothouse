@@ -81,13 +81,23 @@ type meetingPost struct {
 	Images []*discordgo.MessageAttachment
 }
 
-// meetingShot is one posted picture in the transcript. N is its number among the pictures handed
-// to the agent, 0 when it could not be fetched.
+// meetingFrame is a still of a member's camera taken by the listener (video.mjs): one every 10
+// seconds while the camera is on, kept only when the picture changed.
+type meetingFrame struct {
+	At     time.Time
+	UserID string
+	Kind   string // "camera"
+	JPG    []byte
+}
+
+// meetingShot is one picture in the transcript: posted in the text channel, or a camera still
+// (Kind set). N is its number among the pictures handed to the agent, 0 when it is not handed over.
 type meetingShot struct {
 	At       time.Time
 	UserID   string
 	Text     string
 	FileName string
+	Kind     string // "" posted picture, "camera" camera still
 	N        int
 }
 
@@ -117,6 +127,7 @@ type meeting struct {
 	segments  []meetingSegment
 	presence  []meetingPresence
 	posts     []meetingPost
+	frames    []meetingFrame
 }
 
 func (mt *meeting) theListener() *voiceListener {
@@ -390,6 +401,34 @@ func meetingShots(posts []meetingPost, download func(string) ([]byte, error)) (s
 	return shots, images
 }
 
+// meetingMaxImages is how many pictures one minutes request may carry.
+// 来源：Anthropic Messages API 一次请求最多 100 张图（docs.claude.com vision 文档「up to 100 images」）。
+const meetingMaxImages = 100
+
+// meetingFrameShots adds the camera stills to the posted pictures, in order of time, numbering
+// them after the posted ones. When there are more than fit in one request, stills are taken at
+// even spacing and the rest are left out of the transcript.
+func meetingFrameShots(shots []meetingShot, images []core.ImageAttachment, frames []meetingFrame) ([]meetingShot, []core.ImageAttachment) {
+	sort.SliceStable(frames, func(i, j int) bool { return frames[i].At.Before(frames[j].At) })
+	room := meetingMaxImages - len(images)
+	if room <= 0 {
+		return shots, images
+	}
+	if len(frames) > room {
+		picked := make([]meetingFrame, 0, room)
+		for i := 0; i < room; i++ {
+			picked = append(picked, frames[i*len(frames)/room])
+		}
+		frames = picked
+	}
+	for _, f := range frames {
+		images = append(images, core.ImageAttachment{MimeType: "image/jpeg", Data: f.JPG, FileName: "camera.jpg"})
+		shots = append(shots, meetingShot{At: f.At, UserID: f.UserID, Kind: f.Kind, N: len(images)})
+	}
+	sort.SliceStable(shots, func(i, j int) bool { return shots[i].At.Before(shots[j].At) })
+	return shots, images
+}
+
 // meetingVoiceState follows who is in the meeting's voice channel and relays the bot's own
 // voice state to the listener.
 func (p *Platform) meetingVoiceState(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
@@ -466,6 +505,15 @@ func (p *Platform) onListenerEvent(mt *meeting, ev listenerEvent) {
 		n := len(mt.segments)
 		mt.mu.Unlock()
 		slog.Info("discord: meeting segment", "guild", mt.guildID, "n", n, "user", ev.UserID, "chars", len([]rune(text)))
+	case "frame":
+		if ev.UserID == "" || len(ev.JPG) == 0 {
+			return
+		}
+		mt.mu.Lock()
+		mt.frames = append(mt.frames, meetingFrame{At: time.UnixMilli(ev.At), UserID: ev.UserID, Kind: ev.Kind, JPG: ev.JPG})
+		n := len(mt.frames)
+		mt.mu.Unlock()
+		slog.Info("discord: meeting video still", "guild", mt.guildID, "n", n, "user", ev.UserID, "kind", ev.Kind, "bytes", len(ev.JPG))
 	case "error":
 		mt.mu.Lock()
 		started := !mt.startedAt.IsZero()
@@ -517,6 +565,7 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 	segs := append([]meetingSegment(nil), mt.segments...)
 	presence := append([]meetingPresence(nil), mt.presence...)
 	posts := append([]meetingPost(nil), mt.posts...)
+	frames := append([]meetingFrame(nil), mt.frames...)
 	names := map[string]string{}
 	for k, v := range mt.names {
 		names[k] = v
@@ -534,10 +583,20 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 		p.meetingSay(mt.textID, "会议结束（"+reason+"）。这次没有收到任何发言，不出纪要。")
 		return
 	}
+	for _, f := range frames {
+		if names[f.UserID] == "" {
+			names[f.UserID] = p.meetingMemberName(s, mt.guildID, f.UserID)
+		}
+	}
 	shots, images := meetingShots(posts, downloadURL)
+	posted := len(shots)
+	shots, images = meetingFrameShots(shots, images, frames)
 	said := fmt.Sprintf("共 %d 段发言", len(segs))
-	if len(shots) > 0 {
-		said += fmt.Sprintf("、%d 张图", len(shots))
+	if posted > 0 {
+		said += fmt.Sprintf("、%d 张图", posted)
+	}
+	if n := len(shots) - posted; n > 0 {
+		said += fmt.Sprintf("、%d 张摄像头截图", n)
 	}
 	p.meetingSay(mt.textID, fmt.Sprintf("会议结束（%s），%s。正在整理详细记录和标准纪要。", reason, said))
 
@@ -548,7 +607,7 @@ func (p *Platform) endMeeting(mt *meeting, reason, replyTo string) {
 		SessionKey: p.makeSessionKey(mt.textID, mt.starterID), Platform: "discord",
 		ChannelID: mt.textID, MessageID: replyTo,
 		UserID: mt.starterID, UserName: mt.starterName,
-		Content:   meetingPrompt(meetingTranscript(info, segs, shots, presence, names), len(images)),
+		Content:   meetingPrompt(meetingTranscript(info, segs, shots, presence, names), len(images), posted > 0, len(shots) > posted),
 		Images:    images,
 		ReplyCtx:  replyContext{channelID: mt.textID, messageID: replyTo, msgChannelID: mt.textID},
 		Mentioned: true,
@@ -626,6 +685,9 @@ func meetingTranscript(info meetingInfo, segs []meetingSegment, shots []meetingS
 }
 
 func meetingShotLine(info meetingInfo, sh meetingShot, name string) string {
+	if sh.Kind == "camera" {
+		return fmt.Sprintf("[%s] %s 的摄像头（图%d）\n", meetingClock(sh.At.Sub(info.Started)), name, sh.N)
+	}
 	what := fmt.Sprintf("图%d，%s", sh.N, sh.FileName)
 	if sh.N == 0 {
 		what = sh.FileName + "，图片没取到"
@@ -638,25 +700,32 @@ func meetingShotLine(info meetingInfo, sh meetingShot, name string) string {
 }
 
 // meetingPrompt is the message the agent of the text channel gets when a meeting ends. images is
-// the number of posted pictures that come with it.
-func meetingPrompt(transcript string, images int) string {
+// the number of pictures that come with it; posted / camera: whether they include pictures posted
+// in the text channel / camera stills.
+func meetingPrompt(transcript string, images int, posted, camera bool) string {
 	var b strings.Builder
 	b.WriteString("【会议助手】下面是刚结束的一场语音会议的转写稿。这条消息是桥自动生成的，不是用户打的字。\n")
 	b.WriteString("转写稿里每行发言是「[开始–结束] 说话人：内容」，时间从开始记录算起。说话人按 Discord 账号区分，是确定的；文字是语音识别出来的，可能有错字、同音字。\n")
 	if images > 0 {
 		// The engine may put older channel pictures in front of these, never behind them.
-		fmt.Fprintf(&b, "会议进行中有人在这个文字频道发了图，转写稿里是「[时间] 发图人 发图（图N，文件名）：附言」。这些图随本条消息附上：本条消息所带图片的最后 %d 张，按顺序就是图1 到图%d。先看图再写。\n", images, images)
+		if camera {
+			b.WriteString("会上有人开了摄像头，桥每 10 秒截一张，画面变了才留，转写稿里是「[时间] 某人 的摄像头（图N）」，画面是这个人的摄像头拍到的。")
+		}
+		if posted {
+			b.WriteString("会议进行中有人在这个文字频道发了图，转写稿里是「[时间] 发图人 发图（图N，文件名）：附言」。")
+		}
+		fmt.Fprintf(&b, "这些图随本条消息附上：本条消息所带图片的最后 %d 张，按顺序就是图1 到图%d。先看图再写。\n", images, images)
 	}
 	b.WriteString("\n<转写稿>\n" + transcript + "</转写稿>\n\n")
 	b.WriteString("请直接在这个频道回复下面两份内容，不要寒暄，不要反问：\n\n")
 	b.WriteString("一、详细记录。按时间顺序逐条写，每条一行，不用表格：时间、谁说的、对谁说、内容。「对谁说」Discord 给不出来，由你根据点名、称呼和上下文推断，每一条都标明「推断」，判断不出就写「全体（推断）」。内容照原话整理，只改明显的识别错字，不删观点、不加没说过的话。")
 	if images > 0 {
-		b.WriteString("发图的行也按时间插在里面，写成「[时间] 某人 发图：画面内容」，画面内容写图上看得到的标题、文字、数字，看不清的写看不清，不猜。")
+		b.WriteString("发图和摄像头的行也按时间插在里面，写成「[时间] 某人 发图：画面内容」或「[时间] 某人 的摄像头：画面内容」，画面内容写图上看得到的标题、文字、数字，看不清的写看不清，不猜。")
 	}
 	b.WriteString("\n\n")
 	b.WriteString("二、标准纪要。四部分：议题；结论；待办（每条写清做什么、负责人、期限，会上没说的写「未定」）；分歧（没有就写「无」）。")
 	if images > 0 {
-		b.WriteString("图上的信息可以用，用到时写明出自谁发的图。")
+		b.WriteString("图上的信息可以用，用到时写明出自谁发的图或谁的摄像头。")
 	}
 	b.WriteString("\n\n")
 	b.WriteString("另外，按你本机的记忆或笔记约定把这份纪要存一份（没有这类约定就不用存），存了就在回复最后写一句存在哪。")
