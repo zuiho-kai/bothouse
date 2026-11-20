@@ -1,0 +1,7 @@
+id: bothouse
+name: bothouse
+version: 0.1.0
+description: every chat carries the bothouse role's persona and memory wiki section
+author: bothouse
+min_jiuwenswarm_version: "0.2.8"
+dependencies: {}

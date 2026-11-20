@@ -1,0 +1,36 @@
+--- a/jiuwenswarm/agents/harness/common/rails/runtime_prompt_rail.py
++++ b/jiuwenswarm/agents/harness/common/rails/runtime_prompt_rail.py
+@@ -479,6 +479,7 @@
+             content={"cn": env_content, "en": env_content},
+             priority=SystemPromptPriority.ENV,
+         ))
++        _bothouse_role_section(self.system_prompt_builder)
+ 
+         # ── Channel: directory and file-operation boundaries ──
+         # Remove both the consolidated section and legacy sections first so
+@@ -1129,3 +1130,25 @@
+             await self.attachment_manager.bind_context(ctx).clear_section(section)
+         except ValueError as exc:
+             logger.warning("[RuntimePromptRail] skip clearing prompt attachment section=%s: %s", section, exc)
++
++
++def _bothouse_role_section(builder: Any) -> None:
++    """bothouse patch: the bothouse role's persona file (persona + memory wiki section) as a system prompt section.
++
++    The bothouse extension (application_plugins/bothouse) keeps role.md; no file = no section.
++    """
++    try:
++        from jiuwenswarm.common.utils import get_root_dir
++
++        path = get_root_dir() / "application_plugins" / "bothouse" / "role.md"
++        text = path.read_text(encoding="utf-8").strip()
++    except Exception:  # noqa: BLE001 - a missing or unreadable file must never fail a model call
++        text = ""
++    if not text:
++        builder.remove_section("bothouse.role")
++        return
++    builder.add_section(PromptSection(
++        name="bothouse.role",
++        content={"cn": text, "en": text},
++        priority=SystemPromptPriority.CONTEXT_SOUL,
++    ))
