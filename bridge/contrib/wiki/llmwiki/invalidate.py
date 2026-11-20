@@ -185,7 +185,7 @@ def changed(root, head="HEAD"):
                    and (Path(root) / n).is_file()})
 
 
-def run(root=None, head="HEAD", ask=None, dry=False, log=print):
+def run(root=None, head="HEAD", ask=None, dry=False, log=print, order=None):
     """这次改动里新写的行（整库 head 里都没有的）vs 同页 head 里就有、现在还在正文的旧行；被推翻的挪进同页「## 历史」。
     返回 (挪了几行, 调模型几次, [(页, 旧行, 同组新行)])。"""
     root = Path(root or WIKI)
@@ -199,10 +199,18 @@ def run(root=None, head="HEAD", ask=None, dry=False, log=print):
         was = {l.strip() for l in git(root, "show", f"{head}:{rel}").splitlines()}
         rows = [l for _, l in body(now)]
         new = [l for l in rows if lossless.norm(l) not in seen]
+        if order is not None:
+            new.sort(key=lambda line: order[lossless.norm(line)])
         old = [l for l in rows if l.strip() in was and not OVERTURNED.match(l)]
-        if new and old:
-            groups.append((old, new))
-            meta.append(rel)
+        # Source: #906 a paid batch can append an old value then an explicit correction.
+        # Each new row compares against HEAD plus earlier new rows, never the later correction in reverse.
+        earlier = list(old)
+        for line in new:
+            if earlier:
+                groups.append((list(earlier), [line]))
+                meta.append(rel)
+            if not OVERTURNED.match(line):
+                earlier.append(line)
     hit, calls = judge(groups, ask)
     moved, pairs = 0, []
     for rel, (old, new), h in zip(meta, groups, hit):

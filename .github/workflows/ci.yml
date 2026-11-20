@@ -181,6 +181,8 @@ jobs:
       - run: python3 -I contrib/wiki/llmwiki/test_pending_round.py
       - run: python3 -I contrib/wiki/llmwiki/test_propose_review.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/wiki/llmwiki/test_propose_contract.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_deadline.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_manual_numbers.py

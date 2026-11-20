@@ -235,7 +235,9 @@ class PendingRound(unittest.TestCase):
         pieces = []
 
         def accept(_label, _it, text, *_):
-            pieces.append(text)
+            self.assertTrue(text.startswith(f"=== SESSION {path.stem} | "))
+            # Each proposal piece repeats its source header; compare only the transcript payload.
+            pieces.append(re.sub(r"\A=== SESSION [^\n]*\n", "", text))
             return True
 
         with patch.multiple(I, MAX_CHARS=200, WIKI=ROOT, WORK=ROOT, QUEUE=ROOT / "queue-huge2", LAST_ENGINE="fake"), \

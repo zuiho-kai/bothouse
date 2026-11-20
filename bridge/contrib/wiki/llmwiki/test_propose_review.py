@@ -21,7 +21,7 @@ PAGE = "---\nname: a\ndescription: 配置\nmetadata:\n  scope: 配置\n---\n# �
 
 
 def fact(text="现在配置用新值"):
-    return dict(fact=text, quote=text, section="现状", domain="tooling", terms=["配置"])
+    return dict(fact=text, quote=text, section="现状", domain="tooling", terms=["配置"], session="")
 
 
 def op(**kw):
@@ -203,6 +203,55 @@ class ProposeReview(unittest.TestCase):
         for sid in ["aaaaaaaa", "bbbbbbbb"]:
             self.assertIn("ingest | " + sid, (self.root / "log.md").read_text())
         self.assertEqual(db.execute("SELECT count(*) FROM ingested").fetchone(), (2,))
+
+    def test_one_readable_source_cannot_hide_an_unreadable_session(self):
+        sources = [self.root / 'aaaaaaaa.jsonl', self.root / 'bbbbbbbb.jsonl']
+        text = ('=== SESSION aaaaaaaa | 甲 ===\nUSER: 甲的话\n'
+                '=== SESSION bbbbbbbb | 乙 ===\nUSER: 乙的话\n')
+        with patch.object(I, 'user_texts', side_effect=[[I.flat('甲的话')], []]):
+            with self.assertRaises(I.discord_said.Unavailable):
+                I.role_rules(sources, text)
+
+    def test_codex_request_refusal_stops_paid_fallback(self):
+        I.ROUTE_DOWN = False
+        refusal = I.codex_retry.Failure('usage limit', 'request_rejected')
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
+                            PROPOSE_DIR=self.root / 'cache'), \
+                patch.object(I, 'sync_work'), patch.object(I, 'discard'), patch.object(I, 'log'), \
+                patch.object(I, 'role_rules', return_value=([], self.rules)), \
+                patch.object(I.codex_retry, 'run', return_value=(False, refusal, 0, None, 'luna')):
+            self.assertFalse(I.propose_pass('ingest aaaaaaaa', dict(id='aaaaaaaa', date='2026-11-20'),
+                                           'USER: 现在配置用新值', ['aaaaaaaa'], [], 'codex'))
+        self.assertTrue(I.ROUTE_DOWN)
+
+    def test_nightly_does_no_paid_maintenance_after_route_down(self):
+        def down(*args, **kw):
+            I.ROUTE_DOWN = True
+        with patch.object(I, 'run', side_effect=down), patch.object(I, 'split_pass') as split, \
+                patch.object(I, 'dream') as dream, patch.object(I, 'state'):
+            I.nightly(type('Args', (), {})())
+        split.assert_not_called()
+        dream.assert_not_called()
+
+    def test_same_batch_new_value_supersedes_earlier_new_value(self):
+        path = self.root / 'tooling/a.md'
+        old = '- 先前在本批写入的配置旧值'
+        new = '- 随后用户明确改为配置新值'
+        path.write_text(PAGE + old + '\n' + new + '\n')
+        def ask(prompt):
+            # Mark only the explicit old/new pair; unrelated HEAD content stays current.
+            groups = []
+            for block in prompt.split('## GROUP ')[1:]:
+                g = int(block.split('\n', 1)[0])
+                existing, latest = block.split('<NEW FACTS>')
+                if old in existing and new in latest:
+                    idx = int(existing.split(old)[0].rsplit('idx=', 1)[1].split(',', 1)[0])
+                    groups.append(dict(g=g, n=0, contradicted_facts=[idx]))
+            return json.dumps(dict(results=groups))
+        I.invalidate.run(self.root, ask=ask, log=lambda msg: None)
+        text = path.read_text()
+        self.assertIn('## 历史\n' + old, text)
+        self.assertNotIn(old, text.split('## 历史')[0])
 
 
 if __name__ == "__main__":

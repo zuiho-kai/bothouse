@@ -2682,11 +2682,18 @@ def api_json(prompt, schema, label):
 
 
 def role_rules(sources, text=""):
-    said = [t for p in sources for t in user_texts(p, strict=True)]
-    if not said and re.search(r"^USER", text, re.M):
-        raise discord_said.Unavailable("the user's words of this session are unreadable now; retry on a later run")
+    said, by_session = [], {}
+    sessions = propose.session_transcripts(text)
+    for p in sources:
+        words = user_texts(p, strict=True)
+        own = sessions.get(p.stem[:8], text if len(sources) == 1 else "")
+        if not words and re.search(r"^USER", own, re.M):
+            raise discord_said.Unavailable(f"the user's words of {p.stem[:8]} are unreadable now; retry later")
+        said.extend(words)
+        by_session[p.stem[:8]] = words
     return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
-                               todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
+                               todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said),
+                               source_said=lambda q, sid: quote_ok(q, by_session.get(sid, said if len(sources) == 1 else [])))
 
 
 class Prefetch:
@@ -2790,6 +2797,8 @@ def propose_pass(label, it, text, sids, sources, engine):
                 return json.loads(out)
             except ValueError:
                 out = f"not JSON: {out[:300]}"
+        if getattr(out, "reason", "") == "request_rejected":
+            ROUTE_DOWN = True  # source: #906 Codex refusal must not enter a paid fallback this run
         failed.append(out)
         return None
 
@@ -2804,16 +2813,18 @@ def propose_pass(label, it, text, sids, sources, engine):
         else:
             LAST_ENGINE = f"openai:{CFG['api_model']}"
     try:
-        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label, prepared,
-                                                     cache=PROPOSE_DIR / "facts",
-                                                     sessions=it.get("_sessions"))
-        if summary is not None:
+        def finish(plan):
             def ask(prompt):
                 answer = call(prompt, invalidate.SCHEMA, label + " invalidate")
                 if answer is None:
                     raise RuntimeError("contradiction check unavailable")
                 return json.dumps(answer)
-            invalidate.run(WORK, ask=ask, log=lambda msg: log(f"{label} {msg}"))
+            order = {lossless.norm(line): min(op["facts"]) for op, _ in plan.done
+                     for line in plan.quoted(op, op["lines"])}
+            invalidate.run(WORK, ask=ask, log=lambda msg: log(f"{label} {msg}"), order=order)
+        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label, prepared,
+                                                     cache=PROPOSE_DIR / "facts",
+                                                     sessions=it.get("_sessions"), finish=finish)
         errs = "" if summary is None else "\n".join(
             e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
     except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
@@ -2843,6 +2854,9 @@ def openai_route(engines):
 def ingest_batches(db, items, engines, pending=False):
     global PREFETCH
     batches = batches_of(items)  # reuse the existing input budget: small sessions share both tool-less calls
+    if family((engines or [ENGINE])[0]) in ("codex", "openai"):
+        batches = [[(it, re.sub(r"\A=== SESSION [^\n]*\n", "", piece)) for it, piece in b] for b in batches]
+        batches = [[(it, f"=== SESSION {it['id'][:8]} | {it['date']} ===\n{piece}") for it, piece in b] for b in batches]
     if openai_route(engines):  # batches' calls run ahead; writes stay one at a time
         PREFETCH = Prefetch(("ingest " + ", ".join(dict.fromkeys(it["id"][:8] for it, _ in b)),
                              "".join(piece for _, piece in b), list(dict.fromkeys(it["path"] for it, _ in b)))
@@ -3176,7 +3190,7 @@ def user_texts(p, strict=False):
             # a day before its first turn: the message that started it may have waited behind a turn, across
             # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
             lo = min(ts) - QUOTE_LEAD
-            return heard(m.text for m in discord_words(lo, max(ts) + 1))
+            return heard(m.text for m in discord_words(lo, max(ts) + 1, strict=strict))
         return heard(dialog(p, 0)["said"])
     except HouseholdError as e:
         if strict:
@@ -3371,6 +3385,8 @@ def nightly(a):
     WIKI = WORK
     deadline = time.time() + NIGHT_BUDGET
     run(a, engines=[NIGHT_ENGINE])
+    if ROUTE_DOWN:
+        return  # the outage ends this round, including paid maintenance
     split_pass(state())
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
     data_dir = bridge_data_dir()
@@ -4226,10 +4242,10 @@ def depth(d):
     return d.count("/") + 1
 
 
-def discord_words(lo, hi):
+def discord_words(lo, hi, strict=False):
     """The user's own Discord messages in [lo, hi), every channel and DM (discord_said.said); a deleted or unreadable
     channel is logged and read as empty. discord_said.Unavailable propagates: the caller must not go on without them."""
-    msgs = discord_said.said(lo, hi, ASSISTANT, ASSISTANT == DEFAULTS["assistant"])
+    msgs = discord_said.said(lo, hi, ASSISTANT, ASSISTANT == DEFAULTS["assistant"], strict=strict)
     if discord_said.GONE:
         log(f"discord: {len(discord_said.GONE)} channel(s) deleted or unreadable, read as empty: "
             + ", ".join(sorted(discord_said.GONE)))
