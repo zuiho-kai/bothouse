@@ -54,11 +54,6 @@ out = os.path.abspath(args.out)
 home, work = os.path.join(out, "home"), os.path.join(out, "work")
 os.makedirs(home, exist_ok=True)
 os.makedirs(work, exist_ok=True)
-# #1823: the wiki line the stub votes on (memvote.py looks ids up in ~/wiki)
-os.makedirs(os.path.join(home, "wiki"), exist_ok=True)
-with open(os.path.join(home, "wiki", "ci-solo.md"), "w", encoding="utf-8") as f:
-    f.write("# CI\n\n" + VOTE_LINE + "\n")
-REPLY_TO = "回一句话就行"  # the @ message below; the stub votes only on that turn
 
 
 def fail(msg):
@@ -75,6 +70,11 @@ VOTE_LINE = "CI 隔离测试：仓库门牌 7319 号。"
 VOTE_ID = hashlib.sha1(VOTE_LINE.encode()).hexdigest()[:10]
 VOTE_CMD = f"python3 ~/.bothouse/gate/memvote.py +{VOTE_ID}"
 LEAK_WORDS = ("沙盒", "投票", "sandbox", "memvote")  # what the reply must not carry (screenshot 1798/shots6/35)
+# #1823: the wiki line the stub votes on (memvote.py looks ids up in ~/wiki)
+os.makedirs(os.path.join(home, "wiki"), exist_ok=True)
+with open(os.path.join(home, "wiki", "ci-solo.md"), "w", encoding="utf-8") as f:
+    f.write("# CI\n\n" + VOTE_LINE + "\n")
+REPLY_TO = "回一句话就行"  # the @ message below; the stub votes only on that turn
 
 # ---- stub model (windows_e2e.py's, keeping each request body) ----
 bodies = []
