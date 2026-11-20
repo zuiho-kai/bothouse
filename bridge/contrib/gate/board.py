@@ -803,14 +803,23 @@ def ask_save(nid, text, title):
     return True
 
 
-def ask_to_user(nid, kind):
+def ask_to_user(nid, kind, plain=""):
     """主角色把 #nid 的提问转给用户：去向改 user、暂停原因改「等待用户答复」（wait_kind 变 user，帖子才标「等你」并 @ 用户）。
+    plain 是主角色改写的大白话：它替掉 asks/<编号>.md（任务帖读这份），工作区原文挪到 <编号>.raw.md（#1827）。
     返回改后的条目；没有这条、没在提问暂停返回 None。"""
     with _locked():
         cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None or not hit.get("paused") or not asking(hit) or not isinstance(hit.get("ask"), dict):
             return None
+        if plain.strip():
+            f = ask_file(nid)
+            if f.is_file():
+                os.replace(f, f.with_suffix(".raw.md"))
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(plain.strip() + "\n", encoding="utf-8")
+            # 任务帖顶上「要你做的」读短标题：也换成大白话的第一句，不留工作区的原标题
+            hit["ask"]["title"] = re.split(r"(?<=[。？！?!])", plain.strip(), maxsplit=1)[0].strip()
         hit["ask"].update({"to": "user", "kind": kind})
         hit["pause_why"] = ASK_WHY
         hit["paused"] = hit["at"] = _now()  # 「等了多久」从转给用户这一刻算
