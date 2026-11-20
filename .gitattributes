@@ -1,2 +1,2 @@
 integrations/dsh-acp-stream/source.patch -whitespace
-jiuwenswarm/plugin-pkg/patches/**/*.patch -whitespace
+patches/jiuwenswarm/**/*.patch -whitespace

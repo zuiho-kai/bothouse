@@ -3,10 +3,10 @@
 
   1. copies extension/ into <JiuwenSwarm data dir>/application_plugins/bothouse/ (found there with no config:
      jiuwenswarm/extensions/manager.py _setup_search_paths)
-  2. applies patches/ to the installed package: only when importlib.metadata.version("workswarm") has an entry in
-     patches/manifest.json and the target file's sha256 is the one recorded there. Anything else is skipped with
-     a line saying so and JiuwenSwarm is left as it is; the extension then puts the role text in front of each
-     message instead (extension/extension.py).
+  2. applies the patches of patches/jiuwenswarm/ (the repository's folder for them) to the installed package:
+     only when importlib.metadata.version("workswarm") has an entry in its manifest.json and the target file's
+     sha256 is the one recorded there. Anything else is skipped with a line saying so and JiuwenSwarm is left as
+     it is; the extension then puts the role text in front of each message instead (extension/extension.py).
   3. on a machine where bothouse has no role that runs JiuwenSwarm, makes a default one (seed_role), so the first
      chat already carries a persona and a memory wiki. A bothouse role found later takes over (extension.py).
 """
@@ -22,8 +22,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
-# bothouse's own wiki programs, in a checkout or as install.sh downloaded them (files.txt, same layout)
+# In a checkout or as install.sh downloaded them (files.txt, same layout): bothouse's own wiki programs, and the
+# patches with their manifest.json
 WIKI_SRC = HERE.parent.parent / "bridge" / "contrib" / "wiki"
+PATCHES = HERE.parent.parent / "patches" / "jiuwenswarm"
 
 # The default role. Its texts are bothouse's own, copied as they are:
 SEED_PROJECT, SEED_NAME = "jiuwenswarm", "橘"
@@ -88,7 +90,7 @@ def patch_one(site: Path, entry: dict) -> str:
     if have != entry["sha256"]:
         return "文件内容和补丁对准的不一样（sha256 不符）"
     crlf = b"\r\n" in raw  # the wheel ships this file with CRLF; the patch is kept in LF
-    new = apply_unified(raw.replace(b"\r\n", b"\n").decode("utf-8"), (HERE / "patches" / entry["patch"]).read_text(encoding="utf-8"))
+    new = apply_unified(raw.replace(b"\r\n", b"\n").decode("utf-8"), (PATCHES / entry["patch"]).read_text(encoding="utf-8"))
     data = new.encode("utf-8")
     if crlf:
         data = data.replace(b"\n", b"\r\n")
@@ -205,7 +207,7 @@ def main() -> int:
             shutil.copyfile(f, dest / f.name)
     print(f"扩展已装到 {dest}")
 
-    manifest = json.loads((HERE / "patches" / "manifest.json").read_text(encoding="utf-8"))["workswarm"]
+    manifest = json.loads((PATCHES / "manifest.json").read_text(encoding="utf-8"))["workswarm"]
     try:
         version = importlib.metadata.version("workswarm")
     except importlib.metadata.PackageNotFoundError:

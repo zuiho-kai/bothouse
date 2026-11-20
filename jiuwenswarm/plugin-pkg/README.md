@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/jiuwenswarm
 
 ## 补丁对准的版本
 
-补丁对准 PyPI 上的 workswarm **0.2.8**（清单在 `patches/manifest.json`）。装命令先核对版本号和目标文件的 sha256，两样都对才打，打完再核一遍结果；重复跑会说「补丁之前打过」。
+补丁对准 PyPI 上的 workswarm **0.2.8**（补丁和清单在仓库根目录的 `patches/jiuwenswarm/`，清单是 `manifest.json`）。装命令先核对版本号和目标文件的 sha256，两样都对才打，打完再核一遍结果；重复跑会说「补丁之前打过」。
 
 对不上时（别的版本、文件被改过）装命令不动 JiuwenSwarm 的文件，打印一行：
 
@@ -39,4 +39,4 @@ PATH=<装了 workswarm 的 venv>/bin:$PATH sh jiuwenswarm/plugin-pkg/install.sh 
 ~~~
 
 - `files.txt`：用 curl 安装时要下载的全部文件（含 `bridge/contrib/wiki` 里建 wiki 用的程序和模板），加文件要同步这里。
-- 加一个 workswarm 版本：在 `patches/workswarm-<版本>/` 放补丁（LF 换行），在 `patches/manifest.json` 记原文件和打完后的 sha256，路径加进 `files.txt`。
+- 加一个 workswarm 版本：在仓库根目录的 `patches/jiuwenswarm/workswarm-<版本>/` 放补丁（LF 换行），在 `patches/jiuwenswarm/manifest.json` 记原文件和打完后的 sha256，路径加进 `files.txt`。

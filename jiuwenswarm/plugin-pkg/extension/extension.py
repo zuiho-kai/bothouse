@@ -10,8 +10,9 @@ Source, the first that is there:
 This extension only reads the file.
 
 Two ways in, picked on every request:
-  - JiuwenSwarm patched (patches/, applied by install.py): the text is copied to role.md next to this file and
-    the patched RuntimePromptRail puts it into the system prompt. Nothing shows in the chat.
+  - JiuwenSwarm patched (the repository's patches/jiuwenswarm/, applied by install.py): the text is copied to
+    role.md next to this file and the patched RuntimePromptRail puts it into the system prompt. Nothing shows in
+    the chat.
   - not patched (a workswarm version the patch was not made for): the text goes in front of the user's message
     (gateway:before_chat_request). JiuwenSwarm shows a rewritten message in the chat and keeps it in the session
     (gateway/message_handler/message_handler.py _publish_hook_params_update_if_changed), so this is the fallback.
@@ -28,7 +29,7 @@ import jiuwenswarm
 from jiuwenswarm.extensions.hook_event import GatewayHookEvents
 
 log = logging.getLogger("jiuwenswarm.gateway")
-ROLE_FILE = Path(__file__).resolve().parent / "role.md"  # what the patched rail reads (patches/)
+ROLE_FILE = Path(__file__).resolve().parent / "role.md"  # what the patched rail reads (patches/jiuwenswarm/)
 # The patch's own function name: the target file has it = the patch is in.
 PATCH_MARK = "_bothouse_role_section"
 PATCH_TARGET = Path(jiuwenswarm.__file__).resolve().parent / "agents/harness/common/rails/runtime_prompt_rail.py"

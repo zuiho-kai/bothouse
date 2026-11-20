@@ -3,7 +3,7 @@ HOME with no bothouse in it, the one install command of jiuwenswarm/plugin-pkg/R
 stub model that keeps every request body.
 
   0. files.txt (what the curl install downloads) lists every file of bridge/contrib/wiki/template
-  1. the venv's target file is the one the patch was made for (sha256 in patches/manifest.json)
+  1. the venv's target file is the one the patch was made for (sha256 in patches/jiuwenswarm/manifest.json)
   2. leg "installed": install.sh patches workswarm and makes the default role; the chat answers, and the persona
      and the memory wiki section are in the system message, not in the user's message
   3. leg "mismatch": the target file is not the recorded one (a comment line added); install.sh says it skipped
@@ -30,7 +30,7 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PKG = os.path.join(REPO, "jiuwenswarm", "plugin-pkg")
 TEMPLATE = "bridge/contrib/wiki/template"
-VERSION = "0.2.8"  # the workswarm version the patch is made for (patches/manifest.json)
+VERSION = "0.2.8"  # the workswarm version the patch is made for (patches/jiuwenswarm/manifest.json)
 PERSONA, WIKI = "# 角色：橘", "## 记忆 wiki"  # install.py SEED_PERSONA / SEED_WIKI, their first lines
 REPLY = "CI-STUB-REPLY-jw"  # what the stub model answers
 PROMPT = "你好，报一下名字"
@@ -88,7 +88,7 @@ if missing or not template:
 ok(f"files.txt lists the {len(template)} files of {TEMPLATE}")
 
 # ---- 1. the venv has the file the patch was made for ----
-with open(os.path.join(PKG, "patches", "manifest.json"), encoding="utf-8") as f:
+with open(os.path.join(REPO, "patches", "jiuwenswarm", "manifest.json"), encoding="utf-8") as f:
     entry = json.load(f)["workswarm"][VERSION][0]
 found = subprocess.run([os.path.join(venv_bin, "python"), "-c",
                         "import importlib.metadata as m, jiuwenswarm, os;"
