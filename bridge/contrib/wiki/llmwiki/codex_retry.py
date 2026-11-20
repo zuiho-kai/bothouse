@@ -67,12 +67,15 @@ def response_statuses(errors, stderr):
     if statuses:
         return statuses
     # Source: #906 review permits a leading response code or an explicit HTTP/status diagnostic.
-    for message in messages + [stderr]:
-        match = re.search(r'(?:^\s*(?:error:\s*)?(?:HTTP(?:/\d(?:\.\d)?)?\s+)?|'
-                          r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*)'
-                          r'([45]\d\d)\b', message, re.I | re.M)
-        if match:
-            statuses.append(int(match.group(1)))
+    for source in (messages, [stderr]):
+        for message in source:
+            match = re.search(r'(?:^[ \t]*(?:error:[ \t]*)?(?:HTTP(?:/\d(?:\.\d)?)?[ \t]+)?|'
+                              r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*)'
+                              r'(0|[45]\d\d)\b', message, re.I)
+            if match:
+                statuses.append(int(match.group(1)))
+        if statuses:
+            return statuses  # stderr is a fallback diagnostic, not a second response body.
     return statuses
 
 
@@ -80,14 +83,19 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
     text = json.dumps(errors, ensure_ascii=False) + "\n" + stderr
     lower = text.lower()
     statuses = response_statuses(errors, stderr)
-    # Source: #906: an identified bad request cannot become an outage through its body or stderr.
-    request_local = any(status in (400, 404, 422) for status in statuses) or "invalid_request_error" in lower
+    # Source: #906 r5: response status decides classification; only missing status admits text evidence.
+    request_local = (any(status in (400, 404, 422) for status in statuses) if statuses else
+                     "invalid_request_error" in lower)
+    # Source: #906 r5: quota/rate field names are not refusals; match diagnostic codes or complete messages.
+    text_refused = any(word in lower for word in ("usage limit", "hit your session limit",
+                        "authentication_error", "permission_denied")) or bool(re.search(
+        r'\b(?:insufficient_quota|quota_exceeded|quota_exhausted|rate_limit_exceeded)\b|'
+        r'\b(?:quota (?:exceeded|exhausted)|rate limit)[.!]?(?=[\"\'\n]|$)', lower))
     # Source: #848 returned production diagnostics and Codex thread/turn/item events. A failed
     # connection plus no output, item or usage proves this invocation did no local work.
     # Empty usage alone proves nothing; diagnostic reason codes alone prove no tool outcome.
-    rejected = request_local or any(word in lower for word in ("usage limit", "quota", "rate limit",
-                   "hit your session limit", "invalid_request_error", "authentication_error",
-                   "permission_denied")) or any(status in (401, 403) for status in statuses)
+    rejected = (request_local or any(status in (401, 403) for status in statuses) if statuses else
+                request_local or text_refused)
     connection_failed = "failed to connect to responses websocket" in lower
     empty = not (progress or result or active or any((usage or {}).values()))
     settled = bool(tid) and terminal == "turn.failed" and not active
@@ -107,9 +115,8 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
     else:
         reason, retryable = "failure", False
     # Source: #906 review distinguishes request-local 400/404/422 from global auth/quota/rate failures.
-    down = not request_local and (any(provider_unavailable(status) for status in statuses) if statuses else
-        transport or capacity or any(word in lower for word in (
-            "usage limit", "quota", "rate limit", "hit your session limit", "authentication_error", "permission_denied")))
+    down = (any(provider_unavailable(status) for status in statuses) if statuses else
+            not request_local and (transport or capacity or text_refused))
     value = Failure(text, reason, retryable, provider_down=down)
     value.resumable = retryable and bool(tid)
     return value

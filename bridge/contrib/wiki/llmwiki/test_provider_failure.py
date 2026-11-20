@@ -43,18 +43,19 @@ class ProviderFailure(unittest.TestCase):
 
     def test_structured_status_controls_classification_over_body_and_stderr(self):
         for field in ("status", "http_status", "status_code", "http_status_code"):
-            for status in (400, 404, 422, 401, 403, 429, 503):
+            for status in (400, 404, 422, 0, 401, 403, 429, 500, 503):
                 with self.subTest(field=field, status=status):
-                    error = {field: str(status), "message": "400: quota field has maximum 503 items"}
+                    error = {field: str(status), "type": "invalid_request_error",
+                             "message": "400: quota field has maximum 503 items"}
                     out = I.codex_retry.failure([error], "thread", "turn.failed", set(),
                                                 stderr="HTTP status 503; quota exceeded")
-                    self.assertEqual(out.provider_down, status in (401, 403, 429, 503))
+                    self.assertEqual(out.provider_down, status in (0, 401, 403, 429, 500, 503))
         out = failure({"error": {"status": 400, "message": "HTTP 503; quota field invalid"}})
         self.assertEqual(out.reason, "request_rejected")
         self.assertFalse(out.provider_down)
 
     def test_body_numbers_and_stderr_do_not_override_request_failure(self):
-        for message in ("400 Invalid value at input[512]", "invalid_request_error: max length 500"):
+        for message in ("400 Invalid value at input[512]", "400 invalid_request_error: max length 500"):
             with self.subTest(message=message):
                 out = I.codex_retry.failure([{"message": message}], "thread", "turn.failed", set(),
                                             stderr="HTTP status 503; quota field invalid")
@@ -65,6 +66,50 @@ class ProviderFailure(unittest.TestCase):
                 out = failure(message)
                 self.assertFalse(out.provider_down)
                 self.assertEqual(out.reason, "failure")
+
+    def test_401_status_overrides_invalid_request_error_and_stops_uncounted(self):
+        for message in (
+                {"status": 401, "type": "invalid_request_error"},
+                'unexpected status 401 Unauthorized: {"error":{"type":"invalid_request_error"}}'):
+            with self.subTest(message=message):
+                db, logs, invoke, down = self.run_queue(message, paid_fallback=True)
+                self.assertTrue(down)
+                self.assertEqual({call.args[2] for call in invoke.call_args_list}, {"ingest aaaaaaaa facts"})
+                self.assertEqual(db.execute("SELECT id,n FROM fails").fetchall(),
+                                 [("aaaaaaaa", I.MAX_FAILS - 1)])
+                self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
+
+    def test_429_status_overrides_invalid_request_error_and_stops_uncounted(self):
+        for message in (
+                {"error": {"status": 429, "type": "invalid_request_error"}},
+                'HTTP/1.1 429 Too Many Requests: {"error":{"type":"invalid_request_error"}}'):
+            with self.subTest(message=message):
+                db, logs, invoke, down = self.run_queue(message, paid_fallback=True)
+                self.assertTrue(down)
+                self.assertEqual({call.args[2] for call in invoke.call_args_list}, {"ingest aaaaaaaa facts"})
+                self.assertEqual(db.execute("SELECT id,n FROM fails").fetchall(),
+                                 [("aaaaaaaa", I.MAX_FAILS - 1)])
+                self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
+
+    def test_quota_field_text_without_status_is_not_an_outage(self):
+        message = "Quota exceeded for field x (400)"
+        self.assertEqual(I.codex_retry.response_statuses([{"message": message}], ""), [])
+        db, logs, invoke, down = self.run_queue(message)
+        self.assertFalse(down)
+        self.assertEqual({call.args[2] for call in invoke.call_args_list},
+                         {"ingest aaaaaaaa facts", "ingest bbbbbbbb facts"})
+        self.assertEqual(db.execute("SELECT id,n FROM fails ORDER BY id").fetchall(),
+                         [("aaaaaaaa", I.MAX_FAILS), ("bbbbbbbb", 1)])
+
+    def test_number_at_start_of_later_body_line_is_not_a_status(self):
+        message = "bad schema:\n500 items max"
+        self.assertEqual(I.codex_retry.response_statuses([{"message": message}], ""), [])
+        db, logs, invoke, down = self.run_queue(message)
+        self.assertFalse(down)
+        self.assertEqual({call.args[2] for call in invoke.call_args_list},
+                         {"ingest aaaaaaaa facts", "ingest bbbbbbbb facts"})
+        self.assertEqual(db.execute("SELECT id,n FROM fails ORDER BY id").fetchall(),
+                         [("aaaaaaaa", I.MAX_FAILS), ("bbbbbbbb", 1)])
 
     def test_http_status_diagnostics_still_identify_provider_failure(self):
         for message in ("HTTP/1.1 503 Service Unavailable", "unexpected HTTP status: 503",
