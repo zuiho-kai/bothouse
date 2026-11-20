@@ -20,7 +20,7 @@
 | 工作区频道：建、改名、列出 | 有。工作区是服务器里的频道，统一放「工作区」分类 | 有。工作区是一个群：列 bot 所在的全部群、建群、改群名 | 不缺。飞书没有分类，「放进工作区分类」这一步不适用（见第三节） | 已支持 | discord：platform/discord/workspaces.go:43、:161、:185；飞书：platform/feishu/workspaces.go:77、:146、:166；platform/CAPABILITIES.md:93 |
 | 工作区删除、删前归档 | 有。删频道；删之前把整段频道消息读出来打进归档 | 没有。空闲工作区群删不掉，归档里也没有群消息这一段 | `TeamWorkspaceDeleter`（解散群）、`TeamChannelArchiver`（翻页读整段群消息） | 纯代码，要真机验证。解散群要 bot 是群主或创建者；官方原话「解散群组后，群聊天记录将不会保存」 | discord：platform/discord/workspaces.go:77、:106；core：core/team_workspace_delete.go:64，core/team_workspace_cleanup.go:129；已有表态 platform/CAPABILITIES.md:101、:110 |
 | 用户要求建新频道（`bothouse channel create`） | 有。建在聊天频道同一分类里，排在「工作区n」上面 | 没有 | `TeamChannelCreator`。建群本身能做（建工作区群的代码可复用），「同分类、排在工作区上面」飞书没有 | 建群：纯代码；排序：平台不支持 | discord：platform/discord/channels.go:25；飞书可复用 platform/feishu/workspaces.go:181；core：core/team_channel.go:50；platform/CAPABILITIES.md:75 |
-| 任务板（团队任务板，一条置顶消息） | 有。置顶 embed，原地编辑；换主后旧主把自己的旧板删掉 | 有发板、置顶、原地编辑。换主后旧板删不掉，会留一张过期的板 | `BoardRemover`（机器人撤回自己发的消息） | 纯代码 | discord：platform/discord/board.go:58、:30；飞书：platform/feishu/public_progress.go:94、:234；core：core/team_board.go:424、:191 |
+| 任务板（团队任务板，一条置顶消息） | 有。置顶 embed，原地编辑；换主后旧主把自己的旧板删掉 | 有发板、置顶、原地编辑。换主后旧主先取消置顶再撤回旧板；超过撤回时限的撤不掉，只取消置顶 | 已补（单测，未真机）：`BoardRemover` | 纯代码 | discord：platform/discord/board.go:58、:30；飞书：platform/feishu/public_progress.go:95、:130、:264、:280、:296；core：core/team_board.go:424、:191 |
 | 频道任务看板（每个频道一条置顶：在跑的、排队的、今天做完的） | 有 | 没有 | `ChannelBoardPoster`：发卡片、Pin、编辑、重启后找回原来那条 | 纯代码，要真机验证（卡片编辑和 Pin 列表的实际表现） | discord：platform/discord/channel_board.go:48；core：core/channel_board.go:49、:272 |
 | 任务卡、任务子话题里的事实楼层 | 有。任务卡下开子区，关键事实发进子区 | 有。任务卡是卡片消息，事实用「话题回复」挂在卡片下面 | 不缺 | 已支持 | discord：platform/discord/public_progress.go:27、:65、:279；飞书：platform/feishu/public_progress.go:29、:45、:72、:215 |
 | 任务子话题的归档、重开 | 有。任务做完把子区归档，有新事实再重开，按最后活动时间决定何时归档 | 没有 | `TaskThreadArchiver`、`TaskThreadReopener`、`TaskThreadActivityReader` | 平台不支持（没核到飞书有归档话题的接口，官方也没有明写「不支持」）。不补不影响用，话题一直留着 | discord：platform/discord/public_progress.go:188、:220、:242；core：core/public_progress.go:846、:946、:827 |
@@ -45,7 +45,7 @@
 | 工作区静音（工作区里的消息不推送通知） | 有 | 没有 | `SilentChannelAware` | 没核。没查到飞书发消息有「不通知」的参数 | discord：platform/discord/silent.go:31；core：core/engine.go:3143 |
 | 运行维护：改配置不重启就生效、断线后自己恢复 | 有 | 没有。改飞书选项要重启桥；断线恢复没核飞书长连接自己会不会重连 | `OptionsReloader`、`AsyncRecoverablePlatform` | 纯代码 | discord：platform/discord/live_options.go:61，platform/discord/discord.go:734；core：core/engine.go:1452、:2148 |
 
-表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。
+表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。任务板缺的「换主后删旧板」已补（单测，未真机），真机验过再算进完整支持。
 
 飞书有、Discord 没有的（不算缺口，列出来免得误删）：原生视频消息（feishu.go:5053）、消息撤回感知（feishu.go:1058）、富文本卡片和表格拆分（feishu.go:6805、:6810）、状态脚注（feishu.go:2896）、卡片翻页（feishu.go:279）。
 
@@ -74,11 +74,11 @@
    - 风险：现在的会话键是「平台:群 id:用户 id」，私聊要么先换出单聊的 chat_id，要么让回复上下文带 open_id，改到发送主路径；对方不在机器人可用范围就发不出；私密子区这个兜底飞书没有。
    - 要真飞书验证：要。
 
-4. **任务板收尾：换主后删旧板**
-   - 补法：实现 `RemoveBoard`，调「撤回消息」撤掉自己发的那张板；消息已不在算删成功。
-   - 要动的文件：platform/feishu/public_progress.go（:94 的 UpsertBoard 旁边）。参照 platform/discord/board.go:30。
-   - 预估：代码约 40 行，单测约 40 行。
-   - 风险：小。撤回有没有时间限制没核（官方只写了撤别人消息不超过 1 年）。
+4. **任务板收尾：换主后删旧板** —— 已补（单测，未真机）
+   - 做法：`RemoveBoard`（platform/feishu/public_progress.go:130）先取消置顶，再调「撤回消息」撤掉自己发的那张板；消息已不在（错误码 230110、230011）算删成功。
+   - 撤不掉时：飞书拒绝且重试也没用的（比如超过撤回时限，错误码 230009）报「不可恢复」，core 不再重试；这时旧板已经从置顶列表里拿掉，消息本身还留在群里。
+   - 单测：platform/feishu/public_progress_test.go 的 `TestFeishuRemoveBoard*` 三个用例（删对 id 且取消置顶、已删算成功、超撤回时限报不可恢复）。
+   - 没核的：真飞书上取消置顶和撤回的实际返回、机器人撤回自己消息的时限是多久。
    - 要真飞书验证：建议。
 
 5. **频道任务看板（每频道一条置顶）**

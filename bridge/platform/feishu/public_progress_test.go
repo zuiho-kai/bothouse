@@ -15,22 +15,26 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
 
-// fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies and
-// pins, and de-duplicates sends by uuid like the real API.
+// fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies,
+// pins, unpins and recalls, and de-duplicates sends by uuid like the real API.
 type fakeFeishuIM struct {
-	mu         sync.Mutex
-	nextID     int
-	byUUID     map[string]string
-	content    map[string]string // message ID -> card JSON
-	gone       map[string]bool   // deleted message IDs
-	expired    map[string]bool   // message IDs older than the 14-day edit window
-	creates    []map[string]any
-	patches    []string
-	replies    []map[string]any
-	pins       []string
-	pinFail    bool
-	createFail int          // fail this many creates with HTTP 500 before succeeding
-	refuse     *fakeRefusal // when set, every create/patch/reply answers with it
+	mu      sync.Mutex
+	nextID  int
+	byUUID  map[string]string
+	content map[string]string // message ID -> card JSON
+	gone    map[string]bool   // deleted message IDs
+	expired map[string]bool   // message IDs older than the 14-day edit window
+	creates []map[string]any
+	patches []string
+	replies []map[string]any
+	pins    []string
+	pinFail bool
+	deletes []string // recalled message IDs
+	unpins  []string
+	// recallExpired: recalls answer 230009 (past the recall time limit).
+	recallExpired bool
+	createFail    int          // fail this many creates with HTTP 500 before succeeding
+	refuse        *fakeRefusal // when set, every create/patch/reply answers with it
 }
 
 type fakeRefusal struct {
@@ -104,6 +108,24 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 			}
 			id, _ := body["message_id"].(string)
 			f.pins = append(f.pins, id)
+			ok(map[string]any{})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/"):
+			id := strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/")
+			if f.gone[id] {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(t, w, map[string]any{"code": feishuMessageDeletedCode, "msg": "Action unavailable as the message has been deleted."})
+				return
+			}
+			if f.recallExpired {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(t, w, map[string]any{"code": 230009, "msg": "The message has exceeded the recall time limit."})
+				return
+			}
+			f.deletes = append(f.deletes, id)
+			f.gone[id] = true
+			ok(map[string]any{})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/pins/"):
+			f.unpins = append(f.unpins, strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/pins/"))
 			ok(map[string]any{})
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
@@ -288,6 +310,67 @@ func TestFeishuBoardPostPinThenEdit(t *testing.T) {
 	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n空", false)
 	if err != nil || again == "" || again == id || len(f.pins) != 2 {
 		t.Fatalf("deleted board not reposted: %q, %v, pins=%v", again, err, f.pins)
+	}
+}
+
+// Lead changed: the old lead recalls its board and takes it off the pin list.
+func TestFeishuRemoveBoardUnpinsAndRecalls(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**团队任务板**\n龙娘 进行中", false)
+	if err != nil || id == "" {
+		t.Fatalf("UpsertBoard post: %q, %v", id, err)
+	}
+	if _, pinned := p.boardPinned.Load(id); !pinned {
+		t.Fatalf("board %s not recorded as pinned", id)
+	}
+	if err := p.RemoveBoard(ctx, "feishu:oc_chat:ou_u", id); err != nil {
+		t.Fatalf("RemoveBoard: %v", err)
+	}
+	if len(f.deletes) != 1 || f.deletes[0] != id {
+		t.Fatalf("recalled %v, want [%s]", f.deletes, id)
+	}
+	if len(f.unpins) != 1 || f.unpins[0] != id {
+		t.Fatalf("unpinned %v, want [%s]", f.unpins, id)
+	}
+	if _, pinned := p.boardPinned.Load(id); pinned {
+		t.Fatalf("board %s still recorded as pinned after removal", id)
+	}
+}
+
+// A board somebody already deleted counts as removed.
+func TestFeishuRemoveBoardAlreadyDeleted(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.gone["om_old"] = true
+	p := newFakeFeishuPlatform(t, f)
+	p.boardPinned.Store("om_old", struct{}{})
+	if err := p.RemoveBoard(context.Background(), "feishu:oc_chat:ou_u", "om_old"); err != nil {
+		t.Fatalf("RemoveBoard on a deleted board: %v", err)
+	}
+	if len(f.deletes) != 0 {
+		t.Fatalf("fake recorded a recall of a deleted message: %v", f.deletes)
+	}
+	if _, pinned := p.boardPinned.Load("om_old"); pinned {
+		t.Fatal("deleted board still recorded as pinned")
+	}
+}
+
+// Past the recall time limit no retry can delete the board: core is told to
+// give up, and the board has still been taken off the pin list.
+func TestFeishuRemoveBoardPastRecallLimitIsUnrecoverable(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.recallExpired = true
+	p := newFakeFeishuPlatform(t, f)
+	err := p.RemoveBoard(context.Background(), "feishu:oc_chat:ou_u", "om_old")
+	if !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		t.Fatalf("RemoveBoard past the recall limit = %v, want ErrDeliveryUnrecoverable", err)
+	}
+	if len(f.unpins) != 1 || f.unpins[0] != "om_old" {
+		t.Fatalf("unpinned %v, want [om_old]", f.unpins)
+	}
+	if len(f.deletes) != 0 {
+		t.Fatalf("recall recorded despite refusal: %v", f.deletes)
 	}
 }
 
