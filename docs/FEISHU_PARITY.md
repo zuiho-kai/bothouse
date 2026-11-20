@@ -30,13 +30,13 @@
 | 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 没有，飞书上看不到这张表 | `SubTaskTablePayloadSupport`（渲染成卡片）、`LatestMessageChecker`（要先有历史读取） | 纯代码 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
 | 引用回复（回复某条消息，bot 知道回的是哪件活） | 有 | 有。入站把被回复消息 id 填进 Reference，出站登记每条发出消息的 id | 不缺 | 已支持 | discord：platform/discord/discord.go:932，platform/discord/turn_sent.go:123；飞书：platform/feishu/feishu.go:1121（Reference 在 :1133）、:3783；core：core/reply_task.go:145；platform/CAPABILITIES.md:12、:21 |
 | 私信 `send --dm`、`--dm --to <id>` | 有。开私聊；`--to` 先核对方在不在本服务器；对方拒收私信时改开一个只有他能看的私密子区 | 有开私聊、`--to` 核对方在不在当前群、认出拒收。没和机器人聊过的人，第一次要先按 open_id 发一条「私信」两个字的消息换出单聊。拒收时没有私密子区兜底，直接报发不出 | 已补（单测，未真机）：`DirectMessageOpener`、`DMMemberChecker`、`DMRefusalDetector`；私密子区飞书没有 | 前三个：纯代码，要真机验证；私密子区：平台不支持 | discord：platform/discord/discord.go:1671、:1690、:1736、:1747；飞书：platform/feishu/dm.go:51、:98、:125；core：core/dm.go:102、:156、:34、:48；platform/CAPABILITIES.md:127、:135、:143 |
-| 按名字发频道 `send --channel <名字>` | 有。只在当前对话所在的服务器里按名字找，重名或找不到就报错、不发 | 没有。报「cannot find channels by name (Discord only)」 | `GuildChannelLister`、`ChannelNameResolver`。飞书没有「服务器」，能做的是在 bot 所在的全部群里按群名找 | 纯代码，但语义变了（从「同服务器」变成「bot 在的所有群」） | discord：platform/discord/channel_names.go:18，platform/discord/discord.go:2001；飞书可复用 platform/feishu/workspaces.go:77；core：core/send_channel.go:84；platform/CAPABILITIES.md:84 |
+| 按名字发频道 `send --channel <名字>` | 有。只在当前对话所在的服务器里按名字找，重名或找不到就报错、不发 | 有。飞书没有「服务器」，在 bot 所在的全部群里按群名找（没名字的群不算），重名或找不到就报错、列候选、不发；发完回显发到了哪个群 | 已补（单测，未真机）：`GuildChannelLister`、`ChannelNameResolver` | 纯代码，语义变了（从「同服务器」变成「bot 在的所有群」），要真机验证 | discord：platform/discord/channel_names.go:18，platform/discord/discord.go:2001；飞书：platform/feishu/channel_names.go:25、:43，platform/feishu/workspaces.go:119；core：core/send_channel.go:83；platform/CAPABILITIES.md:84 |
 | 发图片、发文件 | 有 | 有 | 不缺 | 已支持 | discord：platform/discord/discord.go:1441、:1495；飞书：platform/feishu/feishu.go:2918、:2966；core：core/engine.go:13639、:13657 |
 | 发语音、TTS 念出来 | 有。语音消息 | 有。音频消息 | 不缺 | 已支持 | discord：platform/discord/voice_message.go:32；飞书：platform/feishu/feishu.go:4976；core：core/tts.go:69，core/engine.go:14042 |
 | 发视频 | 没有单独的视频发送，按文件发 | 有。原生视频消息 | 不缺，飞书比 Discord 全 | 已支持 | 飞书：platform/feishu/feishu.go:5053；core：core/tts.go:82，core/engine.go:14086 |
 | 频道历史回看（bot 补读自己没看到的聊天；历史接口给脚本用；区分哪些是 bot 自己的话、哪些是系统通知） | 有 | 没有。飞书只能按 id 取单条消息和顺着回复链往上取 | `ChannelHistoryReader`，连带 `AgentReplyMarker`、`SessionAgentReplyMarker`、`SystemNoticeMarker` | 纯代码，要真机验证。官方有「获取会话历史消息」接口，bot 要在群里；普通群按群取只拿得到话题的根消息 | discord：platform/discord/discord.go:1934，platform/discord/turn_sent.go:141、:160，platform/discord/aux_channels.go:114；飞书现有：platform/feishu/feishu.go:2115、:2285；core：core/backfill.go:216，core/api_history.go:101 |
 | 斜杠命令 | 有。把命令注册进 Discord 原生的 / 菜单，输入 / 有提示 | 打字发「/命令」照常能用。单聊里的机器人菜单，点一下当成一条命令。没有输入 / 的提示 | `CommandRegistrar`（原生注册） | 平台不支持（飞书机器人菜单只能在开发者后台手配，且只在单聊出现） | discord：platform/discord/discord.go:655；飞书：platform/feishu/feishu.go:5199；core：core/engine.go:3327 |
-| 定时任务回帖 | 有。回到原频道；开了话题隔离时，每次定时任务新开一个子区 | 有。回到原群或原话题。没有「每次新开一个话题」 | `CronReplyTargetResolver` | 纯代码。不补也能用，core 会退回到「回原会话」 | discord：platform/discord/discord.go:1784、:1628；飞书：platform/feishu/feishu.go:3943；core：core/interfaces.go:100，core/engine.go:1929 |
+| 定时任务回帖 | 有。回到原频道；开了话题隔离时，每次定时任务新开一个子区 | 有。回到原群或原话题；开了话题隔离（`thread_isolation`）时，每次定时任务先在群里发一条标题消息，再在它的话题里回；单聊不开话题，回原会话 | 已补（单测，未真机）：`CronReplyTargetResolver` | 纯代码，要真机验证 | discord：platform/discord/discord.go:1784、:613；飞书：platform/feishu/cron_target.go:30，platform/feishu/feishu.go:3979；core：core/interfaces.go:100，core/engine.go:1930、:2284 |
 | 会议助手、语音频道（@bot 开会，bot 进语音频道听，结束后出纪要）、语音台交接 | 有。bot 进语音频道收音频，本机转写，结束时把转写稿交给 agent 出纪要 | 没有 | 整条都缺。飞书有「智能体入会」接口：用 9 位会议号入会、轮询会中事件、发会中消息、离会。会中事件里的「发言」带字幕文字，但拿不到原始音频 | 纯代码，要真机验证（细节见第三节「会议」） | discord：platform/discord/meeting.go:178、:197、:498，platform/discord/meeting_listener.go:100，platform/discord/self_mention.go:29；core：core/voice_desk.go:370 |
 | 停、插话 | 有。`/stop all` 不用 @ 就到每个 bot；只发一个「停」字（没 @ 谁、没回复谁）也到每个 bot；说话能插进正在跑的一轮 | `/stop all` 免 @ 有。插话走 core，飞书一样能用。只发一个「停」字不行，没 @ 就被丢掉 | 「只发停字」免 @ 这一条 | 纯代码 | discord：platform/discord/discord.go:927、:929、:1019，platform/discord/reply_routing.go:52；飞书：platform/feishu/feishu.go:1442、:6850；core：core/gate.go:817 |
 | 表情回应（收到贴一个表情，做完或出错换一个） | 有（`TurnReactor`，可开关） | 有自己的一套：`reaction_emoji` 收到时贴、结束时撤，`done_emoji` 做完贴 | 不缺。出错时贴不贴「失败」表情，没核 | 已支持（不再接 `TurnReactor`，接了会重复） | discord：platform/discord/ack_reaction.go:115；飞书：platform/feishu/feishu.go:302、:309、:975、:988；platform/CAPABILITIES.md:184 |
@@ -45,7 +45,7 @@
 | 工作区静音（工作区里的消息不推送通知） | 有 | 没有 | `SilentChannelAware` | 没核。没查到飞书发消息有「不通知」的参数 | discord：platform/discord/silent.go:31；core：core/engine.go:3143 |
 | 运行维护：改配置不重启就生效、断线后自己恢复 | 有 | 没有。改飞书选项要重启桥；断线恢复没核飞书长连接自己会不会重连 | `OptionsReloader`、`AsyncRecoverablePlatform` | 纯代码 | discord：platform/discord/live_options.go:61，platform/discord/discord.go:734；core：core/engine.go:1452、:2148 |
 
-表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。有缺口的 22 行里，4 行的缺口已补（单测，未真机）：bot 之间互相 @、主和 sub 交回、任务板「换主后删旧板」、私信（私密子区兜底除外，平台不支持）。真机验过再算进完整支持，所以上面的 7 和 22 先不动。
+表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。有缺口的 22 行里，6 行的缺口已补（单测，未真机）：bot 之间互相 @、主和 sub 交回、任务板「换主后删旧板」、私信（私密子区兜底除外，平台不支持）、按名字发频道、定时任务每次新开话题。真机验过再算进完整支持，所以上面的 7 和 22 先不动。
 
 飞书有、Discord 没有的（不算缺口，列出来免得误删）：原生视频消息（feishu.go:5053）、消息撤回感知（feishu.go:1058）、富文本卡片和表格拆分（feishu.go:6805、:6810）、状态脚注（feishu.go:2896）、卡片翻页（feishu.go:279）。
 
@@ -104,7 +104,7 @@
    - 风险：普通群按群取只拿得到话题根消息，话题里的回复要另按话题取；要「获取群组中所有消息」这类读群消息的权限（docs/feishu.md:160 已列，属敏感权限）。
    - 要真飞书验证：要。
 
-8. **按名字发频道 `send --channel`**
+8. **按名字发频道 `send --channel`** —— 已补（单测，未真机）。官方文档写明群列表不含单聊，要 `im:chat` 或 `im:chat:readonly`（docs/feishu.md:360 已列）。真机没核：外部群、话题群是否都列得出来；按 `<平台>:<群 id>` 这种不带用户的会话键主动发消息在真群里的表现。顺带的变化：飞书能报群名后，多工作区模式（multi-workspace）下没绑定的飞书群也会像 Discord 一样按群名去对 base_dir 下的同名目录；群名不是普通目录名（带 `/`、`..`）的不对（core/engine.go:19614）。
    - 补法：实现 `GuildMessageChannels`，返回 bot 所在的全部群（复用列群）；实现 `ResolveChannelName`。
    - 要动的文件：platform/feishu/workspaces.go（:77 一带）；core/send_channel.go（:86 的报错写死了「Discord only」，重名提示写死了「本服务器」，要改措辞）。
    - 预估：代码约 50 行，单测约 40 行。
@@ -146,7 +146,7 @@
     - 风险：小。
     - 要真飞书验证：建议。
 
-14. **定时任务每次新开话题、改配置不重启、断线恢复**
+14. **定时任务每次新开话题、改配置不重启、断线恢复** —— 定时任务每次新开话题已补（单测，未真机）；另两项没动。真机没核：bot 对自己刚发的标题消息做话题回复是否真的开出话题、用户在这个话题里回复时 root_id 是否等于标题消息 id（会话接不接得上靠它）、话题群里的表现。
     - 补法：`ResolveCronReplyTarget` 先发一条根消息再回到它的话题里；`ReloadOptions` 让一部分选项热生效；`SetLifecycleHandler` 没核飞书长连接现状，先查再定。
     - 要动的文件：platform/feishu/feishu.go；新增 platform/feishu/live_options.go。参照 platform/discord/live_options.go（93 行）。
     - 预估：三项合计代码约 200 行，单测约 100 行。

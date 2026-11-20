@@ -490,8 +490,9 @@ Options:
       --experience         Hand work to a personal agent: append related team lessons and ask for 【经验】 lines back
       --dm                 Send privately; without --to only to the project owner (first ID in admin_from) (Discord, QQ)
       --to <user id>       With --dm: send privately to this member of the server instead (Discord)
-      --channel <name>     Send to the channel with this name in this server (Discord); not found or
-                           more than one with that name is an error and nothing is sent
+      --channel <name>     Send to the channel with this name (Discord: in this server; Feishu: among
+                           the groups the bot is in); not found or more than one with that name is an
+                           error and nothing is sent
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
                            With --channel or -s the output says where it went: 已发到 #<name>（<id>）

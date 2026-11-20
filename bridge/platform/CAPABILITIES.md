@@ -83,10 +83,10 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## GuildChannelLister
 
-`bothouse send --channel <名字>`：在当前对话所在的服务器里按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。
+`bothouse send --channel <名字>`：按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。查找范围：Discord 是当前对话所在的服务器；飞书没有服务器，是 bot 所在的全部群（[获取用户或机器人所在的群列表](https://open.feishu.cn/document/server-docs/group/chat/list)）。
 
 - discord: 已接
-- feishu: 不支持：飞书没有服务器和频道列表，群之间没有「同一服务器按名字找」的关系
+- feishu: 已接
 - cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色列房间的接口
 - dsh: 不支持：同 cloud-web
 

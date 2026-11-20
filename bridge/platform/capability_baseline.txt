@@ -9,14 +9,12 @@ ChannelBoardPoster feishu
 ChannelDispatchModeProvider discord
 ChannelDispatchModeProvider feishu
 ChannelNameResolver cloud-web
-ChannelNameResolver feishu
 ChatPoster cloud-web
 ChatPoster feishu
 CommandRegistrar cloud-web
 CommandRegistrar feishu
 ConfiguredTeamLeadSelf cloud-web
 CronReplyTargetResolver cloud-web
-CronReplyTargetResolver feishu
 DirectMessageOpener cloud-web
 InlineButtonSender feishu
 LatestMessageChecker cloud-web

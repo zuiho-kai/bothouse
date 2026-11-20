@@ -44,6 +44,8 @@ type fakeFeishuIM struct {
 	// history_test.go: chat ID -> its messages oldest first, and the query of each list request.
 	history     map[string][]map[string]any
 	listQueries []url.Values
+	// channel_names_test.go: the groups the bot is in (chat_id, name, chat_mode), in pages.
+	chatPages [][]map[string]any
 }
 
 type fakeRefusal struct {
@@ -173,7 +175,28 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 				}
 			}
 			ok(map[string]any{"items": items})
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/chats":
+			page := 0
+			if tok := r.URL.Query().Get("page_token"); tok != "" {
+				page, _ = strconv.Atoi(tok)
+			}
+			data := map[string]any{"items": []map[string]any{}, "has_more": page+1 < len(f.chatPages)}
+			if page < len(f.chatPages) {
+				data["items"] = f.chatPages[page]
+			}
+			if page+1 < len(f.chatPages) {
+				data["page_token"] = strconv.Itoa(page + 1)
+			}
+			ok(data)
 		case r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/open-apis/contact/v3/users/") || strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/")):
+			for _, chats := range f.chatPages {
+				for _, c := range chats {
+					if c["chat_id"] == strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/chats/") {
+						ok(c)
+						return
+					}
+				}
+			}
 			ok(map[string]any{}) // sender name and chat name lookups of an inbound message
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
