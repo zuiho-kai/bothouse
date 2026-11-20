@@ -22,7 +22,9 @@ const (
 var (
 	waitExternalLine = regexp.MustCompile(`(?m)^[\s>*\-【\[]*等外部[】\]]?\s*[：:]\s*(.+?)\s*$`)
 	waitAgainLine    = regexp.MustCompile(`(?m)^[\s>*\-【\[]*再看[】\]]?\s*[：:]\s*(.+?)\s*$`)
-	waitDuration     = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(h|小时|个小时|m|min|分钟|分)`)
+	// waitAgainInline: 「再看：」 written on the 「等外部：」 line itself (#1815: 「等外部：X。再看：7h」 fell to the 1h default).
+	waitAgainInline = regexp.MustCompile(`再看[】\]]?\s*[：:]\s*(.+)$`)
+	waitDuration    = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(h|小时|个小时|m|min|分钟|分)`)
 )
 
 // WaitExternalOf finds the 「等外部：」 line of a [report] body: what blocks it, and when to look again.
@@ -36,7 +38,11 @@ func WaitExternalOf(body string) (why string, after time.Duration, ok bool) {
 		return "", 0, false
 	}
 	after = WaitExternalDefault
-	if a := waitAgainLine.FindStringSubmatch(body); a != nil {
+	a := waitAgainLine.FindStringSubmatch(body)
+	if a == nil {
+		a = waitAgainInline.FindStringSubmatch(why)
+	}
+	if a != nil {
 		if d, ok := parseWaitDuration(a[1]); ok {
 			after = d
 		}
