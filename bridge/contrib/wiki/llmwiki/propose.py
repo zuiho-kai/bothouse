@@ -34,7 +34,7 @@ class Rules:
     """What a wiki allows, read from its own lint module so the two wikis' different budgets both hold."""
 
     def __init__(self, lint, language="zh", record=MAIN_RECORD, labels="USER = 用户本人，CLAUDE = 助手",
-                 user_quote=False, todo_check=None):
+                 user_quote=False, todo_check=None, user_said=None):
         self.page_lines, self.page_chars = lint.PAGE_LINES, lint.PAGE_CHARS
         self.max_topics, self.readme_line, self.body_line = lint.MAX_TOPICS, lint.README_LINE, lint.BODY_LINE
         if hasattr(lint, "LANGUAGES"):  # the main wiki's lint: per-language sections and annotation words
@@ -46,6 +46,9 @@ class Rules:
         self.record, self.labels = record, labels
         self.user_quote = user_quote  # role wikis (A7): every new line carries the user's words verbatim
         self.todo_check = todo_check  # role wikis: 待办 rejects unanswered proposals (lint.UNANSWERED)
+        # role wikis: the same test of "the user said this" that acceptance applies (Discord / dialog words), so a
+        # fact is dropped here instead of failing the whole session at acceptance; None = the transcript's USER lines
+        self.user_said = user_said
 
     def domains(self, root):
         memory = (root / "MEMORY.md").read_text()
@@ -244,8 +247,9 @@ def grounded(facts, transcript, rules):
         at = [i for i, l in enumerate(flat) if q and q in l]
         if not at:
             dropped.append((f, "引文不在会话原文里"))
-        elif (rules.user_quote or USER_CLAIM.search(f["fact"])) and not any(speaker(lines, i) == "USER" for i in at):
-            dropped.append((f, "需要用户原话，但引文不在 USER 行"))
+        elif (rules.user_quote or USER_CLAIM.search(f["fact"])) and not (
+                rules.user_said(f["quote"]) if rules.user_said else any(speaker(lines, i) == "USER" for i in at)):
+            dropped.append((f, "需要用户原话，但引文不是这个会话里用户说的话"))
         else:
             kept.append(f)
     return kept, dropped

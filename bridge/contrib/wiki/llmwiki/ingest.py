@@ -2659,8 +2659,15 @@ def propose_pass(label, it, text, sids, sources, engine):
         failed.append(out)
         return None
 
+    said = [t for p in sources for t in user_texts(p)]  # the words page_misquotes accepts as the user's
+    if not said and re.search(r"^USER", text, re.M):
+        # user_texts() returns nothing when the user's words cannot be read (Discord history unavailable): every
+        # fact would look unquoted and be dropped, so the session would be marked read with its facts lost
+        log(f"{label} REVERTED: the user's words of this session are unreadable now; retried on a later run")
+        REJECT_REASONS.append("user words unreadable")
+        return False
     rules = propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
-                          todo_check=lint.UNANSWERED)
+                          todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
     try:
         summary = propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label)
         errs = "" if summary is None else "\n".join(
