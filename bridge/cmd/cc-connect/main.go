@@ -237,6 +237,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"at":           runTimer,
 	"relay":        runRelay,
 	"sessions":     runSessions,
+	"cleanup":      runCleanup,
 	"session":      runSession,
 	"report":       runReport,
 	"agent-sid":    runAgentSID,
@@ -610,6 +611,11 @@ func runMain() {
 	}
 
 	heartbeatSched.Start()
+
+	// #1825: clear what the bridge's own tools leave behind, tell the owner when the disk runs low
+	if j := newJanitor(cfg, builtProjs, engines); j != nil {
+		j.Start(make(chan struct{}))
+	}
 
 	// Start bridge server if enabled
 	var bridgeSrv *core.BridgeServer

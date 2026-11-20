@@ -116,15 +116,19 @@ type Config struct {
 	Cron               CronConfig              `toml:"cron"`
 	Queue              QueueConfig             `toml:"queue"`
 	// TeamReview: who verifies handbacks per tier (user 2026-11-04「简单的交给便宜模型 这个可以在我们dsh插件设置里设置」).
-	TeamReview      TeamReviewConfig `toml:"team_review"`
-	Webhook         WebhookConfig    `toml:"webhook"`
-	Bridge          BridgeConfig     `toml:"bridge"`
-	Management      ManagementConfig `toml:"management"`
-	Plugins         PluginsConfig    `toml:"plugins"`
-	Gate            GateConfig       `toml:"gate"`
-	Hooks           []HookConfig     `toml:"hooks"`
-	IdleTimeoutMins *int             `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
-	MaxTurnTimeMins *int             `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
+	TeamReview TeamReviewConfig `toml:"team_review"`
+	Webhook    WebhookConfig    `toml:"webhook"`
+	Bridge     BridgeConfig     `toml:"bridge"`
+	Management ManagementConfig `toml:"management"`
+	Plugins    PluginsConfig    `toml:"plugins"`
+	Gate       GateConfig       `toml:"gate"`
+	// Cleanup: the janitor (core/janitor.go, #1825). On unless enabled = false; dirs adds places
+	// whose children nobody touched for a week are removed, on top of the bridge's own (bgrun runs,
+	// iso-check test dirs, walkthrough runs).
+	Cleanup         CleanupConfig `toml:"cleanup"`
+	Hooks           []HookConfig  `toml:"hooks"`
+	IdleTimeoutMins *int          `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
+	MaxTurnTimeMins *int          `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
 	// TeamWatchCheckMins: minutes after a handoff before the watch looks at the workspace
 	// (core/team_watch.go). Process-wide. Unset or <= 0 = 10.
 	TeamWatchCheckMins *int `toml:"team_watch_check_mins,omitempty"`
@@ -246,6 +250,11 @@ type PluginsConfig struct {
 }
 
 // GateConfig: the local gate bothouse runs (core/gate_proc.go).
+type CleanupConfig struct {
+	Enabled *bool    `toml:"enabled,omitempty"`
+	Dirs    []string `toml:"dirs,omitempty"`
+}
+
 type GateConfig struct {
 	Port int `toml:"port,omitempty"` // 127.0.0.1 port of this data dir's gate; default 9930 (contrib/gate/gate.py); the wizard picks another when 9930 belongs to another install
 }
