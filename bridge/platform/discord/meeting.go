@@ -321,7 +321,7 @@ func (p *Platform) startMeeting(s *discordgo.Session, m *discordgo.MessageCreate
 	name := mt.voiceName
 	mt.mu.Unlock()
 	slog.Info("discord: meeting started", "guild", m.GuildID, "voice", voiceID, "text", m.ChannelID)
-	p.meetingSay(m.ChannelID, "已进入语音频道「"+name+"」，开始记录会议。大家都离开语音频道，或者 @ 我说「会议纪要」，我就退出并发出详细记录和标准纪要。摄像头和屏幕共享我看不到，要我看的画面请截图发到这个频道，会一起记进纪要。")
+	p.meetingSay(m.ChannelID, "已进入语音频道「"+name+"」，开始记录会议。大家都离开语音频道，或者 @ 我说「会议纪要」，我就退出并发出详细记录和标准纪要。开了摄像头的人，我每 10 秒看一眼画面，有变化就记进纪要；屏幕共享我看不到，要我看的共享画面请截图发到这个频道，会一起记进纪要。")
 	if empty { // everyone left while the bot was connecting
 		go p.endMeeting(mt, "大家都离开了语音频道", "")
 	}
