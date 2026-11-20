@@ -1,6 +1,8 @@
 package discord
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"testing"
@@ -87,7 +89,12 @@ func TestMeetingTranscript(t *testing.T) {
 		{At: start.Add(30 * time.Second), UserID: "b", Joined: true},
 		{At: start.Add(64 * time.Minute), UserID: "a", Joined: false},
 	}
-	got := meetingTranscript(info, segs, presence, map[string]string{"a": "阿明", "b": "小红"})
+	shots := []meetingShot{
+		{At: start.Add(2 * time.Second), UserID: "b", FileName: "议程.png", N: 1},
+		{At: start.Add(61*time.Minute + 30*time.Second), UserID: "a", Text: "看这个数", FileName: "销量.jpg", N: 2},
+		{At: start.Add(63 * time.Minute), UserID: "b", FileName: "坏图.png"},
+	}
+	got := meetingTranscript(info, segs, shots, presence, map[string]string{"a": "阿明", "b": "小红"})
 	for _, want := range []string{
 		"会议：语音频道「会议室」\n",
 		"开始：2026-11-20 18:00:00\n",
@@ -98,6 +105,10 @@ func TestMeetingTranscript(t *testing.T) {
 		"[00:05–00:09] 阿明：小红，发布说明谁来写？\n",
 		"[1:01:00–1:01:04] 小红：我来，周五前给。\n",
 		"[1:02:00–1:02:01] c：好。\n", // no name known: the ID
+		// pictures stand where they were posted
+		"发言：\n[00:02] 小红 发图（图1，议程.png）\n[00:05–00:09] 阿明：",
+		"周五前给。\n[1:01:30] 阿明 发图（图2，销量.jpg）：看这个数\n[1:02:00–1:02:01] c：",
+		"好。\n[1:03:00] 小红 发图（坏图.png，图片没取到）\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("transcript lacks %q:\n%s", want, got)
@@ -106,7 +117,16 @@ func TestMeetingTranscript(t *testing.T) {
 }
 
 func TestMeetingPrompt(t *testing.T) {
-	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n")
+	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n", 0)
+	if strings.Contains(got, "发图") {
+		t.Errorf("a meeting without pictures must not talk about pictures:\n%s", got)
+	}
+	withPics := meetingPrompt("[00:02] 小红 发图（图1，议程.png）\n", 2)
+	for _, want := range []string{"最后 2 张", "图1 到图2", "某人 发图：画面内容", "出自谁发的图"} {
+		if !strings.Contains(withPics, want) {
+			t.Errorf("prompt with pictures lacks %q", want)
+		}
+	}
 	for _, want := range []string{
 		"<转写稿>\n[00:05–00:09] 阿明：小红，发布说明谁来写？\n</转写稿>",
 		"详细记录", "对谁说", "推断",
@@ -208,5 +228,104 @@ func TestEndMeetingKillsStuckListener(t *testing.T) {
 	}
 	if got == nil || !strings.Contains(got.Content, "阿明：周五前写完") {
 		t.Fatalf("minutes prompt = %+v", got)
+	}
+}
+
+func testImageMessage(guildID, channelID string, atts ...*discordgo.MessageAttachment) *discordgo.MessageCreate {
+	return &discordgo.MessageCreate{Message: &discordgo.Message{ID: "m2", GuildID: guildID, ChannelID: channelID,
+		Content: " 这是议程 ", Author: &discordgo.User{ID: "u2", Username: "xiaohong", GlobalName: "小红"}, Attachments: atts}}
+}
+
+// Pictures posted in the meeting's text channel while it is recorded are remembered; anything
+// else is not.
+func TestNoteMeetingImages(t *testing.T) {
+	png := &discordgo.MessageAttachment{Filename: "议程.png", ContentType: "image/png", URL: "u1"}
+	noType := &discordgo.MessageAttachment{Filename: "shot", Width: 800, Height: 600, URL: "u2"}
+	pdf := &discordgo.MessageAttachment{Filename: "a.pdf", ContentType: "application/pdf", URL: "u3"}
+	mt := &meeting{guildID: "g1", textID: "c1", present: map[string]bool{}, names: map[string]string{}}
+	p := &Platform{meetingOn: true, meetings: map[string]*meeting{"g1": mt}}
+
+	p.noteMeetingImages(testImageMessage("g1", "c1", png)) // the bot is still connecting
+	if len(mt.posts) != 0 {
+		t.Fatalf("before the recording started: posts = %+v", mt.posts)
+	}
+	mt.startedAt = time.Now()
+	p.noteMeetingImages(testImageMessage("g1", "c2", png)) // another channel
+	p.noteMeetingImages(testImageMessage("g1", "c1", pdf)) // not a picture
+	p.noteMeetingImages(testImageMessage("g1", "c1"))      // plain text
+	if len(mt.posts) != 0 {
+		t.Fatalf("posts = %+v, want none", mt.posts)
+	}
+	p.noteMeetingImages(testImageMessage("g1", "c1", png, pdf, noType))
+	if len(mt.posts) != 1 || len(mt.posts[0].Images) != 2 || mt.posts[0].UserID != "u2" || mt.posts[0].Text != "这是议程" {
+		t.Fatalf("posts = %+v", mt.posts)
+	}
+	if mt.names["u2"] != "小红" {
+		t.Errorf("sender name = %q", mt.names["u2"])
+	}
+	mt.ending = true
+	p.noteMeetingImages(testImageMessage("g1", "c1", png))
+	if len(mt.posts) != 1 {
+		t.Fatal("a picture posted after the meeting ended was taken")
+	}
+	off := &Platform{meetings: map[string]*meeting{"g1": {guildID: "g1", textID: "c1", startedAt: time.Now(), names: map[string]string{}}}}
+	off.noteMeetingImages(testImageMessage("g1", "c1", png))
+	if len(off.meetings["g1"].posts) != 0 {
+		t.Fatal("meeting_assistant is off")
+	}
+}
+
+// The pictures of the meeting reach the agent with the minutes prompt, numbered in the transcript
+// in the order they are attached; one that cannot be fetched has no number.
+func TestEndMeetingHandsOverPictures(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("needs sh")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/gone.png" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("bytes of " + r.URL.Path))
+	}))
+	defer srv.Close()
+
+	var got *core.Message
+	p := &Platform{meetingOn: true, handler: func(_ core.Platform, m *core.Message) { got = m }}
+	p.channelNameCache.Store("c1", "常规")
+	start := time.Now().Add(-time.Minute)
+	mt := &meeting{guildID: "g1", textID: "c1", starterID: "u1", starterName: "u1", startMsgID: "m1",
+		voiceName: "常规", startedAt: start, readyCh: make(chan struct{}), failCh: make(chan string, 1),
+		present: map[string]bool{}, names: map[string]string{"a": "阿明", "b": "小红"}}
+	mt.segments = []meetingSegment{{UserID: "a", Start: start.Add(20 * time.Second), End: start.Add(23 * time.Second), Text: "看小红发的图"}}
+	att := func(name string) *discordgo.MessageAttachment {
+		return &discordgo.MessageAttachment{Filename: name, ContentType: "image/png", URL: srv.URL + "/" + name}
+	}
+	mt.posts = []meetingPost{
+		{At: start.Add(10 * time.Second), UserID: "b", Text: "议程", Images: []*discordgo.MessageAttachment{att("gone.png"), att("a.png")}},
+		{At: start.Add(30 * time.Second), UserID: "a", Images: []*discordgo.MessageAttachment{att("b.png")}},
+	}
+	p.meetings = map[string]*meeting{"g1": mt}
+	l, err := p.runVoiceListener(mt, exec.Command("sh", "-c", "read line"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.kill()
+	mt.listener = l
+	p.endMeeting(mt, "大家都离开了语音频道", "")
+
+	if got == nil {
+		t.Fatal("no minutes prompt")
+	}
+	if len(got.Images) != 2 || string(got.Images[0].Data) != "bytes of /a.png" || string(got.Images[1].Data) != "bytes of /b.png" {
+		t.Fatalf("images = %+v", got.Images)
+	}
+	for _, want := range []string{
+		"[00:10] 小红 发图（gone.png，图片没取到）：议程\n[00:10] 小红 发图（图1，a.png）：议程\n[00:20–00:23] 阿明：看小红发的图\n[00:30] 阿明 发图（图2，b.png）\n",
+		"最后 2 张",
+	} {
+		if !strings.Contains(got.Content, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, got.Content)
+		}
 	}
 }

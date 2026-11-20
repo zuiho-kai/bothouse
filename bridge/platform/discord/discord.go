@@ -841,6 +841,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	p.noteMeetingImages(m) // meeting.go: pictures posted during a meeting go into its minutes
 	if p.dmDenied(m.GuildID, m.Author.ID) {
 		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
 		return
