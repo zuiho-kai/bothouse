@@ -14,8 +14,11 @@ import (
 // the language of what it writes. Shared by the running bridge and `bothouse cleanup`.
 func janitorOptions(cfg *config.Config, projs []config.ProjectConfig) core.JanitorOptions {
 	o := core.JanitorOptions{DataDir: cfg.DataDir, Dirs: cfg.Cleanup.Dirs}
-	if strings.HasPrefix(cfg.Language, "zh") || cfg.Language == "chinese" {
+	switch {
+	case strings.HasPrefix(cfg.Language, "zh") || cfg.Language == "chinese":
 		o.Lang = "zh"
+	case cfg.Language == "": // auto: a Chinese Mac gets Chinese, like the setup wizard
+		o.Lang = core.SystemLanguage()
 	}
 	seen := map[string]bool{}
 	for _, p := range projs {

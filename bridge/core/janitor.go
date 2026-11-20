@@ -503,23 +503,32 @@ func (j *Janitor) Tick() {
 // LowSpaceText is what the owner reads: plain numbers, what was done, what to do next; no paths.
 func (j *Janitor) LowSpaceText(before, after, total uint64, res JanitorResult) string {
 	pct := func(n uint64) uint64 { return n * 100 / total }
-	did := j.say("没找到能放心删的旧东西", "found nothing old that is safe to delete")
-	if len(res.Removed) > 0 {
-		did = j.say(fmt.Sprintf("把一周没动的旧工作目录和测试临时文件清掉了 %d 个，腾出 %s", len(res.Removed), janitorSize(res.Freed)),
-			fmt.Sprintf("removed %d work and test folders nobody touched for a week, freeing %s", len(res.Removed), janitorSize(res.Freed)))
-	}
+	gb := func(n uint64) string { return janitorGB(int64(n)) }
 	if after >= total/100*janitorLowFreePct {
 		return j.say(
-			fmt.Sprintf("硬盘刚才只剩 %s（%d%%）。我%s，现在剩 %s，不用管。",
-				janitorSize(int64(before)), pct(before), did, janitorSize(int64(after))),
-			fmt.Sprintf("The disk was down to %s free (%d%%). I %s; %s free now, nothing to do.",
-				janitorSize(int64(before)), pct(before), did, janitorSize(int64(after))))
+			fmt.Sprintf("硬盘刚才只剩 %s（%d%%）。我把一周没动的旧工作目录和测试临时文件清掉了 %d 个，腾出 %s，现在剩 %s，不用管。",
+				gb(before), pct(before), len(res.Removed), janitorGB(res.Freed), gb(after)),
+			fmt.Sprintf("The disk was down to %s free (%d%%). I removed %d work and test folders nobody touched for a week, freeing %s; %s free now, nothing to do.",
+				gb(before), pct(before), len(res.Removed), janitorGB(res.Freed), gb(after)))
+	}
+	did := j.say("一周没动、能放心删的旧东西，我没找到。", "I found nothing untouched for a week that is safe to delete.")
+	if len(res.Removed) > 0 {
+		did = j.say(fmt.Sprintf("我已经把一周没动的旧工作目录和测试临时文件清掉了 %d 个，腾出 %s，还不够。", len(res.Removed), janitorGB(res.Freed)),
+			fmt.Sprintf("I removed %d work and test folders nobody touched for a week, freeing %s; that is not enough.", len(res.Removed), janitorGB(res.Freed)))
 	}
 	return j.say(
-		fmt.Sprintf("硬盘快满了：只剩 %s（%d%%），满了以后我和队友的命令都会跑不起来。我%s，还不够。回我一句「看看哪里占地方」，我把最大的几个目录列给你挑着删。",
-			janitorSize(int64(after)), pct(after), did),
-		fmt.Sprintf("The disk is nearly full: %s free (%d%%). Once it is full, commands stop working. I %s, which is not enough. Reply \"show me what takes the space\" and I will list the biggest folders for you to pick from.",
-			janitorSize(int64(after)), pct(after), did))
+		fmt.Sprintf("硬盘快满了：只剩 %s（%d%%），满了我就干不了活了。%s回我一句「看看哪里占地方」，我把最大的几个目录列给你挑着删。",
+			gb(after), pct(after), did),
+		fmt.Sprintf("The disk is nearly full: %s free (%d%%). Once it is full I cannot work. %s Reply \"show me what takes the space\" and I will list the biggest folders for you to pick from.",
+			gb(after), pct(after), did))
+}
+
+// janitorGB: whole GB for what the owner reads ("32 GB", not "32.0 GB"); MB under 1 GB.
+func janitorGB(n int64) string {
+	if n < 1<<30 {
+		return janitorSize(n)
+	}
+	return fmt.Sprintf("%d GB", n>>30)
 }
 
 // Start runs Tick now and then once an hour (沿用团队整点节奏 skills/hourly-rhythm.md) until stop closes.

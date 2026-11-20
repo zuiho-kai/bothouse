@@ -220,7 +220,7 @@ func TestJanitorLowSpaceNoticeOncePerEpisode(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("want one notice, got %d: %q", len(sent), sent)
 	}
-	if !strings.Contains(sent[0], "硬盘快满了：只剩 24.0 GB（2%）") || !strings.Contains(sent[0], "看看哪里占地方") ||
+	if !strings.Contains(sent[0], "硬盘快满了：只剩 24 GB（2%），满了我就干不了活了。一周没动、能放心删的旧东西，我没找到。") || !strings.Contains(sent[0], "看看哪里占地方") ||
 		strings.Contains(sent[0], "/") {
 		t.Errorf("notice text: %q", sent[0])
 	}
@@ -245,7 +245,7 @@ func TestJanitorLowSpaceTextWhenCleanupWasEnough(t *testing.T) {
 	j := NewJanitor(JanitorOptions{Lang: "zh"})
 	res := JanitorResult{Removed: make([]JanitorEntry, 12), Freed: 100 << 30}
 	got := j.LowSpaceText(24<<30, 200<<30, 926<<30, res)
-	want := "硬盘刚才只剩 24.0 GB（2%）。我把一周没动的旧工作目录和测试临时文件清掉了 12 个，腾出 100.0 GB，现在剩 200.0 GB，不用管。"
+	want := "硬盘刚才只剩 24 GB（2%）。我把一周没动的旧工作目录和测试临时文件清掉了 12 个，腾出 100 GB，现在剩 200 GB，不用管。"
 	if got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
