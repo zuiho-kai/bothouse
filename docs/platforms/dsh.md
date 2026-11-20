@@ -107,6 +107,14 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
 
+## 将现有项目接入本机 DSH
+
+1. 在运行 bothouse 的同一台机器上打开 DSH，并启用频道插件。
+2. 在 bothouse 面板的「项目」页面选择现有项目，点击「添加平台 → DSH（本机）」。
+3. 有 `#general` 时可沿用默认选择，也可以选另一个群聊频道。点击「连接」，按提示重启 bothouse。
+
+原机器人加入所选 DSH 频道，并保留 Discord 连接。bothouse 自动读取本机网关地址和默认凭据，DSH 桌面版更换端口后会重新连接。要换频道，重新执行这套流程即可。项目已有手动配置的 Cloud Web 连接时，面板会提示冲突。使用自定义网关 token 时，请用 Cloud Web 手动配置。
+
 ## 管理 DSH 角色
 
 在面板「角色管理」中可新增、编辑或删除由 DSH roster 管理的成员；配置文件和外部成员为只读。已安装环境从添加角色进入 DSH 时直接使用日常新增，不需要重新部署。原生成员可选择 DSH 服务商和模型；Codex 成员可选择其实际支持的模型与思考强度，设置在下一轮前应用，页面会显示保存后的应用状态。

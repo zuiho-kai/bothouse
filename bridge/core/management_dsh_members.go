@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// handleDSHMembersAPI forwards only the dedicated owner-only member endpoints.
-func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Request) {
+// handleDSHAPI serves the panel's owner-only member and project setup routes.
+func (m *ManagementServer) handleDSHAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 		mgmtError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -23,6 +23,12 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/dsh/")
 	var target string
 	switch {
+	case path == "channels" && r.Method == http.MethodGet:
+		m.handleDSHProjectSetup(w, r, "")
+		return
+	case strings.HasPrefix(path, "projects/") && r.Method == http.MethodPost:
+		m.handleDSHProjectSetup(w, r, strings.TrimPrefix(path, "projects/"))
+		return
 	case path == "members" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		target = "/collab/api/panel/members"
 	case strings.HasPrefix(path, "members/") && (r.Method == http.MethodPatch || r.Method == http.MethodDelete):
@@ -50,12 +56,11 @@ func (m *ManagementServer) handleDSHMembersAPI(w http.ResponseWriter, r *http.Re
 		mgmtError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://"+c.target+target, bytes.NewReader(body))
+	req, err := c.newRequest(r.Context(), r.Method, target, bytes.NewReader(body))
 	if err != nil {
 		mgmtError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	req.Host = c.target
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.rt.RoundTrip(req)
 	if errors.Is(err, errDSHWebNotRunning) {

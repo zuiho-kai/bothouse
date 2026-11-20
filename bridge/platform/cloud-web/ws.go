@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,10 +23,12 @@ const (
 )
 
 type wsTransport struct {
-	wsURL   string
-	token   string
-	name    string
-	project string
+	wsURL        string
+	token        string
+	name         string
+	project      string
+	localDSHRoom int
+	localDSHName string
 
 	mu             sync.RWMutex
 	caps           map[string]bool
@@ -123,22 +126,36 @@ func (t *wsTransport) connectLoop(ctx context.Context) {
 }
 
 func (t *wsTransport) connectOnce(ctx context.Context) error {
-	u, err := url.Parse(t.wsURL)
+	wsURL, token := t.wsURL, t.token
+	if t.localDSHRoom > 0 {
+		origin, localToken, err := findLocalDSHGateway()
+		if err != nil {
+			return err
+		}
+		token = localToken
+		query := url.Values{
+			"bot":  {t.project},
+			"name": {t.localDSHName},
+			"room": {strconv.Itoa(t.localDSHRoom)},
+		}
+		wsURL = resolveWSURL(origin, "") + "?" + query.Encode()
+	}
+	u, err := url.Parse(wsURL)
 	if err != nil {
 		return fmt.Errorf("parse ws url: %w", err)
 	}
-	if t.token != "" {
+	if token != "" && t.localDSHRoom == 0 {
 		q := u.Query()
 		if q.Get("token") == "" {
-			q.Set("token", t.token)
+			q.Set("token", token)
 			u.RawQuery = q.Encode()
 		}
 	}
 
 	header := http.Header{}
-	if t.token != "" {
-		header.Set("Authorization", "Bearer "+t.token)
-		header.Set("X-Cloud-Web-Token", t.token)
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
+		header.Set("X-Cloud-Web-Token", token)
 	}
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
@@ -183,7 +200,7 @@ func (t *wsTransport) connectOnce(ctx context.Context) error {
 	t.conn = conn
 	t.mu.Unlock()
 
-	slog.Info("cloud_web: websocket connected", "url", t.wsURL)
+	slog.Info("cloud_web: websocket connected", "url", wsURL)
 
 	connected := true
 	defer func() {

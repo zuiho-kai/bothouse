@@ -11,6 +11,7 @@ import PersonaPanel from './PersonaPanel';
 import SocialPanel from './SocialPanel';
 import QQSettingsPanel from './QQSettingsPanel';
 import QQBotSettingsPanel from './QQBotSettingsPanel';
+import { DSHLocalPlatformForm } from '@/components/dsh/DSHLocalPlatformForm';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
@@ -26,6 +27,7 @@ const PLATFORM_OPTIONS: { key: string; label: string; color: string; abbr: strin
   { key: 'weixin', label: 'WeChat', abbr: 'WX', color: 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400', qr: true },
   { key: 'telegram', label: 'Telegram', abbr: 'TG', color: 'bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400' },
   { key: 'discord', label: 'Discord', abbr: 'DC', color: 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300' },
+  { key: 'dsh', label: 'DSH (local)', abbr: 'DSH', color: 'bg-stone-100 dark:bg-stone-800/50 text-stone-600 dark:text-stone-300' },
   { key: 'slack', label: 'Slack', abbr: 'SK', color: 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400' },
   { key: 'dingtalk', label: 'DingTalk', abbr: 'DT', color: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
   { key: 'wecom', label: 'WeChat Work', abbr: 'WC', color: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' },
@@ -797,15 +799,26 @@ export default function ProjectDetail() {
                     {abbr}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{label}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{key === 'dsh' ? t('dshProject.platform', label) : label}</div>
                     <div className="text-[11px] text-gray-400">
-                      {qr ? t('setup.scanToConnect', 'Scan QR code') : t('setup.manualSetup', 'Manual setup')}
+                      {key === 'dsh' ? t('dshProject.automatic') : qr ? t('setup.scanToConnect', 'Scan QR code') : t('setup.manualSetup', 'Manual setup')}
                     </div>
                   </div>
                 </button>
               ))}
             </div>
           </div>
+        ) : addPlatType === 'dsh' && name ? (
+          <DSHLocalPlatformForm
+            key={name}
+            projectName={name}
+            onComplete={restartRequired => {
+              setShowAddPlatform(false);
+              if (restartRequired) setShowRestartModal(true);
+              else void fetchAll();
+            }}
+            onCancel={() => setAddPlatType('')}
+          />
         ) : isQRPlatform(addPlatType) ? (
           <PlatformSetupQR
             platformType={addPlatType as 'feishu' | 'weixin'}

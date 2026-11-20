@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Input, Modal, Textarea } from '@/components/ui';
+import { Input, Modal, Textarea } from '@/components/ui';
 import { createDSHMember, updateDSHMember, getDSHCliOptions, getDSHModelRoutes, type DSHCli, type DSHCliOptions, type DSHManagedMember, type DSHMemberInput, type DSHModelRoute } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
+import { DSHSetupForm } from './DSHSetupForm';
 
 const field = 'w-full rounded-control border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent-text disabled:opacity-60';
 
@@ -20,8 +21,6 @@ export function DSHMemberEditor({ member, onClose, onSaved }: { member: DSHManag
   const [routeError, setRouteError] = useState('');
   const [optionError, setOptionError] = useState('');
   const [probing, setProbing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [configChanged, setConfigChanged] = useState(false);
   const probeId = useRef(0);
 
@@ -43,20 +42,15 @@ export function DSHMemberEditor({ member, onClose, onSaved }: { member: DSHManag
 
   const route = routes?.find(r => r.provider === provider);
   const validConfig = !configChanged || cli !== 'codex' || (!probing && !optionError && !!options?.supported && (!cliModel || !!options.model?.options.some(o => o.value === cliModel)) && (!effort || !!options.reasoningEffort?.options.some(o => o.value === effort)));
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!name.trim() || !validConfig) return;
+  const save = async () => {
     const body: DSHMemberInput = { name: name.trim(), persona, cli: cli || null };
     if (!cli) body.model = provider && model ? { provider, model } : null;
     if (cli === 'codex' && (!member || member.cli !== cli || configChanged)) body.cliConfig = cliModel || effort ? { model: cliModel || null, reasoningEffort: effort || null } : null;
-    setSaving(true); setError('');
-    try {
-      if (member) await updateDSHMember(member.id, body); else await createDSHMember(body);
-      onSaved();
-    } catch (e) { setError(errorMessage(e)); } finally { setSaving(false); }
+    if (member) await updateDSHMember(member.id, body); else await createDSHMember(body);
+    onSaved();
   };
   return <Modal open onClose={onClose} title={member ? t('dshManage.edit') : t('dshManage.add')} className="max-h-[90vh] overflow-y-auto">
-    <form className="space-y-4" onSubmit={save}>
+    <DSHSetupForm onCancel={onClose} submit={{ run: save, disabled: !name.trim() || !validConfig || (!!provider && !model) }}>
       <label className="block text-sm text-ink-soft">{t('dshManage.name')}<Input aria-label={t('dshManage.name')} required value={name} onChange={e => setName(e.target.value)} /></label>
       <label className="block space-y-1 text-sm text-ink-soft">{t('dshManage.type')}
         <select className={field} value={cli} onChange={e => { setCli(e.target.value as DSHCli | ''); setConfigChanged(false); setCliModel(''); setEffort(''); setProvider(''); setModel(''); }}>
@@ -91,8 +85,6 @@ export function DSHMemberEditor({ member, onClose, onSaved }: { member: DSHManag
         </select></label>
       </div>}
       {cli && cli !== 'codex' && <p className="text-xs text-ink-mute">{t('dshManage.cliHint')}</p>}
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button type="submit" disabled={saving || !name.trim() || !validConfig || (!!provider && !model)}>{saving ? t('common.loading') : t('common.save')}</Button></div>
-    </form>
+    </DSHSetupForm>
   </Modal>;
 }
