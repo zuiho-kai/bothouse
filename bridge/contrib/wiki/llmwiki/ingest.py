@@ -40,6 +40,7 @@ import lint  # MAX_TOPICS and README topic counting: split_pass must count topic
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
 import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
 import restate  # nightly: one page's old and new statements of the same thing → one current line, old lines → 「## 历史」
+import propose  # day ingest: two tool-less calls (facts, operations); this script searches, writes and checks
 
 
 
@@ -289,7 +290,7 @@ MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "ge
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
-EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
+EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "high")  # codex only; 用户 2026-11-17：luna 用 high/medium，不用 max
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
@@ -2589,9 +2590,103 @@ def remember(db, pages, res):
     db.commit()
 
 
+PROPOSE_DIR = REPO / ".ingest-propose"  # empty cwd and JSON schemas for the tool-less proposal calls
+
+
+def role_record():
+    """What a role wiki records: its own SOP_INGEST rules, minus the steps about reading files and running tools
+    (R1 schema reading, R3 grep, R9 file scope — the program does those now), plus A7 (the user's words)."""
+    rules = SOP_INGEST.split("## 规则（违反任一条即不合格）\n", 1)[1].split("\n## SOP", 1)[0]
+    groups = re.split(r"\n(?=R\d+b? )", rules.strip())
+    keep = [g for g in groups if not re.match(r"R(1|3|9) ", g)]
+    a7 = re.search(r"^A7 .*?(?=\n\S|\Z)", SOP_INGEST, re.S | re.M)
+    return "\n".join(keep + ([a7[0]] if a7 else []))
+
+
+def codex_json(prompt, schema, label, model, effort):
+    """One tool-less Codex call whose final message must match `schema` (propose.py's calls); read-only, empty cwd.
+    Returns (ok, text, cost, thread_id) like codex(), for codex_retry.run."""
+    PROPOSE_DIR.mkdir(exist_ok=True)
+    name = PROPOSE_DIR / (label.rsplit(" ", 1)[-1] + ".schema.json")
+    name.write_text(json.dumps(schema, ensure_ascii=False))
+    # source: 2026-11-20 measurement — a one-line prompt costs 19560 input tokens as configured, 16956 with these off
+    off = [flag for feature in ("plugins", "apps", "browser_use", "computer_use", "image_generation")
+           for flag in ("--disable", feature)]
+    with tempfile.NamedTemporaryFile("r", suffix=".txt", prefix="wiki-codex-") as out:
+        cmd = ["codex", "exec", "-m", model, "-c", f"model_reasoning_effort={effort}", "-c", "notify=[]",
+               *(["-c", f'service_tier="{TIER}"'] if TIER else []), *off, "-s", "read-only", "--skip-git-repo-check",
+               "--json", "-C", str(PROPOSE_DIR), "--output-schema", str(name), "-o", out.name, "-"]
+        r = engine_run(cmd, input=prompt, cwd=PROPOSE_DIR, capture_output=True, text=True, timeout=3600,
+                       env={**os.environ, "WIKI_INGEST": "1"})
+        result = out.read().strip()
+    u, turns, errors, tid, terminal, active, progress = codex_retry.events(r.stdout)
+    with open(USAGE, "a") as f:
+        f.write("\t".join(map(str, [time.strftime("%F %T"), label, f"{model}/{effort}{'/' + TIER if TIER else ''}", turns,
+                u.get("input_tokens", 0) - u.get("cached_input_tokens", 0), u.get("cached_input_tokens", 0), 0,
+                u.get("output_tokens", 0), u.get("reasoning_output_tokens", 0), 0])) + "\n")
+    log(f"{label} tokens: {u}")
+    if r.returncode == 0 and result and terminal != "turn.failed":
+        return True, result, 0, tid
+    return False, codex_retry.failure(errors, tid, terminal, active, progress, result, r.stderr, u), 0, tid
+
+
+def propose_pass(label, it, text, sids, sources, engine):
+    """Ingest one session through propose.py (design 2026-11-20, user 「试试a」): two tool-less calls, the script
+    searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
+    agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
+    Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
+    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED
+    LAST_REJECTED, CRASHED = False, ""
+    if budget.exhausted():
+        return False
+    effort = engine.partition(":")[2] or EFFORT
+    WIKI = WORK
+    sync_work()
+    failed = []
+
+    def call(prompt, schema, sub):
+        global LAST_ENGINE
+        # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
+        # is bounded by the run's deadline; each call only needs room for one such call.
+        ok, out, _, _, model = codex_retry.run(lambda m, _tid: codex_json(prompt, schema, sub, m, effort), CODEX_CHAIN,
+                                               budget.remaining, 97, lambda msg: log(f"{sub}: {msg}"))
+        if ok:
+            try:
+                LAST_ENGINE = f"codex:{model}"
+                return json.loads(out)
+            except ValueError:
+                out = f"not JSON: {out[:300]}"
+        failed.append(out)
+        return None
+
+    rules = propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
+                          todo_check=lint.UNANSWERED)
+    try:
+        summary = propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label)
+        errs = "" if summary is None else "\n".join(
+            e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
+    except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
+        CRASHED = f"{type(e).__name__}: {e}"[:300]
+        log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
+        summary, errs = None, ""
+    if summary is None or errs:
+        LAST_REJECTED = bool(errs)
+        discard()
+        why = errs or (str(failed[-1]) if failed else CRASHED or "model failed")
+        log(f"{label} REVERTED: {why[:500]}")
+        REJECT_REASONS.append(why)
+        return False
+    log(f"{label}: {summary}")
+    git("add", "-A")
+    if not git("status", "--porcelain"):
+        return True
+    git("commit", "-qm", label)
+    return "changed" if deliver(label) is True else False
+
+
 def ingest_batches(db, items, engines, pending=False):
     global quota_hit, CRASHED
-    batches = batches_of(items)
+    batches = [b for it in items for b in batches_of([it])]  # one session per pass (design 2026-11-20 §3.1)
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
         if budget.stopped():
@@ -2610,9 +2705,12 @@ def ingest_batches(db, items, engines, pending=False):
             if quota_hit and is_claude(engine):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
-            prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
-            res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
-                             check=lambda: page_checks(label, sources))
+            if family(engine) == "codex":
+                res = propose_pass(label, batch[0][0], text, sids, sources, engine)
+            else:
+                prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
+                res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
+                                 check=lambda: page_checks(label, sources))
             if res or CRASHED:  # a script error recurs on any engine: don't pay the next one for it
                 break
         crashed = CRASHED
