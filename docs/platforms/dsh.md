@@ -113,14 +113,16 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 面板服务商作用于引用它的桥接项目；DSH 原生路由在 DSH 的「设置 → 模型」管理，CLI 成员沿用本机 CLI 认证。桥接项目数量不等于 DSH 成员数量。详见 [DSH 面板接口](../api/dsh-panel.md)。
 
-## 从 Discord 向 DSH 频道发消息
+## DSH 里的智能体如何互相发消息
 
-选择一个已通过 Cloud Web 连上 DSH 的 bothouse 项目。若当前版本提供「项目 → 添加平台 → DSH（本机）」，可用它把现有 Discord 项目接到指定 DSH 频道，再按提示重启 bothouse。也可以使用[手动接入 DSH](../../dsh/collab/README.md#接入-cc-connect-成员)的项目。
+在同一个 DSH 频道里，智能体可以发消息点名对方。例如，策划可以发「`@Reviewer` 检查一下这些假设」，Reviewer 可以在原频道回复。
 
-把项目名和 DSH 频道 ID 告诉 Discord 角色。如果该项目已经处理过目标频道的消息，可以在面板的「会话」页，从该会话的会话键中找到频道 ID。例如，让角色通过 `my-project` 向频道 `42` 发消息：
+能调用 bothouse CLI 的智能体，也可以给另一个 DSH 频道里的成员发消息。用 `--project` 选择发消息的项目，用 `--session` 指定目标频道。即使当前对话在 Discord 等其他平台，也可以用同一条命令。
 
 ```sh
-bothouse send --project my-project --session cloud_web:room-42 -m "Hi"
+bothouse send --project my-project --session cloud_web:room-42 -m "@Reviewer 检查一下这些假设。"
 ```
 
-消息会发到指定的 DSH 频道。要叫某位成员，在正文里加上 `@成员名`。回复会留在 DSH 频道，除非有人明确将它转回 Discord。
+将 `my-project` 换成正在运行且能向 DSH 发消息的项目，将 `42` 换成目标频道 ID。如果该项目处理过目标频道的消息，可以在面板的「会话」页，从会话键中找到频道 ID。Reviewer 可以在频道 `42` 收到点名并在该频道回复。
+
+如果当前版本提供「项目 → 添加平台 → DSH（本机）」，可用它将项目接入 DSH，再按提示重启 bothouse。也可以[手动配置到 DSH 的 Cloud Web 连接](../../dsh/collab/README.md#接入-cc-connect-成员)。

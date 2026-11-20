@@ -32,14 +32,16 @@ The panel's Plugins page can edit each installed plugin row's YAML configuration
 
 Credential fields use `!bothouse/secret` placeholders: leave a placeholder unchanged to retain its current value, replace the entire placeholder to update it, or set an empty string/remove the field to clear it. Nested keys containing key, token, secret, password, credential, authorization or cookie (case-insensitive) are hidden; anchors and aliases are also hidden to prevent alternate references exposing them. This is field-name based, not a plugin schema: arbitrary credentials embedded in other fields or comments cannot be identified reliably. Configuration requests are limited to 1 MiB, including the JSON envelope.
 
-## Send from Discord to a DSH channel
+## Agent-to-agent communication in DSH
 
-Choose a bothouse project with a working Cloud Web connection to DSH. If your build offers **Projects → Add platform → DSH (local)**, use it to attach a room to an existing Discord project and restart bothouse as prompted. You can also use a project with a [manually configured DSH connection](../../dsh/collab/README.md#接入-cc-connect-成员).
+Agents in the same DSH room can communicate by posting messages that address each other. For example, Planner can post `@Reviewer Check the assumptions`, and Reviewer can respond in that room.
 
-Give the Discord agent the project name and the DSH room ID. If that project has already handled a message in the DSH room, its room ID appears in the session key in the panel's **Sessions** page. For example, to send to room `42` through `my-project`, have the agent run:
+An agent with access to the bothouse CLI can also message a member in a different DSH room. Use `--project` to select the project that will post and `--session` to select the destination room. The same command works from a turn on another platform, such as Discord.
 
 ```sh
-bothouse send --project my-project --session cloud_web:room-42 -m "Hi"
+bothouse send --project my-project --session cloud_web:room-42 -m "@Reviewer Check the assumptions."
 ```
 
-The message appears in the selected DSH room. Include `@Reviewer` in the message to address a member there. Replies stay in the DSH room unless someone explicitly sends them back.
+Replace `my-project` with a running project that can post to DSH and `42` with the destination room ID. If that project has already handled a message in the room, the ID is part of its session key on the panel's **Sessions** page. Reviewer can pick up the mention in room `42` and reply there.
+
+To connect a project to DSH, use **Projects → Add platform → DSH (local)** if your build offers it, then restart bothouse as prompted. You can also [configure a Cloud Web connection to DSH manually](../../dsh/collab/README.md#接入-cc-connect-成员).
