@@ -154,7 +154,7 @@ DEFAULTS = {
     # engine "openai": the day ingest's two tool-less proposal calls go to an OpenAI-compatible chat/completions route
     # instead of the Codex CLI, several sessions at once (user 2026-11-20 「https://ai.shrinken.pw 用这个」「可以多并发」).
     # api_key_file holds the key; the key never goes into config, logs or the usage table.
-    "api_base": "", "api_model": "", "api_key_file": "", "api_effort": "",
+    "api_base": "", "api_model": "", "api_key_file": "",
     "api_concurrency": 6,  # source: C酱 2026-11-20 19:2x 实测 6 路并发全部成功
 }
 
@@ -165,6 +165,12 @@ def load_config(repo):
     path = repo / "config.json"
     if path.exists():
         user = json.loads(path.read_text())
+        # Existing installations used a separate effort key; fold it into the existing engine setting.
+        old_effort = user.pop("api_effort", "")
+        if old_effort:
+            for key in ("ingest_engine", "fallback_engine"):
+                if user.get(key) == "openai":
+                    user[key] = "openai:" + old_effort
         unknown = set(user) - set(DEFAULTS)
         if unknown:
             sys.exit(f"{path}: unknown key(s) {', '.join(sorted(unknown))}")
@@ -2134,6 +2140,7 @@ def run(a, engines=None):
     items = []
     # A bounded pending run must not consume closure hints for deferred sessions.
     pending = getattr(a, "pending", False) and not a.nightly
+    proposal = family((engines or [ENGINE])[0]) in ("codex", "openai")
     closed = (set(QUEUE.read_text().split()) if pending and QUEUE.exists() else
               set() if pending else take_queue()) | ({a.session} if a.session else set())
     for p in ready(db, None if closed else a.session, closed):
@@ -2145,7 +2152,9 @@ def run(a, engines=None):
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
                 # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
-                n = (db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0] if pending else 0
+                # Proposal retries keep the same input so their saved first call remains reusable.
+                n = ((db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0]
+                     if pending and not proposal else 0)
                 it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
@@ -2168,7 +2177,7 @@ def run(a, engines=None):
         # Oversized single records resume from their accepted-piece checkpoint.
         batch = batches_of(items)[0]
         n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
-        if n and len(batch) > 1:  # failed before as a whole: retry 1/2^n of its sessions (#619)
+        if n and len(batch) > 1 and not proposal:  # old agentic retries halve; proposals reuse the saved batch
             batch = batch[:max(1, len(batch) >> n)]
         first = {it["id"] for it, _ in batch}
         items = [it for it in items if it["id"] in first]
@@ -2650,18 +2659,19 @@ ROUTE_DOWN = False  # the openai route refused a call for everyone (rate limit, 
 def api_json(prompt, schema, label):
     """One tool-less call on the openai route; (ok, text or error, route_down). Thread-safe (prefetch workers)."""
     global API
+    effort = ENGINE.partition(":")[2] or EFFORT
     if API is None:
         if not (CFG["api_base"] and CFG["api_model"] and CFG["api_key_file"]):
             return False, "openai engine needs api_base, api_model and api_key_file", True
         API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
-                          CFG["api_effort"], log)
+                          effort, log)
     left = budget.remaining()
     # Source: measured 2026-11-20 over 110 tool-less proposal calls: longest 97 s (same admission as the codex route).
     if left is not None and left < 97:
         return False, "not enough remaining time for a proposal call", True
     ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], left)
     cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
-    row = [time.strftime("%F %T"), label, f"openai:{CFG['api_model']}{'/' + CFG['api_effort'] if CFG['api_effort'] else ''}",
+    row = [time.strftime("%F %T"), label, f"openai:{CFG['api_model']}/{effort}",
            1 if u else 0, u.get("prompt_tokens", 0) - cached, cached, 0, u.get("completion_tokens", 0),
            (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0, 0]
     with USAGE_LOCK:
@@ -2671,8 +2681,10 @@ def api_json(prompt, schema, label):
     return ok, out, not ok and (status in (0, 401, 403, 429) or status >= 500)
 
 
-def role_rules(sources):
-    said = [t for p in sources for t in user_texts(p)]  # the words page_misquotes accepts as the user's
+def role_rules(sources, text=""):
+    said = [t for p in sources for t in user_texts(p, strict=True)]
+    if not said and re.search(r"^USER", text, re.M):
+        raise ValueError("the user's words of this session are unreadable now; retry on a later run")
     return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
                                todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
 
@@ -2711,7 +2723,8 @@ class Prefetch:
             failed.append((out, down))
             return None
         try:
-            got = propose.prepare(REPO, text, role_rules(sources)[1], call, label)
+            got = propose.prepare(REPO, text, role_rules(sources, text)[1], call, label,
+                                  cache=PROPOSE_DIR / "facts")
         except Exception as e:  # noqa: BLE001 — reported by the loop like propose_pass's own script errors
             return f"proposal: {type(e).__name__}: {e}"[:300], False
         if got is None:
@@ -2778,12 +2791,11 @@ def propose_pass(label, it, text, sids, sources, engine):
         failed.append(out)
         return None
 
-    said, rules = role_rules(sources)
-    if not said and re.search(r"^USER", text, re.M):
-        # user_texts() returns nothing when the user's words cannot be read (Discord history unavailable): every
-        # fact would look unquoted and be dropped, so the session would be marked read with its facts lost
-        log(f"{label} REVERTED: the user's words of this session are unreadable now; retried on a later run")
-        REJECT_REASONS.append("user words unreadable")
+    try:
+        said, rules = role_rules(sources, text)
+    except (HouseholdError, discord_said.Unavailable, ValueError) as exc:
+        log(f"{label} REVERTED: {exc}; retried on a later run")
+        REJECT_REASONS.append(str(exc))
         return False
     prepared = None
     if name == "openai" and PREFETCH is not None:
@@ -2795,7 +2807,16 @@ def propose_pass(label, it, text, sids, sources, engine):
         else:
             LAST_ENGINE = f"openai:{CFG['api_model']}"
     try:
-        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label, prepared)
+        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label, prepared,
+                                                     cache=PROPOSE_DIR / "facts",
+                                                     sessions=it.get("_sessions"))
+        if summary is not None:
+            def ask(prompt):
+                answer = call(prompt, invalidate.SCHEMA, label + " invalidate")
+                if answer is None:
+                    raise RuntimeError("contradiction check unavailable")
+                return json.dumps(answer)
+            invalidate.run(WORK, ask=ask, log=lambda msg: log(f"{label} {msg}"))
         errs = "" if summary is None else "\n".join(
             e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
     except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
@@ -2824,7 +2845,7 @@ def openai_route(engines):
 
 def ingest_batches(db, items, engines, pending=False):
     global PREFETCH
-    batches = [b for it in items for b in batches_of([it])]  # one session per pass (design 2026-11-20 §3.1)
+    batches = batches_of(items)  # reuse the existing input budget: small sessions share both tool-less calls
     if openai_route(engines):  # batches' calls run ahead; writes stay one at a time
         PREFETCH = Prefetch(("ingest " + ", ".join(dict.fromkeys(it["id"][:8] for it, _ in b)),
                              "".join(piece for _, piece in b), list(dict.fromkeys(it["path"] for it, _ in b)))
@@ -2858,12 +2879,14 @@ def _ingest_batches(db, batches, engines, pending):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
             if family(engine) in ("codex", "openai"):
-                res = propose_pass(label, batch[0][0], text, sids, sources, engine)
+                item = {**batch[0][0], "_sessions": list(dict.fromkeys(
+                    (it["id"][:8], it["date"]) for it, _ in batch))}
+                res = propose_pass(label, item, text, sids, sources, engine)
             else:
                 prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
                 res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
                                  check=lambda: page_checks(label, sources))
-            if res or CRASHED:  # a script error recurs on any engine: don't pay the next one for it
+            if res or CRASHED or ROUTE_DOWN:  # provider outage stops this run before any expensive fallback
                 break
         crashed = CRASHED
         if res:
@@ -3138,7 +3161,7 @@ def heard(msgs):
     return [t for m in msgs for t in dict.fromkeys((flat(m), *(flat(l) for l in m.splitlines() if l.strip()))) if t]
 
 
-def user_texts(p):
+def user_texts(p, strict=False):
     """The USER/USER→ lines of one session, normalized, one per message line; unreadable: none, so its quotes count
     as misquotes."""
     try:
@@ -3154,9 +3177,13 @@ def user_texts(p):
             return heard(m.text for m in discord_words(lo, max(ts) + 1))
         return heard(dialog(p, 0)["said"])
     except HouseholdError as e:
+        if strict:
+            raise
         household_unreadable(f"quote check {p.stem}", e)
         return []
     except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
+        if strict:
+            raise
         log(f"quote check {p.stem}: Discord history unavailable: {e}")
         return []
 

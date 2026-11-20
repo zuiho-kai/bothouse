@@ -1,16 +1,18 @@
-"""Ingest as proposals: the model reads the transcript twice without tools, the program searches and writes.
+"""Ingest as proposals: extract facts once, propose placement without tools; the program searches and writes.
 
 Design: agents-demo/notes/wiki-ingest-cut-usage-design-20261120.md (user 2026-11-20 「试试a」).
 Root cause it removes: an agentic pass re-read its whole context on every tool step (5-38 steps, 90% cache
-reads) and a failed acceptance threw the whole pass away and re-ran the same input. Here each session costs
-two tool-less calls (facts, then operations) plus at most one small correction call for the rejected
-operations only; the program owns search, placement checks, page writes, index lines and the log entry,
+reads) and a failed acceptance threw the whole pass away and re-ran the same input. Small sessions share
+two tool-less calls (facts, then operations); saved facts survive rejection. At most one correction call
+contains only rejected facts; callers also apply their existing outdated-fact policy before acceptance.
+The program owns search, placement checks, page writes, index lines and the log entry,
 so the mechanical rules hold by construction instead of being re-asked for.
 
 Shared by ~/wiki/bin/ingest.py and the role wikis' llmwiki/ingest.py: each passes a Rules built from its own
 lint module and recording rules, and a `call(prompt, schema, label) -> dict | None` callback; git, acceptance
 and delivery stay with the caller.
 """
+import hashlib
 import json
 import re
 import threading
@@ -114,7 +116,7 @@ OPS_PROMPT = """你是 wiki 整理员。下面是从一个会话里提取的事�
 为每条事实决定放哪里，只输出操作，不需要也不要读文件或运行命令；程序会照你的操作写入并校验。
 
 规则：
-- 一个事实只住一页：检索片段里已有同一事实且一致 → action=skip，at 写「页面:行号」。已有但值变了 → append 新的一条（带日期），旧条不动，程序会两边都保留。
+- 一个事实只住一页：检索片段里已有同一事实且一致 → action=skip，at 写「页面:行号」。已有但值变了 → append 新的一条（带日期），程序按写入时的过时规则处理旧条。
 - 优先放进 scope 合适的已有页面（action=append，page=目录/主题.md，section 用该页已有或允许的节名：{sections}）。
   「域」一节列出了相关域的每一页和剩余容量；没出现在检索片段里的页也可以直接 append，程序会核对容量。
 - 没有合适页面 → action=new_page：page=目录/新主题名.md（主题名小写英文加连字符），title 页面标题，description 一行要点，
@@ -220,7 +222,8 @@ def ops_prompt(root, facts, rules):
                        + (f"（引文 {len(f['quote']) + 8} 字符）" if rules.user_quote else "") for i, f in enumerate(facts))
     views = "\n\n".join(page_view(p, pages[p], h, rules) for p, h in sorted(hits.items())) or "（没有命中）"
     line_rule = ("程序会在每行末尾自动附上对应事实的用户原话引文（「用户原话「…」」），lines 里不用再写；"
-                 "这段引文也算进行长，所以每行要短于上限减去引文长度（清单里每条事实后写了引文长度）。" if rules.user_quote else "")
+                 "README 行也会附上这段引文；正文与 README 都要给引文留出行长（清单里每条事实后写了引文长度）。"
+                 if rules.user_quote else "")
     return OPS_PROMPT.format(sections="/".join(rules.sections), readme_line=rules.readme_line,
                              body_line=rules.body_line, page_lines=rules.page_lines, page_chars=rules.page_chars,
                              line_rule=line_rule, facts=listed, domains="\n\n".join(dom), pages=views)
@@ -282,7 +285,7 @@ class Plan:
         quotes = [self.facts[i]["quote"].strip() for i in op["facts"]]
         out = []
         for l in lines:
-            missing = [q for q in quotes if q and q not in l]
+            missing = [q for q in quotes if q and f"用户原话「{q}」" not in l]
             out.append(l + ("（用户原话「" + "」「".join(missing) + "」）" if missing else ""))
         return out
 
@@ -347,12 +350,13 @@ class Plan:
         domain, name = path.rsplit("/", 1)
         readme_path, readme = f"{domain}/README.md", None
         if op["readme"].strip():
-            problem = self.readme_line_error(op["readme"].strip(), name)
+            line = self.quoted(op, [op["readme"].strip()])[0]
+            problem = self.readme_line_error(line, name)
             rows = self.files[readme_path].splitlines()
             at = [i for i, l in enumerate(rows) if f"]({name})" in l]
             if problem or len(at) != 1:
                 return f"{path}: {problem or f'{readme_path} 里没有唯一一行链接 {name}'}"
-            rows[at[0]] = op["readme"].strip()
+            rows[at[0]] = line
             readme = "\n".join(rows) + "\n"
         self.files[path] = text
         if readme is not None:
@@ -376,7 +380,7 @@ class Plan:
         key = self.section_key(op["section"])
         if key is None:
             return f"{path}: 节「{op['section']}」不是 {'/'.join(self.rules.sections)} 之一"
-        line = op["readme"].strip()
+        line = self.quoted(op, [op["readme"].strip()])[0]
         problem = self.readme_line_error(line, name)
         if problem:
             return f"{path}: {problem}"
@@ -459,10 +463,20 @@ def log_entry(date, sid8, title, plan, unplaced, dropped, nothing_reason):
     return "\n".join(lines) + "\n"
 
 
-def prepare(root, transcript, rules, call, label):
+def prepare(root, transcript, rules, call, label, cache=None):
     """The two model calls of one session, reading `root` only: (got, facts, dropped, ops) or None when a call
     failed. Separate from the writes so several sessions' calls can run at once against a read-only view."""
-    got = call(facts_prompt(root, transcript, rules), FACTS_SCHEMA, label + " facts")
+    prompt = facts_prompt(root, transcript, rules)
+    key = hashlib.sha256((prompt + json.dumps(FACTS_SCHEMA, sort_keys=True)).encode()).hexdigest()
+    saved = Path(cache) / (key + ".json") if cache is not None else None
+    got = json.loads(saved.read_text()) if saved is not None and saved.exists() else None
+    if got is None:
+        got = call(prompt, FACTS_SCHEMA, label + " facts")
+        if got is not None and saved is not None:
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            pending = saved.with_suffix(f".{threading.get_ident()}.tmp")
+            pending.write_text(json.dumps(got, ensure_ascii=False))
+            pending.replace(saved)
     if got is None:
         return None
     facts, dropped = grounded(got["facts"], transcript, rules)
@@ -477,12 +491,12 @@ def prepare(root, transcript, rules, call, label):
     return got, facts, dropped, ops
 
 
-def ingest(root, transcript, sid8, date, rules, call, label, prepared=None):
+def ingest(root, transcript, sid8, date, rules, call, label, prepared=None, cache=None, sessions=None):
     """The whole proposal pipeline for one session. Writes pages, READMEs and the log entry under `root`.
     `prepared`: prepare()'s result computed earlier (possibly against an older view of the wiki); the program
     checks every operation against `root` as it is now and asks once more only for the rejected ones.
     Returns a short summary string, or None when a model call failed (nothing written)."""
-    prepared = prepared or prepare(root, transcript, rules, call, label)
+    prepared = prepared or prepare(root, transcript, rules, call, label, cache=cache)
     if prepared is None:
         return None
     got, facts, dropped, ops = prepared
@@ -491,14 +505,22 @@ def ingest(root, transcript, sid8, date, rules, call, label, prepared=None):
         valid = lambda o: o["facts"] and all(0 <= i < len(facts) for i in o["facts"])
         rejected = plan.apply([o for o in ops["ops"] if valid(o)])
         unplaced += [("；".join(facts[i]["fact"] for i in u["facts"]), u["reason"]) for u in ops["unplaced"] if valid(u)]
+        accounted = {i for o in ops["ops"] + ops["unplaced"] if valid(o) for i in o["facts"]}
+        unplaced += [(facts[i]["fact"], "模型没有给出有效去处") for i in range(len(facts)) if i not in accounted]
         if rejected:
-            errors = "\n".join(f"{json.dumps(o, ensure_ascii=False)}\n  → {e}" for o, e in rejected)
-            retry = call(FIX_PROMPT.format(errors=errors, rest=ops_prompt(root, facts, rules)),
+            wanted = sorted({i for o, _ in rejected for i in o["facts"]})
+            local = {old: new for new, old in enumerate(wanted)}
+            errors = "\n".join(f"{json.dumps({**o, 'facts': [local[i] for i in o['facts']]}, ensure_ascii=False)}\n  → {e}"
+                               for o, e in rejected)
+            retry = call(FIX_PROMPT.format(errors=errors, rest=ops_prompt(root, [facts[i] for i in wanted], rules)),
                          OPS_SCHEMA, label + " ops-fix")
             if retry is None:
                 return None
-            wanted = {i for o, _ in rejected for i in o["facts"]}
-            again = [o for o in retry["ops"] if valid(o) and set(o["facts"]) <= wanted]
+            retry = {key: [{**o, "facts": [wanted[i] for i in o["facts"]]} for o in retry[key]
+                           if o["facts"] and all(0 <= i < len(wanted) for i in o["facts"])]
+                     for key in ("ops", "unplaced")}
+            wanted = set(wanted)
+            again = retry["ops"]
             still = plan.apply(again)
             told = {i for u in retry["unplaced"] if valid(u) for i in u["facts"]} & wanted
             unplaced += [("；".join(facts[i]["fact"] for i in u["facts"] if i in wanted), u["reason"])
@@ -508,7 +530,8 @@ def ingest(root, transcript, sid8, date, rules, call, label, prepared=None):
                 why = next(e for o, e in still + rejected if i in o["facts"])
                 unplaced.append((facts[i]["fact"], "程序两次拒绝：" + why))
     plan.write()
-    entry = log_entry(date, sid8, got["title"], plan, unplaced, dropped, got["nothing_reason"])
+    entry = "\n".join(log_entry(day, sid, got["title"], plan, unplaced, dropped, got["nothing_reason"])
+                        for sid, day in (sessions or [(sid8, date)]))
     log_path = root / "log.md"
     old = log_path.read_text()
     log_path.write_text(old + ("\n" if old.endswith("\n") else "\n\n") + entry)
