@@ -130,6 +130,67 @@ class WsUpTest(unittest.TestCase):
         r = self.run_tool("ws-up", "问题：补一句？\n推荐：补", "--ask", key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def _ask_board(self, nid=7):
+        team = self.setup / "team"
+        team.mkdir(exist_ok=True)
+        (team / "board.jsonl").write_text(json.dumps(
+            {"id": nid, "what": "查定时超时", "short": "定时超时", "status": "在做", "ws": "test:900", "chat": "test:100"},
+            ensure_ascii=False) + "\n", encoding="utf-8")
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A", "board": [nid]}})
+        return team
+
+    def test_ask_reaches_user_only_in_plain_words(self):
+        """#1827 用户 11-20「怎么你们两个傻逼都不说人话，根本看不懂」「以后规避这种问题」：工作区带技术词的提问
+        先到主角色、不发到用户频道；主角色用技术词转发被拒，大白话才发得出，任务帖读的也换成大白话。"""
+        team = self._ask_board()
+        ask = ("问题：要不要让 grok 的定时任务跳过代理连接日志？\n背景：proxy log 堵塞导致 timeout，"
+               "见 ~/.bothouse/logs/bothouse.log\n选项与推荐：\n- A 静音内核日志\n- B 不动\n推荐：A\n自验：无")
+        r = self.run_tool("ws-up", ask, "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sent = self.timers()
+        self.assertFalse([c for c in sent if c[0] == "send" and "test:100" in c], "提问不该直接发到用户频道")
+        timer = next(c for c in sent if "--prompt" in c)
+        self.assertEqual(timer[timer.index("-s") + 1], "test:100")
+        self.assertIn("【工作区提问，先由你定】", timer[timer.index("--prompt") + 1])
+        self.calls.unlink()
+        for jargon in (ask, "定时任务卡在 paused 状态，我推荐重启", "日志在 ~/.bothouse/logs 里，推荐 A",
+                       "报错 proxy connection timeout，推荐静音", "我推荐" + "让它跳过那段日志。" * 40):
+            r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", jargon, key="test:100")
+            self.assertNotEqual(r.returncode, 0, jargon)
+            self.assertIn("没转给用户", r.stderr)
+        self.assertEqual(self.timers(), [], "技术词转发不该发出任何消息")
+        r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", key="test:100")
+        self.assertNotEqual(r.returncode, 0)  # 不写大白话也不行：原文不再原样发
+        plain = "Grok 每小时那条定时消息老是超时，原因是电脑上一个网络工具的记录写太多卡住了。可以把那份记录关掉，或者先不管。我推荐关掉，不影响别的。"
+        r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", plain, key="test:100")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        send = next(c for c in self.timers() if c[0] == "send")
+        self.assertEqual(send[send.index("-s") + 1], "test:100")
+        msg = send[send.index("--message") + 1]
+        self.assertIn(plain, msg)
+        self.assertNotIn("proxy", msg)
+        self.assertEqual((team / "asks" / "7.md").read_text(encoding="utf-8").strip(), plain)
+        self.assertIn("proxy log", (team / "asks" / "7.raw.md").read_text(encoding="utf-8"))
+
+    def test_internal_ask_goes_to_lead_never_user(self):
+        """#1827：任务状态转不过去（paused → failed）这类桥内部问题只给主角色处理，转用户被拒。"""
+        self._ask_board()
+        ask = ("问题：任务已暂停，补交原结果被桥拒绝，请处理交回状态。\n背景：补交上一轮结果\n"
+               "选项与推荐：\n推荐：由主角色恢复可交回状态\n自验：Error: workspace exit: team task #7: paused → failed: "
+               "team task: transition not allowed")
+        r = self.run_tool("ws-up", ask, "--ask", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("桥内部问题", r.stderr)
+        timer = next(c for c in self.timers() if "--prompt" in c)
+        prompt = timer[timer.index("--prompt") + 1]
+        self.assertIn("【工作区报了个桥内部问题，你来处理，不转给用户】", prompt)
+        self.assertNotIn("--ask-user <", prompt)
+        self.calls.unlink()
+        r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", "龙娘那件活交不上来，我推荐让她重交。", key="test:100")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("桥内部问题", r.stderr)
+        self.assertEqual(self.timers(), [])
+
     def test_ask_without_question_or_recommendation_goes_back(self):
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
         for text, miss in (("选哪个？", "缺「问题：」"), ("问题：选哪个？\n选项：A 或 B", "缺「推荐」")):
