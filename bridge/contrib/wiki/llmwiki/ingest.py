@@ -24,7 +24,8 @@ Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); t
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
 whose sessions, rules and channel it is (DEFAULTS are 橘's); their bin/ingest.py and bin/lint.py only exec this one.
 """
-import argparse, calendar, collections, fnmatch, hashlib, json, os, posixpath, re, shlex, sqlite3, subprocess, sys, tempfile, time, traceback
+import argparse, calendar, collections, fnmatch, hashlib, json, os, posixpath, re, shlex, sqlite3, subprocess, sys, tempfile, threading, time, traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
@@ -150,6 +151,11 @@ DEFAULTS = {
     # variables the run gets (that overlay's key; "" = none); dsh_home = the role's DSH_HOME (bots.json "dsh_home",
     # written by rolewiki.go; "" = leave DSH_HOME as inherited)
     "dsh_cmd": ["dsh"], "dsh_patch": "", "dsh_env_file": "", "dsh_home": "",
+    # engine "openai": the day ingest's two tool-less proposal calls go to an OpenAI-compatible chat/completions route
+    # instead of the Codex CLI, several sessions at once (user 2026-11-20 「https://ai.shrinken.pw 用这个」「可以多并发」).
+    # api_key_file holds the key; the key never goes into config, logs or the usage table.
+    "api_base": "", "api_model": "", "api_key_file": "", "api_effort": "",
+    "api_concurrency": 6,  # source: C酱 2026-11-20 19:2x 实测 6 路并发全部成功
 }
 
 
@@ -1747,7 +1753,12 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
     if miss:
         errs.append(lossless.report(miss))
     log_diff = git("diff", base, "--", "log.md").splitlines()
-    if any(l.startswith("-") and not l.startswith("---") for l in log_diff):
+    # append-only = the old text is still the file's beginning, word for word. Not "no - line in the diff": a log.md
+    # without a final newline shows its last line as removed and re-added whenever anything is appended (deep's
+    # 0c15021f failed 30 runs on this, 2026-11-20 18:40), although no byte of it changed.
+    before = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI, capture_output=True, text=True).stdout
+    after = (WIKI / "log.md").read_text() if (WIKI / "log.md").exists() else ""
+    if not after.startswith(before):
         errs.append("log.md is append-only: restore the lines you removed or changed")
     heads = [l for l in log_diff if re.match(rf"\+## \[\d{{4}}-\d\d-\d\d\] {kind} \| ", l)]
     missing = [s for s in sids if not any(s in h for h in heads)]
@@ -2151,8 +2162,9 @@ def run(a, engines=None):
         return  # nothing new: no model call
     if os.environ.get("WIKI_NEWEST_FIRST"):  # 用户 11-09 19:2x 选「先整理最近的」：补旧账时新会话先进 wiki
         items.sort(key=lambda it: it["path"].stat().st_mtime, reverse=True)
-    if pending:
-        # One existing batch per cron round; SQLite offsets leave the rest ready.
+    if pending and (engines or [ENGINE])[0].partition(":")[0] != "openai":
+        # One existing batch per cron round; SQLite offsets leave the rest ready. The openai route runs several
+        # batches at once instead and takes what the run's deadline allows (user 2026-11-20 「可以多并发」).
         # Oversized single records resume from their accepted-piece checkpoint.
         batch = batches_of(items)[0]
         n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
@@ -2193,7 +2205,7 @@ def batches_of(items):
 
 
 def is_claude(engine):
-    return engine.split(":")[0] not in ("codex", "gemini", "agy", "dsh")
+    return engine.split(":")[0] not in ("codex", "gemini", "agy", "dsh", "openai")
 
 
 def page_sha(page):
@@ -2630,22 +2642,129 @@ def codex_json(prompt, schema, label, model, effort):
     return False, codex_retry.failure(errors, tid, terminal, active, progress, result, r.stderr, u), 0, tid
 
 
+API = None  # propose.Api for engine "openai", built on first use
+USAGE_LOCK = threading.Lock()
+ROUTE_DOWN = False  # the openai route refused a call for everyone (rate limit, sign-in, transport, server error)
+
+
+def api_json(prompt, schema, label):
+    """One tool-less call on the openai route; (ok, text or error, route_down). Thread-safe (prefetch workers)."""
+    global API
+    if API is None:
+        if not (CFG["api_base"] and CFG["api_model"] and CFG["api_key_file"]):
+            return False, "openai engine needs api_base, api_model and api_key_file", True
+        API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
+                          CFG["api_effort"], log)
+    left = budget.remaining()
+    # Source: measured 2026-11-20 over 110 tool-less proposal calls: longest 97 s (same admission as the codex route).
+    if left is not None and left < 97:
+        return False, "not enough remaining time for a proposal call", True
+    ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], left)
+    cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
+    row = [time.strftime("%F %T"), label, f"openai:{CFG['api_model']}{'/' + CFG['api_effort'] if CFG['api_effort'] else ''}",
+           1 if u else 0, u.get("prompt_tokens", 0) - cached, cached, 0, u.get("completion_tokens", 0),
+           (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0, 0]
+    with USAGE_LOCK:
+        with open(USAGE, "a") as f:
+            f.write("\t".join(map(str, row)) + "\n")
+    log(f"{label} tokens: in={row[4]} cache_read={row[5]} out={row[7]} think={row[8]} http={status}")
+    return ok, out, not ok and (status in (0, 401, 403, 429) or status >= 500)
+
+
+def role_rules(sources):
+    said = [t for p in sources for t in user_texts(p)]  # the words page_misquotes accepts as the user's
+    return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
+                               todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
+
+
+class Prefetch:
+    """Runs the next batches' two proposal calls on the openai route ahead of the serial write/accept/deliver loop,
+    at most api_concurrency at once. Calls read REPO (never the worktree the loop rewrites); the loop then checks
+    each operation against the current wiki, so a page changed meanwhile only costs one correction call."""
+    def __init__(self, batches):
+        n = max(1, int(CFG["api_concurrency"]))
+        self.pool, self.window, self.jobs, self.stopped = ThreadPoolExecutor(n), 2 * n, {}, False
+        self.queue = list(batches)
+        self.fill()
+
+    @staticmethod
+    def key(text):
+        return hashlib.sha1(text.encode()).hexdigest()
+
+    def fill(self):
+        while self.queue and not self.stopped and len([f for f in self.jobs.values() if not f.done()]) < self.window:
+            label, text, sources = self.queue.pop(0)
+            self.jobs.setdefault(self.key(text), self.pool.submit(self.work, label, text, sources))
+
+    def work(self, label, text, sources):
+        if self.stopped:
+            return "prefetch stopped", True
+        failed = []
+
+        def call(prompt, schema, sub):
+            ok, out, down = api_json(prompt, schema, sub)
+            if ok:
+                try:
+                    return json.loads(out)
+                except ValueError:
+                    out, down = f"not JSON: {out[:300]}", False
+            failed.append((out, down))
+            return None
+        try:
+            got = propose.prepare(REPO, text, role_rules(sources)[1], call, label)
+        except Exception as e:  # noqa: BLE001 — reported by the loop like propose_pass's own script errors
+            return f"proposal: {type(e).__name__}: {e}"[:300], False
+        if got is None:
+            out = failed[-1] if failed else ("model failed", False)
+            if out[1]:
+                self.stopped = True  # the route refuses everyone: start no more batches this run
+            return out
+        return got
+
+    def take(self, label, text, sources):
+        key = self.key(text)
+        if key not in self.jobs:
+            self.jobs[key] = self.pool.submit(self.work, label, text, sources)
+        out = self.jobs.pop(key).result()
+        self.fill()
+        return out
+
+    def close(self):
+        self.stopped = True
+        self.queue = []
+        self.pool.shutdown(wait=True, cancel_futures=True)
+
+
+PREFETCH = None  # set by ingest_batches while the openai engine ingests
+
+
 def propose_pass(label, it, text, sids, sources, engine):
     """Ingest one session through propose.py (design 2026-11-20, user 「试试a」): two tool-less calls, the script
     searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
     agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
     Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
-    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED
+    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED, ROUTE_DOWN
     LAST_REJECTED, CRASHED = False, ""
     if budget.exhausted():
         return False
-    effort = engine.partition(":")[2] or EFFORT
+    name, effort = engine.partition(":")[0], engine.partition(":")[2] or EFFORT
     WIKI = WORK
     sync_work()
     failed = []
 
     def call(prompt, schema, sub):
-        global LAST_ENGINE
+        global LAST_ENGINE, ROUTE_DOWN
+        if name == "openai":
+            ok, out, down = api_json(prompt, schema, sub)
+            if ok:
+                try:
+                    LAST_ENGINE = f"openai:{CFG['api_model']}"
+                    return json.loads(out)
+                except ValueError:
+                    out = f"not JSON: {out[:300]}"
+            ROUTE_DOWN = ROUTE_DOWN or down
+            failed.append(out)
+            return None
         # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
         # is bounded by the run's deadline; each call only needs room for one such call.
         ok, out, _, _, model = codex_retry.run(lambda m, _tid: codex_json(prompt, schema, sub, m, effort), CODEX_CHAIN,
@@ -2659,17 +2778,24 @@ def propose_pass(label, it, text, sids, sources, engine):
         failed.append(out)
         return None
 
-    said = [t for p in sources for t in user_texts(p)]  # the words page_misquotes accepts as the user's
+    said, rules = role_rules(sources)
     if not said and re.search(r"^USER", text, re.M):
         # user_texts() returns nothing when the user's words cannot be read (Discord history unavailable): every
         # fact would look unquoted and be dropped, so the session would be marked read with its facts lost
         log(f"{label} REVERTED: the user's words of this session are unreadable now; retried on a later run")
         REJECT_REASONS.append("user words unreadable")
         return False
-    rules = propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
-                          todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said))
+    prepared = None
+    if name == "openai" and PREFETCH is not None:
+        prepared = PREFETCH.take(label, text, sources)
+        if isinstance(prepared[0], str):  # (error, route_down)
+            ROUTE_DOWN = ROUTE_DOWN or prepared[1]
+            failed.append(prepared[0])
+            prepared = None
+        else:
+            LAST_ENGINE = f"openai:{CFG['api_model']}"
     try:
-        summary = propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label)
+        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label, prepared)
         errs = "" if summary is None else "\n".join(
             e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
     except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
@@ -2692,8 +2818,22 @@ def propose_pass(label, it, text, sids, sources, engine):
 
 
 def ingest_batches(db, items, engines, pending=False):
-    global quota_hit, CRASHED
+    global PREFETCH
     batches = [b for it in items for b in batches_of([it])]  # one session per pass (design 2026-11-20 §3.1)
+    if engines and engines[0].partition(":")[0] == "openai":  # batches' calls run ahead; writes stay one at a time
+        PREFETCH = Prefetch(("ingest " + ", ".join(dict.fromkeys(it["id"][:8] for it, _ in b)),
+                             "".join(piece for _, piece in b), list(dict.fromkeys(it["path"] for it, _ in b)))
+                            for b in batches)
+    try:
+        _ingest_batches(db, batches, engines, pending)
+    finally:
+        if PREFETCH is not None:
+            PREFETCH.close()
+            PREFETCH = None
+
+
+def _ingest_batches(db, batches, engines, pending):
+    global quota_hit, CRASHED, ROUTE_DOWN
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
         if budget.stopped():
@@ -2705,14 +2845,14 @@ def ingest_batches(db, items, engines, pending=False):
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
         retained = 0
-        res, quota_hit, CRASHED = False, False, ""
+        res, quota_hit, CRASHED, ROUTE_DOWN = False, False, "", False
         REJECT_REASONS.clear()
         cands = candidates_note(text)
         for engine in dict.fromkeys(filter(None, engines)):
             if quota_hit and is_claude(engine):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
-            if family(engine) == "codex":
+            if family(engine) in ("codex", "openai"):
                 res = propose_pass(label, batch[0][0], text, sids, sources, engine)
             else:
                 prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
@@ -2740,6 +2880,10 @@ def ingest_batches(db, items, engines, pending=False):
             break
         elif quota_hit:
             log(f"{label}: Claude quota refused — left for tonight, not counted as a failure")
+        elif ROUTE_DOWN:  # the route refuses everyone, not this batch: stop sending batches into it this run
+            log(f"{label}: model provider unavailable — left for a later run, not counted as a failure")
+            db.commit()
+            break
         else:
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
@@ -2759,7 +2903,9 @@ def ingest_batches(db, items, engines, pending=False):
                 REJECT_REASONS.clear()
             reject_streaks(db, len(ids))
         db.commit()
-        if pending or (not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch)):
+        # run() already gives a pending round of the other routes a single batch; the openai route's several
+        # sessions are each their own record, so only an unfinished oversized record stops the round here
+        if not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch):
             return  # never skip ahead within an unfinished record
 
 

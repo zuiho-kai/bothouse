@@ -13,6 +13,11 @@ and delivery stay with the caller.
 """
 import json
 import re
+import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
 
 PAGE = re.compile(r"(?:[\w-]+/)+[\w-]+\.md")
 USER_CLAIM = re.compile(r"用户(?:说|定|否决|原话|要求|拍板|同意|确认)|\buser (?:said|decided|rejected|asked|approved|confirmed)\b", re.I)
@@ -454,9 +459,9 @@ def log_entry(date, sid8, title, plan, unplaced, dropped, nothing_reason):
     return "\n".join(lines) + "\n"
 
 
-def ingest(root, transcript, sid8, date, rules, call, label):
-    """The whole proposal pipeline for one session. Writes pages, READMEs and the log entry under `root`.
-    Returns a short summary string, or None when a model call failed (nothing written)."""
+def prepare(root, transcript, rules, call, label):
+    """The two model calls of one session, reading `root` only: (got, facts, dropped, ops) or None when a call
+    failed. Separate from the writes so several sessions' calls can run at once against a read-only view."""
     got = call(facts_prompt(root, transcript, rules), FACTS_SCHEMA, label + " facts")
     if got is None:
         return None
@@ -464,11 +469,25 @@ def ingest(root, transcript, sid8, date, rules, call, label):
     for f in facts:
         if f["section"] not in rules.sections:
             f["section"] = rules.sections[1]
-    plan, unplaced = Plan(root, rules, facts), []
+    ops = None
     if facts:
         ops = call(ops_prompt(root, facts, rules), OPS_SCHEMA, label + " ops")
         if ops is None:
             return None
+    return got, facts, dropped, ops
+
+
+def ingest(root, transcript, sid8, date, rules, call, label, prepared=None):
+    """The whole proposal pipeline for one session. Writes pages, READMEs and the log entry under `root`.
+    `prepared`: prepare()'s result computed earlier (possibly against an older view of the wiki); the program
+    checks every operation against `root` as it is now and asks once more only for the rejected ones.
+    Returns a short summary string, or None when a model call failed (nothing written)."""
+    prepared = prepared or prepare(root, transcript, rules, call, label)
+    if prepared is None:
+        return None
+    got, facts, dropped, ops = prepared
+    plan, unplaced = Plan(root, rules, facts), []
+    if facts:
         valid = lambda o: o["facts"] and all(0 <= i < len(facts) for i in o["facts"])
         rejected = plan.apply([o for o in ops["ops"] if valid(o)])
         unplaced += [("；".join(facts[i]["fact"] for i in u["facts"]), u["reason"]) for u in ops["unplaced"] if valid(u)]
@@ -495,3 +514,95 @@ def ingest(root, transcript, sid8, date, rules, call, label):
     log_path.write_text(old + ("\n" if old.endswith("\n") else "\n\n") + entry)
     return (f"facts={len(facts)} writes={len(plan.done)} skipped={len(plan.skipped)} "
             f"unplaced={len(unplaced)} dropped={len(dropped)}")
+
+
+class Api:
+    """One OpenAI-compatible chat/completions route for the two tool-less calls (user 2026-11-20 18:36: 「先用这个的
+    luna整理 可以多并发」, 19:2x 「https://ai.shrinken.pw 用这个」). Thread-safe: at most `limit` calls run at once.
+    The reply is streamed: a long session's call (11-20 实测 >100 s on 240k-char inputs) otherwise ends in Cloudflare's
+    HTTP 524 although the model is still working. A 429, a server error or a transport error lowers the limit (halved,
+    once per pause, so simultaneous failures of one burst count once) and the call is retried after a pause.
+    Returns (ok, text or error, usage dict, http status)."""
+    # source: Cloudflare in front of these routes answers urllib's default User-Agent with 403 / error code 1010 (11-20 实测)
+    AGENT = "llm-wiki-ingest/1"
+    # source: 11-20 实测 the route answers a one-line JSON-schema call in 3.6 s; 3 tries span ~1.5 min of pauses
+    TRIES, PAUSE = 3, 30
+
+    def __init__(self, base, model, key_file, limit, effort="", log=print):
+        self.base, self.model, self.key_file, self.effort, self.log = base.rstrip("/"), model, key_file, effort, log
+        self.limit, self.active, self.cond, self.lowered = max(1, int(limit)), 0, threading.Condition(), 0.0
+
+    def key(self):
+        return Path(self.key_file).expanduser().read_text().strip()
+
+    def _slot(self, take):
+        with self.cond:
+            if take:
+                self.cond.wait_for(lambda: self.active < self.limit)
+                self.active += 1
+            else:
+                self.active -= 1
+                self.cond.notify_all()
+
+    def _slower(self, why):
+        with self.cond:
+            if self.limit > 1 and time.time() - self.lowered >= self.PAUSE:
+                self.limit, self.lowered = max(1, self.limit // 2), time.time()
+                self.log(f"openai route: {why}; concurrency lowered to {self.limit}")
+
+    @staticmethod
+    def _read_stream(r):
+        """Joins the streamed content deltas; usage comes in the last chunk (stream_options.include_usage)."""
+        parts, usage = [], {}
+        for line in r:
+            line = line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:") or line == "data: [DONE]":
+                continue
+            chunk = json.loads(line[5:])
+            if chunk.get("error"):
+                raise ValueError(f"stream error: {json.dumps(chunk['error'], ensure_ascii=False)[:300]}")
+            usage = chunk.get("usage") or usage
+            for choice in chunk.get("choices") or ():
+                parts.append((choice.get("delta") or {}).get("content") or "")
+        if not usage:
+            # include_usage puts usage in the final chunk, so a stream without it was cut off (11-20 实测 session
+            # 110daf1c ops: http 200, 0 tokens, empty text): a broken transport, retried, never a model answer
+            raise ValueError(f"stream ended before its usage chunk ({len(''.join(parts))} chars received)")
+        return "".join(parts), usage
+
+    def json(self, prompt, schema, name, timeout):
+        try:
+            key = self.key()
+        except OSError:
+            return False, "openai route: key file unavailable (authentication)", {}, 0
+        body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "stream": True,
+                "stream_options": {"include_usage": True},
+                "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}
+        if self.effort:
+            body["reasoning_effort"] = self.effort
+        data = json.dumps(body, ensure_ascii=False).encode()
+        status, text = 0, ""
+        for attempt in range(self.TRIES):
+            req = urllib.request.Request(self.base + "/chat/completions", data=data, headers={
+                "Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": self.AGENT})
+            self._slot(True)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    status = r.status
+                    out, usage = self._read_stream(r)
+                    return True, out, usage, status
+            except urllib.error.HTTPError as e:
+                status, raw = e.code, e.read()
+            except (OSError, ValueError) as e:  # URLError, timeouts, resets, a broken stream: the route, not the session
+                status, raw = 0, f"transport error: {type(e).__name__}: {e}".encode()
+            finally:
+                self._slot(False)
+            text = raw.decode("utf-8", "replace").replace(key, "[REDACTED]")
+            if status == 429 or status == 0 or status >= 500:
+                self._slower(f"HTTP {status or 'transport error'}")
+            else:
+                break  # 4xx other than 429: the request itself is refused, retrying sends the same thing
+            if attempt + 1 < self.TRIES:
+                time.sleep(self.PAUSE * (attempt + 1))
+        kind = "rate limit" if status == 429 else "authentication" if status in (401, 403) else "provider down"
+        return False, f"openai route: HTTP {status} ({kind}): {text[:300]}", {}, status
