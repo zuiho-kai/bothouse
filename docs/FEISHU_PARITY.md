@@ -25,7 +25,7 @@
 | 任务卡、任务子话题里的事实楼层 | 有。任务卡下开子区，关键事实发进子区 | 有。任务卡是卡片消息，事实用「话题回复」挂在卡片下面 | 不缺 | 已支持 | discord：platform/discord/public_progress.go:27、:65、:279；飞书：platform/feishu/public_progress.go:29、:45、:72、:215 |
 | 任务子话题的归档、重开 | 有。任务做完把子区归档，有新事实再重开，按最后活动时间决定何时归档 | 没有 | `TaskThreadArchiver`、`TaskThreadReopener`、`TaskThreadActivityReader` | 平台不支持（没核到飞书有归档话题的接口，官方也没有明写「不支持」）。不补不影响用，话题一直留着 | discord：platform/discord/public_progress.go:188、:220、:242；core：core/public_progress.go:846、:946、:827 |
 | 任务帖（论坛频道，每件活一个帖子，带状态标签；等你拍板时在帖里提醒；在帖里回复能回到原频道会话） | 有 | 没有。任务进度由上面的任务卡展示 | `TaskForumPoster`、`TaskForumUserNotifier`、`ChannelSessionKeyer` | 平台不支持（飞书群没有论坛频道和帖子标签） | discord：platform/discord/task_forum.go:43、:371，platform/discord/live_options.go:91，platform/discord/task_forum_inbound.go:17；core：core/team_task_forum.go:729；platform/CAPABILITIES.md:151、:159、:167 |
-| 进度卡（一轮里每一步在干什么） | 有。可按 bot 配卡片条数、每行长度、藏不藏思考；编辑有限速 | 有卡片样式、结构化进度卡、流式预览和原地更新。没有按 bot 配尺寸，没有编辑限速 | `ProgressCardSizer`、`ProgressUpdateThrottler` | 纯代码 | discord：platform/discord/discord.go:296、:309、:313、:1617；飞书：platform/feishu/feishu.go:448、:450、:4572、:4778；core：core/progress_compact.go:355、:352 |
+| 进度卡（一轮里每一步在干什么） | 有。可按 bot 配卡片条数、每行长度、藏不藏思考；编辑有限速 | 有卡片样式、结构化进度卡、流式预览和原地更新。按 bot 配条数、行长、藏思考已补，选项名和 Discord 一样（`progress_card_entries`、`progress_line_len`、`progress_hide_thinking`），不配就和原来一样；编辑最快每 0.2 秒一次 | 已补（单测，未真机）：`ProgressCardSizer`、`ProgressUpdateThrottler` | 纯代码 | discord：platform/discord/discord.go:296、:309、:313、:1617；飞书：platform/feishu/progress_size.go:25、:27；core：core/progress_compact.go:355、:352 |
 | 进度卡同步进任务子话题（点开任务就看到每一步） | 有 | 没有。飞书任务卡不填话题 id，core 找不到往哪发 | `TaskThreadTarget`，并先让飞书任务卡把话题根消息 id 记到任务上 | 纯代码，要真机验证（话题里的卡片能不能原地编辑） | discord：platform/discord/task_thread_progress.go:9；core：core/task_thread_progress.go:67；platform/CAPABILITIES.md:39 |
 | 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 没有，飞书上看不到这张表 | `SubTaskTablePayloadSupport`（渲染成卡片）、`LatestMessageChecker`（要先有历史读取） | 纯代码 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
 | 引用回复（回复某条消息，bot 知道回的是哪件活） | 有 | 有。入站把被回复消息 id 填进 Reference，出站登记每条发出消息的 id | 不缺 | 已支持 | discord：platform/discord/discord.go:932，platform/discord/turn_sent.go:123；飞书：platform/feishu/feishu.go:1121（Reference 在 :1133）、:3783；core：core/reply_task.go:145；platform/CAPABILITIES.md:12、:21 |
@@ -111,7 +111,7 @@
    - 风险：Discord 版限定「同一服务器」就是为了防发错地方（用户 11-11「我说转给jiuwen，怎么转到这来了」）；飞书没有服务器，范围变成 bot 在的所有群，重名和发错的机会更大。动了 core，属于一次动两个组件。
    - 要真飞书验证：建议。
 
-9. **进度卡尺寸和编辑限速、子 agent 表**
+9. **进度卡尺寸和编辑限速、子 agent 表** —— 尺寸和限速已补（单测，未真机）；子 agent 表没补。限速取飞书「同一条消息每秒最多改 5 次」，即 0.2 秒一次：飞书改卡片这条路原来没有限速处理，一串工具事件连发会被回 230020。
    - 补法：`ProgressCardSizer` 读每个 bot 的卡片条数、行长、藏思考三个选项；`ProgressUpdateThrottler` 给一个编辑间隔；`SupportsSubTaskTablePayload` 把子 agent 表渲染成卡片。
    - 要动的文件：platform/feishu/feishu.go（:448 一带）；新增 platform/feishu/subtasks.go。参照 platform/discord/subtasks.go（233 行）。
    - 预估：尺寸和限速约 40 行，子 agent 表约 120 行，单测约 80 行。

@@ -140,6 +140,9 @@ type Platform struct {
 	appSecret                  string
 	progressStyle              string
 	useInteractiveCard         bool
+	cardEntries                int  // progress_card_entries (progress_size.go)
+	cardLineLen                int  // progress_line_len
+	cardHideThinking           bool // progress_hide_thinking
 	self                       core.Platform
 	reactionEmoji              string
 	doneEmoji                  string
@@ -330,6 +333,9 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	allowChat, _ := opts["allow_chat"].(string)
 	allowBots, _ := opts["allow_bots"].(string)
 	teamLead, _ := opts["team_lead_bot"].(string)
+	cardEntries := progressIntOpt(opts["progress_card_entries"])
+	cardLineLen := progressIntOpt(opts["progress_line_len"])
+	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
 	groupOnly, _ := opts["group_only"].(bool)
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
 	// require_mention = false is equivalent to group_reply_all = true:
@@ -429,6 +435,9 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		appSecret:                  appSecret,
 		progressStyle:              progressStyle,
 		useInteractiveCard:         useInteractiveCard,
+		cardEntries:                cardEntries,
+		cardLineLen:                cardLineLen,
+		cardHideThinking:           cardHideThinking,
 		reactionEmoji:              reactionEmoji,
 		doneEmoji:                  doneEmoji,
 		allowFrom:                  allowFrom,
@@ -4193,7 +4202,7 @@ func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCa
 		return nil
 	}
 	if len(payload.Items) > 0 {
-		return payload.Items
+		return cutProgressLines(payload.Items, payload.LineLen)
 	}
 	out := make([]core.ProgressCardEntry, 0, len(payload.Entries))
 	for _, entry := range payload.Entries {
@@ -4214,7 +4223,7 @@ func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCa
 		}
 		out = append(out, core.ProgressCardEntry{Kind: kind, Text: entry})
 	}
-	return out
+	return cutProgressLines(out, payload.LineLen)
 }
 
 func inlineCodeText(s string) string {

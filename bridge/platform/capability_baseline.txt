@@ -31,8 +31,6 @@ PreviewReplier discord
 PreviewReplier feishu
 PreviewStatusUpdater cloud-web
 PreviewStatusUpdater discord
-ProgressCardSizer feishu
-ProgressUpdateThrottler feishu
 RelayGroupVisibilityTarget cloud-web
 RelayGroupVisibilityTarget discord
 RichCardMarkdownResolver cloud-web
