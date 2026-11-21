@@ -62,7 +62,12 @@ func TestLookupPriceProvider(t *testing.T) {
 // #2071 review (G哥): when the catalog flips a tier from free to paid, the
 // static table's $0 estimate for the stripped base ("swe-2-max" → "swe-2")
 // must not mask the live full-id rate. Fails on the pre-fix lookup order.
+// Registers its own provider — CI shards tests across processes, so no test
+// may rely on another test's registration.
 func TestLookupPriceProviderBeatsBaseEstimate(t *testing.T) {
+	RegisterUsagePriceProvider(func() map[string]TokenPrice {
+		return map[string]TokenPrice{"swe-2-max": {Input: 2, Output: 6}}
+	})
 	prices := map[string]TokenPrice{"swe-2": {}} // static $0 row for the base
 	if p, ok := lookupPrice(prices, "swe-2-max"); !ok || p.Input != 2 {
 		t.Fatalf("live catalog rate must beat $0 base estimate: %+v found=%v", p, ok)
