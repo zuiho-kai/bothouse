@@ -488,6 +488,7 @@ type Message struct {
 	// a resumed turn, the no-progress count it carries on and the prompt to
 	// re-run on a fresh session if the resumed session errors at once (S1).
 	timerJobID       string
+	wakeID           string // #2024: the wake whose result goes back to the waking conversation (wake_return.go)
 	cronJobID        string // the cron job a cron turn runs (its time limit when it starts queued)
 	resumeNoProgress int
 	resumeFallback   string
