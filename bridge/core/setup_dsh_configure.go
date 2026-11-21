@@ -829,25 +829,16 @@ func orphanDSHWebPort(logPath string, state DSHWeb, deadline time.Time) (au *url
 		}
 		return p, pid, true
 	}
-	for _, p := range ports {
-		if got, gotPID, ok := take(p); ok {
-			return au, token, got, gotPID
-		}
-	}
 	if au.Port() == "" {
 		ctx, cancel := dshWebDeadlineCtx(deadline)
-		defer cancel()
 		for _, p := range dshWebListenersFn(ctx) {
 			addPort(p)
-			if expired(deadline) {
-				break
-			}
-			if got, gotPID, ok := take(p); ok {
-				return au, token, got, gotPID
-			}
 		}
+		cancel()
 	}
-	return au, token, "", 0
+	// All at once, so a silent listener cannot use up the round (firstDSHWebCandidate).
+	port, pid = firstDSHWebCandidate(deadline, ports, take)
+	return au, token, port, pid
 }
 
 // adoptOrphanDSHWeb records the host on port, whose token signed in and whose pid belongs to this

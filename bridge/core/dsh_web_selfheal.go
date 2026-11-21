@@ -207,23 +207,41 @@ func probeAnnouncementPort(au *url.URL, token string, web DSHWeb, deadline time.
 		}
 		return p, pid, true
 	}
-	for _, p := range candidates {
-		if got, pid, ok := take(p); ok {
-			return got, pid
+	if au.Port() == "" {
+		ctx, cancel := dshWebDeadlineCtx(deadline)
+		for _, p := range dshWebListenersFn(ctx) {
+			add(p)
 		}
+		cancel()
 	}
-	if au.Port() != "" {
+	return firstDSHWebCandidate(deadline, candidates, take)
+}
+
+// firstDSHWebCandidate tries every candidate at once and returns the first that take accepts, or ""
+// when none does before the round's deadline. One at a time, a listener that accepts and never answers
+// held the whole round, and every candidate after it was never asked: this Mac has three such ports
+// (FutuOpenD 11111/11112, Clash Party 14122, each silent past 6s; 2026-11-21 #1842 逐口计时), so the
+// restarted host on a higher port was never found. take still decides alone — only a port whose
+// listener signs in with the token and is this bridge's host comes back.
+func firstDSHWebCandidate(deadline time.Time, candidates []string, take func(string) (string, int, bool)) (string, int) {
+	type hit struct {
+		port string
+		pid  int
+		ok   bool
+	}
+	if len(candidates) == 0 || expired(deadline) {
 		return "", 0
 	}
-	ctx, cancel := dshWebDeadlineCtx(deadline)
-	defer cancel()
-	for _, p := range dshWebListenersFn(ctx) {
-		add(p)
-		if expired(deadline) {
-			break
-		}
-		if got, pid, ok := take(p); ok {
-			return got, pid
+	results := make(chan hit, len(candidates)) // buffered: probes still running after a hit never block
+	for _, c := range candidates {
+		go func(c string) {
+			p, pid, ok := take(c)
+			results <- hit{p, pid, ok}
+		}(c)
+	}
+	for range candidates {
+		if r := <-results; r.ok {
+			return r.port, r.pid
 		}
 	}
 	return "", 0
