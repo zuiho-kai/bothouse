@@ -19,9 +19,9 @@
 //
 // Authentication is delegated entirely to the local Devin CLI: after a
 // one-time `devin auth login`, the spawned `devin acp` subprocess
-// reads the credentials stored on disk, so cc-connect never needs to
-// see or forward any API tokens. Windsurf Enterprise users can
-// alternatively inject WINDSURF_API_KEY via the agent env option.
+// reads the credentials stored on disk. Quota reporting uses the same
+// credentials and official account status endpoint. Windsurf Enterprise
+// users can alternatively inject WINDSURF_API_KEY via the agent env option.
 package devin
 
 import (
@@ -37,10 +37,11 @@ func init() {
 
 // Agent embeds *acp.Agent so it inherits StartSession, ListSessions,
 // ModeSwitcher, AgentDoctorInfo, and all other optional capability
-// interfaces implemented by the ACP adapter — only Name() is
-// overridden so the engine identifies this as a Devin agent.
+// interfaces implemented by the ACP adapter. Name and quota reporting
+// are overridden to identify and query the Devin account.
 type Agent struct {
 	*acp.Agent
+	quotaCommand string
 }
 
 // Name returns the stable agent type identifier used in config,
@@ -58,7 +59,8 @@ func (a *Agent) Name() string { return "devin" }
 //   - All other ACP options (work_dir, mode, auth_method, env) are
 //     passed through unchanged to agent/acp.
 func New(opts map[string]any) (core.Agent, error) {
-	a, err := acp.New(applyDevinDefaults(opts))
+	opts = applyDevinDefaults(opts)
+	a, err := acp.New(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +71,8 @@ func New(opts map[string]any) (core.Agent, error) {
 		// wrapper rather than panicking.
 		return a, nil
 	}
-	return &Agent{Agent: base}, nil
+	command, _ := core.ParseCmdOpts(opts, "")
+	return &Agent{Agent: base, quotaCommand: command}, nil
 }
 
 // applyDevinDefaults returns a new opts map with Devin-specific
