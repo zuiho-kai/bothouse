@@ -629,11 +629,22 @@ func (e *Engine) finishTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	}
 	turn.watchTurnFinished = true
 	turn.state.mu.Lock()
-	jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+	jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 	if !retrying {
 		turn.state.currentJobID = ""
+		turn.state.currentWakeID = ""
 	}
 	turn.state.mu.Unlock()
+	if wakeID != "" && !retrying {
+		// #2024: the woken turn's answer (or its failure) goes back to the conversation that woke it.
+		var wakeErr error
+		if event.Error != nil {
+			wakeErr = event.Error
+		} else if _, exhausted := QuotaExhaustedReset(event); exhausted {
+			wakeErr = fmt.Errorf("provider quota exhausted")
+		}
+		settleWakeReturn(wakeID, baseResponse, wakeErr)
+	}
 	if jobID != "" && !retrying {
 		text := ""
 		if event.Error == nil {

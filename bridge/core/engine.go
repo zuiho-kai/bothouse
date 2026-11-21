@@ -669,6 +669,7 @@ type queuedMessage struct {
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom      string
 	timerJobID       string
+	wakeID           string // #2024
 	cronJobID        string
 	resumeNoProgress int
 	resumeFallback   string
@@ -816,6 +817,9 @@ type interactiveState struct {
 	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
 	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
 	currentJobID string
+	// currentWakeID: the wake (#2024, wake_return.go) this turn runs; its result goes back to
+	// the conversation that woke it. Guarded by mu.
+	currentWakeID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
 	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
@@ -3049,6 +3053,15 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, silent, "")
+}
+
+// executeWake is a silent heartbeat turn that carries a wake ID (#2024, wake_return.go).
+func (e *Engine) executeWake(sessionKey, prompt, wakeID string) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, true, wakeID)
+}
+
+func (e *Engine) executeHeartbeatTurn(sessionKey, prompt string, silent bool, wakeID string) error {
 	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -3104,6 +3117,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		UserName:   "heartbeat",
 		Content:    prompt,
 		ReplyCtx:   replyCtx,
+		wakeID:     wakeID,
 	}
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
@@ -4272,6 +4286,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnTrigger:         msg.turnTrigger,
 		resumedFrom:         msg.resumedFrom,
 		timerJobID:          msg.timerJobID,
+		wakeID:              msg.wakeID,
 		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
@@ -4985,11 +5000,13 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if e.IsPaused() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine %q is paused", e.name))
 		return
 	}
 	if !e.beginMessageWork() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine stopped"))
 		return
 	}
 	defer e.messageWorkers.Done()
@@ -5142,6 +5159,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.mu.Unlock()
 	if agentSession == nil {
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("start session: %s", startErr)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("start session: %s", startErr))
 		text := e.i18n.T(MsgFailedToStartAgentSession)
 		if startErr != "" {
 			// maomao fork: say why, so whoever reads it can act.
@@ -5278,6 +5296,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
+		state.currentWakeID = msg.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
 		e.armTurnSpendCap(state, session, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.SessionKey)
@@ -5290,6 +5309,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func() {
 				state.mu.Lock()
 				state.currentJobID = msg.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = msg.wakeID
 				state.externalTaskInput = msg.externalInput
 				state.authorization = msg.authorization
 				state.mu.Unlock()
@@ -6724,13 +6744,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// still owns a pending handback; settle it empty so the fallback posts the result.
 	defer func() {
 		turn.state.mu.Lock()
-		jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+		jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 		if !retrying {
 			turn.state.currentJobID = ""
+			turn.state.currentWakeID = ""
 		}
 		turn.state.mu.Unlock()
 		if jobID != "" && !retrying {
 			e.settleReportWake(jobID, "", nil)
+		}
+		if wakeID != "" && !retrying {
+			settleWakeReturn(wakeID, "", errWakeNoResult)
 		}
 	}()
 	turn.state.mu.Lock()
@@ -8446,6 +8470,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.setTurnMode(state, as, queued.modeOverride) // restored when runTurnWithCapacityRetry returns
 		state.mu.Lock()
 		state.currentJobID = queued.timerJobID
+		state.currentWakeID = queued.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
@@ -8455,6 +8480,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
 				state.mu.Lock()
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = queued.wakeID
 				state.mu.Unlock()
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
 				attemptPrompt = prompt
