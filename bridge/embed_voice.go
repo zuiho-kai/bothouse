@@ -6,5 +6,5 @@ import "embed"
 // The bridge releases it into its data dir and installs its npm dependencies there
 // (platform/discord/meeting_listener.go).
 //
-//go:embed contrib/discord-voice/listener.mjs contrib/discord-voice/asr_worker.py contrib/discord-voice/package.json
+//go:embed contrib/discord-voice/listener.mjs contrib/discord-voice/video.mjs contrib/discord-voice/golive.mjs contrib/discord-voice/asr_worker.py contrib/discord-voice/package.json
 var VoiceFiles embed.FS

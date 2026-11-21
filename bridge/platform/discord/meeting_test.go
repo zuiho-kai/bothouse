@@ -117,11 +117,11 @@ func TestMeetingTranscript(t *testing.T) {
 }
 
 func TestMeetingPrompt(t *testing.T) {
-	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n", 0)
+	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n", 0, false, false, false)
 	if strings.Contains(got, "发图") {
 		t.Errorf("a meeting without pictures must not talk about pictures:\n%s", got)
 	}
-	withPics := meetingPrompt("[00:02] 小红 发图（图1，议程.png）\n", 2)
+	withPics := meetingPrompt("[00:02] 小红 发图（图1，议程.png）\n", 2, true, false, false)
 	for _, want := range []string{"最后 2 张", "图1 到图2", "某人 发图：画面内容", "出自谁发的图"} {
 		if !strings.Contains(withPics, want) {
 			t.Errorf("prompt with pictures lacks %q", want)
@@ -327,5 +327,44 @@ func TestEndMeetingHandsOverPictures(t *testing.T) {
 		if !strings.Contains(got.Content, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, got.Content)
 		}
+	}
+}
+
+func TestMeetingFrameShots(t *testing.T) {
+	t0 := time.Date(2026, 11, 20, 21, 0, 0, 0, time.UTC)
+	posted := []meetingShot{{At: t0.Add(20 * time.Second), UserID: "u1", FileName: "a.png", N: 1}}
+	imgs := []core.ImageAttachment{{MimeType: "image/png", Data: []byte("p")}}
+	frames := []meetingFrame{
+		{At: t0.Add(30 * time.Second), UserID: "u2", Kind: "camera", JPG: []byte("b")},
+		{At: t0.Add(10 * time.Second), UserID: "u2", Kind: "camera", JPG: []byte("a")},
+	}
+	shots, images := meetingFrameShots(posted, imgs, frames)
+	if len(images) != 3 || string(images[1].Data) != "a" || string(images[2].Data) != "b" {
+		t.Fatalf("images = %+v", images)
+	}
+	if len(shots) != 3 || shots[0].Kind != "camera" || shots[0].N != 2 || shots[1].FileName != "a.png" || shots[2].N != 3 {
+		t.Fatalf("shots = %+v", shots)
+	}
+	info := meetingInfo{VoiceName: "常规", Started: t0, Ended: t0.Add(time.Minute), Reason: "x"}
+	tr := meetingTranscript(info, []meetingSegment{{UserID: "u1", Start: t0.Add(15 * time.Second), End: t0.Add(18 * time.Second), Text: "看摄像头"}}, shots, nil, map[string]string{"u1": "阿明", "u2": "小红"})
+	for _, want := range []string{"[00:10] 小红 的摄像头（图2）\n[00:15–00:18] 阿明：看摄像头\n[00:20] 阿明 发图（图1，a.png）\n[00:30] 小红 的摄像头（图3）\n"} {
+		if !strings.Contains(tr, want) {
+			t.Errorf("transcript lacks %q:\n%s", want, tr)
+		}
+	}
+	pr := meetingPrompt(tr, 3, true, true, false)
+	for _, want := range []string{"的摄像头（图N）", "发图（图N，文件名）", "最后 3 张"} {
+		if !strings.Contains(pr, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+	// more stills than one request can carry: evenly spaced, total capped
+	many := make([]meetingFrame, 250)
+	for i := range many {
+		many[i] = meetingFrame{At: t0.Add(time.Duration(i) * 10 * time.Second), UserID: "u2", Kind: "camera", JPG: []byte("x")}
+	}
+	_, capped := meetingFrameShots(posted, imgs, many)
+	if len(capped) != meetingMaxImages {
+		t.Errorf("images = %d, want %d", len(capped), meetingMaxImages)
 	}
 }
