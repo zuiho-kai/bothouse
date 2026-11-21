@@ -21,7 +21,7 @@ PAGE = "---\nname: a\ndescription: 配置\nmetadata:\n  scope: 配置\n---\n# �
 
 
 def fact(text="现在配置用新值"):
-    return dict(fact=text, quote=text, section="现状", domain="tooling", terms=["配置"], session="")
+    return dict(fact=text, quote=text, relay="", section="现状", domain="tooling", terms=["配置"], session="")
 
 
 def op(**kw):
@@ -293,21 +293,21 @@ class ProposeReview(unittest.TestCase):
         self.assertIn("limit=None", offered[0][1])  # the session itself stays whole: its saved facts still match
 
     def test_relayed_user_request_is_recorded_with_its_source(self):
-        transcript = "TEAM C酱: 用户刚才说以后合并前先跑检查，你照这个做\nCLAUDE: 好\n"
-        rules = P.Rules(I.lint, user_quote=True, source_said=lambda q, sid: I.quote_ok(q, [I.flat("以后合并前先跑检查")]))
-        self.assertIn("队友在 TEAM 行里转述的用户要求也要列", P.facts_prompt(self.root, transcript, rules))
-        relayed = fact("以后合并前先跑检查")
-        kept, dropped = P.grounded([relayed], transcript, rules)
-        self.assertEqual(([f["relay"] for f in kept], dropped), (["C酱"], []))
-        own, _ = P.grounded([relayed], "USER: 以后合并前先跑检查\n" + transcript, rules)
-        self.assertEqual(own[0]["relay"], "")  # the user's own line holds it: not a relay
-        plan = P.Plan(self.root, rules, kept)
-        self.assertEqual(plan.apply([op(lines=["- C酱 转述：以后合并前先跑检查"], readme="", description="")]), [])
+        transcript = 'USER: [bothouse sender_name="C酱"]\n用户刚才说以后合并前先跑检查，你照这个做\nCLAUDE: 好\n'
+        words = [I.flat("用户刚才说以后合并前先跑检查，你照这个做")]
+        rules = P.Rules(I.lint, user_quote=True, source_said=lambda q, sid: I.quote_ok(q, words))
+        self.assertIn("队友转述的用户要求也要列", P.facts_prompt(self.root, transcript, rules))
+        relayed = dict(fact("以后合并前先跑检查"), relay="C酱")
+        answers = [dict(title="配置", nothing_reason="", facts=[relayed]), dict(ops=[op(
+            lines=["- C酱 转述：以后合并前先跑检查"], readme="", description="")], unplaced=[])]
+        got, facts, dropped, ops = P.prepare(self.root, transcript, rules, lambda *args: answers.pop(0), "ingest")
+        self.assertEqual(([f["relay"] for f in facts], dropped), (["C酱"], []))
+        plan = P.Plan(self.root, rules, facts)
+        self.assertEqual(plan.apply(ops["ops"]), [])
         plan.write()
         self.assertIn("- C酱 转述：以后合并前先跑检查（用户原话「以后合并前先跑检查」）｜源：转述 · C酱\n",
                       (self.root / "tooling/a.md").read_text())
-        with patch.object(I, "WIKI", self.root), patch.object(I, "user_texts",
-                                                              return_value=[I.flat("以后合并前先跑检查")]):
+        with patch.object(I, "WIKI", self.root), patch.object(I, "user_texts", return_value=words):
             self.assertEqual(I.page_misquotes([self.root / "source.jsonl"]), "")
         self.assertEqual([e for e in I.lint.check(self.root)[0] if "tooling/a.md" in e], [])  # the tag is lint's own format
 

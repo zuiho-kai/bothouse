@@ -14,7 +14,7 @@ spec.loader.exec_module(P)
 
 
 def fact(text='配置用新值', session='aaaaaaaa'):
-    return dict(fact=text, quote=text, section='现状', domain='tooling', terms=['配置'], session=session)
+    return dict(fact=text, quote=text, relay='', section='现状', domain='tooling', terms=['配置'], session=session)
 
 
 def op(**kw):
