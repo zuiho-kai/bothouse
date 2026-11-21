@@ -331,17 +331,23 @@ class Plan:
         name = name.strip().lstrip("#").strip()
         return next((s for s in self.rules.sections if name.startswith(s)), None)
 
+    def owners(self, op, line):
+        """The op's facts this line writes: those whose text or quote it contains."""
+        return [i for i in op["facts"] if any(norm(self.facts[i][k]) and norm(self.facts[i][k]) in norm(line)
+                                              for k in ("fact", "quote"))]
+
     def quoted(self, op, lines):
-        """Role wikis: every new line ends with the user's words its facts rest on (A7), added by the program."""
+        """Role wikis: every new line ends with the user's words its own facts rest on (A7), added by the program.
+        A line naming none of the op's facts (an index line) rests on all of them."""
         if not self.rules.user_quote:
             return lines
-        quotes = [self.facts[i]["quote"].strip() for i in op["facts"]]
-        tag = relay_tag([self.facts[i] for i in op["facts"]])
         out = []
         for l in lines:
+            own = [self.facts[i] for i in (self.owners(op, l) or op["facts"])]
+            quotes = list(dict.fromkeys(f["quote"].strip() for f in own))
             missing = [q for q in quotes if q and f"用户原话「{q}」" not in l]
             out.append(l + ("（用户原话「" + "」「".join(missing) + "」）" if missing else "")
-                       + (tag if "｜源：" not in l else ""))
+                       + (relay_tag(own) if "｜源：" not in l else ""))
         return out
 
     def refused(self, lines, structural=False):
@@ -390,6 +396,9 @@ class Plan:
             return None, "写入操作没有正文，事实尚未放置"
         lines = self.quoted(op, op["lines"])
         errs = self.check_lines(lines, key)
+        if self.rules.user_quote and len(op["facts"]) > 1:
+            errs += [f"这一行对不上本操作的哪条事实，一行写一条事实、带上它的原文：{l[:60]}"
+                     for l in op["lines"] if not self.owners(op, l)]
         for i in op["facts"]:
             if not any(norm(self.facts[i][k]) and norm(self.facts[i][k]) in norm(line)
                        for k in ("fact", "quote") for line in lines):
@@ -499,8 +508,8 @@ class Plan:
                     if op["action"] == "skip":
                         self.placed[i] = op["at"]
                     else:
-                        self.placed[i] = next((
-                            f"{path}:{n}" for path, text in self.files.items()
+                        self.placed[i] = next((  # the op's own page first: an older line elsewhere may share the words
+                            f"{path}:{n}" for path, text in sorted(self.files.items(), key=lambda f: f[0] != op["page"])
                             if not path.endswith("/README.md")
                             for n, line in enumerate(text.splitlines(), 1) if re.match(r"\s*- \S", line)
                             and any(norm(self.facts[i][k]) and norm(self.facts[i][k]) in norm(line)
