@@ -17,7 +17,8 @@ import (
 
 var _ core.NativeCommandAgent = (*Agent)(nil)
 
-// nativeCommands is the set of advertised command names, without the leading slash.
+// nativeCommands is the set of advertised command names, without the leading slash; the value
+// is whether the command declared an input.
 type nativeCommands struct {
 	mu    sync.RWMutex
 	names map[string]bool
@@ -29,17 +30,23 @@ func (c *nativeCommands) set(names map[string]bool) {
 	c.mu.Unlock()
 }
 
-// has reports whether text is one of the commands: a leading slash, an advertised name, then
-// nothing or arguments on the same line.
-func (c *nativeCommands) has(text string) bool {
-	name, ok := strings.CutPrefix(strings.TrimSpace(text), "/")
+// name returns the advertised command that text invokes, "" when it is not one: a leading slash
+// and an advertised name, spelled as advertised (the server matches case), then nothing, or
+// arguments when the command declared an input. The server runs a command without an input
+// whatever follows it, so "/context why is it so big" is a sentence, not that command.
+func (c *nativeCommands) name(text string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(text), "/")
 	if !ok {
-		return false
+		return ""
 	}
-	name, _, _ = strings.Cut(name, " ")
+	name, args, _ := strings.Cut(rest, " ")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.names[name]
+	takesInput, advertised := c.names[name]
+	if !advertised || (args != "" && !takesInput) {
+		return ""
+	}
+	return name
 }
 
 func (c *nativeCommands) known() bool {
@@ -60,7 +67,8 @@ func (s *acpSession) absorbAvailableCommands(params json.RawMessage) bool {
 		Update struct {
 			Kind     string `json:"sessionUpdate"`
 			Commands []struct {
-				Name string `json:"name"`
+				Name  string    `json:"name"`
+				Input *struct{} `json:"input"`
 			} `json:"availableCommands"`
 		} `json:"update"`
 	}
@@ -69,7 +77,7 @@ func (s *acpSession) absorbAvailableCommands(params json.RawMessage) bool {
 	}
 	names := make(map[string]bool, len(wrap.Update.Commands))
 	for _, c := range wrap.Update.Commands {
-		names[strings.TrimPrefix(c.Name, "/")] = true
+		names[strings.TrimPrefix(c.Name, "/")] = c.Input != nil
 	}
 	s.commands.set(names)
 	if r, ok := s.callbacks.(commandReporter); ok {
@@ -78,12 +86,13 @@ func (s *acpSession) absorbAvailableCommands(params json.RawMessage) bool {
 	return true
 }
 
-// IsNativeCommand answers from what the last handshake advertised. Right after start-up nothing
+// NativeCommand answers from what the last handshake advertised. Right after start-up nothing
 // has been seen yet, so the first question starts a throwaway session to ask, once (the same
-// way AvailableModels does).
-func (a *Agent) IsNativeCommand(ctx context.Context, text string) bool {
+// way AvailableModels does). ACP does not say what a command does, so none is reported as
+// read-only here; a wrapper that knows its server's commands says which are (agent/devin).
+func (a *Agent) NativeCommand(ctx context.Context, text string) (name string, readOnly bool) {
 	if !strings.HasPrefix(strings.TrimSpace(text), "/") {
-		return false
+		return "", false
 	}
 	a.commandsProbe.Do(func() {
 		if a.commands.known() {
@@ -96,5 +105,5 @@ func (a *Agent) IsNativeCommand(ctx context.Context, text string) bool {
 		}
 		_ = s.Close()
 	})
-	return a.commands.has(text)
+	return a.commands.name(text), false
 }

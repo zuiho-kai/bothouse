@@ -4028,7 +4028,7 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 	if msg.Direct {
 		sessions.MarkDirect(msg.SessionKey)
 	}
-	if msg.TaskForum == nil && !msg.nativeCommand && e.applyGate(p, msg, session, interactiveKey) {
+	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
 	// 任务帖里的回话不过 gate。会话正忙、agent 又收得下中途输入时，
@@ -8852,15 +8852,32 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 			e.executeSkill(p, msg, skill, args)
 			return true
 		}
-		// #2041: one of the agent's own slash commands. It falls through like any other text
-		// the bridge does not own, marked so that it reaches the agent as typed.
-		if agent, _, _, err := e.commandContext(p, msg); err == nil {
-			if nc, ok := agent.(NativeCommandAgent); ok && nc.IsNativeCommand(e.ctx, raw) {
-				slog.Info("audit: command_executed",
-					"user_id", msg.UserID, "platform", msg.Platform,
-					"project", e.name, "command", cmd, "type", "agent")
-				msg.nativeCommand = true
-				return false
+		// #2041: one of the agent's own slash commands, in a message that calls this role. It
+		// falls through like any other text the bridge does not own, marked so that it reaches
+		// the agent as typed. Said to someone else or to no one it is chat, not a command here.
+		if agent, _, _, err := e.commandContext(p, msg); err == nil && e.addresseeOf(p, msg) == AddrSelf {
+			if nc, ok := agent.(NativeCommandAgent); ok {
+				if name, readOnly := nc.NativeCommand(e.ctx, raw); name != "" {
+					if disabledCmds[strings.ToLower(name)] {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "disabled")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "/"+name))
+						return true
+					}
+					if !readOnly && !e.isAdmin(msg.UserID) {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "unauthorized")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgAdminRequired), "/"+name))
+						return true
+					}
+					slog.Info("audit: command_executed",
+						"user_id", msg.UserID, "platform", msg.Platform,
+						"project", e.name, "command", name, "type", "agent")
+					msg.nativeCommand = true
+					return false
+				}
 			}
 		}
 		// Not a cc-connect command — notify user, then fall through to agent.

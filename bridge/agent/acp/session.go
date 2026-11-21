@@ -849,7 +849,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, !s.commands.has(prompt)),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files, s.commands.name(prompt) == ""),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))

@@ -9,24 +9,30 @@ import (
 
 // #2041: the server runs a slash command only when the prompt is exactly that command. The
 // session must know the advertised commands and send one without the model-control instructions.
+// A command that declared no input is that command only alone: the server runs it whatever
+// follows, so the rest of "/context why is it so big" was lost. Names match as the server
+// matches them, by case.
 func TestNativeCommandIsSentAsTyped(t *testing.T) {
 	a := &Agent{}
 	s, responses, requests := newTestSession(t, a)
 	s.onNotification("session/update", json.RawMessage(`{"sessionId":"test-session-id","update":{"sessionUpdate":"available_commands_update",
 		"availableCommands":[{"name":"context","description":"Show context window usage"},{"name":"goal","input":{"hint":"[objective]"}}]}}`))
 
-	for text, want := range map[string]bool{
-		"/context":           true,
-		"  /context \n":      true,
-		"/goal ship it":      true,
-		"/contextual":        false,
-		"/unknown":           false,
-		"context":            false,
-		"/context\nand more": false,
-		"see /context":       false,
+	for text, want := range map[string]string{
+		"/context":                  "context",
+		"  /context \n":             "context",
+		"/goal":                     "goal",
+		"/goal ship it":             "goal",
+		"/context why is it so big": "",
+		"/Context":                  "",
+		"/contextual":               "",
+		"/unknown":                  "",
+		"context":                   "",
+		"/context\nand more":        "",
+		"see /context":              "",
 	} {
-		if got := a.IsNativeCommand(context.Background(), text); got != want {
-			t.Errorf("IsNativeCommand(%q) = %v, want %v", text, got, want)
+		if got, readOnly := a.NativeCommand(context.Background(), text); got != want || readOnly {
+			t.Errorf("NativeCommand(%q) = %q, %v; want %q, false", text, got, readOnly, want)
 		}
 	}
 	if len(s.events) != 0 {
