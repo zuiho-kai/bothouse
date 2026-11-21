@@ -16,6 +16,9 @@ import hashlib
 import json
 import re
 import threading
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 PAGE = re.compile(r"(?:[\w-]+/)+[\w-]+\.md")
@@ -667,3 +670,103 @@ def ingest(root, transcript, sid8, date, rules, call, label, prepared=None, cach
     return (f"facts={len(facts)} writes={len(plan.done)} skipped={len(plan.skipped)} "
             f"unplaced={len(unplaced)} dropped={len(dropped)}")
 
+
+class Api:
+    """One OpenAI-compatible chat/completions route for the two tool-less calls. Thread-safe: at most `limit`
+    calls run at once. The reply is streamed: a long session's call (measured 2026-11-20: over 100 s on 240k-char
+    inputs) otherwise ends in a proxy's HTTP 524 although the model is still working. A 429, a server error or a
+    transport error lowers the limit (halved, once per pause, so simultaneous failures of one burst count once) and
+    the call is retried after a pause, as long as the run's deadline leaves room for the pause and another call.
+    Returns (ok, text or error, usage dict, http status); status None: not sent, the run has less time left than one
+    call needs (ROOM)."""
+    # source: a proxy in front of such routes answers urllib's default User-Agent with 403 / error code 1010 (measured 2026-11-20)
+    AGENT = "llm-wiki-ingest/1"
+    # source: measured 2026-11-20, the route answers a one-line JSON-schema call in 3.6 s; 3 tries span ~1.5 min of pauses
+    TRIES, PAUSE = 3, 30
+    # source: measured 2026-11-20 over 110 tool-less proposal calls, the longest took 97 s. ROOM: what one call
+    # needs of the run's remaining time. TIMEOUT: the socket timeout when the run has no deadline, three such calls.
+    ROOM, TIMEOUT = 97, 300
+
+    def __init__(self, base, model, key_file, limit, effort="", log=print):
+        self.base, self.model, self.key_file, self.effort, self.log = base.rstrip("/"), model, key_file, effort, log
+        self.limit, self.active, self.cond, self.lowered = max(1, int(limit)), 0, threading.Condition(), 0.0
+
+    def key(self):
+        return Path(self.key_file).expanduser().read_text().strip()
+
+    def _slot(self, take):
+        with self.cond:
+            if take:
+                self.cond.wait_for(lambda: self.active < self.limit)
+                self.active += 1
+            else:
+                self.active -= 1
+                self.cond.notify_all()
+
+    def _slower(self, why):
+        with self.cond:
+            if self.limit > 1 and time.time() - self.lowered >= self.PAUSE:
+                self.limit, self.lowered = max(1, self.limit // 2), time.time()
+                self.log(f"openai route: {why}; concurrency lowered to {self.limit}")
+
+    @staticmethod
+    def _read_stream(r):
+        """Joins the streamed content deltas; usage comes in the last chunk (stream_options.include_usage)."""
+        parts, usage = [], {}
+        for line in r:
+            line = line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:") or line == "data: [DONE]":
+                continue
+            chunk = json.loads(line[5:])
+            if chunk.get("error"):
+                raise ValueError(f"stream error: {json.dumps(chunk['error'], ensure_ascii=False)[:300]}")
+            usage = chunk.get("usage") or usage
+            for choice in chunk.get("choices") or ():
+                parts.append((choice.get("delta") or {}).get("content") or "")
+        if not usage:
+            # include_usage puts usage in the final chunk, so a stream without it was cut off (measured 2026-11-20:
+            # http 200, 0 tokens, empty text): a broken transport, retried, never a model answer
+            raise ValueError(f"stream ended before its usage chunk ({len(''.join(parts))} chars received)")
+        return "".join(parts), usage
+
+    def json(self, prompt, schema, name, remaining):
+        """`remaining()`: seconds the run has left, None when it has no deadline (budget.remaining)."""
+        key = self.key()  # OSError: the configured key file is unreadable, a setup error for the caller
+        body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "stream": True,
+                "stream_options": {"include_usage": True},
+                "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}
+        if self.effort:
+            body["reasoning_effort"] = self.effort
+        data = json.dumps(body, ensure_ascii=False).encode()
+        status, text = 0, ""
+        for attempt in range(self.TRIES):
+            req = urllib.request.Request(self.base + "/chat/completions", data=data, headers={
+                "Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": self.AGENT})
+            self._slot(True)
+            left = remaining()  # read after the wait for a turn: the deadline may have come closer meanwhile
+            try:
+                if left is not None and left < self.ROOM:
+                    return False, "not enough remaining time for a proposal call", {}, None
+                with urllib.request.urlopen(req, timeout=self.TIMEOUT if left is None else min(left, self.TIMEOUT)) as r:
+                    status = r.status
+                    out, usage = self._read_stream(r)
+                    return True, out, usage, status
+            except urllib.error.HTTPError as e:
+                status, raw = e.code, e.read()
+            except (OSError, ValueError) as e:  # URLError, timeouts, resets, a broken stream: the route, not the session
+                status, raw = 0, f"transport error: {type(e).__name__}: {e}".encode()
+            finally:
+                self._slot(False)
+            text = raw.decode("utf-8", "replace").replace(key, "[REDACTED]")
+            if status == 429 or status == 0 or status >= 500:
+                self._slower(f"HTTP {status or 'transport error'}")
+            else:
+                break  # 4xx other than 429: the request itself is refused, retrying sends the same thing
+            if attempt + 1 == self.TRIES:
+                break
+            pause, left = self.PAUSE * (attempt + 1), remaining()
+            if left is not None and left < pause + self.ROOM:
+                break  # the pause and one more call do not fit before the deadline
+            time.sleep(pause)
+        kind = "rate limit" if status == 429 else "authentication" if status in (401, 403) else "provider down"
+        return False, f"openai route: HTTP {status} ({kind}): {text[:300]}", {}, status

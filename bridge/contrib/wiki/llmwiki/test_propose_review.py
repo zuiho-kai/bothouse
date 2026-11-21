@@ -54,6 +54,16 @@ class ProposeReview(unittest.TestCase):
                                                                              return_value=[I.flat(fact()["quote"])]):
                     self.assertEqual(I.page_misquotes([self.root / "source.jsonl"]), "")
 
+    def test_prefetch_unreadable_words_cannot_prepare_a_dropped_fact_result(self):
+        worker = I.Prefetch.__new__(I.Prefetch)
+        worker.stopped = False
+        with patch.object(I, "REPO", self.root), patch.object(I, "user_texts", return_value=[]), \
+                patch.object(I, "api_json", return_value=(True, json.dumps(dict(
+                    title="配置", nothing_reason="", facts=[fact()])), False)) as api:
+            with self.assertRaises(I.discord_said.Unavailable):
+                worker.work("ingest aaaaaaaa", "USER: 现在配置用新值", [self.root / "source.jsonl"])
+        api.assert_not_called()
+
     def test_omitted_fact_is_preserved_in_unplaced_log(self):
         prepared = (dict(title="配置", nothing_reason=""), [fact()], [], dict(ops=[], unplaced=[]))
         P.ingest(self.root, "", "aaaaaaaa", "2026-11-20", self.rules, None, "ingest", prepared)
@@ -61,7 +71,7 @@ class ProposeReview(unittest.TestCase):
         self.assertIn(fact()["fact"], (self.root / "log.md").read_text())
 
     def test_proposal_pass_moves_superseded_old_fact_to_history(self):
-        def codex(prompt, schema, label, model, effort):
+        def api(prompt, schema, label):
             if schema == P.FACTS_SCHEMA:
                 answer = dict(title="配置", nothing_reason="", facts=[fact()])
             elif schema == P.OPS_SCHEMA:
@@ -69,15 +79,15 @@ class ProposeReview(unittest.TestCase):
             else:
                 self.assertEqual(schema, I.invalidate.SCHEMA)
                 answer = dict(results=[dict(g=0, n=0, contradicted_facts=[0])])
-            return True, json.dumps(answer), 0, None
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+            return True, json.dumps(answer), False
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / "cache"), \
-                patch.object(I, "sync_work"), patch.object(I, "codex_json", codex), \
+                patch.object(I, "sync_work"), patch.object(I, "api_json", api), \
                 patch.object(I, "user_texts", return_value=[I.flat(fact()["quote"])]), \
                 patch.object(I, "acceptance", return_value=""), patch.object(I, "log"), \
                 patch.object(I, "deliver", return_value=True):
             result = I.propose_pass("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
-                                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "codex")
+                                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "openai:high")
         self.assertEqual(result, "changed")
         text = (self.root / "tooling/a.md").read_text()
         self.assertIn("## 历史\n- 原来配置是旧值。", text)
@@ -97,7 +107,7 @@ class ProposeReview(unittest.TestCase):
         with patch.object(I, "propose_pass", side_effect=down), patch.object(I, "model_pass", return_value=True) as fallback, \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, [item], ["codex", "sonnet"], False)
+            I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
         fallback.assert_not_called()
         self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
         self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [])
@@ -124,7 +134,7 @@ class ProposeReview(unittest.TestCase):
                 patch.object(I, "model_pass", return_value=True) as fallback, \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, [item], ["codex", "sonnet"], False)
+            I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
         fallback.assert_not_called()
         self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
 
@@ -147,7 +157,7 @@ class ProposeReview(unittest.TestCase):
         def discard():
             for path, text in originals.items():
                 path.write_text(text)
-        def codex(prompt, schema, label, model, effort):
+        def api(prompt, schema, label):
             calls.append(label.rsplit(" ", 1)[-1])
             if schema == P.FACTS_SCHEMA:
                 answer = dict(title="配置", nothing_reason="", facts=[fact()])
@@ -155,16 +165,16 @@ class ProposeReview(unittest.TestCase):
                 answer = dict(ops=[op(readme="", description="")], unplaced=[])
             else:
                 answer = dict(results=[])
-            return True, json.dumps(answer), 0, None
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+            return True, json.dumps(answer), False
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / "cache"), \
                 patch.object(I, "sync_work"), patch.object(I, "discard", discard), \
-                patch.object(I, "codex_json", codex), patch.object(I, "log"), \
+                patch.object(I, "api_json", api), patch.object(I, "log"), \
                 patch.object(I, "user_texts", return_value=[I.flat(fact()["quote"])]), \
                 patch.object(I, "acceptance", side_effect=["refused", ""]), \
                 patch.object(I, "deliver", return_value=True):
             args = ("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
-                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "codex")
+                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "openai:high")
             self.assertFalse(I.propose_pass(*args))
             self.assertEqual(I.propose_pass(*args), "changed")
         self.assertEqual(calls.count("facts"), 1)
@@ -185,10 +195,10 @@ class ProposeReview(unittest.TestCase):
                          "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
-        with patch.object(I, "propose_pass", accept), \
+        with patch.object(I, "propose_pass", accept), patch.object(I, "Prefetch"), \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, items, ["codex"], pending=True)
+            I.ingest_batches(db, items, ["openai:high"], pending=True)
         self.assertEqual(seen, [["aaaaaaaa", "bbbbbbbb"]])
         for sid in ["aaaaaaaa", "bbbbbbbb"]:
             self.assertIn("ingest | " + sid, (self.root / "log.md").read_text())
@@ -205,7 +215,7 @@ class ProposeReview(unittest.TestCase):
     def test_codex_request_refusal_stops_paid_fallback(self):
         I.ROUTE_DOWN = False
         refusal = I.codex_retry.failure(['usage limit'], None, 'turn.failed', set())
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / 'cache'), \
                 patch.object(I, 'sync_work'), patch.object(I, 'discard'), patch.object(I, 'log'), \
                 patch.object(I, 'role_rules', return_value=([], self.rules)), \
@@ -407,6 +417,119 @@ class ProposeReview(unittest.TestCase):
         self.assertEqual(status, "")
         template = (Path(__file__).resolve().parent.parent / "template/gitignore").read_text()
         self.assertIn(".ingest-propose/\n", template)
+
+    def test_openai_call_always_has_a_timeout_and_never_pauses_past_the_deadline(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 1, log=lambda msg: None)
+        seen = []
+        def urlopen(request, timeout=None):
+            seen.append(timeout)
+            raise P.urllib.error.URLError("refused")
+        with patch.object(P.urllib.request, "urlopen", urlopen), patch.object(P.time, "sleep") as sleep:
+            ok, _, _, status = api.json("prompt", {}, "facts", lambda: None)  # no job deadline
+            self.assertEqual((ok, status, seen), (False, 0, [P.Api.TIMEOUT] * P.Api.TRIES))
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], [P.Api.PAUSE, 2 * P.Api.PAUSE])
+            seen.clear()
+            sleep.reset_mock()
+            left = P.Api.ROOM + P.Api.PAUSE - 1  # room for this call, not for a pause and another call
+            ok, _, _, status = api.json("prompt", {}, "facts", lambda: left)
+            self.assertEqual((ok, status, seen), (False, 0, [left]))
+            sleep.assert_not_called()
+
+    def test_openai_call_without_room_before_the_deadline_is_not_sent(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 4, log=lambda msg: None)
+        seen = []
+        def urlopen(request, timeout=None):
+            seen.append(timeout)
+            raise P.urllib.error.URLError("refused")
+        with patch.object(P.urllib.request, "urlopen", urlopen), patch.object(P.time, "sleep"):
+            for left in (P.Api.ROOM - 1, 0, -5):  # what is left once the call has waited for its turn
+                with self.subTest(left=left):
+                    self.assertEqual(api.json("prompt", {}, "facts", lambda: left)[2:], ({}, None))
+        self.assertEqual((seen, api.limit), ([], 4))  # no zero or negative timeout, and no slowdown for it
+
+    def test_openai_route_short_of_time_is_the_deadline_not_an_outage(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 4, log=lambda msg: None)
+        sent = []
+        I.ROUTE_DOWN = False
+        with patch.object(P.urllib.request, "urlopen", lambda *args, **kw: sent.append(kw)), \
+                patch.object(I.budget, "remaining", return_value=P.Api.ROOM - 1), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None, API=api,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)):
+            self.assertFalse(I.propose_pass("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
+                                            "USER: 现在配置用新值", ["aaaaaaaa"], [], "openai:high"))
+        self.assertEqual((sent, I.ROUTE_DOWN), ([], False))  # nightly's maintenance still runs after this round
+        self.assertTrue(I.OUT_OF_TIME)
+
+    def test_round_short_of_time_stops_without_counting_or_trying_another_engine(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        items = [dict(id=sid, end=10, path=self.root / (sid + ".jsonl"), title="配置", cwd="/test",
+                      date="2026-11-20", text="USER: 现在配置用新值") for sid in ["aaaaaaaa", "bbbbbbbb"]]
+        def short_of_time(*args):
+            I.OUT_OF_TIME = True
+            return False
+        with patch.object(I, "propose_pass", side_effect=short_of_time) as passes, \
+                patch.object(I, "model_pass", return_value=True) as fallback, patch.object(I, "log") as log, \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"):
+            I._ingest_batches(db, [I.batches_of([it])[0] for it in items], ["openai:high", "sonnet"], False)
+        self.assertEqual((passes.call_count, fallback.call_count), (1, 0))  # the later batch is not started either
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall() + db.execute("SELECT * FROM fails").fetchall(), [])
+        self.assertIn("job deadline reached", log.call_args.args[0])
+
+    def test_openai_engine_without_its_settings_is_a_config_error_and_alerts(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
+                    date="2026-11-20", text="USER: 现在配置用新值")
+        I.ROUTE_DOWN = False
+        with patch.dict(I.CFG, api_base="", api_model="model", api_key_file="key"), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, API=None,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)), \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"), \
+                patch.object(I, "alert") as alert:
+            I.ingest_batches(db, [item], ["openai:high"], pending=True)  # the calls run in the prefetch workers
+            self.assertFalse(I.ROUTE_DOWN)
+            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
+            self.assertIn("api_base, api_model and api_key_file", alert.call_args.args[2])
+            with self.assertRaises(I.ConfigError):
+                I.api_json("prompt", {}, "ingest facts")
+
+    def test_openai_key_file_unreadable_is_a_config_error_and_alerts(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
+                    date="2026-11-20", text="USER: 现在配置用新值")
+        I.ROUTE_DOWN = False
+        with patch.dict(I.CFG, api_base="http://127.0.0.1:9", api_model="model",
+                        api_key_file=str(self.root / "no-such-key")), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, API=None,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)), \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"), \
+                patch.object(I, "alert") as alert:
+            I.ingest_batches(db, [item], ["openai:high"], pending=True)
+            self.assertFalse(I.ROUTE_DOWN)
+            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
+            self.assertIn("no-such-key", alert.call_args.args[2])
 
 
 if __name__ == "__main__":
