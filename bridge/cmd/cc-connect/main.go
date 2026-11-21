@@ -234,6 +234,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"vent":         runVent,
+	"secret":       runSecret,
 	"at":           runTimer,
 	"relay":        runRelay,
 	"sessions":     runSessions,
