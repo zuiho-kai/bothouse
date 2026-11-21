@@ -83,10 +83,10 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## GuildChannelLister
 
-`bothouse send --channel <名字>`：在当前对话所在的服务器里按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。
+`bothouse send --channel <名字>`：按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。查找范围：Discord 是当前对话所在的服务器；飞书没有服务器，是 bot 所在的全部群（[获取用户或机器人所在的群列表](https://open.feishu.cn/document/server-docs/group/chat/list)）。
 
 - discord: 已接
-- feishu: 不支持：飞书没有服务器和频道列表，群之间没有「同一服务器按名字找」的关系
+- feishu: 已接
 - cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色列房间的接口
 - dsh: 不支持：同 cloud-web
 
@@ -126,18 +126,18 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## DMMemberChecker
 
-`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查。
+`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查；飞书列当前群的成员（platform/feishu/dm.go IsDMMember），当前对话不是飞书会话就报错。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener（platform/capability_baseline.txt 里的旧缺口），--dm 本身就开不了私聊，核成员没有用处
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊（同样没接 DirectMessageOpener），--dm 在这里直接报错
 
 ## DMRefusalDetector
 
-`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007。
+`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007；飞书认 230013（对方不在应用可用范围）和 230053（对方不让机器人发消息）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，--dm 开不了私聊，不会出现被拒收
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊，--dm 直接报错
 
 ## PrivateThreadOpener
@@ -145,7 +145,7 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 私信被拒收时的兜底：在当前频道开一个只有本人（和管理员）能看的私密子区发过去（#1352）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
+- feishu: 不支持：飞书群没有只有一个人能看的私密话题
 - cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底
 
 ## TaskForumPoster
@@ -189,3 +189,46 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书已有 reaction_emoji（收到时贴、结束撤）和 done_emoji，再接一套会重复
 - cloud-web: 不支持：网页聊天没有消息反应
 - dsh: 不支持：同 cloud-web
+
+## ConfiguredTeamLead
+
+配了 `team_lead_bot`（这个角色属于一个队）：没配 gate 时，群里没点名的消息 sub 不接（core/addressee.go teamRole）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## ConfiguredTeamLeadSelf
+
+`team_lead_bot` 写的就是自己：没有 gate、没有队伍状态板时，core 靠它分出主和 sub（core/addressee.go teamRole）。cloud-web 的缺口还在 platform/capability_baseline.txt 里。
+
+- discord: 已接
+- feishu: 已接
+
+## FinalReplyMarker
+
+一轮的最终答复和中途发的消息分开标：主派的活，sub 的最终答复开头自动 @ 主（core/backfill.go markFinalReply）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## InjectedReplyMerger
+
+主的 @ 插进正在跑的一轮时，这一轮记成「主派的活」，最终答复照样交回主（core/backfill.go mergeInjectedReplies）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## MessageOrderer
+
+回看频道历史时由平台判断两条消息的先后（core/backfill.go messageAfter）。飞书消息 id 是散列形式，不保证按时间排，按 create_time 比。
+
+- feishu: 已接
+- discord: 不支持：不需要，消息 id 是雪花数，按数值比就是按时间比（core 默认比法）
+- cloud-web: 不支持：不需要，hub 的 id 是递增整数，core 默认比法就对
+- dsh: 不支持：不需要，走 cloud-web 帧，id 递增，core 默认比法就对

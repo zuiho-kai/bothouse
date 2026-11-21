@@ -116,11 +116,22 @@ type replyContext struct {
 	mentioned bool
 	direct    bool
 	fromBot   bool
+	// stopAll: a person's bare stop word that calls no bot (isBareStopEvent); copied onto
+	// core.Message.StopAll so every bot in the chat stops its own work there.
+	stopAll bool
 	// replyTo: the message this one replies to (parent_id); dispatchCoreMessage puts it in
 	// core.Message.Reference so core can find the work it belongs to (core/reply_task.go).
 	replyTo string
 	// recordSent gets the id of every message posted with this context (core.SentMessageRecorder).
 	recordSent func(string)
+	// agent: this send carries the agent's own text (core.AgentReplyMarker, history.go);
+	// recordAgentReply gets the id of each such post (core.SessionAgentReplyMarker).
+	agent            bool
+	recordAgentReply func(string)
+	// lead: the primary role this turn's final answer is handed back to (lead_return.go); final:
+	// this send carries the turn's final answer (core.FinalReplyMarker).
+	lead  string
+	final bool
 }
 
 type Platform struct {
@@ -132,11 +143,17 @@ type Platform struct {
 	appSecret                  string
 	progressStyle              string
 	useInteractiveCard         bool
+	cardEntries                int  // progress_card_entries (progress_size.go)
+	cardLineLen                int  // progress_line_len
+	cardHideThinking           bool // progress_hide_thinking
 	self                       core.Platform
 	reactionEmoji              string
 	doneEmoji                  string
 	allowFrom                  string
 	allowChat                  string
+	allowBots                  string   // maomao fork: bot sender ids whose @-mentions of this bot are accepted (lead_return.go)
+	teamLead                   string   // maomao fork: team_lead_bot, the primary role's id
+	leadReturned               sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
 	groupOnly                  bool
 	groupReplyAll              bool
 	respondToAtEveryoneAndHere bool
@@ -181,6 +198,10 @@ type Platform struct {
 	// stale entries can be expired by a future TTL sweep if needed.
 	activeThreadSessions sync.Map // sessionKey -> time.Time
 	boardPinned          sync.Map // team board message ID -> struct{} once pinned by this process
+	dmChats              sync.Map // open_id -> p2p chat_id, for OpenDM (dm.go)
+	// maomao fork (history.go): this bot's agent posts, and the create_time of messages seen.
+	turnSent turnSentLog
+	msgTimes msgTimes
 
 	richCardImageMu         sync.Mutex
 	richCardImageResolved   map[string]string
@@ -313,6 +334,11 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	allowFrom, _ := opts["allow_from"].(string)
 	core.CheckAllowFrom(name, allowFrom)
 	allowChat, _ := opts["allow_chat"].(string)
+	allowBots, _ := opts["allow_bots"].(string)
+	teamLead, _ := opts["team_lead_bot"].(string)
+	cardEntries := progressIntOpt(opts["progress_card_entries"])
+	cardLineLen := progressIntOpt(opts["progress_line_len"])
+	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
 	groupOnly, _ := opts["group_only"].(bool)
 	groupReplyAll, _ := opts["group_reply_all"].(bool)
 	// require_mention = false is equivalent to group_reply_all = true:
@@ -412,10 +438,15 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		appSecret:                  appSecret,
 		progressStyle:              progressStyle,
 		useInteractiveCard:         useInteractiveCard,
+		cardEntries:                cardEntries,
+		cardLineLen:                cardLineLen,
+		cardHideThinking:           cardHideThinking,
 		reactionEmoji:              reactionEmoji,
 		doneEmoji:                  doneEmoji,
 		allowFrom:                  allowFrom,
 		allowChat:                  allowChat,
+		allowBots:                  allowBots,
+		teamLead:                   teamLead,
 		groupOnly:                  groupOnly,
 		groupReplyAll:              groupReplyAll,
 		respondToAtEveryoneAndHere: respondToAtEveryoneAndHere,
@@ -434,6 +465,7 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		imageBatch:                 make(map[string]*imageBatchEntry),
 		imageBatchWindow:           imageBatchWindow,
 	}
+	base.loadTurnSent(opts)
 	if !useInteractiveCard {
 		base.self = base
 		return base, nil
@@ -1128,6 +1160,7 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
 		msg.Direct = msg.Direct || rc.direct
 		msg.FromBot = msg.FromBot || rc.fromBot
+		msg.StopAll = msg.StopAll || rc.stopAll
 		if rc.replyTo != "" && msg.Reference == nil {
 			// Only the id: the quoted text already is in ExtraContent (fetchQuotedMessage).
 			msg.Reference = &core.MessageReference{ID: rc.replyTo}
@@ -1401,6 +1434,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 				return nil
 			}
 			createTimeMs = ms
+			p.msgTimes.put(messageID, ms)
 		}
 	}
 
@@ -1424,6 +1458,17 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	// Pre-compute sessionKey so the @bot filter below can consult the active
 	// thread set; sessionKey is also used downstream for dispatch.
 	sessionKey := p.makeSessionKey(msg, chatID, userID)
+	if chatType == "p2p" && userID != "" && chatID != "" {
+		p.dmChats.Store(userID, chatID) // OpenDM reuses this chat (dm.go)
+	}
+
+	// maomao fork: other bots get through only if listed in allow_bots, and only when they @
+	// this bot, so bots can hand work to each other without loops (same rule as Discord).
+	fromBot := senderIsBot(sender)
+	if fromBot && !(p.botAllowed(userID) && isBotMentioned(msg.Mentions, p.getBotOpenID())) {
+		slog.Debug(p.tag()+": ignoring bot message", "sender", userID, "chat_id", chatID)
+		return nil
+	}
 
 	if chatType == "group" && !p.groupReplyAll && p.getBotOpenID() != "" {
 		if !isBotMentioned(msg.Mentions, p.getBotOpenID()) {
@@ -1442,6 +1487,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 			// "/stop all" from a user reaches every bot in the chat, mentioned or not.
 			case isStopAllEvent(sender, msgType, msg.Content):
 				slog.Debug(p.tag()+": passing /stop all without mention", "chat_id", chatID)
+			// A bare stop word that calls no bot also reaches every bot, as on Discord.
+			case isBareStopEvent(sender, msg):
+				slog.Debug(p.tag()+": passing bare stop word without mention", "chat_id", chatID)
 			default:
 				slog.Debug(p.tag()+": ignoring group message without bot mention", "chat_id", chatID)
 				return nil
@@ -1449,7 +1497,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		}
 	}
 
-	if !core.AllowList(p.allowFrom, userID) {
+	if !fromBot && !core.AllowList(p.allowFrom, userID) {
 		slog.Debug(p.tag()+": message from unauthorized user", "user", userID)
 		p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
 		return nil
@@ -1479,8 +1527,10 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
-		fromBot:   sender.SenderType != nil && *sender.SenderType == "app",
-		direct:    chatType == "p2p", replyTo: parentID}
+		fromBot:   fromBot,
+		direct:    chatType == "p2p", replyTo: parentID,
+		stopAll:   chatType == "group" && isBareStopEvent(sender, msg)}
+	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
 		"session_key", sessionKey,
@@ -2861,6 +2911,7 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	}
 
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	msgType, msgBody := buildReplyContent(content)
 
 	if !p.shouldUseThreadOrReplyAPI(rc) {
@@ -2883,6 +2934,7 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	}
 
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	msgType, msgBody := buildReplyContent(content)
 	return p.sendNewMessageToChat(ctx, rc, msgType, msgBody)
 }
@@ -2900,6 +2952,7 @@ func (p *Platform) SendWithStatusFooter(ctx context.Context, rctx any, content, 
 	}
 	// Resolve mentions first so we can detect whether a real @mention is
 	content = p.resolveMentionsInContent(ctx, rc.chatID, content)
+	content = p.returnToLead(rc, content)
 	if strings.TrimSpace(footer) == "" || strings.Contains(content, `<at user_id=`) || strings.Contains(content, `<at id=`) {
 		if strings.TrimSpace(footer) != "" {
 			content += "\n\n" + footer
@@ -3014,7 +3067,7 @@ func (p *Platform) sendMediaMessage(ctx context.Context, rc replyContext, msgTyp
 	if p.shouldUseThreadOrReplyAPI(rc) {
 		return p.replyMessage(ctx, rc, msgType, content)
 	}
-	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send media message", rc.recordSent)
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send media message", p.sentRecorder(rc))
 }
 
 func detectFeishuFileType(mimeType, fileName string) string {
@@ -3705,7 +3758,7 @@ func (p *Platform) sendNewMessageToChat(ctx context.Context, rc replyContext, ms
 	if rc.chatID == "" {
 		return fmt.Errorf("%s: chatID is empty, cannot send new message", p.tag())
 	}
-	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send", rc.recordSent)
+	return p.createMessageRec(ctx, rc.chatID, msgType, content, "send", p.sentRecorder(rc))
 }
 
 func (p *Platform) buildReplyMessageReqBody(rc replyContext, msgType, content string) *larkim.ReplyMessageReqBody {
@@ -3733,7 +3786,7 @@ func (p *Platform) replyMessage(ctx context.Context, rc replyContext, msgType, c
 				return fmt.Errorf("%s: reply failed code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
 			}
 			if resp.Data != nil {
-				noteSent(rc.recordSent, resp.Data.MessageId)
+				noteSent(p.sentRecorder(rc), resp.Data.MessageId)
 			}
 			return nil
 		})
@@ -4157,7 +4210,7 @@ func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCa
 		return nil
 	}
 	if len(payload.Items) > 0 {
-		return payload.Items
+		return cutProgressLines(payload.Items, payload.LineLen)
 	}
 	out := make([]core.ProgressCardEntry, 0, len(payload.Entries))
 	for _, entry := range payload.Entries {
@@ -4178,7 +4231,7 @@ func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCa
 		}
 		out = append(out, core.ProgressCardEntry{Kind: kind, Text: entry})
 	}
-	return out
+	return cutProgressLines(out, payload.LineLen)
 }
 
 func inlineCodeText(s string) string {
@@ -4665,6 +4718,7 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 	if msgID == "" {
 		return nil, fmt.Errorf("%s: send preview: no message ID returned", p.tag())
 	}
+	p.noteAgentReply(rc, msgID)
 
 	return &feishuPreviewHandle{messageID: msgID, chatID: chatID, cardID: cardID}, nil
 }
@@ -6846,12 +6900,38 @@ func (p *Platform) SetPreviewStatus(previewHandle any, status core.CardStatus) {
 	}
 }
 
+// isBareStopEvent reports whether a person's group message is only a stop word that calls no
+// bot: plain text, no @ at all, not a reply, not in a topic (same rule as Discord isBareStop;
+// core checks it again in isUnaddressedStop). A teammate named at the start ("龙娘，停") is not a
+// bare stop word, so core.IsBareStopWord already leaves it out.
+func isBareStopEvent(sender *larkim.EventSender, msg *larkim.EventMessage) bool {
+	if msg == nil || len(msg.Mentions) > 0 || stringValue(msg.ParentId) != "" || stringValue(msg.RootId) != "" {
+		return false
+	}
+	text, ok := plainTextOf(sender, stringValue(msg.MessageType), msg.Content)
+	return ok && core.IsBareStopWord(text)
+}
+
+// plainTextOf is the text of a person's plain-text message (ok=false for bots and other types).
+func plainTextOf(sender *larkim.EventSender, msgType string, content *string) (string, bool) {
+	if msgType != "text" || content == nil || senderIsBot(sender) {
+		return "", false
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(*content), &body) != nil {
+		return "", false
+	}
+	return body.Text, true
+}
+
 // isStopAllEvent reports whether a Feishu event is a user's plain-text "/stop all".
 func isStopAllEvent(sender *larkim.EventSender, msgType string, content *string) bool {
 	if msgType != "text" || content == nil {
 		return false
 	}
-	if sender != nil && sender.SenderType != nil && *sender.SenderType == "app" {
+	if senderIsBot(sender) {
 		return false
 	}
 	var body struct {

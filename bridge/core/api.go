@@ -417,7 +417,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			// a private thread in the conversation's channel that only they (and moderators) can see.
 			key, _, terr := engine.dmFallbackThread(req.FromSession, dmUserID)
 			if terr != nil {
-				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (Discord refused the DM), "+
+				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (the platform refused the DM), "+
 					"and a private thread could not be opened either (%v). Nothing was sent. Do not ask them to change their privacy settings; "+
 					"tell them in the chat that the private message could not be delivered, without the private content, "+
 					"and let them do the private step themselves (for example run the login in their own terminal).", dmUserID, terr), http.StatusBadRequest)

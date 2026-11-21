@@ -2547,7 +2547,7 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 	}
 	e.teamNoteTurn(msg, session)
 	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
-		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+		markSeen(msg.scheduledFrom, session, &Message{MessageID: msg.handoffSeenMark})
 	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
@@ -19678,7 +19678,9 @@ func (e *Engine) resolveWorkspace(p Platform, channelID string) (string, string,
 		name, err := resolver.ResolveChannelName(channelID)
 		if err != nil {
 			slog.Warn("failed to resolve channel name", "channel", channelID, "err", err)
-		} else {
+		} else if name == filepath.Base(name) && name != "." && name != ".." {
+			// Only a plain directory name becomes a path under base_dir. A Feishu group can be
+			// called "../x" or "a/b" (Discord and Slack channel names cannot): no convention match.
 			channelName = name
 		}
 	}
