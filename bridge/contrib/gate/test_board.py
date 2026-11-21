@@ -54,6 +54,46 @@ class Board(unittest.TestCase):
         self.assertFalse(board._asking(it))
         self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
 
+    def test_pr_events_wake_waiting_external(self):
+        # #1855：等外部的条目盯合并请求。暂停后的新评论、当前提交上的失败检查（哪怕红在暂停前）叫一次并带原文链接；
+        # 没动静不出声；报过的不重复叫
+        from subprocess import CompletedProcess
+        from unittest.mock import patch
+        url = "https://github.com/o/r/pull/7"
+        self.assertEqual(cli("add", "上游合并请求按审核意见改", "~/n.md", "在做", "工作区1"), (0, "#1"))
+        rc, out = cli("wait", "1", "等审核人复审和检查", "60", url)
+        self.assertEqual(rc, 0, out)
+        it = board._read()[0]
+        self.assertEqual(it["watch_pr"], [url])
+        until = it["wait_until"]
+
+        def pr(comments, checks):
+            return CompletedProcess([], 0, json.dumps({"data": {"repository": {"pullRequest": {
+                "url": url, "state": "OPEN", "mergedAt": None, "closedAt": None,
+                "comments": {"nodes": comments}, "reviews": {"nodes": []},
+                "commits": {"nodes": [{"commit": {"oid": "e6a6c03e00", "statusCheckRollup": {"contexts": {"nodes": checks}}}}]}}}}}), "")
+
+        old = {"databaseId": 1, "url": url + "#issuecomment-1", "createdAt": "2020-01-01T00:00:00Z", "author": {"login": "me"}}
+        new = {"databaseId": 2, "url": url + "#issuecomment-2", "createdAt": "2999-01-01T00:00:00Z", "author": {"login": "amy"}}
+        running = {"__typename": "CheckRun", "databaseId": 10, "name": "full-check", "status": "IN_PROGRESS",
+                   "conclusion": None, "completedAt": None, "detailsUrl": url + "/checks?run=10"}
+        red = {"__typename": "CheckRun", "databaseId": 11, "name": "lint", "status": "COMPLETED",
+               "conclusion": "FAILURE", "completedAt": "2020-01-01T00:00:00Z", "detailsUrl": url + "/checks?run=11"}
+        with patch.object(board.subprocess, "run", return_value=pr([old], [running])):
+            self.assertEqual(board.pr_events(), [])
+        self.assertEqual(board._read()[0]["wait_until"], until)
+        with patch.object(board.subprocess, "run", return_value=pr([old, new], [running, red])):
+            self.assertEqual(board.pr_events(), [(1, 2)])
+            self.assertEqual(board.pr_events(), [])
+        it = board._read()[0]
+        self.assertLess(it["wait_until"], until)
+        self.assertEqual(it["pr_news"], [f"新评论（amy）：{url}#issuecomment-2", f"检查失败 lint：{url}/checks?run=11"])
+        self.assertTrue(board.resume(1))
+        self.assertNotIn("pr_news", board._read()[0])
+        self.assertEqual(cli("watch-pr", "1", "https://github.com/o/r/pull/8")[0], 0)
+        self.assertNotEqual(cli("watch-pr", "1", "https://github.com/o/r/issues/8")[0], 0)
+        self.assertEqual(board._read()[0]["watch_pr"], [url, "https://github.com/o/r/pull/8"])
+
     def test_add_update_done(self):
         self.assertEqual(cli("add", "@ 路由修复", "PR #236", "等实测", "橘"), (0, "#1"))
         self.assertEqual(cli("add", "release 0.1.1", "~/code/x", "写说明", "鲸鱼娘"), (0, "#2"))

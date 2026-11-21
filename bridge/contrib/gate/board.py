@@ -36,6 +36,9 @@
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
+  board watch-pr <编号> <GitHub PR URL>   # 这件事暂停在「等外部」时盯这个合并请求：有新评论、新审核、检查失败或跑完、合并或关闭，
+                                         #   桥几分钟内交回工作区接着做（交回正文里的合并请求链接桥自动记，这条用来手动补）
+  board pr-events                       # 查一遍暂停在「等外部」的条目盯的合并请求（桥每 2 分钟调）；有新动静才改「再看」时间并打印，没有就不出声
   board merged                          # 核对绑定 PR：已合并且不部署转待收口（不代替验收）；要部署的转「等发布」（不算卡住）
   board deployed <提交> [编号...]         # 桥以 <提交> 版本起来后（桥自己会跑）：等发布的条目已含在这次部署里的转「待上线验收」，
                                          #   桥自动派非作者去做上线验收；查不到（gh 失败）的先不动，下次再核
@@ -829,8 +832,9 @@ def ask_to_user(nid, kind, plain=""):
     return hit
 
 
-def wait_external(nid, why, minutes):
-    """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。"""
+def wait_external(nid, why, minutes, prs=()):
+    """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。
+    prs：交回正文里的合并请求链接，记进 watch_pr，暂停期间 pr_events 盯它们。"""
     hit = pause(nid, WAIT_EXT + (why or "外部条件"))
     if not hit:
         return hit
@@ -840,6 +844,10 @@ def wait_external(nid, why, minutes):
         it = next((i for i in cur if i["id"] == nid), None)
         if it is not None:
             it["wait_until"] = until
+            it.pop("pr_news", None)
+            for url in prs:
+                if PR_URL.fullmatch(url) and url not in it.setdefault("watch_pr", []):
+                    it["watch_pr"].append(url)
             it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
             _write(cur)
     hit["wait_until"] = until
@@ -847,6 +855,122 @@ def wait_external(nid, why, minutes):
         append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
                                      f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
     return hit
+
+
+# ---- 等外部时盯合并请求（#1855）----
+# 用户 11-21「你到底有没有搞事件触发」：#1850 交回「等外部，再看 1h」后，审核人两次新意见、检查 20 秒变红都没人知道。
+# 暂停在「等外部」的条目带 watch_pr（合并请求链接）时，桥每 2 分钟调 board pr-events（core/team_pr_events.go）：
+# 用 gh 查一次，有新动静就把 wait_until 改成现在、原文链接记进 pr_news，桥照原路 ws-handoff --resume 交回；
+# 没动静不打印、不叫模型。报过的记在 pr_seen，不重复叫。
+PR_URL = re.compile(r"https://github\.com/([\w.-]+)/([\w.-]+)/pull/([1-9]\d*)")
+PR_CHECK_BAD = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"}
+PR_EVENTS_QUERY = ('query{repository(owner:"%s",name:"%s"){pullRequest(number:%s){url state mergedAt closedAt '
+                   'comments(last:50){nodes{databaseId url createdAt author{login}}} '
+                   'reviews(last:50){nodes{databaseId url state submittedAt author{login}}} '
+                   'commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){nodes{__typename '
+                   '... on CheckRun{databaseId name status conclusion completedAt detailsUrl} '
+                   '... on StatusContext{context state targetUrl createdAt}}}}}}}}}}')
+
+
+def watch_pr(nid, url):
+    """给条目记一个要盯的合并请求。None：没有这条；False：不是合并请求链接。"""
+    if not PR_URL.fullmatch(url):
+        return False
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return None
+        if url not in hit.setdefault("watch_pr", []):
+            hit["watch_pr"].append(url)
+            _write(cur)
+    return True
+
+
+def _pr_query(url):
+    """gh 查一个合并请求的评论、审核、检查和状态；查不到返回 None（这轮不动，下轮再查）。"""
+    owner, name, num = PR_URL.fullmatch(url).groups()
+    try:
+        p = subprocess.run(["gh", "api", "graphql", "-f", "query=" + PR_EVENTS_QUERY % (owner, name, num)],
+                           capture_output=True, text=True, timeout=30)
+        if p.returncode != 0:
+            return None
+        return json.loads(p.stdout)["data"]["repository"]["pullRequest"]
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        return None
+
+
+def _iso(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
+
+
+def pr_news(pr, since, seen):
+    """合并请求 pr 上的新动静 [(记号, 一行带原文链接的话)]：since（暂停时刻）之后的评论和审核、合并或关闭、
+    检查全部跑完；还开着的合并请求当前提交上没报过的失败检查不看时间（推完没等检查就交回的，红在暂停前也要叫一次）。"""
+    def after(t):
+        return bool(t) and _iso(t) > since
+
+    def who(n):
+        return (n.get("author") or {}).get("login") or "?"
+
+    out = []
+    for c in pr["comments"]["nodes"]:
+        if after(c["createdAt"]):
+            out.append((f"c{c['databaseId']}", f"新评论（{who(c)}）：{c['url']}"))
+    for r in pr["reviews"]["nodes"]:
+        if after(r["submittedAt"]):
+            out.append((f"r{r['databaseId']}", f"新审核 {r['state']}（{who(r)}）：{r['url']}"))
+    if pr["state"] != "OPEN":
+        if after(pr.get("mergedAt") or pr.get("closedAt")):
+            out.append((f"state:{pr['state']}", f"合并请求已{'合并' if pr['state'] == 'MERGED' else '关闭'}：{pr['url']}"))
+    else:
+        commit = pr["commits"]["nodes"][0]["commit"]
+        nodes = ((commit.get("statusCheckRollup") or {}).get("contexts") or {}).get("nodes") or []
+        pending, last = False, None
+        for n in nodes:
+            run = n["__typename"] == "CheckRun"
+            state = (n["conclusion"] if n["status"] == "COMPLETED" else None) if run else n["state"]
+            if state in (None, "PENDING", "EXPECTED"):
+                pending = True
+                continue
+            at = _iso(n["completedAt"] if run else n["createdAt"])
+            last = max(last, at) if last and at else (at or last)
+            if state in PR_CHECK_BAD:
+                key = f"k{n['databaseId']}" if run else f"s{commit['oid']}:{n['context']}"
+                out.append((key, f"检查失败 {n['name'] if run else n['context']}：{n['detailsUrl'] if run else n['targetUrl']}"))
+        if nodes and not pending and last and last > since:
+            out.append((f"done:{commit['oid']}", f"提交 {commit['oid'][:8]} 的检查全部跑完：{pr['url']}/checks"))
+    return [(k, t) for k, t in out if k not in seen]
+
+
+def pr_events():
+    """查一遍暂停在「等外部」的条目盯的合并请求；有新动静的条目 wait_until 改成现在、pr_news 记原文链接。
+    gh 在锁外查，写回前重读核对还是同一次暂停。返回 [(编号, 新动静条数)]。"""
+    woke = []
+    for item in _read():
+        if not (item.get("paused") and (item.get("pause_why") or "").startswith(WAIT_EXT) and item.get("watch_pr")):
+            continue
+        since = _iso(item.get("paused_at") or "")
+        if since is None:
+            continue
+        seen, new = set(item.get("pr_seen") or []), []
+        for url in item["watch_pr"]:
+            pr = _pr_query(url)
+            if pr:
+                new += pr_news(pr, since, seen)
+        if not new:
+            continue
+        with _locked():
+            cur = _read_locked()
+            hit = next((i for i in cur if i["id"] == item["id"]), None)
+            if hit is None or hit.get("paused_at") != item.get("paused_at") or not hit.get("paused"):
+                continue
+            hit["pr_seen"] = (hit.get("pr_seen") or []) + [k for k, _ in new]
+            hit["pr_news"] = (hit.get("pr_news") or []) + [t for _, t in new]
+            hit["wait_until"] = int(time.time())
+            _write(cur)
+        woke.append((item["id"], len(new)))
+    return woke
 
 
 def _in_own_workspace(it):
@@ -1509,6 +1633,7 @@ def resume(nid):
         hit.pop("paused", None)
         hit.pop("pause_why", None)
         hit.pop("ask", None)  # 答复到了：这次提问结束（原文文件留着，下次提问覆盖）
+        hit.pop("pr_news", None)  # 合并请求新动静已随交回带走（pr_seen 留着，不重复叫）
         hit.pop("backlog", None)
         hit.pop("backlog_why", None)
         # Resuming continues work, not the deployment that was already verified (#985 review 2.2).
@@ -2188,14 +2313,25 @@ def main(argv):
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
-        elif cmd == "wait" and len(argv) == 4:
+        elif cmd == "watch-pr" and len(argv) == 3:
+            ok = watch_pr(int(argv[1].lstrip("#")), argv[2].strip())
+            if ok is None:
+                sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
+            if not ok:
+                sys.exit("要完整的合并请求链接：https://github.com/<owner>/<repo>/pull/<编号>")
+            print("已记：暂停在等外部时盯这个合并请求")
+        elif cmd == "pr-events" and len(argv) == 1:
+            for nid, n in pr_events():
+                print(f"#{nid} 合并请求有新动静 {n} 条，交回工作区")
+        elif cmd == "wait" and len(argv) >= 4:
             # 工作区 [report] 写了「等外部：…」（桥调，core/team_wait_external.go）：外部条件卡住（没空卡、等 CI、等对方），
+            # 第 4 个参数起是交回正文里的合并请求链接，暂停期间盯它们（pr_events）。
             # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
             # （用户 11-09「没卡导致不断重复跑」→「修」）。
             nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
             if any(i["id"] == nid for i in _read()):
                 task_state(nid, "paused", WAIT_EXT + argv[2].strip()[:100], in_workspace_ok=True)
-            hit = wait_external(nid, argv[2].strip(), minutes)
+            hit = wait_external(nid, argv[2].strip(), minutes, argv[4:])
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print(f"已记等外部，{minutes} 分钟后接着做")
