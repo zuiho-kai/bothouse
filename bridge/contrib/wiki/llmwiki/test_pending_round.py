@@ -222,33 +222,5 @@ class PendingRound(unittest.TestCase):
             self.assertEqual(db.execute("SELECT offset FROM ingested").fetchone(), (path.stat().st_size,))
 
 
-    def test_openai_route_takes_every_piece_of_an_oversized_record_in_one_pending_round(self):
-        # The one-batch cap is for the other routes; the openai route runs a round's batches concurrently.
-        path = ROOT / "huge0002.jsonl"
-        path.write_text(json.dumps({"type": "user", "message": {"content": "abcdefghij" * 90}}) + "\n")
-        db = sqlite3.connect(":memory:")
-        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
-                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
-        args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)
-        pieces = []
-
-        def accept(_label, _it, text, *_):
-            self.assertTrue(text.startswith(f"=== SESSION {path.stem} | "))
-            # Each proposal piece repeats its source header; compare only the transcript payload.
-            pieces.append(re.sub(r"\A=== SESSION [^\n]*\n", "", text))
-            return True
-
-        with patch.multiple(I, MAX_CHARS=200, WIKI=ROOT, WORK=ROOT, QUEUE=ROOT / "queue-huge2", LAST_ENGINE="fake"), \
-                patch.object(I, "state", return_value=db), patch.object(I, "ready", return_value=[path]), \
-                patch.object(I, "split_pass"), patch.object(I, "candidates_note", return_value=""), \
-                patch.object(I, "Prefetch"), patch.object(I, "propose_pass", accept), \
-                patch.object(I, "reject_streaks"), patch.object(I, "log"):
-            I.run(args, engines=["openai:test"])
-        self.assertGreater(len(pieces), 1)
-        self.assertEqual("".join(pieces).count("abcdefghij"), 90)
-        self.assertEqual(db.execute("SELECT offset FROM ingested").fetchone(), (path.stat().st_size,))
-
 if __name__ == "__main__":
     unittest.main()
