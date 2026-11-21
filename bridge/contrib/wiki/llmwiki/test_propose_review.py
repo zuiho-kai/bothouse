@@ -198,10 +198,150 @@ class ProposeReview(unittest.TestCase):
                     idx = int(existing.split(old)[0].rsplit('idx=', 1)[1].split(',', 1)[0])
                     groups.append(dict(g=g, n=0, contradicted_facts=[idx]))
             return json.dumps(dict(results=groups))
-        I.invalidate.run(self.root, ask=ask, log=lambda msg: None)
+        I.invalidate.run(self.root, ask=ask, log=lambda msg: None,
+                         order={I.lossless.norm(old): 0, I.lossless.norm(new): 1})
         text = path.read_text()
         self.assertIn('## 历史\n' + old, text)
         self.assertNotIn(old, text.split('## 历史')[0])
+
+    BATCH = ("=== SESSION aaaaaaaa | 2026-11-20 ===\nUSER: 现在配置用新值\n"
+             "=== SESSION bbbbbbbb | 2026-11-20 ===\nUSER: 以后合并前先跑检查\nCLAUDE: 审稿结论是合并前必须全绿\n")
+
+    def batch_pass(self, fixed_line, calls):
+        """One proposal pass over two sessions; the second session's first line gives the user a quote (「合并前必须全绿」)
+        that only the assistant said. Acceptance's quote check (page_checks) is the real one."""
+        facts = [dict(fact("现在配置用新值"), session="aaaaaaaa"), dict(fact("以后合并前先跑检查"), session="bbbbbbbb")]
+        def codex(prompt, schema, label, model, effort):
+            calls.append((label.rsplit(" ", 1)[-1], prompt))
+            if schema == P.FACTS_SCHEMA:
+                answer = dict(title="配置", nothing_reason="", facts=facts)
+            elif label.endswith("ops-fix"):
+                answer = dict(ops=[op(lines=[fixed_line], readme="", description="")], unplaced=[])
+            elif schema == P.OPS_SCHEMA:
+                answer = dict(ops=[op(readme="", description=""),
+                                   op(facts=[1], lines=["- 用户要求「合并前必须全绿」"], readme="", description="")],
+                              unplaced=[])
+            else:
+                answer = dict(results=[])
+            return True, json.dumps(answer), 0, None
+        words = {"aaaaaaaa": [I.flat("现在配置用新值")], "bbbbbbbb": [I.flat("以后合并前先跑检查")]}
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "codex_json", codex), \
+                patch.object(I, "user_texts", side_effect=lambda p, strict=False: words[p.stem]), \
+                patch.object(I, "acceptance", return_value=""), patch.object(I, "log"), \
+                patch.object(I, "deliver", return_value=True):
+            return I.propose_pass("ingest aaaaaaaa, bbbbbbbb", dict(
+                id="aaaaaaaa", date="2026-11-20", _sessions=[("aaaaaaaa", "2026-11-20"), ("bbbbbbbb", "2026-11-20")]),
+                self.BATCH, ["aaaaaaaa", "bbbbbbbb"], [self.root / "aaaaaaaa.jsonl", self.root / "bbbbbbbb.jsonl"], "codex")
+
+    def test_line_acceptance_would_refuse_goes_back_to_the_model_with_the_reason(self):
+        calls = []
+        self.assertEqual(self.batch_pass("- 以后合并前先跑检查", calls), "changed")
+        fixes = [prompt for label, prompt in calls if label == "ops-fix"]
+        self.assertEqual(len(fixes), 1)
+        self.assertIn("「合并前必须全绿」 不是这些会话里用户的原话", fixes[0])
+        self.assertNotIn("现在配置用新值", fixes[0])  # the accepted session's fact is not sent again
+        text = (self.root / "tooling/a.md").read_text()
+        self.assertIn("- 现在配置用新值（用户原话「现在配置用新值」）", text)
+        self.assertIn("- 以后合并前先跑检查（用户原话「以后合并前先跑检查」）", text)
+
+    def test_line_refused_twice_leaves_out_its_own_fact_only(self):
+        self.assertEqual(self.batch_pass("- 用户要求「合并前必须全绿」", []), "changed")
+        self.assertIn("- 现在配置用新值（用户原话「现在配置用新值」）", (self.root / "tooling/a.md").read_text())
+        self.assertNotIn("合并前必须全绿", (self.root / "tooling/a.md").read_text())
+        entry = (self.root / "log.md").read_text().split("ingest | bbbbbbbb")[1]
+        self.assertIn("未写入（程序两次拒绝", entry)
+        self.assertIn("以后合并前先跑检查", entry)
+
+    def test_smaller_retry_reuses_each_sessions_saved_facts(self):
+        calls = []
+        def call(prompt, schema, label):
+            calls.append(label)
+            if schema == P.FACTS_SCHEMA:
+                return dict(title="配置", nothing_reason="", facts=[
+                    dict(fact("现在配置用新值"), session="aaaaaaaa"), dict(fact("以后合并前先跑检查"), session="bbbbbbbb")])
+            return dict(ops=[], unplaced=[])
+        P.prepare(self.root, self.BATCH, self.rules, call, "ingest", cache=self.root / "cache")
+        second = self.BATCH[self.BATCH.index("=== SESSION bbbbbbbb"):]
+        _, facts, dropped, _ = P.prepare(self.root, second, self.rules, call, "ingest", cache=self.root / "cache")
+        self.assertEqual(calls.count("ingest facts"), 1)
+        self.assertEqual([f["fact"] for f in facts], ["以后合并前先跑检查"])
+        self.assertEqual(dropped, [])
+
+    def test_pending_round_retries_a_failed_proposal_batch_with_fewer_sessions(self):
+        paths = [self.root / "aaaaaaaa.jsonl", self.root / "bbbbbbbb.jsonl"]
+        for path in paths:
+            path.write_text("x")
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);"
+                         "INSERT INTO fails VALUES ('aaaaaaaa', 1), ('bbbbbbbb', 1);")
+        offered = []
+        def accept(label, item, text, sids, *args):
+            offered.append((sids, text))
+            return True
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, QUEUE=self.root / "queue", LAST_ENGINE="codex:test"), \
+                patch.object(I, "state", return_value=db), patch.object(I, "ready", return_value=paths), \
+                patch.object(I, "pending_extract", side_effect=lambda p, start, limit=None: {
+                    "text": f"USER: {p.stem} 的话 limit={limit}", "end": 1, "prompts": 1, "cwd": "/test", "title": "t"}), \
+                patch.object(I, "split_pass"), patch.object(I, "candidates_note", return_value=""), \
+                patch.object(I, "propose_pass", accept), patch.object(I, "reject_streaks"), patch.object(I, "log"):
+            I.run(type("Args", (), dict(lint=False, nightly=False, pending=True, session=None))(), engines=["codex"])
+        self.assertEqual([sids for sids, _ in offered], [["aaaaaaaa"]])
+        self.assertIn("limit=None", offered[0][1])  # the session itself stays whole: its saved facts still match
+
+    def test_relayed_user_request_is_recorded_with_its_source(self):
+        transcript = "TEAM C酱: 用户刚才说以后合并前先跑检查，你照这个做\nCLAUDE: 好\n"
+        rules = P.Rules(I.lint, user_quote=True, source_said=lambda q, sid: I.quote_ok(q, [I.flat("以后合并前先跑检查")]))
+        self.assertIn("队友在 TEAM 行里转述的用户要求也要列", P.facts_prompt(self.root, transcript, rules))
+        relayed = fact("以后合并前先跑检查")
+        kept, dropped = P.grounded([relayed], transcript, rules)
+        self.assertEqual(([f["relay"] for f in kept], dropped), (["C酱"], []))
+        own, _ = P.grounded([relayed], "USER: 以后合并前先跑检查\n" + transcript, rules)
+        self.assertEqual(own[0]["relay"], "")  # the user's own line holds it: not a relay
+        plan = P.Plan(self.root, rules, kept)
+        self.assertEqual(plan.apply([op(lines=["- C酱 转述：以后合并前先跑检查"], readme="", description="")]), [])
+        plan.write()
+        self.assertIn("- C酱 转述：以后合并前先跑检查（用户原话「以后合并前先跑检查」）｜源：转述 · C酱\n",
+                      (self.root / "tooling/a.md").read_text())
+        with patch.object(I, "WIKI", self.root), patch.object(I, "user_texts",
+                                                              return_value=[I.flat("以后合并前先跑检查")]):
+            self.assertEqual(I.page_misquotes([self.root / "source.jsonl"]), "")
+        self.assertEqual([e for e in I.lint.check(self.root)[0] if "tooling/a.md" in e], [])  # the tag is lint's own format
+
+    def test_miswritten_session_drops_that_fact_and_the_call_stays_saved(self):
+        calls = []
+        def call(prompt, schema, label):
+            calls.append(label)
+            if schema == P.FACTS_SCHEMA:
+                return dict(title="配置", nothing_reason="", facts=[
+                    dict(fact("现在配置用新值"), session="aaaaaaaa"), dict(fact("以后合并前先跑检查"), session="cccccccc")])
+            return dict(ops=[], unplaced=[])
+        for _ in range(2):
+            _, facts, dropped, _ = P.prepare(self.root, self.BATCH, self.rules, call, "ingest", cache=self.root / "cache")
+            self.assertEqual([f["fact"] for f in facts], ["现在配置用新值"])
+            self.assertEqual([(f["fact"], why) for f, why in dropped], [("以后合并前先跑检查", "会话编号「cccccccc」不在本批")])
+        self.assertEqual(calls.count("ingest facts"), 1)
+
+    def test_proposal_directory_is_ignored_and_old_saved_facts_are_cleared(self):
+        cache = self.root / ".ingest-propose"
+        (cache / "facts").mkdir(parents=True)
+        old, recent = cache / "facts/old.json", cache / "facts/recent.json"
+        for path in (old, recent):
+            path.write_text("{}")
+        stale = I.time.time() - (I.CACHE_DAYS * 86400 + 60)
+        os.utime(old, (stale, stale))
+        with patch.multiple(I, REPO=self.root, WIKI=self.root, PROPOSE_DIR=cache):
+            I.propose_dir()
+            I.propose_dir()
+        self.assertEqual((old.exists(), recent.exists()), (False, True))
+        self.assertEqual((self.root / ".git/info/exclude").read_text().count(".ingest-propose/\n"), 1)
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=self.root, capture_output=True, text=True).stdout
+        self.assertEqual(status, "")
+        template = (Path(__file__).resolve().parent.parent / "template/gitignore").read_text()
+        self.assertIn(".ingest-propose/\n", template)
 
 
 if __name__ == "__main__":

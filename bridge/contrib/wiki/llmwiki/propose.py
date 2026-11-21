@@ -1,10 +1,10 @@
 """Ingest as proposals: extract facts once, propose placement without tools; the program searches and writes.
 
-Design: agents-demo/notes/wiki-ingest-cut-usage-design-20261120.md (user 2026-11-20 「试试a」).
 Root cause it removes: an agentic pass re-read its whole context on every tool step (5-38 steps, 90% cache
 reads) and a failed acceptance threw the whole pass away and re-ran the same input. Small sessions share
-two tool-less calls (facts, then operations); saved facts survive rejection. At most one correction call
-contains only rejected facts; callers also apply their existing outdated-fact policy before acceptance.
+two tool-less calls (facts, then operations); each session's facts are saved and survive rejection. At most one
+correction call contains only rejected facts; callers also apply their existing outdated-fact policy before
+acceptance. A line the caller's acceptance would refuse is refused here, for its own facts, with the reason.
 The program owns search, placement checks, page writes, index lines and the log entry,
 so the mechanical rules hold by construction instead of being re-asked for.
 
@@ -38,7 +38,7 @@ class Rules:
     """What a wiki allows, read from its own lint module so the two wikis' different budgets both hold."""
 
     def __init__(self, lint, language="zh", record=MAIN_RECORD, labels="USER = 用户本人，CLAUDE = 助手",
-                 user_quote=False, todo_check=None, user_said=None, source_said=None):
+                 user_quote=False, todo_check=None, user_said=None, source_said=None, line_check=None):
         self.page_lines, self.page_chars = lint.PAGE_LINES, lint.PAGE_CHARS
         self.max_topics, self.readme_line, self.body_line = lint.MAX_TOPICS, lint.README_LINE, lint.BODY_LINE
         if hasattr(lint, "LANGUAGES"):  # the main wiki's lint: per-language sections and annotation words
@@ -54,6 +54,9 @@ class Rules:
         # fact is dropped here instead of failing the whole session at acceptance; None = the transcript's USER lines
         self.user_said = user_said
         self.source_said = source_said
+        # role wikis: line_check(lines, structural) -> the reasons acceptance would refuse these lines (its own quote
+        # tests), so one such line costs its own facts a correction instead of the whole batch a round
+        self.line_check = line_check
 
     def domains(self, root):
         memory = (root / "MEMORY.md").read_text()
@@ -198,7 +201,9 @@ def page_view(path, text, hits, rules):
 
 def facts_prompt(root, transcript, rules):
     memory, _ = rules.domains(root)
-    quote_rule = ("必须取自 USER 行（用户的原话），只取最能支撑这条事实的一小句，不要整段；没有用户原话依据的事实不列。"
+    quote_rule = ("必须是用户的原话，只取最能支撑这条事实的一小句，不要整段：取自 USER 行；队友在 TEAM 行里转述的用户要求也要列，"
+                  "quote 取那一行里逐字转述的用户原话，fact 写明是谁转述的（如「C酱 转述：用户要求…」），"
+                  "程序核对这句确是用户说过的，并在行尾标「源：转述」。没有用户原话依据的事实不列。"
                   if rules.user_quote else "")
     return FACTS_PROMPT.format(labels=rules.labels, record=rules.record, quote_rule=quote_rule,
                                sections="/".join(rules.sections), memory=memory.strip(), transcript=transcript)
@@ -223,7 +228,8 @@ def ops_prompt(root, facts, rules):
             rows.append(f"{line} ｜ {d}/{m[1] if m else '?'} {room}")
         dom.append(f"## {d}（空余主题名额 {free}）\n" + "\n".join(rows))
     listed = "\n".join(f"{i}: [{f['section']}] {f['fact']} ｜ {f['quote']}"
-                       + (f"（引文 {len(f['quote']) + 8} 字符）" if rules.user_quote else "") for i, f in enumerate(facts))
+                       + (f"（引文 {len(f['quote']) + 8 + len(relay_tag([f]))} 字符）" if rules.user_quote else "")
+                       for i, f in enumerate(facts))
     views = "\n\n".join(page_view(p, pages[p], h, rules) for p, h in sorted(hits.items())) or "（没有命中）"
     line_rule = ("程序会在每行末尾自动附上对应事实的用户原话引文（「用户原话「…」」），lines 里不用再写；"
                  "README 行也会附上这段引文；正文与 README 都要给引文留出行长（清单里每条事实后写了引文长度）。"
@@ -248,6 +254,39 @@ def speaker(lines, i):
     return "OTHER"
 
 
+def relayed_by(lines, at):
+    """Who relayed a quote found on lines `at`: the teammate (TEAM/OTHER label) whose message holds it, "" when a
+    line of the user's own (USER, USER→, 补漏 USER) holds it too or no teammate's does."""
+    names = []
+    for i in at:
+        for j in range(i, -1, -1):
+            m = re.match(r"(?:补漏 )?(USER|CLAUDE|TEAM|OTHER|SYSTEM)(?:→[^:：\s]+)?(?: ([^:：\n]+?))?[:：]", lines[j])
+            if m and m[1] == "USER":
+                return ""
+            if m and m[1] in ("TEAM", "OTHER") and m[2]:
+                names.append(m[2].strip())
+            if m or re.match(r"\[[\w-]+\] |=== SESSION", lines[j]):
+                break
+    return names[0] if names else ""
+
+
+def relay_tag(facts):
+    """The provenance tag (lint.py PROV_TAG) of a line resting on relayed requests."""
+    names = list(dict.fromkeys(f["relay"] for f in facts if f.get("relay")))
+    return "｜源：转述 · " + "、".join(names) if names else ""
+
+
+def session_pieces(transcript):
+    """[(sid, that session's text, header included)] in order; one unnamed piece when there is no SESSION header."""
+    parts = re.split(r"(?m)^(=== SESSION (\S+)[^\n]*\n)", transcript)
+    if len(parts) == 1:
+        return [("", transcript)]
+    pieces = {}
+    for i in range(1, len(parts), 3):
+        pieces[parts[i + 1]] = pieces.get(parts[i + 1], "") + parts[i] + parts[i + 2]
+    return list(pieces.items())
+
+
 def session_transcripts(transcript):
     """Keep message boundaries through a paid batch; quotes never cross a SESSION boundary."""
     parts = re.split(r"(?m)^=== SESSION (\S+)[^\n]*\n", transcript)
@@ -266,8 +305,9 @@ def grounded(facts, transcript, rules):
         sid = f.get("session", "")
         if not sid and len(sessions) == 1:
             sid = next(iter(sessions))
-        if sessions and sid not in sessions:
-            raise ValueError("fact has no valid source session")
+        if sessions and sid not in sessions:  # the model miswrote one id: that fact goes, the batch stays
+            dropped.append(({**f, "session": next(iter(sessions))}, f"会话编号「{sid}」不在本批"))
+            continue
         f = {**f, "session": sid}
         lines = sessions.get(sid, transcript).splitlines()
         flat = [norm(l) for l in lines]
@@ -280,7 +320,7 @@ def grounded(facts, transcript, rules):
                 rules.user_said(f["quote"]) if rules.user_said else any(speaker(lines, i) == "USER" for i in at)):
             dropped.append((f, "需要用户原话，但引文不是这个会话里用户说的话"))
         else:
-            kept.append(f)
+            kept.append({**f, "relay": relayed_by(lines, at)} if rules.user_quote else f)
     if sessions:
         order = {sid: i for i, sid in enumerate(sessions)}
         kept.sort(key=lambda f: (order[f["session"]], norm(sessions[f["session"]]).find(norm(f["quote"]))))
@@ -308,11 +348,17 @@ class Plan:
         if not self.rules.user_quote:
             return lines
         quotes = [self.facts[i]["quote"].strip() for i in op["facts"]]
+        tag = relay_tag([self.facts[i] for i in op["facts"]])
         out = []
         for l in lines:
             missing = [q for q in quotes if q and f"用户原话「{q}」" not in l]
-            out.append(l + ("（用户原话「" + "」「".join(missing) + "」）" if missing else ""))
+            out.append(l + ("（用户原话「" + "」「".join(missing) + "」）" if missing else "")
+                       + (tag if "｜源：" not in l else ""))
         return out
+
+    def refused(self, lines, structural=False):
+        """Why acceptance would refuse these lines (role wikis: the caller's own quote tests), before they are written."""
+        return self.rules.line_check(lines, structural) if self.rules.line_check else []
 
     def check_lines(self, lines, key):
         errs = []
@@ -360,6 +406,7 @@ class Plan:
             if not any(norm(self.facts[i][k]) and norm(self.facts[i][k]) in norm(line)
                        for k in ("fact", "quote") for line in lines):
                 errs.append(f"正文没有事实 {i} 的可核对文字")
+        errs += self.refused(lines)
         return (None, "；".join(errs)) if errs else (self.fresh(lines), "")
 
     def append(self, op):
@@ -382,7 +429,8 @@ class Plan:
         readme_path, readme = f"{domain}/README.md", None
         if op["readme"].strip():
             line = self.quoted(op, [op["readme"].strip()])[0]
-            problem = self.readme_line_error(line, name)
+            problem = self.readme_line_error(line, name) or "；".join(
+                self.refused([line]) + self.refused([op["description"]], structural=True))
             rows = self.files[readme_path].splitlines()
             at = [i for i, l in enumerate(rows) if f"]({name})" in l]
             if problem or len(at) != 1:
@@ -412,7 +460,8 @@ class Plan:
         if key is None:
             return f"{path}: 节「{op['section']}」不是 {'/'.join(self.rules.sections)} 之一"
         line = self.quoted(op, [op["readme"].strip()])[0]
-        problem = self.readme_line_error(line, name)
+        problem = self.readme_line_error(line, name) or "；".join(
+            self.refused([line]) + self.refused([op["title"], op["description"], op["scope"]], structural=True))
         if problem:
             return f"{path}: {problem}"
         if not (op["title"].strip() and op["description"].strip() and op["scope"].strip()):
@@ -462,12 +511,12 @@ class Plan:
                     if op["action"] == "skip":
                         self.placed[i] = op["at"]
                     else:
-                        self.placed[i] = next(
+                        self.placed[i] = next((
                             f"{path}:{n}" for path, text in self.files.items()
                             if not path.endswith("/README.md")
                             for n, line in enumerate(text.splitlines(), 1) if re.match(r"\s*- \S", line)
                             and any(norm(self.facts[i][k]) and norm(self.facts[i][k]) in norm(line)
-                                    for k in ("fact", "quote")))
+                                    for k in ("fact", "quote"))), f"{op['page']}（已有同样的行）")
         return rejected
 
     def write(self):
@@ -499,17 +548,6 @@ def insert_lines(text, key, lines, allowed):
     return "\n".join(rows) + "\n"
 
 
-def log_entry(date, sid8, title, plan, unplaced, dropped, nothing_reason):
-    lines = [f"## [{date}] ingest | {sid8} {title.strip() or '-'}"]
-    lines += [f"- {summary}" for _, summary in plan.done]
-    lines += [f"- 跳过（{s}）" for s in plan.skipped]
-    lines += [f"- 未写入（{why}）：{fact}" for fact, why in unplaced]
-    lines += [f"- 未记（{why}）：{f['fact']}" for f, why in dropped]
-    if len(lines) == 1:
-        lines.append(f"- 无可记内容：{nothing_reason.strip() or '会话里没有长期有用的事实'}")
-    return "\n".join(lines) + "\n"
-
-
 def validate(value, schema):
     """Validate external structured output before it can become reusable cache data."""
     kind = schema["type"]
@@ -530,24 +568,30 @@ def validate(value, schema):
 
 
 def prepare(root, transcript, rules, call, label, cache=None):
-    """The two model calls of one session, reading `root` only: (got, facts, dropped, ops) or None when a call
-    failed. Separate from the writes so several sessions' calls can run at once against a read-only view."""
-    prompt = facts_prompt(root, transcript, rules)
-    key = hashlib.sha256((prompt + json.dumps(FACTS_SCHEMA, sort_keys=True)).encode()).hexdigest()
-    saved = Path(cache) / (key + ".json") if cache is not None else None
-    got = json.loads(saved.read_text()) if saved is not None and saved.exists() else None
-    if got is None:
-        got = call(prompt, FACTS_SCHEMA, label + " facts")
-        if got is not None:
-            validate(got, FACTS_SCHEMA)
-            grounded(got["facts"], transcript, rules)  # validate source IDs before caching, too
-        if got is not None and saved is not None:
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            pending = saved.with_suffix(f".{threading.get_ident()}.tmp")
-            pending.write_text(json.dumps(got, ensure_ascii=False))
-            pending.replace(saved)
-    if got is None:
-        return None
+    """The two model calls of one batch, reading `root` only: (got, facts, dropped, ops) or None when a call
+    failed. Separate from the writes so several sessions' calls can run at once against a read-only view.
+    `cache`: a directory keeping each session's extracted facts under the hash of that session's own facts prompt,
+    so a batch retried whole, smaller or regrouped pays the first call only for sessions it has no result for."""
+    pieces = session_pieces(transcript)
+    saved = {sid: Path(cache) / (hashlib.sha256((facts_prompt(root, piece, rules) + json.dumps(
+        FACTS_SCHEMA, sort_keys=True)).encode()).hexdigest() + ".json") for sid, piece in pieces} if cache is not None else {}
+    have = {sid: json.loads(path.read_text()) for sid, path in saved.items() if path.exists()}
+    missing = [(sid, piece) for sid, piece in pieces if sid not in have]
+    if missing:
+        got = call(facts_prompt(root, "".join(piece for _, piece in missing), rules), FACTS_SCHEMA, label + " facts")
+        if got is None:
+            return None
+        validate(got, FACTS_SCHEMA)
+        ids = [sid for sid, _ in missing]
+        for sid in ids:  # a fact naming no session of this call stays with the first: grounded() decides on it
+            have[sid] = {**got, "facts": [f for f in got["facts"]
+                                          if (f["session"] if f["session"] in ids else ids[0]) == sid]}
+            if sid in saved:
+                saved[sid].parent.mkdir(parents=True, exist_ok=True)
+                pending = saved[sid].with_suffix(f".{threading.get_ident()}.tmp")
+                pending.write_text(json.dumps(have[sid], ensure_ascii=False))
+                pending.replace(saved[sid])
+    got = {**have[pieces[0][0]], "facts": [f for sid, _ in pieces for f in have[sid]["facts"]]}
     validate(got, FACTS_SCHEMA)
     facts, dropped = grounded(got["facts"], transcript, rules)
     for f in facts:
@@ -562,7 +606,8 @@ def prepare(root, transcript, rules, call, label, cache=None):
     return got, facts, dropped, ops
 
 
-def ingest(root, transcript, sid8, date, rules, call, label, prepared=None, cache=None, sessions=None, finish=None):
+def ingest(root, transcript, sid8, date, rules, call, label, prepared=None, cache=None, sessions=None, finish=None,
+           log=None):
     """The whole proposal pipeline for one session. Writes pages, READMEs and the log entry under `root`.
     `prepared`: prepare()'s result computed earlier (possibly against an older view of the wiki); the program
     checks every operation against `root` as it is now and asks once more only for the rejected ones.
@@ -590,6 +635,8 @@ def ingest(root, transcript, sid8, date, rules, call, label, prepared=None, cach
             local = {old: new for new, old in enumerate(wanted)}
             errors = "\n".join(f"{json.dumps({**o, 'facts': [local[i] for i in o['facts'] if i in local]}, ensure_ascii=False)}\n  → {e}"
                                for o, e in rejected if set(o["facts"]) & set(wanted))
+            if log:
+                log("operations refused by the program, asked again: " + " | ".join(e for _, e in rejected))
             retry = call(FIX_PROMPT.format(errors=errors, rest=ops_prompt(root, [facts[i] for i in wanted], rules)),
                          OPS_SCHEMA, label + " ops-fix")
             if retry is None:

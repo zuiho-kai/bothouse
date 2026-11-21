@@ -199,11 +199,16 @@ def run(root=None, head="HEAD", ask=None, dry=False, log=print, order=None):
         was = {l.strip() for l in git(root, "show", f"{head}:{rel}").splitlines()}
         rows = [l for _, l in body(now)]
         new = [l for l in rows if lossless.norm(l) not in seen]
-        if order is not None:
-            new.sort(key=lambda line: order[lossless.norm(line)])
         old = [l for l in rows if l.strip() in was and not OVERTURNED.match(l)]
-        # Source: #906 a paid batch can append an old value then an explicit correction.
-        # Each new row compares against HEAD plus earlier new rows, never the later correction in reverse.
+        if order is None:
+            if new and old:
+                groups.append((old, new))
+                meta.append(rel)
+            continue
+        # `order` (the proposal pass: new row → its fact's place in the session): one batch can append an old value
+        # and then its explicit correction. Each new row is compared against HEAD plus the new rows before it,
+        # never the later correction in reverse.
+        new.sort(key=lambda line: order[lossless.norm(line)])
         earlier = list(old)
         for line in new:
             if earlier:

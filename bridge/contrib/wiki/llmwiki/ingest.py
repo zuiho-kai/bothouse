@@ -290,7 +290,7 @@ MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "ge
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
-EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "high")  # codex only; 用户 2026-11-17：luna 用 high/medium，不用 max
+EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "high")  # codex only; luna runs at high or medium, not max
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
@@ -1748,8 +1748,8 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
         errs.append(lossless.report(miss))
     log_diff = git("diff", base, "--", "log.md").splitlines()
     # append-only = the old text is still the file's beginning, word for word. Not "no - line in the diff": a log.md
-    # without a final newline shows its last line as removed and re-added whenever anything is appended (deep's
-    # 0c15021f failed 30 runs on this, 2026-11-20 18:40), although no byte of it changed.
+    # without a final newline shows its last line as removed and re-added whenever anything is appended (one
+    # session failed 30 runs on this, 2026-11-20), although no byte of it changed.
     before = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI, capture_output=True, text=True).stdout
     after = (WIKI / "log.md").read_text() if (WIKI / "log.md").exists() else ""
     if not after.startswith(before):
@@ -2140,7 +2140,7 @@ def run(a, engines=None):
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
                 # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
-                # Proposal retries keep the same input so their saved first call remains reusable.
+                # A proposal's first call is saved per session input: its retry keeps the session whole (and free).
                 n = ((db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0]
                      if pending and not proposal else 0)
                 it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
@@ -2164,7 +2164,7 @@ def run(a, engines=None):
         # Oversized single records resume from their accepted-piece checkpoint.
         batch = batches_of(items)[0]
         n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
-        if n and len(batch) > 1 and not proposal:  # old agentic retries halve; proposals reuse the saved batch
+        if n and len(batch) > 1:  # failed before as a whole: retry 1/2^n of its sessions (#619)
             batch = batch[:max(1, len(batch) >> n)]
         first = {it["id"] for it, _ in batch}
         items = [it for it in items if it["id"] in first]
@@ -2598,7 +2598,23 @@ def remember(db, pages, res):
     db.commit()
 
 
-PROPOSE_DIR = REPO / ".ingest-propose"  # empty cwd and JSON schemas for the tool-less proposal calls
+PROPOSE_DIR = REPO / ".ingest-propose"  # empty cwd, JSON schemas and saved facts of the tool-less proposal calls
+# source: a failed session is retried every 30 minutes by day and once a night; two days span a missed night
+CACHE_DAYS = 2
+
+
+def propose_dir():
+    """PROPOSE_DIR ready for a pass. Its facts/ holds session text: kept out of git for wikis installed before the
+    template ignored it, and cleared once no retry can still read it."""
+    PROPOSE_DIR.mkdir(exist_ok=True)
+    exclude = REPO / git("rev-parse", "--git-path", "info/exclude", cwd=REPO)
+    text = exclude.read_text() if exclude.exists() else ""
+    if PROPOSE_DIR.name + "/" not in text.splitlines():
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n") + PROPOSE_DIR.name + "/\n")
+    for path in (PROPOSE_DIR / "facts").glob("*.json"):
+        if time.time() - path.stat().st_mtime > CACHE_DAYS * 86400:
+            path.unlink()
 
 
 def role_record():
@@ -2614,7 +2630,6 @@ def role_record():
 def codex_json(prompt, schema, label, model, effort):
     """One tool-less Codex call whose final message must match `schema` (propose.py's calls); read-only, empty cwd.
     Returns (ok, text, cost, thread_id) like codex(), for codex_retry.run."""
-    PROPOSE_DIR.mkdir(exist_ok=True)
     name = PROPOSE_DIR / (label.rsplit(" ", 1)[-1] + ".schema.json")
     name.write_text(json.dumps(schema, ensure_ascii=False))
     # source: 2026-11-20 measurement — a one-line prompt costs 19560 input tokens as configured, 16956 with these off
@@ -2639,22 +2654,39 @@ def codex_json(prompt, schema, label, model, effort):
 
 
 def role_rules(sources, text=""):
-    said, by_session = [], {}
+    said, by_session, words = [], {}, {}
     sessions = propose.session_transcripts(text)
     for p in sources:
-        words = user_texts(p, strict=True)
+        words[str(p)] = user_texts(p, strict=True)
         own = sessions.get(p.stem[:8], text if len(sources) == 1 else "")
-        if not words and re.search(r"^USER", own, re.M):
+        if not words[str(p)] and re.search(r"^USER", own, re.M):
             raise discord_said.Unavailable(f"the user's words of {p.stem[:8]} are unreadable now; retry later")
-        said.extend(words)
-        by_session[p.stem[:8]] = words
+        said.extend(words[str(p)])
+        by_session[p.stem[:8]] = words[str(p)]
+    before = []  # the wiki before this pass, read once: the base page_misquotes compares new lines against
+
+    def old():
+        if not before:
+            before.append(wiki_text("HEAD"))
+        return before[0]
+
+    def line_check(lines, structural=False):
+        """page_misquotes' two tests on the lines one operation is about to write. Acceptance used to be the first
+        to run them: one line it refused reverted every session of the batch and the model never saw why, so the
+        next round wrote the same line. Here the operation is refused with the reason and asked again once."""
+        bad = bad_quotes(lines, old, sources, said=words)
+        claims = [] if structural else claim_msgs(lines, old, sources, said=words)
+        return ([f"归给用户的引文 {'、'.join(bad)} 不是这些会话里用户的原话（「用户说/定/要求…」后面的引号、紧挨着行尾"
+                 "「（用户原话…）」的引号都算用户的话）：改成不带引号的陈述，或写明这句是谁说的"] if bad else []) + \
+               ([f"新行没有可核对的用户原话引文：{'；'.join(claims)}"] if claims else [])
     return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
                                todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said),
-                               source_said=lambda q, sid: quote_ok(q, by_session.get(sid, said if len(sources) == 1 else [])))
+                               source_said=lambda q, sid: quote_ok(q, by_session.get(sid, said if len(sources) == 1 else [])),
+                               line_check=line_check)
 
 
 def propose_pass(label, it, text, sids, sources, engine):
-    """Ingest one session through propose.py (design 2026-11-20, user 「试试a」): two tool-less calls, the script
+    """Ingest one batch through propose.py: two tool-less calls, the script
     searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
     agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
     Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
@@ -2662,9 +2694,10 @@ def propose_pass(label, it, text, sids, sources, engine):
     LAST_REJECTED, CRASHED = False, ""
     if budget.exhausted():
         return False
-    name, effort = engine.partition(":")[0], engine.partition(":")[2] or EFFORT
+    effort = engine.partition(":")[2] or EFFORT
     WIKI = WORK
     sync_work()
+    propose_dir()
     failed = []
 
     def call(prompt, schema, sub):
@@ -2695,7 +2728,8 @@ def propose_pass(label, it, text, sids, sources, engine):
             invalidate.run(WORK, ask=ask, log=lambda msg: log(f"{label} {msg}"), order=order)
         summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label,
                                                      cache=PROPOSE_DIR / "facts",
-                                                     sessions=it.get("_sessions"), finish=finish)
+                                                     sessions=it.get("_sessions"), finish=finish,
+                                                     log=lambda msg: log(f"{label} {msg}"))
         errs = "" if summary is None else "\n".join(
             e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
     except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
@@ -3048,13 +3082,14 @@ def user_texts(p, strict=False):
         return []
 
 
-def bad_quotes(added, old_text, sessions):
-    """page_misquotes on given lines: `old_text()` is the wiki before them, `sessions` the transcripts behind them."""
+def bad_quotes(added, old_text, sessions, said=None):
+    """page_misquotes on given lines: `old_text()` is the wiki before them, `sessions` the transcripts behind them
+    (`said`: their user words when the caller has read them already)."""
     quotes = [(l, q) for l in added for q in user_quotes(l)]
     if not quotes:
         return []
     old = flat(old_text())  # 「C 小心」 for the user's 「c小心」 is the same words
-    said = {str(p): user_texts(p) for p in sessions}
+    said = said if said is not None else {str(p): user_texts(p) for p in sessions}
     every = None
     bad = []
     for line, q in quotes:
@@ -3070,12 +3105,12 @@ def bad_quotes(added, old_text, sessions):
     return bad
 
 
-def claim_msgs(added, old_text, sessions):
+def claim_msgs(added, old_text, sessions, said=None):
     """page_misquotes on body lines (file structure already excluded): every new fact line needs one of its quotes
     to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
     words to the page it names, checked when that page is written."""
     old = flat(old_text())
-    bad, said, every = [], None, None
+    bad, every = [], None
     for l in added:
         if not l.strip() or PTR.fullmatch(l) or flat(l) in old:
             continue
