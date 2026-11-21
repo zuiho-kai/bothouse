@@ -645,6 +645,99 @@ def _window_start(text):
     return (min(got) - dt.timedelta(minutes=10)) if got else now - dt.timedelta(hours=3)
 
 
+_HDR = re.compile(r'\[bothouse sender_id=(\S+) sender_name="([^"]*)"')
+_CTX_HEAD = "（频道里你上次看到之后的消息"
+_CTX_LINE = re.compile(r"^\[(\d{1,2}):(\d{2})，[^\]\n]*\] ([^:\n]+?): ", re.M)
+_INSERTED = re.compile(r"^\[回复 ([^：\]]+)：(.*)\] ↪ 已插入$", re.S)
+_LATEST = re.compile(r"（最新，回这条）\n(?:（用户这条[^\n]*）\n)?")
+_REPLYING = re.compile(r"^\[replying to [^\]]*\]\n", re.S)
+_SYS_TAIL = re.compile(r"\n\n\[系统定时消息[^\n]*$", re.S)
+_BOT_SENDERS = {"timer", "handoff", "relay", "system"}
+
+
+def _jsonl_text(content):
+    if isinstance(content, str):
+        return content
+    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _transcript_msgs(agent_ids, start, me="主角色"):
+    """从主角色的 Claude 会话记录（~/.claude/projects/*/<id>.jsonl）原样导出时间窗里的讨论：
+    每条 (时间, 谁, 原文)。用户和队友的话取自桥包好的消息（没 @ 到的在「频道里你上次看到之后的消息」那段，
+    做事中插进来的在「↪ 已插入」那行，最新一条在「（最新，回这条）」之后）；主角色每轮取最后一段回复，NO_REPLY 不要。
+    桥的 sessions/*.json 早已不存 history（11-21 查：这个频道 14 个会话 history 全是 0 条），所以原话导出一直是 0 条。
+    来源：用户 zuiho_kai 11-21「你把整个讨论内容给他」「我是说之后给工作区都要这样做」。"""
+    import datetime as dt
+    out, seen = [], set()
+
+    def add(when, who, text):
+        text = text.strip()
+        key = (who, text)
+        if text and key not in seen and when >= start:
+            seen.add(key)
+            out.append((when.isoformat(), len(out), who, text))
+
+    for aid in dict.fromkeys(agent_ids):
+        for f in sorted(Path.home().glob(f".claude/projects/*/{aid}.jsonl")):
+            last_reply, last_when = None, None
+            for line in open(f, encoding="utf-8"):
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if o.get("type") not in ("user", "assistant") or not o.get("timestamp"):
+                    continue
+                when = dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).astimezone()
+                text = _jsonl_text((o.get("message") or {}).get("content"))
+                if o["type"] == "assistant":
+                    if text.strip():
+                        last_reply, last_when = text, when
+                    continue
+                content = (o.get("message") or {}).get("content")
+                if not isinstance(content, str) and any(isinstance(x, dict) and x.get("type") == "tool_result" for x in content or []):
+                    continue  # 工具结果，不是新一轮
+                m = _HDR.search(text)
+                if not text.strip():
+                    continue
+                if last_reply and last_reply.strip().upper() != "NO_REPLY":
+                    add(last_when, f"{me}（只作参考）", re.sub(r"\n*NO_REPLY\s*$", "", last_reply, flags=re.I))
+                last_reply = None
+                if not m:
+                    continue  # 后台任务通知这类新一轮：上一轮的回复已收，本条不是频道里的话
+                sid, name = m.groups()
+                body = text[m.end():]
+                lm = _LATEST.search(body)
+                ctx_at = body.find(_CTX_HEAD)
+                if ctx_at >= 0:
+                    ctx = body[ctx_at:lm.start() if lm and lm.start() > ctx_at else len(body)]
+                    ctx = ctx.split("\n", 1)[1] if "\n" in ctx else ""
+                    hits = list(_CTX_LINE.finditer(ctx))
+                    for i, h in enumerate(hits):
+                        seg = ctx[h.end():hits[i + 1].start() if i + 1 < len(hits) else len(ctx)]
+                        seg = seg.split("\n\n（", 1)[0].strip()
+                        who = h.group(3).strip()
+                        try:
+                            t = when.replace(hour=int(h.group(1)), minute=int(h.group(2)), second=0, microsecond=0)
+                        except ValueError:
+                            t = when
+                        if t > when:
+                            t -= dt.timedelta(days=1)
+                        if who.startswith("Claude橘") or "你这个账号" in who:
+                            im = _INSERTED.match(seg)
+                            if im:  # 主角色做事时用户插进来的话
+                                add(t, im.group(1), im.group(2))
+                            continue
+                        add(t, who, seg)
+                if lm and sid not in _BOT_SENDERS:
+                    latest = _SYS_TAIL.sub("", body[lm.end():])
+                    latest = _REPLYING.sub("", latest)
+                    add(when, name, latest)
+            if last_reply and last_reply.strip().upper() != "NO_REPLY":
+                add(last_when, f"{me}（只作参考）", last_reply)
+    out.sort(key=lambda x: (x[0][:16], x[1]))  # 频道旧消息只有分钟：同一分钟内按出现先后
+    return [(ts, who, text) for ts, _, who, text in out]
+
+
 def append_source(path, chat, project=None):
     """给交接追加「原话出处」节：聊天频道 id、交活人的会话记录、时间窗，并把时间窗里这个聊天频道的原始对话
     （用户、主角色和队友的原话，来自桥的会话记录 sessions/<项目>_*.json）导出到 <交接>.原话.md。
@@ -655,6 +748,7 @@ def append_source(path, chat, project=None):
             return None
         project = project or os.environ.get("CC_PROJECT", "")
         data = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+        import datetime as dt
         start = _window_start(text)
         msgs, agent_ids = [], []
         for f in sorted((data / "sessions").glob(f"{project}_*.json")):
@@ -666,13 +760,21 @@ def append_source(path, chat, project=None):
                     agent_ids.append(s["agent_session_id"])
                 for m in s.get("history") or []:
                     ts = m.get("timestamp") or ""
-                    if ts and ts >= start.isoformat():
-                        msgs.append((ts, m.get("role") or "?", m.get("content") or ""))
+                    try:  # 按时刻比，不按字符串比（会话里是 UTC 的 Z，时间窗是本地时区）
+                        when = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+                    except ValueError:
+                        continue
+                    if when >= start:
+                        role = "主角色（只作参考）" if m.get("role") == "assistant" else (m.get("role") or "?")
+                        msgs.append((when.isoformat(), role, m.get("content") or ""))
+        if not msgs:  # 桥会话里不存 history 了：从主角色的会话记录原样导出
+            msgs = _transcript_msgs(agent_ids, start)
         msgs.sort()
         dump = Path(path).with_suffix("").as_posix() + ".原话.md"
         with open(dump, "w", encoding="utf-8") as fh:
-            fh.write(f"# 聊天频道 {chat} 原始对话（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
-            fh.write("# user 条里有用户和队友的原话（行头「[时:分] 名字:」）；assistant 是主角色自己说的。\n\n")
+            fh.write(f"# 聊天频道 {chat} 讨论原文（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条，按时间，程序从会话记录原样导出）\n")
+            fh.write("# 每条标了是谁说的。用户的话是准绳；队友的话是意见；「主角色（只作参考）」是主角色自己的理解，"
+                     "和用户原话冲突时信用户。交接里没有主角色的概括，做什么照用户原话自己判断。\n\n")
             for ts, role, c in msgs:
                 fh.write(f"### {ts[5:16].replace('T', ' ')} {role}\n{c}\n\n")
         tr = ""
@@ -680,10 +782,10 @@ def append_source(path, chat, project=None):
             hits = sorted(Path.home().glob(f".claude/projects/*/{agent_ids[-1]}.jsonl"))
             tr = str(hits[0]) if hits else ""
         lines = [f"## {SOURCE}",
-                 "（交活时程序附：开工先读这里的原始对话，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
+                 "（交活时程序附：开工先读讨论原文，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
                  f"- 聊天频道：{chat}",
                  f"- 时间窗：{start:%m-%d %H:%M} 到交活",
-                 f"- 原话导出：{dump}（{len(msgs)} 条）",
+                 f"- 讨论原文：{dump}（{len(msgs)} 条：用户、队友和主角色每条消息按时间原样导出；主角色的话只作参考）",
                  f"- 读原话：sed -n '1,400p' '{dump}'"]
         if tr:
             lines.append(f"- 主角色交活时的会话记录：{tr}")
