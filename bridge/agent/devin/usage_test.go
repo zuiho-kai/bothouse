@@ -122,3 +122,21 @@ func TestQuotaFailureDoesNotExposeProviderBody(t *testing.T) {
 		t.Fatalf("failure exposed provider body or lost HTTP status: %v", err)
 	}
 }
+
+func TestQuotaRejectsEnvironmentKeyWithoutVerifiedEndpoint(t *testing.T) {
+	cli, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(map[string]any{
+		"cmd": cli,
+		"env": map[string]string{"WINDSURF_API_KEY": "synthetic-enterprise-key"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.(core.UsageReporter).GetUsage(context.Background())
+	if err == nil || err.Error() != "devin quota: environment key has no verified API endpoint" {
+		t.Fatalf("unscoped key must be rejected before running CLI or HTTP: %v", err)
+	}
+}

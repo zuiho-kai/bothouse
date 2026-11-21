@@ -90,11 +90,12 @@ func readDevinCredentials(env []string) (devinCredentials, error) {
 		k, v, _ := strings.Cut(pair, "=")
 		values[k] = v
 	}
-	credentials := devinCredentials{APIServer: "https://server.codeium.com"}
-	if key := values["WINDSURF_API_KEY"]; key != "" {
-		credentials.APIKey = key
-		return credentials, nil
+	if values["WINDSURF_API_KEY"] != "" {
+		// An environment key overrides the login file, but does not identify its
+		// tenant endpoint. Do not send it to the public service or a stale login.
+		return devinCredentials{}, errors.New("devin quota: environment key has no verified API endpoint")
 	}
+	var credentials devinCredentials
 	// Source: docs.devin.ai/cli/enterprise/devin-auth#credentials-file-location.
 	dir := values["XDG_DATA_HOME"]
 	if runtime.GOOS == "windows" {
@@ -109,7 +110,7 @@ func readDevinCredentials(env []string) (devinCredentials, error) {
 	if err != nil {
 		return devinCredentials{}, errors.New("devin quota: login credentials unavailable")
 	}
-	if toml.Unmarshal(raw, &credentials) != nil || strings.TrimSpace(credentials.APIKey) == "" {
+	if toml.Unmarshal(raw, &credentials) != nil || strings.TrimSpace(credentials.APIKey) == "" || strings.TrimSpace(credentials.APIServer) == "" {
 		return devinCredentials{}, errors.New("devin quota: invalid login credentials")
 	}
 	return credentials, nil
