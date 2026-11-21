@@ -91,8 +91,13 @@ func UsagePricesWithDefaults(configured map[string]TokenPrice) map[string]TokenP
 
 // priceSuffixes are trailing id segments that name a variant of a priced model
 // without changing its rate (date stamps, preview/trial markers, provider
-// variants). They are trimmed only when the remaining id has a price.
-var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n"}
+// variants, agent effort tiers). They are trimmed only when the remaining id
+// has a price. The effort tiers (-medium/-high/-low/-max/-minimal/-xhigh/
+// -none/-thinking/-1m) come from the Devin CLI catalog, which appends the
+// effort or variant tier to the base model id ("claude-fable-5-2-medium",
+// "swe-2-high"); the tokens are still the base model's (#2071).
+var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n",
+	"-minimal", "-xhigh", "-medium", "-high", "-low", "-none", "-max", "-thinking", "-1m"}
 
 // lookupPrice finds the rate for a model id. Logs record ids exactly as the
 // caller wrote them ("xiao/gpt-6-astra", "gemini-4-argon-trial"), while the price
