@@ -187,8 +187,10 @@ class ProviderFailure(unittest.TestCase):
                                             stderr=sample["stderr"])
                 self.assertEqual(out.provider_down, sample["provider_down"])
 
-    def run_queue(self, message, paid_fallback=False):
+    def run_queue(self, message, paid_fallback=False, db=None):
         role = hasattr(I, "ROUTE_DOWN")
+        if db is not None:
+            return self.queue_round(db, message, paid_fallback)
         db = sqlite3.connect(":memory:")
         self.addCleanup(db.close)
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
@@ -197,6 +199,10 @@ class ProviderFailure(unittest.TestCase):
         db.execute("CREATE TABLE fails(id TEXT PRIMARY KEY, n INT" + ("" if role else ", offset INT") + ")")
         db.execute("INSERT INTO fails VALUES (" + ("?,?" if role else "?,?,?") + ")",
                    ("aaaaaaaa", I.MAX_FAILS - 1) if role else ("aaaaaaaa", I.MAX_FAILS - 1, 0))
+        return self.queue_round(db, message, paid_fallback)
+
+    def queue_round(self, db, message, paid_fallback):
+        role = hasattr(I, "ROUTE_DOWN")
         items = [dict(id=sid, start=0, end=10, path=ROOT / (sid + ".jsonl"), title="配置", cwd="/test",
                       date="2026-11-20", text="USER: 配置有变化") for sid in ("aaaaaaaa", "bbbbbbbb")]
         def prepare(root, text, rules, call, label, **kw):
@@ -204,10 +210,12 @@ class ProviderFailure(unittest.TestCase):
             return None
         with ExitStack() as stack:
             stack.enter_context(patch.multiple(I, WIKI=ROOT, WORK=ROOT, REPO=ROOT))
+            mocks = {}
             for name in ("sync_work", "propose_dir", "discard", "candidates_note", "reject_streaks", "alert",
                          "lint_errors"):
                 if hasattr(I, name):
-                    stack.enter_context(patch.object(I, name, return_value=""))
+                    mocks[name] = stack.enter_context(patch.object(I, name, return_value=""))
+            self.alerts = mocks.get("alert")
             if role:
                 stack.enter_context(patch.object(I, "role_rules", return_value=([], None)))
             else:
@@ -251,6 +259,15 @@ class ProviderFailure(unittest.TestCase):
                 self.assertEqual({call.args[2] for call in invoke.call_args_list}, {"ingest aaaaaaaa facts"})
                 self.assertEqual(db.execute("SELECT id,n FROM fails").fetchall(), [("aaaaaaaa", I.MAX_FAILS - 1)])
                 self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
+
+    def test_two_stopped_rounds_in_a_row_alert(self):
+        if not hasattr(I, "ROUTE_DOWN"):
+            self.skipTest("role wiki ingest only")
+        db, *_ = self.run_queue("401 Unauthorized")
+        self.alerts.assert_not_called()  # one stopped round may be a blip
+        self.run_queue("401 Unauthorized", db=db)
+        self.assertEqual([c.args[1] for c in self.alerts.call_args_list], [["route_down"]])
+        self.assertEqual(db.execute("SELECT id,n FROM fails").fetchall(), [("aaaaaaaa", I.MAX_FAILS - 1)])  # uncounted
 
 
 if __name__ == "__main__":
