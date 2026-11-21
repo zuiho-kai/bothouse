@@ -90,16 +90,7 @@ func (e *Engine) catchUpMissed(p Platform, skip map[string]bool) {
 		for _, k := range order {
 			m := last[k]
 			slog.Info("restart catch-up: answering message posted while down", "project", e.name, "session", k, "msg_id", m.MessageID)
-			e.handleMessage(p, m)
-			// The gate marks what it handles (after its burst hold, so not here: marking now
-			// would hide the older posts from its backfill); without a gate nothing would, and
-			// the next restart would answer the same posts again.
-			if e.gate.Load() == nil {
-				if s := e.sessions.FindByID(e.sessions.ActiveSessionID(k)); s != nil {
-					markSeen(p, s, m)
-				}
-			}
+			e.handleMessage(p, m) // applyGate marks it seen, so the next restart skips it
 		}
-		e.sessions.Save()
 	}
 }

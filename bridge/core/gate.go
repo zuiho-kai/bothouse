@@ -464,6 +464,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 				return true
 			}
 			e.teamNoteTurn(msg, session)
+			// #1856: no gate still records what was seen, so restart catch-up knows where
+			// the posts made while the bridge was down begin (missed_catchup.go).
+			if g == nil && msg.MessageID != "" {
+				markSeen(p, session, msg)
+			}
 			// #1375: no gate (agentm's claude role) also means no backfill and no @ note, so the
 			// person's words came bare after the memory and member blocks and read as their tail.
 			keepUserText(msg)
