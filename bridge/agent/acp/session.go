@@ -881,7 +881,8 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	s.promptInFlight.Store(false)
 	complete() // write failure/cancellation may not invoke the reader callback
 	var result struct {
-		StopReason string `json:"stopReason"`
+		StopReason string          `json:"stopReason"`
+		Usage      *acpPromptUsage `json:"usage"`
 	}
 	validResult := json.Unmarshal(res, &result) == nil
 	s.outputMu.Lock()
@@ -953,6 +954,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	if strings.TrimSpace(output.last) != "" {
 		evt.Metadata = map[string]any{core.MetaLastReply: output.last} // #1270: the [report] check reads this
 	}
+	s.absorbPromptUsage(sid, result.Usage, &evt)
 	s.emit(evt)
 	return nil
 }
