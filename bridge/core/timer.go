@@ -38,6 +38,13 @@ type TimerJob struct {
 	// anti-spin guard lets it through (anti_spin.go); unlike Handoff it changes nothing about
 	// the turn's user, card or inject-if-busy behaviour, so --interrupt still folds in.
 	Forward bool `json:"forward,omitempty"`
+	// TaskHandoff: the workspace task the process that set the job was started for (its
+	// CC_HANDOFF), when the job wakes that process's own session. The job is delivered where
+	// that task is when it comes due, not to whoever has the workspace then (team_task_timer.go).
+	TaskHandoff string `json:"task_handoff,omitempty"`
+	// WaitsTask: the job came due while its task was in no workspace; it stays pending until
+	// the next turn of this task-board item starts (releaseTaskTimers).
+	WaitsTask int `json:"waits_task,omitempty"`
 	// WaitUserQuiet: a wake that is not the user (workspace handback, dispatch receipt) waits
 	// until the user has stopped talking in the session (holdForUser).
 	WaitUserQuiet bool `json:"wait_user_quiet,omitempty"`
@@ -374,7 +381,11 @@ func (ts *TimerScheduler) Start() error {
 			continue
 		}
 		delay := job.ScheduledAt.Sub(now)
-		if delay <= 0 {
+		if job.WaitsTask > 0 {
+			// Waits for its task, not for a time: looked at again now (deliverToTask), never stale.
+			ts.scheduleAt(job, 0)
+			scheduled++
+		} else if delay <= 0 {
 			// Past due
 			if job.TaskReview != nil || -delay <= missedJobGracePeriod {
 				// Just missed — fire immediately
@@ -558,6 +569,9 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	}
 
 	if ts.holdForUser(engine, job) {
+		return
+	}
+	if !ts.deliverToTask(engine, job) {
 		return
 	}
 
