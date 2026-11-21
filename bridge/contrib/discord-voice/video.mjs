@@ -10,7 +10,8 @@
 // one JPEG. A keyframe is asked for (RTCP PLI) after each still and after packet loss.
 // 出处（下文标「SPEC」的数字都出自这里）：idoldange/discord-ext-voice-video-recv（discord.py 版，
 //   同一做法，MIT）https://github.com/idoldange/discord-ext-voice-video-recv 的 codecs.py、patch.py、rtcp.py。
-// Go Live (screen share) is not sent to bot accounts (same source, README); only cameras come this way.
+// Go Live (screen share) is not sent to bot accounts (same source, README): golive.mjs watches it with a
+// user account on a connection of its own, and hands that connection to a CameraReceiver of kind 'screen'.
 import { spawn } from 'node:child_process';
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,9 +35,14 @@ const DAVE_VIDEO = 1; // SPEC: @snazzah/davey index.d.ts, MediaType.VIDEO = 1
 
 // 来源：用户只说「按时间截帧」，没给间隔，这个值是自定的：10 秒一张，画面没变就不留。
 export const SHOT_MS = 10000;
-// mean absolute difference of a 16×16 grey thumbnail (0–255) above which the picture counts as changed.
-// 来源：自定，e2e 实测后按测得的噪声和换页差值回填（见 PR）。
-const CHANGED = 6;
+// The picture counts as changed when at least CHANGED_PIXELS pixels of a THUMB grey copy differ from
+// the last kept still by more than PIXEL_DIFF levels (0–255).
+// 来源：模拟实测（sim/video_sim.mjs 同法出的画面，2026-11-21）：同一页重新编码、加颗粒噪声后 0–3 个像素变；
+// 720p 幻灯片 28 号字一行里改两位数字 21 个；640×360 页上换一个四位大数字约 2800 个。旧做法（16×16 均值差 > 6）
+// 换数字只有 3.8，第二张被当成没变，已弃用。真实摄像头的噪声没实测，偏多留：多出的图在纪要侧按上限均匀抽。
+const THUMB = '320:180';
+const PIXEL_DIFF = 24;
+const CHANGED_PIXELS = 8;
 
 let ffmpegMissing = false;
 
@@ -174,31 +180,42 @@ function replaceAll(buf, from, to) {
   return Buffer.concat(out);
 }
 
-function meanDiff(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
-  return s / a.length;
+function changedPixels(a, b) {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > PIXEL_DIFF) n++;
+  return n;
 }
 
-let active = null;
+// every CameraReceiver that is attached to a voice connection; the patches below find theirs here
+const receivers = new Set();
+const byWs = (ws) => [...receivers].find((r) => r.networking()?.ws === ws);
+const byReceiver = (vr) => [...receivers].find((r) => r.connection?.receiver === vr);
 
 // Video receiver for one voice connection. onShot({user_id, kind, at, jpg}) gets each kept still.
+// kind 'camera': the meeting's own voice connection, members' cameras. kind 'screen': a Go Live
+// connection (golive.mjs) that carries the screen share of userId only.
 export class CameraReceiver {
-  constructor({ tmp, onShot, log }) {
+  constructor({ tmp, onShot, log, kind = 'camera', userId = '' }) {
     this.tmp = tmp;
     this.onShot = onShot;
     this.log = log;
+    this.kind = kind;
+    this.userId = userId;
     this.ssrc = new Map(); // video ssrc → { userId, codec, asm, frames, lastAt, thumb, busy }
     this.connection = null;
     this.pli = 0;
     this.packets = 0;
     this.shots = 0;
     this.timer = setInterval(() => this.shootAll(), SHOT_MS);
-    active = this;
   }
 
   attach(connection) {
     this.connection = connection;
+    receivers.add(this);
+  }
+
+  newStream(ssrc, userId) {
+    this.ssrc.set(ssrc, { userId, codec: null, asm: null, frames: [], lastAt: 0, thumb: null, busy: false });
   }
 
   networking() {
@@ -208,13 +225,13 @@ export class CameraReceiver {
 
   // voice op 12 from the server: a member's camera state. SPEC: receiver.py on_video_state
   onVideo(d) {
-    const uid = String(d.user_id || '');
+    const uid = this.userId || String(d.user_id || '');
     if (!uid) return;
     for (const [ssrc, s] of this.ssrc) if (s.userId === uid) this.ssrc.delete(ssrc);
-    const streams = (d.streams || []).filter((s) => s.type !== 'screen' && s.active && s.ssrc);
+    const streams = (d.streams || []).filter((s) => (this.kind === 'screen' || s.type !== 'screen') && s.active && s.ssrc);
     if (!streams.length && d.video_ssrc && (d.streams || []).some((s) => s.active !== false)) streams.push({ ssrc: d.video_ssrc });
-    for (const s of streams) this.ssrc.set(s.ssrc, { userId: uid, codec: null, asm: null, frames: [], lastAt: 0, thumb: null, busy: false });
-    this.log('video state', uid, streams.length ? 'camera on' : 'camera off', streams.map((s) => s.ssrc).join(','));
+    for (const s of streams) this.newStream(s.ssrc, uid);
+    this.log('video state', this.kind, uid, streams.length ? 'on' : 'off', streams.map((s) => s.ssrc).join(','));
   }
 
   // one video RTP packet, still transport-encrypted
@@ -222,8 +239,10 @@ export class CameraReceiver {
     this.packets++;
     const pt = msg[1] & 0x7f;
     const ssrcNum = msg.readUInt32BE(8); // SPEC: RTP header, SSRC at offset 8
-    const st = this.ssrc.get(ssrcNum);
     const codec = CODEC_BY_PT[pt];
+    // a Go Live connection carries one sender only: take its video even before (or without) its op 12
+    if (!this.ssrc.has(ssrcNum) && this.kind === 'screen' && codec) this.newStream(ssrcNum, this.userId);
+    const st = this.ssrc.get(ssrcNum);
     if (!st || !codec) return;
     const cd = receiver.connectionData;
     if (!cd.encryptionMode || !cd.secretKey || !cd.nonceBuffer) return;
@@ -324,10 +343,10 @@ export class CameraReceiver {
     const base = join(this.tmp, `cam-${ssrc}-${at}`);
     try {
       writeFileSync(`${base}.${fmt}`, fmt === 'ivf' ? ivf(frames) : Buffer.concat(frames));
-      // SPEC: ffmpeg -update 1 keeps only the last decoded frame; the 16×16 grey copy is for the change test
+      // SPEC: ffmpeg -update 1 keeps only the last decoded frame; the small grey copy is for the change test
       const r = await run('ffmpeg', ['-v', 'error', '-y', '-f', fmt, '-i', `${base}.${fmt}`,
         '-map', '0:v', '-update', '1', '-q:v', '3', `${base}.jpg`,
-        '-map', '0:v', '-vf', 'scale=16:16,format=gray', '-update', '1', '-f', 'rawvideo', `${base}.gray`]);
+        '-map', '0:v', '-vf', `scale=${THUMB},format=gray`, '-update', '1', '-f', 'rawvideo', `${base}.gray`]);
       if (r.code === -1) {
         ffmpegMissing = true;
         this.log('ffmpeg not found, camera stills are off:', r.err);
@@ -342,12 +361,12 @@ export class CameraReceiver {
         this.log('decode failed', ssrc, r.err.trim().split('\n').pop());
         return;
       }
-      const diff = st.thumb && thumb.length === st.thumb.length ? meanDiff(thumb, st.thumb) : Infinity;
-      this.log('still', ssrc, 'frames', frames.length, 'diff', diff === Infinity ? 'first' : diff.toFixed(1));
-      if (diff > CHANGED) {
+      const diff = st.thumb && thumb.length === st.thumb.length ? changedPixels(thumb, st.thumb) : Infinity;
+      this.log('still', ssrc, 'frames', frames.length, 'changed pixels', diff === Infinity ? 'first' : diff);
+      if (diff >= CHANGED_PIXELS) {
         st.thumb = thumb;
         this.shots++;
-        this.onShot({ user_id: st.userId, kind: 'camera', at, jpg });
+        this.onShot({ user_id: st.userId, kind: this.kind, at, jpg });
       }
     } finally {
       for (const ext of [fmt, 'jpg', 'gray']) {
@@ -365,7 +384,8 @@ export class CameraReceiver {
   async flush() {
     clearInterval(this.timer);
     await Promise.all([...this.ssrc].map(([ssrc, st]) => this.shoot(ssrc, st, true)));
-    this.log('video packets', this.packets, 'keyframe requests', this.pli, 'stills kept', this.shots);
+    receivers.delete(this);
+    this.log(this.kind, 'video packets', this.packets, 'keyframe requests', this.pli, 'stills kept', this.shots);
   }
 }
 
@@ -374,28 +394,32 @@ export class CameraReceiver {
 const origSend = VoiceWebSocket.prototype.sendPacket;
 VoiceWebSocket.prototype.sendPacket = function (packet) {
   const op = packet?.op;
-  if (op === 0 && packet.d) { // SPEC: voice op 0 IDENTIFY
+  const rv = op === 0 || op === 1 ? byWs(this) : null; // connections without a receiver stay audio-only
+  // SPEC: stream type 'screen' on a Go Live connection — Discord-RE/Discord-video-stream src/utils.ts
+  //   STREAMS_SIMULCAST, sent in IDENTIFY by src/client/voice/BaseMediaConnection.ts
+  const type = rv?.kind === 'screen' ? 'screen' : 'video';
+  if (rv && op === 0 && packet.d) { // SPEC: voice op 0 IDENTIFY
     packet.d.video = true;
-    packet.d.streams = [{ type: 'video', rid: '100', quality: 100 }]; // SPEC: patch.py IDENTIFY streams
+    packet.d.streams = [{ type, rid: '100', quality: 100 }]; // SPEC: patch.py IDENTIFY streams
     this.on('packet', (p) => {
       if (p.op === 2) this.videoStreams = p.d?.streams; // SPEC: voice op 2 READY streams
-      else if (p.op === 12 && p.d) active?.onVideo(p.d); // SPEC: voice op 12 VIDEO
+      else if (p.op === 12 && p.d) byWs(this)?.onVideo(p.d); // SPEC: voice op 12 VIDEO
     });
-  } else if (op === 1 && packet.d) { // SPEC: voice op 1 SELECT_PROTOCOL
+  } else if (rv && op === 1 && packet.d) { // SPEC: voice op 1 SELECT_PROTOCOL
     packet.d.codecs = CODECS;
   }
   const r = origSend.call(this, packet);
-  if (op === 1) {
+  if (rv && op === 1) {
     const st = (this.videoStreams || [{}])[0] || {};
     const vs = st.ssrc || 0;
     const rs = st.rtx_ssrc || 0;
-    const audio = active?.networking()?.connectionData?.ssrc || 0;
+    const audio = rv.networking()?.connectionData?.ssrc || 0;
     // SPEC: patch.py receive-only video state, values as the official client sends them
     origSend.call(this, {
       op: 12, // SPEC: voice op 12 VIDEO
       d: {
         audio_ssrc: audio, video_ssrc: vs, rtx_ssrc: rs,
-        streams: [{ type: 'video', rid: '100', ssrc: vs, active: false, quality: 100, rtx_ssrc: rs, max_bitrate: 2500000, max_framerate: 20, max_resolution: { type: 'fixed', width: 1280, height: 720 } }], // SPEC: patch.py
+        streams: [{ type, rid: '100', ssrc: vs, active: false, quality: 100, rtx_ssrc: rs, max_bitrate: 2500000, max_framerate: 20, max_resolution: { type: 'fixed', width: 1280, height: 720 } }], // SPEC: patch.py
       },
     });
   }
@@ -404,13 +428,14 @@ VoiceWebSocket.prototype.sendPacket = function (packet) {
 
 const origUdp = VoiceReceiver.prototype.onUdpMessage;
 VoiceReceiver.prototype.onUdpMessage = function (msg) {
-  if (active && msg.length > 12 && msg[0] >> 6 === 2) { // SPEC: RTP version 2, 12-byte header
+  const rv = msg.length > 12 && msg[0] >> 6 === 2 ? byReceiver(this) : null; // SPEC: RTP version 2, 12-byte header
+  if (rv) {
     const pt = msg[1] & 0x7f;
     if (CODEC_BY_PT[pt] || RTX.has(pt)) {
       try {
-        active.onPacket(this, msg);
+        rv.onPacket(this, msg);
       } catch (e) {
-        active.log('video packet', e.message);
+        rv.log('video packet', e.message);
       }
       return;
     }

@@ -3,18 +3,22 @@
 // The bridge keeps the only gateway connection. This process speaks JSON lines with it:
 //   stdin   {"op":"join","guild_id","channel_id"}   start: join that voice channel
 //           {"op":"voice_state","d":{…}} / {"op":"voice_server","d":{…}}   the bot's own gateway events
+//           {"op":"stream","user_id","on"}   whether a member in the voice channel shares their screen (Go Live)
 //           {"op":"leave"}                                    leave, transcribe what is left, exit
 //   stdout  {"op":"gateway","d":{…}}     a gateway payload (op 4) the bridge must send
 //           {"op":"ready"}               connected to the voice channel, recording
 //           {"op":"segment","user_id","start","end","text"}   one stretch of speech (times: epoch ms)
-//           {"op":"frame","user_id","kind":"camera","at","jpg"}   a still of a member's camera (at: epoch ms,
-//                                        jpg: base64), only when the picture changed (video.mjs)
+//           {"op":"frame","user_id","kind":"camera"|"screen","at","jpg"}   a still of a member's camera or
+//                                        screen share (at: epoch ms, jpg: base64), only when the picture changed (video.mjs)
+//           {"op":"watcher","user_id"}   the account that watches screen shares (golive.mjs) is in the channel:
+//                                        it is not a participant
 //           {"op":"done"}                everything transcribed, about to exit
 //           {"op":"error","message"}     fatal
 // Voice itself (voice gateway, UDP, transport encryption and DAVE end-to-end encryption) is
 // @discordjs/voice; discordgo cannot do DAVE, which Discord requires on voice channels.
 // Audio is cut per speaker at pauses, decoded to 16 kHz mono wav, transcribed by asr_worker.py
 // (argv: the python that has mlx_whisper) and the wav is deleted right after: no recording is kept.
+// Screen shares are watched only when env BOTHOUSE_SCREEN_TOKEN (meeting_screen_token) holds a user token.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +28,10 @@ import { fileURLToPath } from 'node:url';
 import { EndBehaviorType, VoiceConnectionStatus, entersState, joinVoiceChannel } from '@discordjs/voice';
 import OpusScript from 'opusscript';
 import { CameraReceiver } from './video.mjs';
+import { ScreenWatcher } from './golive.mjs';
+
+const screenToken = process.env.BOTHOUSE_SCREEN_TOKEN || '';
+delete process.env.BOTHOUSE_SCREEN_TOKEN; // the transcriber does not get it
 
 const RATE = 16000; // source: whisper's input sample rate (mlx_whisper/audio.py SAMPLE_RATE)
 // A speaker's silence this long ends the segment. 来源：用户只说按停顿切段，没给时长，这个值是自定的；
@@ -88,11 +96,9 @@ function transcribe(userId, start, end, pcm) {
 }
 
 // --- camera stills (video.mjs) ---
-const camera = new CameraReceiver({
-  tmp,
-  log,
-  onShot: (s) => emit({ op: 'frame', user_id: s.user_id, kind: s.kind, at: s.at, jpg: s.jpg.toString('base64') }),
-});
+const onShot = (s) => emit({ op: 'frame', user_id: s.user_id, kind: s.kind, at: s.at, jpg: s.jpg.toString('base64') });
+const camera = new CameraReceiver({ tmp, log, onShot });
+let screens = null; // ScreenWatcher (golive.mjs), only with a token
 
 // --- voice ---
 let connection = null;
@@ -142,6 +148,10 @@ function join_(guildId, channelId) {
     },
   });
   camera.attach(connection);
+  if (screenToken) {
+    screens = new ScreenWatcher({ token: screenToken, guildId, channelId, tmp, log, onShot, onWatcher: (id) => emit({ op: 'watcher', user_id: id }) });
+    screens.start();
+  }
   connection.on('debug', (m) => {
     if (m.includes('[DAVE]')) log(m); // the other debug lines carry the voice token and the secret key
   });
@@ -172,7 +182,7 @@ async function leave() {
   if (leaving) return;
   leaving = true;
   for (const s of open) s.destroy(); // close → transcribe what was being said
-  await camera.flush(); // the last still of each camera that is still on
+  await Promise.all([camera.flush(), screens?.close()]); // the last still of each camera and share that is still on
   if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy(); // sends the op 4 that leaves
   if (waiting.length) await new Promise((r) => (idle = r));
   emit({ op: 'done' });
@@ -194,6 +204,7 @@ function finish(code) {
     if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
   } catch {}
   asr.kill();
+  screens?.close();
   rmSync(tmp, { recursive: true, force: true });
   process.stdout.write('', () => process.exit(code));
 }
@@ -209,6 +220,7 @@ createInterface({ input: process.stdin })
     if (m.op === 'join') join_(m.guild_id, m.channel_id);
     else if (m.op === 'voice_state') adapter?.onVoiceStateUpdate(m.d);
     else if (m.op === 'voice_server') adapter?.onVoiceServerUpdate(m.d);
+    else if (m.op === 'stream') screens?.setStreaming(String(m.user_id || ''), Boolean(m.on));
     else if (m.op === 'leave') leave();
   })
   .on('close', () => leave()); // the bridge went away

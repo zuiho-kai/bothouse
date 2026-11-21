@@ -100,6 +100,7 @@ type Platform struct {
 	dmDenyFrom                 map[string]bool   // dm_deny_from: DMs from these users are dropped; see dm_deny_from.go
 	meetingOn                  bool              // meeting_assistant: join voice on "@bot 开会" and write minutes; see meeting.go
 	meetingASRPython           string            // meeting_asr_python: the python with mlx_whisper that transcribes
+	meetingScreenToken         string            // meeting_screen_token: user token of the account that watches screen shares; "" = off
 	meetingDataDir             string            // the voice listener is installed under it (meeting_listener.go)
 	meetingMu                  sync.Mutex
 	meetings                   map[string]*meeting // guild ID → the meeting being recorded there
@@ -260,6 +261,7 @@ func New(opts map[string]any) (core.Platform, error) {
 	if base.meetingASRPython, _ = opts["meeting_asr_python"].(string); base.meetingASRPython == "" {
 		base.meetingASRPython = defaultMeetingASRPython
 	}
+	base.meetingScreenToken, _ = opts["meeting_screen_token"].(string)
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
 		base.meetingDataDir = dir
 		base.workspaceShelves = workspaceShelfStoreFor(dir)

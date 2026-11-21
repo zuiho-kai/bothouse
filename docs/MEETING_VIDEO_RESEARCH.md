@@ -13,6 +13,12 @@
 
 结论：摄像头用机器人账号就能收（第一项的做法）；屏幕共享（Go Live）机器人收不到，别人都是用真人账号去「看直播」。
 
+## 我们怎么做的（2026-11-21）
+
+- 摄像头：照第一项移植进收音进程（`video.mjs`），机器人账号直接收。
+- 屏幕共享：可选配置 `meeting_screen_token`（一个备用真人账号的 token，默认空=关）。照第四项的协议和第二项的代码（`Streamer.ts` 的 STREAM_CREATE / STREAM_SERVER_UPDATE 处理、`StreamConnection.ts` 的 rtc_server_id 和 DAVE 频道号、`utils.ts` 的 stream key），反过来做「看」的一方：该账号进同一语音频道，发网关 op 20 STREAM_WATCH，连单独的直播语音服务器，收到的画面交给同一套截帧（`golive.mjs`）。用真人账号自动化违反 Discord 条款，账号可能被封，不要用本人账号。
+- 验法：用户 11-21 定「照现成做法拉过来、用模拟数据验」，没拿真人在语音里实测。`sim/video_sim.mjs` 用 ffmpeg 出带数字的 VP8（摄像头）和 H264（屏幕共享）画面，切成和 Discord 一样加密的 RTP 包，从真收包入口喂进去；屏幕共享那条连一个假网关，核对观看指令和直播服务器参数。Go 测试 `TestMeetingVideoSim` 把它当收音进程跑到出纪要。没覆盖：DAVE 端到端解密（模拟里没开）、真服务器是否接受真人账号的这套握手。
+
 ## Discord 之外（参照）
 
 | 项目 | 怎么拿到画面 | 账号/客户端 | 现状 |

@@ -30,7 +30,7 @@ var VoiceListenerFS fs.FS
 
 const voiceListenerSrc = "contrib/discord-voice"
 
-var voiceListenerFiles = []string{"listener.mjs", "video.mjs", "asr_worker.py", "package.json"}
+var voiceListenerFiles = []string{"listener.mjs", "video.mjs", "golive.mjs", "asr_worker.py", "package.json"}
 
 var voiceListenerInstallMu sync.Mutex
 
@@ -44,7 +44,7 @@ type listenerEvent struct {
 	End     int64  `json:"end"`
 	Text    string `json:"text"`
 	Message string `json:"message"`
-	Kind    string `json:"kind"` // frame: "camera"
+	Kind    string `json:"kind"` // frame: "camera" or "screen"
 	At      int64  `json:"at"`   // frame: epoch ms
 	JPG     []byte `json:"jpg"`  // frame: the still (base64 in the JSON line)
 	D       struct {
@@ -204,6 +204,9 @@ func (p *Platform) startVoiceListener(mt *meeting) (*voiceListener, error) {
 	}
 	cmd := exec.Command(node, filepath.Join(dir, "listener.mjs"), python)
 	cmd.Dir = dir
+	if p.meetingScreenToken != "" { // env, not argv: other local users can read a process's arguments
+		cmd.Env = append(os.Environ(), "BOTHOUSE_SCREEN_TOKEN="+p.meetingScreenToken)
+	}
 	return p.runVoiceListener(mt, cmd)
 }
 

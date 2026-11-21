@@ -117,11 +117,11 @@ func TestMeetingTranscript(t *testing.T) {
 }
 
 func TestMeetingPrompt(t *testing.T) {
-	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n", 0, false, false)
+	got := meetingPrompt("[00:05–00:09] 阿明：小红，发布说明谁来写？\n", 0, false, false, false)
 	if strings.Contains(got, "发图") {
 		t.Errorf("a meeting without pictures must not talk about pictures:\n%s", got)
 	}
-	withPics := meetingPrompt("[00:02] 小红 发图（图1，议程.png）\n", 2, true, false)
+	withPics := meetingPrompt("[00:02] 小红 发图（图1，议程.png）\n", 2, true, false, false)
 	for _, want := range []string{"最后 2 张", "图1 到图2", "某人 发图：画面内容", "出自谁发的图"} {
 		if !strings.Contains(withPics, want) {
 			t.Errorf("prompt with pictures lacks %q", want)
@@ -352,7 +352,7 @@ func TestMeetingFrameShots(t *testing.T) {
 			t.Errorf("transcript lacks %q:\n%s", want, tr)
 		}
 	}
-	pr := meetingPrompt(tr, 3, true, true)
+	pr := meetingPrompt(tr, 3, true, true, false)
 	for _, want := range []string{"的摄像头（图N）", "发图（图N，文件名）", "最后 3 张"} {
 		if !strings.Contains(pr, want) {
 			t.Errorf("prompt lacks %q", want)
