@@ -332,6 +332,17 @@ class ProposeReview(unittest.TestCase):
         self.assertEqual([sids for sids, _ in offered], [["aaaaaaaa"]])
         self.assertIn("limit=None", offered[0][1])  # the session itself stays whole: its saved facts still match
 
+    def test_two_facts_in_one_op_each_line_carries_its_own_quote_and_source(self):
+        said, relayed = fact("以后把这句去掉"), dict(fact("每天早上汇报进度"), relay="cron")
+        plan = P.Plan(self.root, self.rules, [said, relayed])
+        self.assertEqual(plan.apply([op(facts=[0, 1], lines=["- 以后把这句去掉", "- cron 转述：每天早上汇报进度"],
+                                        readme="", description="")]), [])
+        plan.write()
+        rows = (self.root / "tooling/a.md").read_text().splitlines()
+        self.assertEqual(rows[-2:], ["- 以后把这句去掉（用户原话「以后把这句去掉」）",
+                                     "- cron 转述：每天早上汇报进度（用户原话「每天早上汇报进度」）｜源：转述 · cron"])
+        self.assertEqual(plan.placed, {0: f"tooling/a.md:{len(rows) - 1}", 1: f"tooling/a.md:{len(rows)}"})
+
     def relayed(self, said_by_teammate, quote):
         """A session whose only incoming message is a teammate relaying a request; the user's own message is in the
         channel's record (user_texts), not in this session. Rules as the role wikis build them."""
