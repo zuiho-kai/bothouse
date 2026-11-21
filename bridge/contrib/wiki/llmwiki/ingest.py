@@ -2689,7 +2689,10 @@ def api_json(prompt, schema, label):
             raise ConfigError("config.json: the openai engine needs api_base, api_model and api_key_file")
         API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
                           effort, log)
-    ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
+    try:
+        ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
+    except OSError as e:  # a key file that is missing or unreadable never heals by waiting: not a route outage
+        raise ConfigError(f"config.json: api_key_file {CFG['api_key_file']} unreadable ({type(e).__name__})") from e
     if status is None:  # not sent for lack of time: the codex route's admission outcome, not the route's failure
         return False, codex_retry.Failure(out, "budget_exhausted", started=False), False
     cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0

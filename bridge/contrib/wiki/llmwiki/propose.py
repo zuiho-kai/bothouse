@@ -731,10 +731,7 @@ class Api:
 
     def json(self, prompt, schema, name, remaining):
         """`remaining()`: seconds the run has left, None when it has no deadline (budget.remaining)."""
-        try:
-            key = self.key()
-        except OSError:
-            return False, "openai route: key file unavailable (authentication)", {}, 0
+        key = self.key()  # OSError: the configured key file is unreadable, a setup error for the caller
         body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "stream": True,
                 "stream_options": {"include_usage": True},
                 "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}

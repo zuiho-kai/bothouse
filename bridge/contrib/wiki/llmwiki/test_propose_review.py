@@ -508,6 +508,29 @@ class ProposeReview(unittest.TestCase):
             with self.assertRaises(I.ConfigError):
                 I.api_json("prompt", {}, "ingest facts")
 
+    def test_openai_key_file_unreadable_is_a_config_error_and_alerts(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
+                    date="2026-11-20", text="USER: 现在配置用新值")
+        I.ROUTE_DOWN = False
+        with patch.dict(I.CFG, api_base="http://127.0.0.1:9", api_model="model",
+                        api_key_file=str(self.root / "no-such-key")), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, API=None,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)), \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"), \
+                patch.object(I, "alert") as alert:
+            I.ingest_batches(db, [item], ["openai:high"], pending=True)
+            self.assertFalse(I.ROUTE_DOWN)
+            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
+            self.assertIn("no-such-key", alert.call_args.args[2])
+
 
 if __name__ == "__main__":
     unittest.main()
