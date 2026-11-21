@@ -851,6 +851,7 @@ def wait_external(nid, why, minutes, prs=()):
             it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
             _write(cur)
     hit["wait_until"] = until
+    _pr_baseline(nid, hit.get("paused_at"))
     if os.path.isfile(hit.get("where") or ""):
         append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
                                      f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
@@ -943,10 +944,11 @@ def wait_report_pr_problem(text):
 
 
 def pr_news(pr, since, seen):
-    """合并请求 pr 上的新动静 [(记号, 一行带原文链接的话)]：since（暂停时刻）之后的评论和审核、合并或关闭、
-    检查全部跑完；还开着的合并请求当前提交上没报过的失败检查不看时间（推完没等检查就交回的，红在暂停前也要叫一次）。"""
+    """合并请求 pr 上没报过的动静 [(记号, 一行带原文链接的话)]：评论、审核、合并或关闭、检查全部跑完；还开着的合并请求
+    当前提交上的失败检查（推完没等检查就交回的，红在暂停前也要叫一次）。since 给了时刻就只算那之后的（失败检查除外）；
+    None = 暂停时已按编号记过底（_pr_baseline），不看时间——本机钟和 GitHub 差几十秒时，按时间会把暂停前自己刚发的回复算成新的。"""
     def after(t):
-        return bool(t) and _iso(t) > since
+        return since is None or (bool(t) and _iso(t) > since)
 
     def who(n):
         return (n.get("author") or {}).get("login") or "?"
@@ -965,9 +967,31 @@ def pr_news(pr, since, seen):
         oid, checks = _head_checks(pr)
         out += [(c["key"], f"检查失败 {c['name']}：{c['url']}") for c in checks if c["state"] == "bad"]
         ended = [c["at"] for c in checks if c["at"]]
-        if checks and all(c["state"] != "pending" for c in checks) and ended and max(ended) > since:
+        if checks and all(c["state"] != "pending" for c in checks) and (since is None or (ended and max(ended) > since)):
             out.append((f"done:{oid}", f"提交 {oid[:8]} 的检查全部跑完：{pr['url']}/checks"))
     return [(k, t) for k, t in out if k not in seen]
+
+
+def _pr_baseline(nid, paused_at):
+    """刚暂停成「等外部」：把盯的合并请求上现有的评论、审核、已跑完的检查按编号记成看过（失败检查不记，要叫一次），
+    pr_base 记这次暂停。gh 在锁外查；有一个查不到就不记 pr_base，pr_events 退回按暂停时刻判。"""
+    it = next((i for i in _read() if i["id"] == nid), None)
+    if not it or not it.get("watch_pr"):
+        return
+    base = []
+    for url in it["watch_pr"]:
+        pr = _pr_query(url)
+        if not pr:
+            return
+        base += [k for k, _ in pr_news(pr, None, ()) if k[0] in "crd" or k.startswith("state:")]
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None or hit.get("paused_at") != paused_at:
+            return
+        hit["pr_seen"] = sorted(set(hit.get("pr_seen") or []) | set(base))
+        hit["pr_base"] = paused_at
+        _write(cur)
 
 
 def pr_events():
@@ -977,8 +1001,8 @@ def pr_events():
     for item in _read():
         if not (item.get("paused") and (item.get("pause_why") or "").startswith(WAIT_EXT) and item.get("watch_pr")):
             continue
-        since = _iso(item.get("paused_at") or "")
-        if since is None:
+        since = None if item.get("pr_base") == item.get("paused_at") else _iso(item.get("paused_at") or "")
+        if since is None and not item.get("pr_base"):
             continue
         seen, new = set(item.get("pr_seen") or []), []
         for url in item["watch_pr"]:

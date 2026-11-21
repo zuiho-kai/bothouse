@@ -55,17 +55,12 @@ class Board(unittest.TestCase):
         self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
 
     def test_pr_events_wake_waiting_external(self):
-        # #1855：等外部的条目盯合并请求。暂停后的新评论、当前提交上的失败检查（哪怕红在暂停前）叫一次并带原文链接；
-        # 没动静不出声；报过的不重复叫
+        # #1855：等外部的条目盯合并请求。暂停时合并请求上已有的评论按编号记底；之后的新评论、当前提交上的失败检查
+        # （哪怕红在暂停前）叫一次并带原文链接；没动静不出声；报过的不重复叫
         from subprocess import CompletedProcess
         from unittest.mock import patch
         url = "https://github.com/o/r/pull/7"
         self.assertEqual(cli("add", "上游合并请求按审核意见改", "~/n.md", "在做", "工作区1"), (0, "#1"))
-        rc, out = cli("wait", "1", "等审核人复审和检查", "60", url)
-        self.assertEqual(rc, 0, out)
-        it = board._read()[0]
-        self.assertEqual(it["watch_pr"], [url])
-        until = it["wait_until"]
 
         def pr(comments, checks):
             return CompletedProcess([], 0, json.dumps({"data": {"repository": {"pullRequest": {
@@ -73,16 +68,23 @@ class Board(unittest.TestCase):
                 "comments": {"nodes": comments}, "reviews": {"nodes": []},
                 "commits": {"nodes": [{"commit": {"oid": "e6a6c03e00", "statusCheckRollup": {"contexts": {"nodes": checks}}}}]}}}}}), "")
 
-        old = {"databaseId": 1, "url": url + "#issuecomment-1", "createdAt": "2020-01-01T00:00:00Z", "author": {"login": "me"}}
-        new = {"databaseId": 2, "url": url + "#issuecomment-2", "createdAt": "2999-01-01T00:00:00Z", "author": {"login": "amy"}}
+        # 钟差：GitHub 记的时刻比本机暂停时刻晚，但它是暂停前自己发的回复，记底后不算新的
+        own = {"databaseId": 1, "url": url + "#issuecomment-1", "createdAt": "2999-01-01T00:00:00Z", "author": {"login": "me"}}
+        new = {"databaseId": 2, "url": url + "#issuecomment-2", "createdAt": "2999-01-01T00:00:01Z", "author": {"login": "amy"}}
         running = {"__typename": "CheckRun", "databaseId": 10, "name": "full-check", "status": "IN_PROGRESS",
                    "conclusion": None, "completedAt": None, "detailsUrl": url + "/checks?run=10"}
         red = {"__typename": "CheckRun", "databaseId": 11, "name": "lint", "status": "COMPLETED",
                "conclusion": "FAILURE", "completedAt": "2020-01-01T00:00:00Z", "detailsUrl": url + "/checks?run=11"}
-        with patch.object(board.subprocess, "run", return_value=pr([old], [running])):
+        with patch.object(board, "_pr_query", return_value=json.loads(pr([own], [running]).stdout)["data"]["repository"]["pullRequest"]):
+            self.assertTrue(board.wait_external(1, "等审核人复审和检查", 60, [url, "不是链接"]))
+        it = board._read()[0]
+        self.assertEqual(it["watch_pr"], [url])
+        self.assertEqual((it["pr_seen"], it["pr_base"]), (["c1"], it["paused_at"]))
+        until = it["wait_until"]
+        with patch.object(board.subprocess, "run", return_value=pr([own], [running])):
             self.assertEqual(board.pr_events(), [])
         self.assertEqual(board._read()[0]["wait_until"], until)
-        with patch.object(board.subprocess, "run", return_value=pr([old, new], [running, red])):
+        with patch.object(board.subprocess, "run", return_value=pr([own, new], [running, red])):
             self.assertEqual(board.pr_events(), [(1, 2)])
             self.assertEqual(board.pr_events(), [])
         it = board._read()[0]
@@ -90,14 +92,20 @@ class Board(unittest.TestCase):
         self.assertEqual(it["pr_news"], [f"新评论（amy）：{url}#issuecomment-2", f"检查失败 lint：{url}/checks?run=11"])
         # 交回写「等外部」带这个合并请求：检查一项没出结论不收；有失败没点名不收，点了名收；没写等外部不查
         draft = f"[report] #1 改好推了 {url}\n等外部：等审核人复审\n再看：1h"
-        with patch.object(board.subprocess, "run", return_value=pr([old], [running])):
+        with patch.object(board.subprocess, "run", return_value=pr([own], [running])):
             self.assertIn("一项都没出结论", board.wait_report_pr_problem(draft))
             self.assertEqual(board.wait_report_pr_problem(f"[report] #1 改好推了 {url}"), "")
-        with patch.object(board.subprocess, "run", return_value=pr([old], [running, red])):
+        with patch.object(board.subprocess, "run", return_value=pr([own], [running, red])):
             self.assertIn("lint", board.wait_report_pr_problem(draft))
             self.assertEqual(board.wait_report_pr_problem(draft + "\nlint 失败和这次无关：主干上同一条就红"), "")
         self.assertTrue(board.resume(1))
         self.assertNotIn("pr_news", board._read()[0])
+        # 暂停时没记成底（gh 查不到）：退回按暂停时刻判，之前的不算、之后的算
+        with patch.object(board, "_pr_query", return_value=None):
+            board.wait_external(1, "等审核人复审", 60)
+        older = dict(own, databaseId=3, createdAt="2020-01-01T00:00:00Z")
+        with patch.object(board.subprocess, "run", return_value=pr([older, dict(new, databaseId=4)], [running])):
+            self.assertEqual(board.pr_events(), [(1, 1)])
         self.assertEqual(cli("watch-pr", "1", "https://github.com/o/r/pull/8")[0], 0)
         self.assertNotEqual(cli("watch-pr", "1", "https://github.com/o/r/issues/8")[0], 0)
         self.assertEqual(board._read()[0]["watch_pr"], [url, "https://github.com/o/r/pull/8"])
