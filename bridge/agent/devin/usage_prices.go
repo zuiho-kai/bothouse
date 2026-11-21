@@ -105,25 +105,34 @@ func parseCatalogPrices(data []byte) map[string]core.TokenPrice {
 			if v.ModelUID == "" {
 				continue
 			}
-			if v.CostTier == "Free" {
-				out[v.ModelUID] = core.TokenPrice{}
+			if p, ok := parseCostSummary(v.CostSummary); ok {
+				out[v.ModelUID] = p
 				continue
 			}
-			out[v.ModelUID] = core.TokenPrice{
-				Input:     costField(costInput, v.CostSummary),
-				Output:    costField(costOutput, v.CostSummary),
-				CacheRead: costField(costCached, v.CostSummary),
+			if v.CostTier == "Free" {
+				out[v.ModelUID] = core.TokenPrice{}
 			}
+			// A paid/unknown tier with an empty or unrecognized summary stays
+			// unregistered: "price unknown" must not be recorded as free
+			// (#2071 review — only an explicit zero from the source counts).
 		}
 	}
 	return out
 }
 
-func costField(re *regexp.Regexp, summary string) float64 {
-	m := re.FindStringSubmatch(summary)
-	if m == nil {
-		return 0
+// parseCostSummary extracts the three recorded rates; ok reports whether any
+// field was found at all (an absent cache column is legitimately $0).
+func parseCostSummary(summary string) (core.TokenPrice, bool) {
+	p := core.TokenPrice{}
+	var found bool
+	for _, field := range []struct {
+		dst *float64
+		re  *regexp.Regexp
+	}{{&p.Input, costInput}, {&p.Output, costOutput}, {&p.CacheRead, costCached}} {
+		if m := field.re.FindStringSubmatch(summary); m != nil {
+			*field.dst, _ = strconv.ParseFloat(m[1], 64)
+			found = true
+		}
 	}
-	v, _ := strconv.ParseFloat(m[1], 64)
-	return v
+	return p, found
 }

@@ -137,11 +137,20 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 	if p, ok := prices[model]; ok {
 		return p, true
 	}
+	// Live catalogs key on the exact variant id ("swe-2-max" ≠ "swe-2"), so the
+	// full id is priced before any base-model estimate — a tier can flip from
+	// free to paid at any time and the estimate would hide it (#2071 review).
+	if p, ok := providerPrices(model); ok {
+		return p, true
+	}
 	base := model
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
 	if p, ok := prices[base]; ok {
+		return p, true
+	}
+	if p, ok := providerPrices(base); ok {
 		return p, true
 	}
 	for changed := true; changed; {
@@ -155,9 +164,6 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 				}
 			}
 		}
-	}
-	if p, ok := providerPrices(model); ok {
-		return p, true
 	}
 	return providerPrices(base)
 }

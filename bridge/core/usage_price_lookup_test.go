@@ -43,6 +43,7 @@ func TestLookupPriceProvider(t *testing.T) {
 		return map[string]TokenPrice{
 			"swe-2-max-lightning": {Input: 1, Output: 5, CacheRead: 0.1},
 			"catalog-only-model":  {Input: 3, Output: 9},
+			"swe-2-max":           {Input: 2, Output: 6}, // a flipped-from-free tier
 		}
 	})
 	if p, ok := lookupPrice(UsagePricesWithDefaults(nil), "swe-2-max-lightning"); !ok || p.Input != 1 || p.Output != 5 {
@@ -55,5 +56,15 @@ func TestLookupPriceProvider(t *testing.T) {
 	// Unknown everywhere stays unpriced.
 	if _, ok := lookupPrice(UsagePricesWithDefaults(nil), "still-unknown"); ok {
 		t.Fatal("unknown id must not gain a price")
+	}
+}
+
+// #2071 review (G哥): when the catalog flips a tier from free to paid, the
+// static table's $0 estimate for the stripped base ("swe-2-max" → "swe-2")
+// must not mask the live full-id rate. Fails on the pre-fix lookup order.
+func TestLookupPriceProviderBeatsBaseEstimate(t *testing.T) {
+	prices := map[string]TokenPrice{"swe-2": {}} // static $0 row for the base
+	if p, ok := lookupPrice(prices, "swe-2-max"); !ok || p.Input != 2 {
+		t.Fatalf("live catalog rate must beat $0 base estimate: %+v found=%v", p, ok)
 	}
 }
