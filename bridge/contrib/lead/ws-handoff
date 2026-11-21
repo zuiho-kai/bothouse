@@ -647,8 +647,10 @@ def _window_start(text):
 
 def append_source(path, chat, project=None):
     """给交接追加「原话出处」节：聊天频道 id、交活人的会话记录、时间窗，并把时间窗里这个聊天频道的原始对话
-    （用户、主角色和队友的原话，来自桥的会话记录 sessions/<项目>_*.json）导出到 <交接>.原话.md。
-    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」。"""
+    （用户、主角色和队友的每条消息按时间原样，来自桥的会话记录：sessions/<项目>_*.json 旁的 .history/<会话 id>.jsonl，
+    旧桥内嵌在 json 的 history 也读）导出到 <交接>.原话.md；主角色的话标「只作参考」。
+    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」；
+    11-21「你把整个讨论内容给他」「我是说之后给工作区都要这样做」（此前只读内嵌 history，桥挪到 .history/ 后导出一直是 0 条）。"""
     try:
         text = Path(path).read_text(encoding="utf-8")
         if SOURCE in text or ":" not in (chat or ""):
@@ -664,17 +666,30 @@ def append_source(path, chat, project=None):
                 s = (d.get("sessions") or {}).get(sid) or {}
                 if s.get("agent_session_id"):
                     agent_ids.append(s["agent_session_id"])
-                for m in s.get("history") or []:
+                name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in sid) or "_"
+                hist = list(s.get("history") or [])
+                hf = f.parent / (f.name.removesuffix(".json") + ".history") / (name + ".jsonl")  # core/session_history.go
+                if hf.is_file():
+                    for ln in hf.read_text(encoding="utf-8").splitlines():
+                        try:
+                            hist.append(json.loads(ln))
+                        except ValueError:
+                            continue
+                for m in hist:
+                    if not isinstance(m, dict):
+                        continue
                     ts = m.get("timestamp") or ""
                     if ts and ts >= start.isoformat():
                         msgs.append((ts, m.get("role") or "?", m.get("content") or ""))
-        msgs.sort()
+        msgs.sort(key=lambda m: m[0])  # 只按时间；同一时刻保持记录里的先后（不按 role 字母排）
         dump = Path(path).with_suffix("").as_posix() + ".原话.md"
         with open(dump, "w", encoding="utf-8") as fh:
             fh.write(f"# 聊天频道 {chat} 原始对话（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
-            fh.write("# user 条里有用户和队友的原话（行头「[时:分] 名字:」）；assistant 是主角色自己说的。\n\n")
+            fh.write("# 「用户和队友」条里是真人和队友的原话（行头「[时:分] 名字:」）；「主角色（只作参考）」条是主角色自己说的，"
+                     "做什么照用户原话自己判断。\n\n")
             for ts, role, c in msgs:
-                fh.write(f"### {ts[5:16].replace('T', ' ')} {role}\n{c}\n\n")
+                who = {"user": "用户和队友", "assistant": "主角色（只作参考）"}.get(role, role)
+                fh.write(f"### {ts[5:16].replace('T', ' ')} {who}\n{c}\n\n")
         tr = ""
         if agent_ids:
             hits = sorted(Path.home().glob(f".claude/projects/*/{agent_ids[-1]}.jsonl"))
@@ -683,7 +698,7 @@ def append_source(path, chat, project=None):
                  "（交活时程序附：开工先读这里的原始对话，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
                  f"- 聊天频道：{chat}",
                  f"- 时间窗：{start:%m-%d %H:%M} 到交活",
-                 f"- 原话导出：{dump}（{len(msgs)} 条）",
+                 f"- 讨论原文：{dump}（{len(msgs)} 条，用户和主角色每条消息按时间原样；主角色的话只作参考）",
                  f"- 读原话：sed -n '1,400p' '{dump}'"]
         if tr:
             lines.append(f"- 主角色交活时的会话记录：{tr}")
