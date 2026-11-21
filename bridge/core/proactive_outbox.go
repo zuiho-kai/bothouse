@@ -203,7 +203,7 @@ func (o *proactiveOutbox) admit(job *CronJob, chat string) (bool, string) {
 		return false, fmt.Sprintf("backoff: %d messages in a row got no answer, %d more runs to skip", st.ignored, st.skipLeft)
 	}
 	if o.bucket(chat).tokens < 1 {
-		return false, fmt.Sprintf("cap: over %d proactive messages an hour in this chat", proactiveCapPerHour)
+		return false, fmt.Sprintf("cap: this chat's budget is spent (%d at once, %d an hour)", proactiveCapBurst, proactiveCapPerHour)
 	}
 	return true, ""
 }
@@ -305,7 +305,7 @@ func (o *proactiveOutbox) checkSend(fromSession, target string) string {
 		return ""
 	}
 	if o.bucket(proactiveChat(target)).tokens < 1 {
-		return fmt.Sprintf("主动消息已到上限：这个聊天里定时任务一小时最多发 %d 条，这条没发。", proactiveCapPerHour)
+		return fmt.Sprintf("主动消息已到上限：这个聊天里定时任务连着最多发 %d 条、一小时最多 %d 条，这条没发。", proactiveCapBurst, proactiveCapPerHour)
 	}
 	return ""
 }
