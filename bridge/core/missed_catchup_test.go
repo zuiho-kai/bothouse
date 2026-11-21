@@ -22,10 +22,10 @@ func (s *catchUpSession) Send(prompt, _ string, _ []ImageAttachment, _ []FileAtt
 	return nil
 }
 func (s *catchUpSession) RespondPermission(string, PermissionResult) error { return nil }
-func (s *catchUpSession) Events() <-chan Event                            { return s.events }
-func (s *catchUpSession) CurrentSessionID() string                        { return "catchup-session" }
-func (s *catchUpSession) Alive() bool                                     { return true }
-func (s *catchUpSession) Close() error                                    { return nil }
+func (s *catchUpSession) Events() <-chan Event                             { return s.events }
+func (s *catchUpSession) CurrentSessionID() string                         { return "catchup-session" }
+func (s *catchUpSession) Alive() bool                                      { return true }
+func (s *catchUpSession) Close() error                                     { return nil }
 func (s *catchUpSession) got() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -41,7 +41,7 @@ type missedPlatform struct {
 	afters []string
 }
 
-func (p *missedPlatform) MissedMessages(channelID, afterID string, since, before time.Time) ([]*Message, error) {
+func (p *missedPlatform) MissedMessages(channelID, afterID string, since time.Time) ([]*Message, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.reads++
@@ -110,6 +110,9 @@ func TestRestartCatchUp_QueuedOnDiskAndMissedAnsweredOnce(t *testing.T) {
 	}
 	if !strings.Contains(got[0], "停机时第二句") {
 		t.Fatalf("turn is not on the newest missed message: %q", got[0])
+	}
+	if !strings.Contains(got[0], "停机时第一句") {
+		t.Fatalf("older missed message not in the merged turn: %q", got[0])
 	}
 	if strings.Contains(got[0], "排队的话") {
 		t.Fatalf("message held by the journal answered again: %q", got[0])

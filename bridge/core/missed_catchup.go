@@ -16,9 +16,12 @@ import (
 // Messages the turn journal holds (an interrupted turn or its queue) are left to the resume.
 
 // MissedMessageReader is implemented by platforms that can list the posts in a channel after
-// afterID, posted in [since, before), that would have started a turn, oldest first.
+// afterID, posted since since, that would have started a turn, oldest first. There is no
+// "before this process started" bound: the local clock and the platform's can differ (11-21 the
+// Mac ran 20 s behind Discord, so posts made while down looked newer than the start and were
+// skipped); a post the gateway already delivered is dropped by the platform's id dedup instead.
 type MissedMessageReader interface {
-	MissedMessages(channelID, afterID string, since, before time.Time) ([]*Message, error)
+	MissedMessages(channelID, afterID string, since time.Time) ([]*Message, error)
 }
 
 // missedCatchUpWindow: only posts this recent are answered after a restart; older ones stay
@@ -68,29 +71,52 @@ func (e *Engine) catchUpMissed(p Platform, skip map[string]bool) {
 			marks[ch] = mark
 		}
 	}
-	before := StartTime.Add(-2 * time.Second) // IsOldMessage: later posts come in live
 	since := time.Now().Add(-missedCatchUpWindow)
 	for ch, mark := range marks {
-		msgs, err := r.MissedMessages(ch, mark, since, before)
+		msgs, err := r.MissedMessages(ch, mark, since)
 		if err != nil {
 			slog.Warn("restart catch-up: read failed", "project", e.name, "channel", ch, "error", err)
 			continue
 		}
-		last := map[string]*Message{} // session key -> newest
+		bySession := map[string][]*Message{}
 		var order []string
 		for _, m := range msgs {
 			if m == nil || skip[m.MessageID] {
 				continue
 			}
-			if _, seen := last[m.SessionKey]; !seen {
+			if _, seen := bySession[m.SessionKey]; !seen {
 				order = append(order, m.SessionKey)
 			}
-			last[m.SessionKey] = m
+			bySession[m.SessionKey] = append(bySession[m.SessionKey], m)
 		}
 		for _, k := range order {
-			m := last[k]
+			m := e.foldMissed(bySession[k])
 			slog.Info("restart catch-up: answering message posted while down", "project", e.name, "session", k, "msg_id", m.MessageID)
 			e.handleMessage(p, m) // applyGate marks it seen, so the next restart skips it
 		}
 	}
 }
+
+// foldMissed makes one turn of a session's missed posts: the newest. With a gate its channel
+// backfill shows the older ones (they are after the last-seen mark); without one nothing would,
+// so their words go in front of the newest (11-21 e2e: "add 1 to that number" was answered
+// without the post that gave the number).
+func (e *Engine) foldMissed(ms []*Message) *Message {
+	m := ms[len(ms)-1]
+	if len(ms) == 1 || e.gate.Load() != nil {
+		return m
+	}
+	var b strings.Builder
+	b.WriteString(missedFoldHead)
+	for _, o := range ms[:len(ms)-1] {
+		b.WriteString("\n")
+		b.WriteString(o.Content)
+		m.Images = append(o.Images, m.Images...)
+		m.Files = append(o.Files, m.Files...)
+	}
+	m.Content = b.String() + "\n\n" + m.Content
+	m.SeenUpToID = m.MessageID
+	return m
+}
+
+const missedFoldHead = "（桥停机时发来、还没回的消息，按时间顺序；最后一条在下面）"

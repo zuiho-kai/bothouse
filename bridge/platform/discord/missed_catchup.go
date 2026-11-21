@@ -16,9 +16,10 @@ type missedCollector struct{ msgs []*core.Message }
 const missedFetchLimit = 50
 
 // MissedMessages implements core.MissedMessageReader: the posts in channelID after afterID,
-// posted in [since, before), that would have started a turn, oldest first. They go through the
-// same filters as a live message (mention, allow lists, reply route).
-func (p *Platform) MissedMessages(channelID, afterID string, since, before time.Time) ([]*core.Message, error) {
+// posted since since, that would have started a turn, oldest first. They go through the same
+// filters as a live message (mention, allow lists, reply route, and the id dedup that keeps a
+// post the gateway already delivered from coming twice).
+func (p *Platform) MissedMessages(channelID, afterID string, since time.Time) ([]*core.Message, error) {
 	s := p.session
 	if s == nil {
 		return nil, fmt.Errorf("discord: missed messages: not connected")
@@ -39,7 +40,7 @@ func (p *Platform) MissedMessages(channelID, afterID string, since, before time.
 		if m == nil || m.Author == nil || !core.SnowflakeAfter(m.ID, afterID) {
 			continue
 		}
-		if m.Timestamp.Before(since) || !m.Timestamp.Before(before) {
+		if m.Timestamp.Before(since) {
 			continue
 		}
 		if m.GuildID == "" {
