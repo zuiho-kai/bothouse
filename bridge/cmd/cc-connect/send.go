@@ -272,6 +272,10 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 		// chat channel only while that task is in work.
 		req.Handoff = strings.TrimSpace(os.Getenv("CC_HANDOFF"))
 	}
+	if req.FromSession == "" {
+		// The caller's own conversation, so the bridge knows a send comes from a scheduled turn (#1857).
+		req.FromSession = strings.TrimSpace(envSessionKey())
+	}
 	if req.Message == "" {
 		req.Message = strings.Join(positional, " ")
 	}
