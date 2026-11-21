@@ -252,6 +252,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"pet":          runPet,
 	"setup":        runSetup,
 	"module":       runModule,
+	"features":     runFeatures,
 }
 
 func main() {
@@ -673,6 +674,7 @@ func runMain() {
 		webhookSrv.Start()
 	}
 
+	featureBoot = config.FeatureValues(cfg) // what restart-only switches run with until the next start
 	// Start management API server if enabled
 	var mgmtSrv *core.ManagementServer
 	if cfg.Management.Enabled != nil && *cfg.Management.Enabled {
@@ -840,6 +842,7 @@ func runMain() {
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		wireGlobalSettings(mgmtSrv)
+		wireFeatures(mgmtSrv)
 		wireAutostart(mgmtSrv)
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
@@ -877,6 +880,7 @@ func runMain() {
 	} else {
 		globalAPIServer = apiSrv
 		apiSrv.SetMaxAttachmentSize(resolveMaxAttachmentSize(cfg))
+		apiSrv.SetFeatureList(featureList)
 
 		relayMgr := core.NewRelayManager(cfg.DataDir)
 		if cfg.Relay.TimeoutSecs != nil {
