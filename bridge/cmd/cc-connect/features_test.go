@@ -25,6 +25,7 @@ func TestFormatFeatures(t *testing.T) {
 		"[关] 团队状态板：", "（team_board，默认开）",
 		"[开] 交回自动验收：", "team_review.disabled（反着写：开 = false）",
 		"[关] 语音转文字：", "speech.enabled，默认关，改了要重启",
+		"[关] 主动消息控量：", "（proactive.enabled，默认关）",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

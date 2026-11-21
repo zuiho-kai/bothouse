@@ -105,6 +105,9 @@ func globalDisplay(cfg *Config) (thinking, tool, showCtx, footer, hideAgentFoote
 
 var featureSwitches = []FeatureSwitch{
 	// ── global ──
+	g("proactive.enabled", false, false, "主动消息控量", "角色自己主动发的消息：同时到点的合成一条、每个聊天有上限、没人理就少发。",
+		"Proactive message control", "Messages roles send on their own: merge the ones due together, cap them per chat, back off when nobody answers.",
+		func(c *Config) **bool { return &c.Proactive.Enabled }),
 	g("stream_preview.enabled", true, true, "回复流式预览", "回复边写边显示，不用等整段写完。",
 		"Streaming preview", "Show the reply while it is being written.",
 		func(c *Config) **bool { return &c.StreamPreview.Enabled }),
