@@ -15,8 +15,8 @@ import (
 // jobs, and what those turns send with `bothouse send` (11-21 #1857, user: 「你都搞一下」 on
 // "主动发消息没有统一控量" and Linger's "提醒没人理就自动少发").
 //
-//   - Jobs for the same chat that fire together (within mergeWindow) run as one turn, so two
-//     reminders due at the same minute become one message.
+//   - Frequent jobs for the same chat that fire together (within mergeWindow) run as one turn, so
+//     two reminders due at the same minute become one message. Daily reports are never merged.
 //   - Frequent jobs (due at least once an hour) share a per-chat
 //     budget. A run with no budget left is skipped; a `bothouse send` from such a run is refused.
 //     Daily reports are not frequent and are never held back.
@@ -219,6 +219,12 @@ func proactiveMergeKey(job *CronJob) string {
 func (o *proactiveOutbox) batch(job *CronJob) (*CronJob, []string) {
 	key := proactiveMergeKey(job)
 	o.mu.Lock()
+	if !o.freq[job.ID] {
+		// daily reports run on their own: the two 23:00 jobs of the trading chat (开盘前定向, 影子判断)
+		// must stay separate judgments
+		o.mu.Unlock()
+		return job, []string{job.ID}
+	}
 	if b := o.batches[key]; b != nil {
 		b.jobs = append(b.jobs, job)
 		o.mu.Unlock()
