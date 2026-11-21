@@ -904,6 +904,44 @@ def _iso(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
 
 
+def _head_checks(pr):
+    """合并请求当前提交的检查：(提交号, [{key 记号, name, url, state: pending/bad/ok, at 出结论时刻}])。"""
+    commit = pr["commits"]["nodes"][0]["commit"]
+    out = []
+    for n in ((commit.get("statusCheckRollup") or {}).get("contexts") or {}).get("nodes") or []:
+        run = n["__typename"] == "CheckRun"
+        got = (n["conclusion"] if n["status"] == "COMPLETED" else None) if run else n["state"]
+        state = "pending" if got in (None, "PENDING", "EXPECTED") else "bad" if got in PR_CHECK_BAD else "ok"
+        out.append({"key": f"k{n['databaseId']}" if run else f"s{commit['oid']}:{n['context']}",
+                    "name": n["name"] if run else n["context"], "url": n["detailsUrl"] if run else n["targetUrl"],
+                    "state": state, "at": None if state == "pending" else _iso(n["completedAt"] if run else n["createdAt"])})
+    return commit["oid"], out
+
+
+WAIT_EXT_LINE = re.compile(r"(?m)^[\s>*\-【\[]*等外部[】\]]?\s*[：:]\s*\S")  # 同桥 core/team/wait_external.go waitExternalLine
+
+
+def wait_report_pr_problem(text):
+    """工作区交回写了「等外部」又带合并请求链接时，先核它当前提交的检查（ws-up --report 调）：一项都没出结论
+    （刚推完就交）不收；有失败而交回里没点名的不收。返回退回理由，没问题返回空串；gh 查不到不拦。
+    来源：#1855 主角色 11-21 定「刚推提交且该提交检查无结论时拒收等外部」——#1850 推完没等，格式检查 20 秒就红。"""
+    if not WAIT_EXT_LINE.search(text):
+        return ""
+    for url in dict.fromkeys(m.group(0) for m in PR_URL.finditer(text)):
+        pr = _pr_query(url)
+        if not pr or pr["state"] != "OPEN":
+            continue
+        oid, checks = _head_checks(pr)
+        unsaid = [c["name"] for c in checks if c["state"] == "bad" and c["name"] not in text]
+        if unsaid:
+            return (f"合并请求 {url} 当前提交 {oid[:8]} 有检查失败，交回里没提：{'、'.join(unsaid)}。先打开看失败原因："
+                    "是这次改动弄的就修好再推；和这次无关的，在交回里点出检查名、写明依据再交。")
+        if checks and all(c["state"] == "pending" for c in checks):
+            return (f"合并请求 {url} 当前提交 {oid[:8]} 的检查还一项都没出结论（刚推完）。等最快的几项（格式检查这类）"
+                    "出结果，红了先修，再交「等外部」。")
+    return ""
+
+
 def pr_news(pr, since, seen):
     """合并请求 pr 上的新动静 [(记号, 一行带原文链接的话)]：since（暂停时刻）之后的评论和审核、合并或关闭、
     检查全部跑完；还开着的合并请求当前提交上没报过的失败检查不看时间（推完没等检查就交回的，红在暂停前也要叫一次）。"""
@@ -924,22 +962,11 @@ def pr_news(pr, since, seen):
         if after(pr.get("mergedAt") or pr.get("closedAt")):
             out.append((f"state:{pr['state']}", f"合并请求已{'合并' if pr['state'] == 'MERGED' else '关闭'}：{pr['url']}"))
     else:
-        commit = pr["commits"]["nodes"][0]["commit"]
-        nodes = ((commit.get("statusCheckRollup") or {}).get("contexts") or {}).get("nodes") or []
-        pending, last = False, None
-        for n in nodes:
-            run = n["__typename"] == "CheckRun"
-            state = (n["conclusion"] if n["status"] == "COMPLETED" else None) if run else n["state"]
-            if state in (None, "PENDING", "EXPECTED"):
-                pending = True
-                continue
-            at = _iso(n["completedAt"] if run else n["createdAt"])
-            last = max(last, at) if last and at else (at or last)
-            if state in PR_CHECK_BAD:
-                key = f"k{n['databaseId']}" if run else f"s{commit['oid']}:{n['context']}"
-                out.append((key, f"检查失败 {n['name'] if run else n['context']}：{n['detailsUrl'] if run else n['targetUrl']}"))
-        if nodes and not pending and last and last > since:
-            out.append((f"done:{commit['oid']}", f"提交 {commit['oid'][:8]} 的检查全部跑完：{pr['url']}/checks"))
+        oid, checks = _head_checks(pr)
+        out += [(c["key"], f"检查失败 {c['name']}：{c['url']}") for c in checks if c["state"] == "bad"]
+        ended = [c["at"] for c in checks if c["at"]]
+        if checks and all(c["state"] != "pending" for c in checks) and ended and max(ended) > since:
+            out.append((f"done:{oid}", f"提交 {oid[:8]} 的检查全部跑完：{pr['url']}/checks"))
     return [(k, t) for k, t in out if k not in seen]
 
 

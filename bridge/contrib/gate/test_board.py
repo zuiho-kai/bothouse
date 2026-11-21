@@ -88,6 +88,14 @@ class Board(unittest.TestCase):
         it = board._read()[0]
         self.assertLess(it["wait_until"], until)
         self.assertEqual(it["pr_news"], [f"新评论（amy）：{url}#issuecomment-2", f"检查失败 lint：{url}/checks?run=11"])
+        # 交回写「等外部」带这个合并请求：检查一项没出结论不收；有失败没点名不收，点了名收；没写等外部不查
+        draft = f"[report] #1 改好推了 {url}\n等外部：等审核人复审\n再看：1h"
+        with patch.object(board.subprocess, "run", return_value=pr([old], [running])):
+            self.assertIn("一项都没出结论", board.wait_report_pr_problem(draft))
+            self.assertEqual(board.wait_report_pr_problem(f"[report] #1 改好推了 {url}"), "")
+        with patch.object(board.subprocess, "run", return_value=pr([old], [running, red])):
+            self.assertIn("lint", board.wait_report_pr_problem(draft))
+            self.assertEqual(board.wait_report_pr_problem(draft + "\nlint 失败和这次无关：主干上同一条就红"), "")
         self.assertTrue(board.resume(1))
         self.assertNotIn("pr_news", board._read()[0])
         self.assertEqual(cli("watch-pr", "1", "https://github.com/o/r/pull/8")[0], 0)
