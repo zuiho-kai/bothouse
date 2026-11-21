@@ -26,6 +26,7 @@ func newTestOutbox(c *outboxClock) *proactiveOutbox {
 func TestProactiveOutboxMergesJobsDueTogether(t *testing.T) {
 	o := newProactiveOutbox()
 	o.mergeWindow = 200 * time.Millisecond
+	o.freq["a"], o.freq["b"], o.freq["c"] = true, true, true
 	a := &CronJob{ID: "a", Project: "p", SessionKey: "discord:100", Prompt: "想想瑞凤 A", Description: "想想瑞凤"}
 	b := &CronJob{ID: "b", Project: "p", SessionKey: "discord:100", Prompt: "想想瑞凤 B", Description: "想想瑞凤2"}
 	var wg sync.WaitGroup
@@ -191,5 +192,30 @@ func TestTurnDeliveredIgnoresNoReply(t *testing.T) {
 		if got := turnDelivered(s, prev); got != c.want {
 			t.Fatalf("turnDelivered(%q) = %v, want %v", c.text, got, c.want)
 		}
+	}
+}
+
+// Daily jobs due together (the trading chat's two 23:00 judgments) are not merged.
+func TestProactiveOutboxDoesNotMergeDailyJobs(t *testing.T) {
+	o := newProactiveOutbox()
+	o.mergeWindow = 200 * time.Millisecond
+	clk := time.Date(2026, 11, 21, 23, 0, 0, 0, time.Local)
+	o.now = func() time.Time { return clk }
+	x := &CronJob{ID: "x", Project: "p", SessionKey: "discord:9", CronExpr: "0 23 * * 1-5", Prompt: "开盘前定向"}
+	y := &CronJob{ID: "y", Project: "p", SessionKey: "discord:9", CronExpr: "0 23 * * 1-5", Prompt: "影子判断"}
+	for _, j := range []*CronJob{x, y} {
+		if ok, why := o.admit(j, "discord:9"); !ok {
+			t.Fatalf("daily job held: %s", why)
+		}
+	}
+	var wg sync.WaitGroup
+	var got [2]*CronJob
+	for i, j := range []*CronJob{x, y} {
+		wg.Add(1)
+		go func(i int, j *CronJob) { defer wg.Done(); got[i], _ = o.batch(j) }(i, j)
+	}
+	wg.Wait()
+	if got[0] != x || got[1] != y {
+		t.Fatalf("daily jobs were merged: %v %v", got[0], got[1])
 	}
 }
