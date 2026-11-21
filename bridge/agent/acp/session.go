@@ -29,6 +29,7 @@ type acpSession struct {
 	core.SubTaskTracker
 	subTaskRuns    subTaskRuns
 	modelInfo      acpModelInfo // what the server advertised for model / effort selection (models.go)
+	modelMu        sync.RWMutex // guards modelInfo.currentModel / currentEff once the reader is running
 	workDir        string
 	events         chan core.Event
 	ctx            context.Context
@@ -45,6 +46,9 @@ type acpSession struct {
 
 	acpSessMu sync.RWMutex
 	acpSessID string
+
+	contextMu    sync.RWMutex
+	contextUsage *core.ContextUsage
 
 	outputMu           sync.Mutex
 	outputFilter       privateOutput
@@ -480,8 +484,12 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 	if !s.acceptInputUpdate(params) {
 		return
 	}
+	if s.absorbContextUsage(params) {
+		return
+	}
 	s.cacheToolCallInput(params)
 	s.maybeAbsorbCurrentModeUpdate(params)
+	s.maybeAbsorbConfigOptionUpdate(params)
 	sid := s.currentACPSessionID()
 	var header struct {
 		Update struct {
