@@ -118,6 +118,22 @@ class ProviderFailure(unittest.TestCase):
             with self.subTest(message=message):
                 self.assertTrue(failure(message).provider_down)
 
+    def test_stderr_counts_only_its_last_line_and_a_status_written_as_one(self):
+        for stderr in ("exit status 0", "status: 0 servers ready", "503 lines skipped",
+                       "plugin catalog fetch failed status=404\nERROR codex_core: turn aborted",
+                       "HTTP 503 from plugin registry\nERROR codex_core: turn aborted\n"):
+            with self.subTest(stderr=stderr):
+                self.assertEqual(I.codex_retry.response_statuses([], stderr), [])
+                out = I.codex_retry.failure([], "thread", "turn.failed", set(), stderr=stderr)
+                self.assertEqual((out.reason, out.provider_down), ("failure", False))
+        for stderr, status in (
+                ("ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown\n"
+                 "ERROR codex_login::auth::manager: Failed to refresh token status=401 Unauthorized\n", 401),
+                ("HTTP 0: transport error", 0), ("unexpected HTTP status: 503", 503)):
+            with self.subTest(stderr=stderr):
+                self.assertEqual(I.codex_retry.response_statuses([], stderr), [status])
+                self.assertTrue(I.codex_retry.failure([], "thread", "turn.failed", set(), stderr=stderr).provider_down)
+
     def assert_text_refusal_stops_uncounted(self, message):
         self.assertEqual(I.codex_retry.response_statuses([message], ""), [])
         db, logs, invoke, down = self.run_queue(message, paid_fallback=True)

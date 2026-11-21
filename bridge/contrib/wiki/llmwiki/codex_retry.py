@@ -67,16 +67,22 @@ def response_statuses(errors, stderr):
     if statuses:
         return statuses
     # Source: #906 r6: bare zero can be a tool count; status zero requires HTTP/status context.
-    for source in (messages, [stderr]):
-        for message in source:
-            match = re.search(r'^[ \t]*(?:error:[ \t]*)?([45]\d\d)\b|'
-                              r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*'
-                              r'(0|[45]\d\d)\b', message, re.I)
-            if match:
-                statuses.append(int(match.group(1) or match.group(2)))
-        if statuses:
-            return statuses  # stderr is a fallback diagnostic, not a second response body.
-    return statuses
+    for message in messages:
+        match = re.search(r'^[ \t]*(?:error:[ \t]*)?([45]\d\d)\b|'
+                          r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*'
+                          r'(0|[45]\d\d)\b', message, re.I)
+        if match:
+            statuses.append(int(match.group(1) or match.group(2)))
+    if statuses:
+        return statuses
+    # stderr holds every diagnostic of the process (plugins, tools, start-up), not the response. Only its last
+    # line counts, where the CLI says why it gave up (ingest log 2026-11-20: 「Failed to refresh token status=401
+    # Unauthorized」 after an unrelated websocket line), and only a status written as one: 「exit status 0」 and a
+    # leading number are not HTTP statuses.
+    last = next((line for line in reversed(stderr.splitlines()) if line.strip()), "")
+    match = re.search(r'\bHTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?[ \t]*[:=]?[ \t]*(0|[45]\d\d)\b|'
+                      r'\bstatus(?:[ \t]+code)?[ \t]*[:=]?[ \t]*([45]\d\d)\b', last, re.I)
+    return [int(match.group(1) or match.group(2))] if match else []
 
 
 def failure(errors, tid, terminal, active, progress=False, result="", stderr="", usage=None):
