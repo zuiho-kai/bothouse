@@ -385,7 +385,7 @@ func turnDelivered(s *Session, prevLen int) bool {
 }
 
 func (e *Engine) startProactiveRun(ids []string, sessionKeys ...string) func() {
-	if e.proactive == nil || len(ids) == 0 {
+	if e.proactive == nil || len(ids) == 0 { // ids is empty unless the run was admitted while the outbox was on
 		return func() {}
 	}
 	return e.proactive.startRun(ids, sessionKeys...)
@@ -395,4 +395,19 @@ func (e *Engine) proactiveDelivered(ids []string, sessionKey string) {
 	if e.proactive != nil && len(ids) > 0 {
 		e.proactive.delivered(ids, proactiveChat(sessionKey))
 	}
+}
+
+// SetProactiveOutbox turns the outbox on or off ([proactive] enabled, #1860, user 「这个默认关一下」).
+// Off (the default) means every scheduled job, `bothouse send`, message and reaction goes straight
+// through as before #1857. Applied at startup and on every config reload.
+func (e *Engine) SetProactiveOutbox(on bool) {
+	e.proactiveOn.Store(on)
+}
+
+// outbox returns the proactive outbox, or nil when it is off.
+func (e *Engine) outbox() *proactiveOutbox {
+	if !e.proactiveOn.Load() {
+		return nil
+	}
+	return e.proactive
 }

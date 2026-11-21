@@ -39,6 +39,8 @@ type APIServer struct {
 	maxAttachmentBytes int64
 	mu                 sync.RWMutex
 	inputs             inputStore
+	// featureList: `bothouse features list` (management_features.go)
+	featureList func() (FeatureList, error)
 	// watch: the handoff watch on the team workspace engine (team_watch.go startHandoffWatch).
 	watch handoffWatchRun
 	// followStop ends runLeadFollow (team_workspace_api.go) at Stop.
@@ -166,6 +168,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/report/verdict", s.handleTeamReportVerdict) // ws-pass / ws-forward on a held [report] (team_report_accept.go)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
 	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
+	// `bothouse features list` (management_features.go)
+	s.mux.HandleFunc("/features", s.handleFeatures)
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
 	s.mux.HandleFunc("/cron/list", s.handleCronList)
 	s.mux.HandleFunc("/cron/info", s.handleCronInfo)
@@ -414,8 +418,8 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		// #1857: a send from a running scheduled turn goes through the proactive outbox.
-		if engine.proactive != nil && proactiveFrom != "" {
-			if why := engine.proactive.checkSend(proactiveFrom, req.SessionKey); why != "" {
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			if why := ob.checkSend(proactiveFrom, req.SessionKey); why != "" {
 				slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
 				http.Error(w, why, http.StatusTooManyRequests)
 				return
@@ -445,8 +449,8 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if engine.proactive != nil && proactiveFrom != "" {
-			engine.proactive.deliveredFrom(proactiveFrom, req.SessionKey)
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			ob.deliveredFrom(proactiveFrom, req.SessionKey)
 		}
 	}
 
