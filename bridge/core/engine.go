@@ -6898,6 +6898,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 
 	turn.sendReplySegment = func(p Platform, replyCtx any, segment string) {
+		// A scheduled turn's narration between tool calls is the agent thinking
+		// aloud; only its final reply is meant for the chat (#953).
+		if turn.quietNarration {
+			return
+		}
 		// A live streaming card already shows every word of this turn; a
 		// segment sent beside it repeats the same text as a second message
 		// (#703: DingTalk AI card, thinking/tool/permission flushes).
@@ -6940,8 +6945,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			slog.Info("streaming card created for turn", "session", turn.sessionKey)
 		}
 	}
+	turn.quietNarration = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
-	turn.sp = newStreamPreview(e.streamPreview, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
+	turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
 	// A failed freeze has not delivered the segment. Stop this output turn
 	// before detaching its preview or recording the segment as sent.
 	turn.freezePreview = func() bool {
@@ -6957,7 +6963,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	turn.cp = newCompactProgressWriter(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), turn.sessionKey, workspaceRenderer)
-	if turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey) {
+	if turn.quietNarration {
 		turn.cp.hideForScheduled()
 	}
 	turn.state.mu.Unlock()
@@ -14634,6 +14640,16 @@ func (e *Engine) sendRenderedWithContext(ctx context.Context, p Platform, replyC
 }
 
 // send wraps p.Send with error logging, slow-operation warnings, and outgoing rate limiting.
+// turnPreviewCfg: a quiet (scheduled) turn shows no live preview; its text would
+// otherwise appear in the chat while it is written and stay at each tool boundary.
+func (e *Engine) turnPreviewCfg(quiet bool) StreamPreviewCfg {
+	cfg := e.streamPreview
+	if quiet {
+		cfg.Enabled = false
+	}
+	return cfg
+}
+
 func (e *Engine) send(p Platform, replyCtx any, content string) {
 	_ = e.sendWithError(p, replyCtx, content)
 }

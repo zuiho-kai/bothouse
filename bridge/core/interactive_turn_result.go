@@ -894,9 +894,13 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		queuedRenderer := func(content string) string {
 			return e.renderOutgoingContentForWorkspace(queued.platform, content, turn.workspaceDir)
 		}
-		turn.sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
+		turn.quietNarration = scheduledTurnUser(queued.userID) && !e.isTeamWorkspaceChat(turn.sessionKey)
+		turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
 		turn.cp = newCompactProgressWriter(turn.outputCtx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 		turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, queued.platform, turn.sessionKey, queuedRenderer)
+		if turn.quietNarration {
+			turn.cp.hideForScheduled()
+		}
 		turn.board = e.boardBegin(turn.state, turn.sessionKey) // maomao fork: the queued turn's board row
 		turn.cp.onStep = turn.board.step
 
