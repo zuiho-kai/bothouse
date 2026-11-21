@@ -24,9 +24,14 @@ func (a *Agent) GetUsageForModel(ctx context.Context, model string) (*core.Usage
 	if !a.SupportsUsageReporting() {
 		return nil, accountquota.ErrUnsupportedAuth
 	}
+	return accountquota.Cursor(ctx, a.UsageEnvironment(), model)
+}
+
+// UsageEnvironment returns the credential environment used by the ACP process,
+// including project and session overrides. Provider wrappers use the same
+// snapshot so quota queries cannot silently read a different signed-in account.
+func (a *Agent) UsageEnvironment() []string {
 	a.mu.RLock()
-	env := core.MergeEnv(os.Environ(), a.extraEnv)
-	env = core.MergeEnv(env, a.sessionEnv)
-	a.mu.RUnlock()
-	return accountquota.Cursor(ctx, env, model)
+	defer a.mu.RUnlock()
+	return core.MergeEnv(core.MergeEnv(os.Environ(), a.extraEnv), a.sessionEnv)
 }
