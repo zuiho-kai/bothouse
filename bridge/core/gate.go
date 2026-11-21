@@ -439,6 +439,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
+	if msg.nativeCommand {
+		// #2041: handleCommand marked it on a message that calls this role. The agent runs it only
+		// as typed, so nothing below may hold, merge, route or annotate it.
+		return false
+	}
 	// A private chat with the owner (an explicit admin_from ID) has no third party: whatever
 	// the owner says there is addressed to this bot, so it is never filed as overheard context.
 	// While idle it skips the gate (nothing to judge). While a turn is running it goes through

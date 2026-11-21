@@ -61,6 +61,11 @@ type Agent struct {
 	modesCache   []core.PermissionModeInfo
 	modesCurrent string
 
+	// commands is what the last handshake advertised as the server's slash commands;
+	// commandsProbe asks once when nothing has been seen yet (native_commands.go).
+	commands      nativeCommands
+	commandsProbe sync.Once
+
 	// contextTokens holds each ACP session's last reported prompt size (reportContextTokens).
 	contextMu     sync.Mutex
 	contextTokens map[string]int

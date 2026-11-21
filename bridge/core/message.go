@@ -435,6 +435,10 @@ type Message struct {
 	userTextSet bool       // maomao fork: userText is set (see userTextOf)
 	gateParts   []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
 	abortFront  bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
+	// nativeCommand: one of the agent's own slash commands (NativeCommandAgent), in a message that
+	// calls this role, from someone allowed to run it (handleCommand). It runs as a turn of its own
+	// and reaches the agent as typed: not held, merged or routed, no blocks, no instructions (#2041).
+	nativeCommand bool
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.

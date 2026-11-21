@@ -25,6 +25,7 @@
 package devin
 
 import (
+	"context"
 	"strings"
 
 	"github.com/chenhg5/cc-connect/agent/acp"
@@ -47,6 +48,17 @@ type Agent struct {
 // Name returns the stable agent type identifier used in config,
 // session store keys, and audit logging.
 func (a *Agent) Name() string { return "devin" }
+
+// readOnlyCommands are the Devin slash commands that only report on the session. Anyone who may
+// talk to the role can run them; every other command Devin advertises (login, logout, billing,
+// the mode switches, share, its skills, whatever a later CLI adds) takes an admin.
+var readOnlyCommands = map[string]bool{"context": true, "session-stats": true, "recap": true}
+
+// NativeCommand adds what this package knows about Devin's commands to the ACP answer.
+func (a *Agent) NativeCommand(ctx context.Context, text string) (name string, readOnly bool) {
+	name, _ = a.Agent.NativeCommand(ctx, text)
+	return name, readOnlyCommands[name]
+}
 
 // New builds a Devin agent from project options.
 //

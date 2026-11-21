@@ -846,6 +846,17 @@ type SessionSettings struct {
 	Provider string
 }
 
+// NativeCommandAgent is an optional interface for agents whose backend runs its own slash
+// commands when one arrives as the whole prompt (ACP available_commands_update). The engine sends
+// a message that is one of them to the agent as typed; wrapped like chat text, the backend would
+// hand it to the model as ordinary words.
+type NativeCommandAgent interface {
+	// NativeCommand reports the backend command that text invokes: its advertised name ("" when
+	// text is not one) and whether it only reports on the session. Any other command acts on the
+	// account, the environment or the session, and takes an admin.
+	NativeCommand(ctx context.Context, text string) (name string, readOnly bool)
+}
+
 // AgentSessionCanceller is an optional interface for agent sessions that support
 // cancelling the current turn without terminating the session or its underlying
 // process. When implemented, the engine calls CancelTurn instead of Close() for
