@@ -261,6 +261,9 @@ type CleanupConfig struct {
 
 type ProactiveConfig struct {
 	Enabled *bool `toml:"enabled,omitempty"` // default false
+	// MinGap: while nobody has answered, at most one proactive message per chat every two hours
+	// (the rhythm from 11-20 「他没回也没关系，过一阵再找他」). Default true; only matters while Enabled.
+	MinGap *bool `toml:"min_gap,omitempty"`
 }
 
 type GateConfig struct {
