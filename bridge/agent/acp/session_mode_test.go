@@ -292,7 +292,8 @@ func (f *fakeCallbacks) reportListSupported(supported bool) {
 	f.listCalls = append(f.listCalls, supported)
 	f.mu.Unlock()
 }
-func (f *fakeCallbacks) reportContextTokens(string, int) {}
+func (f *fakeCallbacks) reportContextTokens(string, int)              {}
+func (f *fakeCallbacks) reportContextUsage(string, core.ContextUsage) {}
 func (f *fakeCallbacks) lastModes() (acpModesBlock, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
