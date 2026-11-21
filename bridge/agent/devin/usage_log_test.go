@@ -28,6 +28,8 @@ const (
 	devinNoInput = `{"role":"assistant","message_id":"mid-noinput","metadata":{"generation_model":"swe-2-max","metrics":{"output_tokens":9}}}`
 	devinRespB   = `{"role":"assistant","message_id":"mid-b","metadata":{"generation_model":"swe-2-max","metrics":{"input_tokens":7,"output_tokens":3,"cache_read_tokens":0,"cache_creation_tokens":0}}}`
 	devinOther   = `{"role":"assistant","message_id":"mid-x","metadata":{"generation_model":"swe-2-max","metrics":{"input_tokens":42,"output_tokens":4}}}`
+	// Older store rows carry metrics but no generation_model (#2071).
+	devinNoModel = `{"role":"assistant","message_id":"mid-nomodel","metadata":{"metrics":{"input_tokens":5,"output_tokens":2}}}`
 )
 
 var devinDay = time.Date(2026, 11, 22, 10, 0, 0, 0, time.Local).Unix()
@@ -39,7 +41,7 @@ func openTestDB(t *testing.T, dir string) *sql.DB {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`CREATE TABLE sessions (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE sessions (id TEXT PRIMARY KEY, model TEXT)`,
 		`CREATE TABLE message_nodes (row_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
 			node_id INTEGER NOT NULL, parent_node_id INTEGER, chat_message TEXT NOT NULL,
 			created_at INTEGER NOT NULL, metadata TEXT)`,
@@ -179,5 +181,30 @@ func TestUsageLogDevinFilesAndSessionID(t *testing.T) {
 	}
 	if recs, err := src.ReadUsage(byID[devinSID], devinSID, st); err != nil || len(recs) != 0 {
 		t.Fatalf("second read returned %d records: %v", len(recs), err)
+	}
+}
+
+// #2071: a node without metadata.generation_model used to emit Model "unknown",
+// which the spend cap prices at the table's highest rate. The sessions row's
+// model stands in; "unknown" is kept only when nothing names a model.
+func TestUsageLogDevinModelFromSessionRow(t *testing.T) {
+	cliDir := t.TempDir()
+	db := openTestDB(t, cliDir)
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO sessions (id, model) VALUES (?, ?), (?, NULL)`, devinSID, "swe-2-high", devinSIDUnown); err != nil {
+		t.Fatal(err)
+	}
+	addNode(t, db, devinSID, devinNoModel, devinDay)
+	addNode(t, db, devinSIDUnown, devinNoModel, devinDay)
+
+	src := &UsageLogSource{Dir: cliDir}
+	vfile := func(sid string) string { return filepath.Join(cliDir, devinDBFile) + "#" + sid }
+	recs, err := src.ReadUsage(vfile(devinSID), devinSID, &core.UsageFileState{})
+	if err != nil || len(recs) != 1 || recs[0].Model != "swe-2-high" {
+		t.Fatalf("session-row model: %v %+v", err, recs)
+	}
+	recs, err = src.ReadUsage(vfile(devinSIDUnown), devinSIDUnown, &core.UsageFileState{})
+	if err != nil || len(recs) != 1 || recs[0].Model != "unknown" {
+		t.Fatalf("no model anywhere stays unknown: %v %+v", err, recs)
 	}
 }

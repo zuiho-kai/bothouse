@@ -183,10 +183,21 @@ func (s *UsageLogSource) ReadUsage(path, sid string, st *core.UsageFileState) ([
 		st.Offset = lastRow
 	}
 	out := make([]core.UsageRecord, 0, len(byMessage))
+	var sessionModel string
+	modelLookedUp := false
 	for mid, b := range byMessage {
 		model := b.model
 		if model == "" {
-			model = "unknown"
+			if !modelLookedUp {
+				// Older nodes lack metadata.generation_model; the sessions row keeps
+				// the model the session asked for — closer than the unpriced "unknown".
+				_ = db.QueryRow(`SELECT model FROM sessions WHERE id = ?`, sid).Scan(&sessionModel)
+				modelLookedUp = true
+			}
+			model = sessionModel
+			if model == "" {
+				model = "unknown"
+			}
 		}
 		out = append(out, core.UsageRecord{
 			Time: time.Unix(b.t, 0).Local(), Model: model,
