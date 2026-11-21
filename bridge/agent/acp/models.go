@@ -123,7 +123,9 @@ func parseModelInfo(models *acpModelsBlock, opts []acpConfigOption) acpModelInfo
 // absorbModelInfo keeps what the server advertised and hands it to the parent agent.
 func (s *acpSession) absorbModelInfo(models *acpModelsBlock, opts []acpConfigOption) {
 	info := parseModelInfo(models, opts)
+	s.modelMu.Lock()
 	s.modelInfo = info
+	s.modelMu.Unlock()
 	if r, ok := s.callbacks.(modelInfoReporter); ok {
 		r.reportModelInfo(info)
 	}
@@ -152,6 +154,63 @@ func (s *acpSession) applyModel(model string) {
 		return
 	}
 	slog.Info("acp: model applied", "model", model, "session_id", sid, "reported", reportedValue(res, "model"))
+	s.modelMu.Lock()
+	s.modelInfo.currentModel = model
+	s.modelMu.Unlock()
+	s.absorbConfigValues(res) // the server's own word, and the effort that goes with the new model
+}
+
+// GetModel and GetReasoningEffort report what this session runs. A per-conversation switch is
+// applied to its session only, so it differs from the agent's value; the reply footer asks the
+// session first.
+func (s *acpSession) GetModel() string {
+	s.modelMu.RLock()
+	defer s.modelMu.RUnlock()
+	return s.modelInfo.currentModel
+}
+
+func (s *acpSession) GetReasoningEffort() string {
+	s.modelMu.RLock()
+	defer s.modelMu.RUnlock()
+	return s.modelInfo.currentEff
+}
+
+// absorbConfigValues takes the current model and effort from a configOptions list: the reply to
+// session/set_config_option, or a config_option_update (the server announces every change, and
+// its own commands can switch the model).
+func (s *acpSession) absorbConfigValues(raw json.RawMessage) {
+	var r struct {
+		ConfigOptions []acpConfigOption `json:"configOptions"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return
+	}
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	for _, o := range r.ConfigOptions {
+		switch {
+		case s.modelInfo.viaConfig && (o.ID == "model" || o.Category == "model"):
+			s.modelInfo.currentModel = rawString(o.CurrentValue)
+		case o.ID != "" && o.ID == s.modelInfo.effortConfig:
+			s.modelInfo.currentEff = rawString(o.CurrentValue)
+		}
+	}
+}
+
+func (s *acpSession) maybeAbsorbConfigOptionUpdate(params json.RawMessage) {
+	var wrap struct {
+		Update json.RawMessage `json:"update"`
+	}
+	if json.Unmarshal(params, &wrap) != nil {
+		return
+	}
+	var head struct {
+		Kind string `json:"sessionUpdate"`
+	}
+	if json.Unmarshal(wrap.Update, &head) != nil || head.Kind != "config_option_update" {
+		return
+	}
+	s.absorbConfigValues(wrap.Update)
 }
 
 // reportedValue pulls the server's current value for configID out of a set_config_option reply.
@@ -189,6 +248,10 @@ func (s *acpSession) applyEffort(effort string) {
 		return
 	}
 	slog.Info("acp: reasoning effort applied", "effort", effort, "session_id", sid, "reported", reportedValue(res, s.modelInfo.effortConfig))
+	s.modelMu.Lock()
+	s.modelInfo.currentEff = effort
+	s.modelMu.Unlock()
+	s.absorbConfigValues(res)
 }
 
 // --- Agent side: core.ModelSwitcher and core.ReasoningEffortSwitcher ---
