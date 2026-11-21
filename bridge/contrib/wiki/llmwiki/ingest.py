@@ -203,6 +203,10 @@ class HouseholdError(RuntimeError):
     """The configured role-household roster is unavailable or incomplete."""
 
 
+class ConfigError(ValueError):
+    """config.json lacks a setting the chosen engine needs: the same error on every call until the file is fixed."""
+
+
 CFG = load_config(REPO)
 BRIDGE_DIR = CFG["bridge_dir"]
 HOME = Path(os.path.expanduser(CFG["home"]))
@@ -2669,6 +2673,11 @@ def codex_json(prompt, schema, label, model, effort):
 API = None  # propose.Api for engine "openai", built on first use
 USAGE_LOCK = threading.Lock()
 ROUTE_DOWN = False  # the openai route refused a call for everyone (rate limit, sign-in, transport, server error)
+OUT_OF_TIME = False  # an openai-route call was not sent: the run has less time left than one call needs
+
+
+def out_of_time(error):
+    return getattr(error, "reason", None) == "budget_exhausted"
 
 
 def api_json(prompt, schema, label):
@@ -2677,13 +2686,12 @@ def api_json(prompt, schema, label):
     effort = ENGINE.partition(":")[2] or EFFORT
     if API is None:
         if not (CFG["api_base"] and CFG["api_model"] and CFG["api_key_file"]):
-            return False, "openai engine needs api_base, api_model and api_key_file", True
+            raise ConfigError("config.json: the openai engine needs api_base, api_model and api_key_file")
         API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
                           effort, log)
-    left = budget.remaining()
-    if left is not None and left < API.ROOM:  # the same admission as the codex route
-        return False, "not enough remaining time for a proposal call", True
     ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
+    if status is None:  # not sent for lack of time: the codex route's admission outcome, not the route's failure
+        return False, codex_retry.Failure(out, "budget_exhausted", started=False), False
     cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
     row = [time.strftime("%F %T"), label, f"openai:{CFG['api_model']}/{effort}",
            1 if u else 0, u.get("prompt_tokens", 0) - cached, cached, 0, u.get("completion_tokens", 0),
@@ -2749,7 +2757,7 @@ class Prefetch:
 
     def work(self, label, text, sources):
         if self.stopped:
-            return "prefetch stopped", True
+            return self.stopped
         failed = []
 
         def call(prompt, schema, sub):
@@ -2766,12 +2774,12 @@ class Prefetch:
                                   cache=PROPOSE_DIR / "facts")
         except (HouseholdError, discord_said.Unavailable):
             raise  # source failures retain their type through Future.result(); never try another writing route
-        except Exception as e:  # noqa: BLE001 — reported by the loop like propose_pass's own script errors
-            return f"proposal: {type(e).__name__}: {e}"[:300], False
+        except Exception as e:  # noqa: BLE001 — propose_pass raises it again as its own script error
+            return e, False
         if got is None:
             out = failed[-1] if failed else ("model failed", False)
-            if out[1]:
-                self.stopped = True  # the route refuses everyone: start no more batches this run
+            if out[1] or out_of_time(out[0]):
+                self.stopped = out  # the route refuses everyone, or the run's time is up: start no more batches
             return out
         return got
 
@@ -2784,7 +2792,7 @@ class Prefetch:
         return out
 
     def close(self):
-        self.stopped = True
+        self.stopped = self.stopped or ("prefetch stopped", True)
         self.queue = []
         self.pool.shutdown(wait=True, cancel_futures=True)
 
@@ -2797,7 +2805,7 @@ def propose_pass(label, it, text, sids, sources, engine):
     searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
     agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
     Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
-    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED, ROUTE_DOWN
+    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED, ROUTE_DOWN, OUT_OF_TIME
     LAST_REJECTED, CRASHED = False, ""
     if budget.exhausted():
         return False
@@ -2808,7 +2816,7 @@ def propose_pass(label, it, text, sids, sources, engine):
     failed = []
 
     def call(prompt, schema, sub):
-        global LAST_ENGINE, ROUTE_DOWN
+        global LAST_ENGINE, ROUTE_DOWN, OUT_OF_TIME
         if name == "openai":
             ok, out, down = api_json(prompt, schema, sub)
             if ok:
@@ -2817,7 +2825,7 @@ def propose_pass(label, it, text, sids, sources, engine):
                     return json.loads(out)
                 except ValueError:
                     out = f"not JSON: {out[:300]}"
-            ROUTE_DOWN = ROUTE_DOWN or down
+            ROUTE_DOWN, OUT_OF_TIME = ROUTE_DOWN or down, OUT_OF_TIME or out_of_time(out)
             failed.append(out)
             return None
         # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
@@ -2836,16 +2844,20 @@ def propose_pass(label, it, text, sids, sources, engine):
         return None
 
     said, rules = role_rules(sources, text)
-    prepared = None
+    prepared = crash = None
     if name == "openai" and PREFETCH is not None:
         prepared = PREFETCH.take(label, text, sources)
-        if isinstance(prepared[0], str):  # (error, route_down)
-            ROUTE_DOWN = ROUTE_DOWN or prepared[1]
+        if isinstance(prepared[0], Exception):  # the worker's script error
+            crash, prepared = prepared[0], None
+        elif isinstance(prepared[0], str):  # (error, route_down)
+            ROUTE_DOWN, OUT_OF_TIME = ROUTE_DOWN or prepared[1], OUT_OF_TIME or out_of_time(prepared[0])
             failed.append(prepared[0])
             prepared = None
         else:
             LAST_ENGINE = f"openai:{CFG['api_model']}"
     try:
+        if crash is not None:
+            raise crash
         def finish(plan):
             def ask(prompt):
                 answer = call(prompt, invalidate.SCHEMA, label + " invalidate")
@@ -2904,7 +2916,7 @@ def ingest_batches(db, items, engines, pending=False):
 
 
 def _ingest_batches(db, batches, engines, pending):
-    global quota_hit, CRASHED, ROUTE_DOWN
+    global quota_hit, CRASHED, ROUTE_DOWN, OUT_OF_TIME
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
         if budget.stopped():
@@ -2916,7 +2928,7 @@ def _ingest_batches(db, batches, engines, pending):
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
         retained = 0
-        res, quota_hit, CRASHED, ROUTE_DOWN = False, False, "", False
+        res, quota_hit, CRASHED, ROUTE_DOWN, OUT_OF_TIME = False, False, "", False, False
         REJECT_REASONS.clear()
         cands = candidates_note(text)
         for engine in dict.fromkeys(filter(None, engines)):
@@ -2936,7 +2948,7 @@ def _ingest_batches(db, batches, engines, pending):
                 prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
                 res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
                                  check=lambda: page_checks(label, sources))
-            if res or CRASHED or ROUTE_DOWN:  # provider outage stops this run before any expensive fallback
+            if res or CRASHED or ROUTE_DOWN or OUT_OF_TIME:  # an outage or the deadline: no expensive fallback
                 break
         crashed = CRASHED
         if res:
@@ -2952,7 +2964,7 @@ def _ingest_batches(db, batches, engines, pending):
                 db.execute("delete from fails where id=?", (it["id"],))
                 if LAST_ENGINE.startswith("codex"):  # luna/sol/astra wrote it: nothing for the nightly review to check
                     db.execute("insert or replace into reviewed values (?,?,?)", (it["id"], it["end"], time.time()))
-        elif budget.exhausted():
+        elif budget.exhausted() or OUT_OF_TIME:
             log(f"{label}: job deadline reached; checkpoint retained, not counted as a model failure")
             db.commit()
             break

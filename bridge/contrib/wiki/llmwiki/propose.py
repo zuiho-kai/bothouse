@@ -668,7 +668,8 @@ class Api:
     inputs) otherwise ends in a proxy's HTTP 524 although the model is still working. A 429, a server error or a
     transport error lowers the limit (halved, once per pause, so simultaneous failures of one burst count once) and
     the call is retried after a pause, as long as the run's deadline leaves room for the pause and another call.
-    Returns (ok, text or error, usage dict, http status)."""
+    Returns (ok, text or error, usage dict, http status); status None: not sent, the run has less time left than one
+    call needs (ROOM)."""
     # source: a proxy in front of such routes answers urllib's default User-Agent with 403 / error code 1010 (measured 2026-11-20)
     AGENT = "llm-wiki-ingest/1"
     # source: measured 2026-11-20, the route answers a one-line JSON-schema call in 3.6 s; 3 tries span ~1.5 min of pauses
@@ -736,8 +737,10 @@ class Api:
             req = urllib.request.Request(self.base + "/chat/completions", data=data, headers={
                 "Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": self.AGENT})
             self._slot(True)
-            left = remaining()
+            left = remaining()  # read after the wait for a turn: the deadline may have come closer meanwhile
             try:
+                if left is not None and left < self.ROOM:
+                    return False, "not enough remaining time for a proposal call", {}, None
                 with urllib.request.urlopen(req, timeout=self.TIMEOUT if left is None else min(left, self.TIMEOUT)) as r:
                     status = r.status
                     out, usage = self._read_stream(r)

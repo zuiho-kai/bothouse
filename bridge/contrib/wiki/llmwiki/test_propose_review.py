@@ -425,6 +425,78 @@ class ProposeReview(unittest.TestCase):
             self.assertEqual((ok, status, seen), (False, 0, [left]))
             sleep.assert_not_called()
 
+    def test_openai_call_without_room_before_the_deadline_is_not_sent(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 4, log=lambda msg: None)
+        seen = []
+        def urlopen(request, timeout=None):
+            seen.append(timeout)
+            raise P.urllib.error.URLError("refused")
+        with patch.object(P.urllib.request, "urlopen", urlopen), patch.object(P.time, "sleep"):
+            for left in (P.Api.ROOM - 1, 0, -5):  # what is left once the call has waited for its turn
+                with self.subTest(left=left):
+                    self.assertEqual(api.json("prompt", {}, "facts", lambda: left)[2:], ({}, None))
+        self.assertEqual((seen, api.limit), ([], 4))  # no zero or negative timeout, and no slowdown for it
+
+    def test_openai_route_short_of_time_is_the_deadline_not_an_outage(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 4, log=lambda msg: None)
+        sent = []
+        I.ROUTE_DOWN = False
+        with patch.object(P.urllib.request, "urlopen", lambda *args, **kw: sent.append(kw)), \
+                patch.object(I.budget, "remaining", return_value=P.Api.ROOM - 1), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None, API=api,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)):
+            self.assertFalse(I.propose_pass("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
+                                            "USER: 现在配置用新值", ["aaaaaaaa"], [], "openai:high"))
+        self.assertEqual((sent, I.ROUTE_DOWN), ([], False))  # nightly's maintenance still runs after this round
+        self.assertTrue(I.OUT_OF_TIME)
+
+    def test_round_short_of_time_stops_without_counting_or_trying_another_engine(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        items = [dict(id=sid, end=10, path=self.root / (sid + ".jsonl"), title="配置", cwd="/test",
+                      date="2026-11-20", text="USER: 现在配置用新值") for sid in ["aaaaaaaa", "bbbbbbbb"]]
+        def short_of_time(*args):
+            I.OUT_OF_TIME = True
+            return False
+        with patch.object(I, "propose_pass", side_effect=short_of_time) as passes, \
+                patch.object(I, "model_pass", return_value=True) as fallback, patch.object(I, "log") as log, \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"):
+            I._ingest_batches(db, [I.batches_of([it])[0] for it in items], ["openai:high", "sonnet"], False)
+        self.assertEqual((passes.call_count, fallback.call_count), (1, 0))  # the later batch is not started either
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall() + db.execute("SELECT * FROM fails").fetchall(), [])
+        self.assertIn("job deadline reached", log.call_args.args[0])
+
+    def test_openai_engine_without_its_settings_is_a_config_error_and_alerts(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
+                    date="2026-11-20", text="USER: 现在配置用新值")
+        I.ROUTE_DOWN = False
+        with patch.dict(I.CFG, api_base="", api_model="model", api_key_file="key"), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, API=None,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)), \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"), \
+                patch.object(I, "alert") as alert:
+            I.ingest_batches(db, [item], ["openai:high"], pending=True)  # the calls run in the prefetch workers
+            self.assertFalse(I.ROUTE_DOWN)
+            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
+            self.assertIn("api_base, api_model and api_key_file", alert.call_args.args[2])
+            with self.assertRaises(I.ConfigError):
+                I.api_json("prompt", {}, "ingest facts")
+
 
 if __name__ == "__main__":
     unittest.main()
