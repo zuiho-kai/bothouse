@@ -3,6 +3,8 @@ package acp
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestUsageUpdateReportsCurrentContext(t *testing.T) {
@@ -44,5 +46,48 @@ func TestUsageUpdateReportsCurrentContext(t *testing.T) {
 	u.UsedTokens = 123
 	if a.ReadContextUsage("active").UsedTokens != 0 {
 		t.Fatal("caller mutated the stored context snapshot")
+	}
+}
+
+// Shapes captured from an isolated `devin acp` 3000.14 turn: usage_update first,
+// then the session/prompt response carrying the turn's usage.
+func TestPromptResultCarriesTurnUsage(t *testing.T) {
+	a := &Agent{}
+	s, responses, requests := newTestSession(t, a)
+	go func() {
+		dec, enc := json.NewDecoder(requests), json.NewEncoder(responses)
+		var req inputRPCRequest
+		if dec.Decode(&req) != nil {
+			return
+		}
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{
+			"sessionId": "test-session-id", "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "hi"}},
+		}})
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{
+			"sessionId": "test-session-id", "update": map[string]any{"sessionUpdate": "usage_update", "used": 20660, "size": 262000},
+		}})
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+			"stopReason": "end_turn",
+			"usage":      map[string]any{"totalTokens": 20660, "inputTokens": 20632, "outputTokens": 28, "cachedReadTokens": 20608},
+		}})
+	}()
+	if err := s.Send("hi", "m", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var result *core.Event
+	for len(s.events) > 0 {
+		if ev := <-s.events; ev.Type == core.EventResult {
+			result = &ev
+		}
+	}
+	if result == nil || !result.UsageKnown || result.InputTokens != 24 || result.OutputTokens != 28 || result.CacheReadInputTokens != 20608 {
+		t.Fatalf("turn usage missing from result: %+v", result)
+	}
+	u := s.GetContextUsage()
+	if u == nil || u.UsedTokens != 20660 || u.ContextWindow != 262000 || u.InputTokens != 24 || u.OutputTokens != 28 || u.CachedInputTokens != 20608 {
+		t.Fatalf("footer snapshot missing turn usage: %+v", u)
+	}
+	if got := a.ReadContextUsage("test-session-id"); got == nil || got.OutputTokens != 28 {
+		t.Fatalf("agent snapshot missing turn usage: %+v", got)
 	}
 }
