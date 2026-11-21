@@ -831,6 +831,13 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 
 // handleMessageCreate is the gateway message entrypoint.
 func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	p.handleIncoming(s, m, nil)
+}
+
+// handleIncoming runs a message through the gateway filters. With cu set (restart catch-up,
+// missed_catchup.go) the message is posted before this process started: it is collected
+// instead of dispatched, bot posts and side commands (meetings, task forum, /stop all) skip.
+func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCreate, cu *missedCollector) {
 	// Deduplicate: Discord gateway may deliver the same event twice
 	if !rememberDedupID(&p.seenMsgs, m.ID) {
 		slog.Debug("discord: ignoring duplicate message", "msg_id", m.ID)
@@ -855,7 +862,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if fromBot && !p.botAllowed(m.Author.ID) && !p.CanApprovePermission(m.Author.ID) {
 		return
 	}
-	if core.IsOldMessage(m.Timestamp) {
+	if cu != nil && fromBot {
+		return
+	}
+	if cu == nil && core.IsOldMessage(m.Timestamp) {
 		slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
 		return
 	}
@@ -877,7 +887,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
-	if p.handleTaskForumReply(s, m, botRoleID) {
+	if cu != nil && p.isTaskForumThread(s, m.GuildID, m.ChannelID) {
+		return
+	}
+	if cu == nil && p.handleTaskForumReply(s, m, botRoleID) {
 		return
 	}
 
@@ -902,7 +915,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 		m.ReferencedMessage = nil // its quote is already in the channel history
 	}
-	if mentioned && p.handleMeetingCommand(s, m, botRoleID) {
+	if mentioned && cu == nil && p.handleMeetingCommand(s, m, botRoleID) {
 		return
 	}
 	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.selfID()))
@@ -930,6 +943,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
 	bareStop := !fromBot && isBareStop(m, mentioned, p.selfID())
 	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || bareStop)
+	if cu != nil && stopAll {
+		return // a stop sent while down has nothing to stop now
+	}
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
@@ -1042,6 +1058,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.selfID())...)
 		msg.Content = "【" + discordDisplayName(m) + "】" + text
 		p.holdBotMessage(s, m, msg, downloadURL)
+		return
+	}
+	if cu != nil {
+		cu.msgs = append(cu.msgs, msg)
 		return
 	}
 	p.dispatchMessage(msg)

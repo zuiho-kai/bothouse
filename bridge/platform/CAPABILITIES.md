@@ -232,3 +232,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 不支持：不需要，消息 id 是雪花数，按数值比就是按时间比（core 默认比法）
 - cloud-web: 不支持：不需要，hub 的 id 是递增整数，core 默认比法就对
 - dsh: 不支持：不需要，走 cloud-web 帧，id 递增，core 默认比法就对
+
+## MissedMessageReader
+
+桥停机时发来的消息，重启后读频道历史补回一轮（core/missed_catchup.go，#1856）。
+
+- discord: 已接
+- feishu: 不支持：这次只做 Discord；飞书有历史接口（history.go ChannelHistory），但进站走 dispatchMessage 另一套过滤，补拉要单独接，下一件再做
+- cloud-web: 不支持：这次只做 Discord；cloud-web 有历史接口（history.go ChannelHistory），补拉要单独接，下一件再做
+- dsh: 不支持：走 cloud-web 帧，同 cloud-web

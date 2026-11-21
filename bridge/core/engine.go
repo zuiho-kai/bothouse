@@ -387,7 +387,11 @@ type Engine struct {
 	turnJournal     *TurnJournal
 	turnJournalOnce sync.Once
 	// #624 K4: resume interrupted turns once, after the first platform is ready.
-	turnResumeOnce  sync.Once
+	turnResumeOnce sync.Once
+	// #1856 restart catch-up (missed_catchup.go)
+	missedSkipOnce  sync.Once
+	missedSkip      map[string]bool
+	missedCaughtUp  sync.Map // Platform -> true once read
 	releaseHoldOnce sync.Once
 	turnResumeHooks turnResumeHooks
 	relaySessions   relaySessionSet
@@ -3306,7 +3310,13 @@ func (e *Engine) onPlatformReady(p Platform) {
 	e.initPlatformCapabilities(p)
 	// #624 K4: scan the turn journal once; each entry waits for its own platform.
 	// Tracked as message work so Stop waits for it (it opens the journal under dataDir).
+	// #1856: what the inherited journal holds is left to the resume; read it before the resume runs.
+	e.missedSkipOnce.Do(func() { e.missedSkip = e.journalMessageIDs() })
 	e.turnResumeOnce.Do(func() { e.startMessageWorker(e.ResumeInterruptedTurns) })
+	if _, done := e.missedCaughtUp.LoadOrStore(p, true); !done {
+		skip := e.missedSkip
+		e.startMessageWorker(func() { e.catchUpMissed(p, skip) })
+	}
 	e.releaseHoldOnce.Do(func() { e.startMessageWorker(e.resumeReleaseHolds) })
 }
 
