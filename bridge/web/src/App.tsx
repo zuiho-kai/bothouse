@@ -27,6 +27,7 @@ import PluginHubPage from '@/pages/Plugins/PluginHubPage';
 import NotFound from '@/pages/NotFound';
 import ImageGenPage from '@/pages/ImageGen/ImageGenPage';
 import GateSettingsPage from '@/pages/Gate/GateSettings';
+import FeaturesPage from '@/pages/Features/FeaturesPage';
 import ForumPage from '@/pages/Forum/ForumPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="apps" element={<AppList />} />
         {/* 闸门设置 (#217): 装好以后改谁在什么时候接话，不用重装 */}
         <Route path="gate" element={<GateSettingsPage />} />
+        <Route path="features" element={<FeaturesPage />} />
         <Route path="forum" element={<ForumPage />} />
         <Route path="plugins" element={<PluginHubPage />} />
         <Route path="plugins/dsh" element={<PluginList />} />
