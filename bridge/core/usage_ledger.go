@@ -105,34 +105,46 @@ var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "
 // like -lightning/-fast/-priority that no suffix rule can derive) reports its
 // rates this way instead of growing hand-keyed default rows (#2071 follow-up).
 // Providers run when the static table misses and must be safe for concurrent
-// use; they are consulted with the raw model id and the stripped base id.
-var usagePriceProviders []func() map[string]TokenPrice
+// use; they are consulted with the raw model id and every stripped form of it.
+//
+// A nil value means the catalog lists the id but gives no usable rate (a paid
+// tier with no cost summary). Such an id is authoritative too: lookup reports
+// it unpriced instead of stripping suffixes down to a base model's estimate —
+// "swe-2-max" listed as paid must never be charged at "swe-2"'s $0 (#2073).
+var usagePriceProviders []func() map[string]*TokenPrice
 var usagePriceProvidersMu sync.RWMutex
 
 // RegisterUsagePriceProvider adds a live price source. Call it once from an
 // agent package's init(); fn may compute lazily and should cache.
-func RegisterUsagePriceProvider(fn func() map[string]TokenPrice) {
+func RegisterUsagePriceProvider(fn func() map[string]*TokenPrice) {
 	usagePriceProvidersMu.Lock()
 	defer usagePriceProvidersMu.Unlock()
 	usagePriceProviders = append(usagePriceProviders, fn)
 }
 
-// providerPrices queries every registered source for id; the first hit wins.
-func providerPrices(id string) (TokenPrice, bool) {
+// providerPrices queries every registered source for id; the first source
+// listing it wins. listed reports whether any source knows the id; ok whether
+// that source also gave a rate.
+func providerPrices(id string) (p TokenPrice, ok, listed bool) {
 	usagePriceProvidersMu.RLock()
 	defer usagePriceProvidersMu.RUnlock()
 	for _, fn := range usagePriceProviders {
-		if p, ok := fn()[id]; ok {
-			return p, true
+		if v, found := fn()[id]; found {
+			if v == nil {
+				return TokenPrice{}, false, true
+			}
+			return *v, true, true
 		}
 	}
-	return TokenPrice{}, false
+	return TokenPrice{}, false, false
 }
 
 // lookupPrice finds the rate for a model id. Logs record ids exactly as the
 // caller wrote them ("xiao/gpt-6-astra", "gemini-4-argon-trial"), while the price
 // tables key on the bare model name, so an exact match is tried first and then
-// the provider prefix and variant suffixes are trimmed.
+// the provider prefix and variant suffixes are trimmed. At every step a live
+// catalog's answer for that exact id — a rate or "listed, price unknown" — is
+// final and beats any estimate from a shorter id.
 func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) {
 	if p, ok := prices[model]; ok {
 		return p, true
@@ -140,8 +152,8 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 	// Live catalogs key on the exact variant id ("swe-2-max" ≠ "swe-2"), so the
 	// full id is priced before any base-model estimate — a tier can flip from
 	// free to paid at any time and the estimate would hide it (#2071 review).
-	if p, ok := providerPrices(model); ok {
-		return p, true
+	if p, ok, listed := providerPrices(model); listed {
+		return p, ok
 	}
 	base := model
 	if i := strings.LastIndex(base, "/"); i >= 0 {
@@ -150,8 +162,8 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 	if p, ok := prices[base]; ok {
 		return p, true
 	}
-	if p, ok := providerPrices(base); ok {
-		return p, true
+	if p, ok, listed := providerPrices(base); listed {
+		return p, ok
 	}
 	for changed := true; changed; {
 		changed = false
@@ -159,13 +171,16 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 			if strings.HasSuffix(base, suf) && len(base) > len(suf) {
 				base = strings.TrimSuffix(base, suf)
 				changed = true
+				if p, ok, listed := providerPrices(base); listed {
+					return p, ok
+				}
 				if p, ok := prices[base]; ok {
 					return p, true
 				}
 			}
 		}
 	}
-	return providerPrices(base)
+	return TokenPrice{}, false
 }
 
 // syntheticModel is what Claude Code logs for messages it makes up locally

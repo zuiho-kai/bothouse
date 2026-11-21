@@ -39,7 +39,7 @@ const catalogTimeout = 10 * time.Second
 var catalogCache struct {
 	mu      sync.Mutex
 	fetched time.Time
-	prices  map[string]core.TokenPrice
+	prices  map[string]*core.TokenPrice
 }
 
 // catalogBin is the devin binary the configured agent session actually spawns
@@ -48,11 +48,12 @@ var catalogCache struct {
 // where no Agent was ever created.
 var catalogBin atomic.Value // string
 
-// catalogPrices returns model_uid → rate for every priced or free variant in
-// the Devin catalog. Errors leave the previous cache (or an empty map) in
+// catalogPrices returns model_uid → rate for every variant in the Devin
+// catalog; a paid variant without a parseable rate maps to nil ("listed, price
+// unknown"). Errors leave the previous cache (or an empty map) in
 // place: a missing price is safer than a stalled lookup, and the caller's
 // fallback already handles misses.
-func catalogPrices() map[string]core.TokenPrice {
+func catalogPrices() map[string]*core.TokenPrice {
 	catalogCache.mu.Lock()
 	defer catalogCache.mu.Unlock()
 	if time.Since(catalogCache.fetched) < catalogTTL {
@@ -94,27 +95,30 @@ var (
 	costOutput = regexp.MustCompile(`\$([\d.]+)\s*/\s*1M Output`)
 )
 
-func parseCatalogPrices(data []byte) map[string]core.TokenPrice {
+func parseCatalogPrices(data []byte) map[string]*core.TokenPrice {
 	var list modelsList
 	if err := json.Unmarshal(data, &list); err != nil {
 		return nil
 	}
-	out := make(map[string]core.TokenPrice)
+	out := make(map[string]*core.TokenPrice)
 	for _, fam := range list.Families {
 		for _, v := range fam.Variants {
 			if v.ModelUID == "" {
 				continue
 			}
 			if p, ok := parseCostSummary(v.CostSummary); ok {
-				out[v.ModelUID] = p
+				out[v.ModelUID] = &p
 				continue
 			}
 			if v.CostTier == "Free" {
-				out[v.ModelUID] = core.TokenPrice{}
+				out[v.ModelUID] = &core.TokenPrice{}
+				continue
 			}
-			// A paid/unknown tier with an empty or unrecognized summary stays
-			// unregistered: "price unknown" must not be recorded as free
-			// (#2071 review — only an explicit zero from the source counts).
+			// A paid/unknown tier with an empty or unrecognized summary is
+			// listed as nil — "price unknown" — so lookup neither records it
+			// as free nor strips it down to a base model's $0 (#2071 review,
+			// #2073: swe-2-max paid must not fall back to swe-2's zero row).
+			out[v.ModelUID] = nil
 		}
 	}
 	return out

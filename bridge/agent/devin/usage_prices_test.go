@@ -1,6 +1,11 @@
 package devin
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/chenhg5/cc-connect/core"
+)
 
 // Sample mirrors `devin models list --format json` fields the parser uses.
 const catalogSample = `{"families":[
@@ -40,6 +45,9 @@ func TestParseCatalogPrices(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing from catalog prices", c.uid)
 		}
+		if p == nil {
+			t.Fatalf("%s listed without a rate", c.uid)
+		}
 		if p.Input != c.in || p.Output != c.out || p.CacheRead != c.cache {
 			t.Errorf("%s = %+v; want in %v out %v cache %v", c.uid, p, c.in, c.out, c.cache)
 		}
@@ -48,13 +56,62 @@ func TestParseCatalogPrices(t *testing.T) {
 		t.Fatal("phantom uid gained a price")
 	}
 	// #2071 review (G哥): a paid tier without a parseable rate must stay
-	// unknown — never written as free.
+	// unknown — never written as free — but listed (nil), so lookup does not
+	// strip it down to a base model's rate (#2073).
 	for _, uid := range []string{"paid-no-summary", "paid-garbage-summary"} {
-		if _, ok := got[uid]; ok {
-			t.Fatalf("%s: unparseable paid tier recorded as a price", uid)
+		if p, ok := got[uid]; !ok || p != nil {
+			t.Fatalf("%s: unparseable paid tier = %v, listed=%v; want listed with nil price", uid, p, ok)
 		}
 	}
 	if parseCatalogPrices([]byte("not json")) != nil {
 		t.Fatal("malformed catalog must yield nil, not panic")
+	}
+}
+
+// #2073 (G哥 review): the catalog marks swe-2-max paid but gives no rate. From
+// the `devin models list` JSON through the registered provider to the ledger's
+// price lookup, that usage must come out unpriced — not $0 via the "-max" strip
+// to the static swe-2 row.
+func TestCatalogPaidNoPriceStaysUnpriced(t *testing.T) {
+	const catalog = `{"families":[{"family_uid":"swe-2","variants":[
+	  {"model_uid":"swe-2","cost_tier":"Free"},
+	  {"model_uid":"swe-2-max","cost_tier":"High cost"}]}]}`
+	catalogCache.mu.Lock()
+	saved, savedAt := catalogCache.prices, catalogCache.fetched
+	catalogCache.prices, catalogCache.fetched = parseCatalogPrices([]byte(catalog)), time.Now()
+	catalogCache.mu.Unlock()
+	t.Cleanup(func() {
+		catalogCache.mu.Lock()
+		catalogCache.prices, catalogCache.fetched = saved, savedAt
+		catalogCache.mu.Unlock()
+	})
+
+	ledger := core.NewUsageLedger(t.TempDir(), core.UsagePricesWithDefaults(nil))
+	now := time.Now()
+	for _, model := range []string{"swe-2-max", "swe-2"} {
+		if err := ledger.Record(core.UsageRecord{Time: now, Role: "devin", Model: model, Input: 1000, Output: 1000, Known: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := ledger.Query(now.Add(-time.Hour), now.Add(time.Hour), "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, r := range rows {
+		seen[r.Model] = true
+		switch r.Model {
+		case "swe-2-max":
+			if r.EstimatedCost != nil || r.Unpriced != 1 {
+				t.Errorf("paid swe-2-max without a rate priced at %v (unpriced=%d); want unpriced", r.EstimatedCost, r.Unpriced)
+			}
+		case "swe-2": // catalog Free → explicit $0 (user 11-22 04:40)
+			if r.EstimatedCost == nil || *r.EstimatedCost != 0 {
+				t.Errorf("free swe-2 = %v (unpriced=%d); want $0", r.EstimatedCost, r.Unpriced)
+			}
+		}
+	}
+	if !seen["swe-2-max"] || !seen["swe-2"] {
+		t.Fatalf("ledger rows missing models: %+v", rows)
 	}
 }

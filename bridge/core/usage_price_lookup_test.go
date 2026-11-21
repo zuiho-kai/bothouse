@@ -39,8 +39,8 @@ func TestLookupPrice(t *testing.T) {
 // never heard of — paid tiers like -lightning whose rates no suffix rule can
 // derive.
 func TestLookupPriceProvider(t *testing.T) {
-	RegisterUsagePriceProvider(func() map[string]TokenPrice {
-		return map[string]TokenPrice{
+	RegisterUsagePriceProvider(func() map[string]*TokenPrice {
+		return map[string]*TokenPrice{
 			"swe-2-max-lightning": {Input: 1, Output: 5, CacheRead: 0.1},
 			"catalog-only-model":  {Input: 3, Output: 9},
 			"swe-2-max":           {Input: 2, Output: 6}, // a flipped-from-free tier
@@ -65,8 +65,8 @@ func TestLookupPriceProvider(t *testing.T) {
 // Registers its own provider — CI shards tests across processes, so no test
 // may rely on another test's registration.
 func TestLookupPriceProviderBeatsBaseEstimate(t *testing.T) {
-	RegisterUsagePriceProvider(func() map[string]TokenPrice {
-		return map[string]TokenPrice{"swe-2-max": {Input: 2, Output: 6}}
+	RegisterUsagePriceProvider(func() map[string]*TokenPrice {
+		return map[string]*TokenPrice{"swe-2-max": {Input: 2, Output: 6}}
 	})
 	prices := map[string]TokenPrice{"swe-2": {}} // static $0 row for the base
 	if p, ok := lookupPrice(prices, "swe-2-max"); !ok || p.Input != 2 {
