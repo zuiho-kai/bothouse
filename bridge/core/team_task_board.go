@@ -54,6 +54,11 @@ type teamTaskBoardItem struct {
 	// WaitUntil: epoch when a task paused as 「等外部：…」 (board.py wait) is handed to a workspace
 	// again (team_wait_external.go retryWaitingExternal).
 	WaitUntil int64 `json:"wait_until"`
+	// WatchPR: pull requests watched while the item is paused as 「等外部」 (board.py wait / watch-pr).
+	// PRNews: what board.py pr-events found new on them, one line with its link each; it set
+	// WaitUntil to now, and the hand-back carries these lines (team_pr_events.go).
+	WatchPR []string `json:"watch_pr,omitempty"`
+	PRNews  []string `json:"pr_news,omitempty"`
 	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
 	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
 	PauseReq string `json:"pause_req"`

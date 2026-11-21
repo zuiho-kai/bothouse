@@ -177,7 +177,7 @@ func (e *Engine) endWorkspaceTask(chat, sessionKey, kind string, hid int, body s
 		if why, after, ok := team.WaitExternalFor(hid, body, time.Now()); ok {
 			// blocked outside: paused as 「等外部」 with a retry time instead of 「已交回待验收」; the
 			// workspace is freed and nothing wakes it before then (team_wait_external.go)
-			runner.parkWaitingExternal(chat, hid, why, after)
+			runner.parkWaitingExternal(chat, hid, why, after, team.PullRequestLinks(body))
 			return
 		}
 		reviewer := runner.name
