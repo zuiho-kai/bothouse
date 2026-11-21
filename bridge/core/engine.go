@@ -452,6 +452,7 @@ type Engine struct {
 
 	rateLimiter      atomic.Pointer[RateLimiter]         // swapped by SetRateLimitCfg (config reload)
 	outgoingRL       atomic.Pointer[OutgoingRateLimiter] // swapped by SetOutgoingRateLimitCfg
+	proactive        *proactiveOutbox                    // #1857: one door for scheduled messages (proactive_outbox.go)
 	streamPreview    StreamPreviewCfg
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
@@ -1038,6 +1039,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		agent:                 ag,
 		platforms:             platforms,
 		sessions:              NewSessionManager(sessionStorePath),
+		proactive:             sharedProactiveOutbox,
 		ctx:                   ctx,
 		cancel:                cancel,
 		i18n:                  NewI18n(lang),
@@ -1887,6 +1889,20 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		job = &j
 		slog.Info("cron: test job runs muted", "job", job.ID, "desc", job.Description)
 	}
+	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
+	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
+	var proactiveIDs []string
+	if !job.IsShellJob() && e.proactive != nil {
+		if ok, why := e.proactive.admit(job, proactiveChat(job.SessionKey)); !ok {
+			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
+			return nil
+		}
+		merged, ids := e.proactive.batch(job)
+		if merged == nil {
+			return nil // joined a run due at the same time; that run does this job too
+		}
+		job, proactiveIDs = merged, ids
+	}
 	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
 	e.hooks.Emit(HookEvent{
 		Event:      HookEventCronTriggered,
@@ -2087,9 +2103,14 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		}
 		prevHistLen := session.HistoryLen()
 		e.noteScheduledTurn(job.ID, iKey)
+		endProactive := e.startProactiveRun(proactiveIDs, sessionKey, runSessionKey, msg.SessionKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		endProactive()
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupSideRunState(iKey)
+		if !job.Mute && turnDelivered(session, prevHistLen) {
+			e.proactiveDelivered(proactiveIDs, runSessionKey)
+		}
 		// Empty-response detection via session history delta: processInteractiveMessageWith
 		// always adds a "user" entry (prevHistLen+1), then an "assistant" entry on success
 		// (prevHistLen+2). This approach correctly detects empty responses across all
@@ -2127,8 +2148,13 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	prevHistLen := session.HistoryLen()
 	e.noteScheduledTurn(job.ID, iKey)
+	endProactive := e.startProactiveRun(proactiveIDs, sessionKey, runSessionKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	endProactive()
 	e.forgetScheduledTurn(job.ID, iKey)
+	if !job.Mute && turnDelivered(session, prevHistLen) {
+		e.proactiveDelivered(proactiveIDs, sessionKey)
+	}
 	// Same empty-response detection as the useNewSession path above.
 	if !job.Mute && session.HistoryLen() < prevHistLen+2 {
 		return fmt.Errorf("cron job %q produced an empty response", job.ID)
@@ -3766,6 +3792,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
+	if msg.authorization == nil && msg.TaskForum == nil && !msg.FromBot && e.proactive != nil {
+		e.proactive.answered(proactiveChat(msg.SessionKey)) // #1857: a person spoke here
+	}
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,
 		"session", msg.SessionKey, "user", msg.UserName,

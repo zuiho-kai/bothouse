@@ -131,6 +131,9 @@ func (e *Engine) OnPlatformEvent(p Platform, ev PlatformEvent) {
 		ChannelID: ev.ChannelID, ChannelName: ev.ChannelName, Extra: data,
 	})
 	e.onMemberPlatformEvent(p, ev)
+	if ev.Name == HookEventReactionAdded && !ev.Bot && e.proactive != nil {
+		e.proactive.answered(p.Name() + ":" + ev.ChannelID) // #1857: a reaction counts as an answer
+	}
 	slog.Debug("platform event", "project", e.name, "event", ev.Name, "guild", ev.GuildID, "channel", ev.ChannelID, "user", ev.UserID)
 }
 

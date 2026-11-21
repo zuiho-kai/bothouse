@@ -391,6 +391,12 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Message = msg
 	}
+	// #1857: the caller's own session, before the target is moved below; a running scheduled
+	// turn there sends through the proactive outbox.
+	proactiveFrom := req.FromSession
+	if proactiveFrom == "" && req.SessionFromEnv {
+		proactiveFrom = req.SessionKey
+	}
 	keptNote := "" // the attachments stayed in the workspace: tell the sender (SendTargetForAttachments)
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
@@ -407,6 +413,14 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
+		// #1857: a send from a running scheduled turn goes through the proactive outbox.
+		if engine.proactive != nil && proactiveFrom != "" {
+			if why := engine.proactive.checkSend(proactiveFrom, req.SessionKey); why != "" {
+				slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
+				http.Error(w, why, http.StatusTooManyRequests)
+				return
+			}
+		}
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
@@ -430,6 +444,9 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if engine.proactive != nil && proactiveFrom != "" {
+			engine.proactive.deliveredFrom(proactiveFrom, req.SessionKey)
 		}
 	}
 
