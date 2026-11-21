@@ -40,6 +40,7 @@ import lint  # MAX_TOPICS and README topic counting: split_pass must count topic
 import sessionlog  # the unified session record: every runtime's sessions, one format (sessionlog.py docstring)
 import invalidate  # write-time contradiction check (Graphiti): superseded lines → the page's 「## 历史」
 import restate  # nightly: one page's old and new statements of the same thing → one current line, old lines → 「## 历史」
+import propose  # day ingest: two tool-less calls (facts, operations); this script searches, writes and checks
 
 
 
@@ -289,7 +290,7 @@ MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "ge
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
-EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "max")  # codex only
+EFFORT = os.environ.get("WIKI_INGEST_EFFORT", "high")  # codex only; luna runs at high or medium, not max
 TIER = os.environ.get("WIKI_CODEX_TIER", "")  # codex only: "fast" = Fast mode (service_tier)
 # Other machines (Linux, e.g. the N150) only run the day Haiku pass. After each run they mirror their
 # transcripts, state db and log to the Mac (ssh alias `mac`), whose nightly review then checks their writes too.
@@ -1746,7 +1747,12 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
     if miss:
         errs.append(lossless.report(miss))
     log_diff = git("diff", base, "--", "log.md").splitlines()
-    if any(l.startswith("-") and not l.startswith("---") for l in log_diff):
+    # append-only = the old text is still the file's beginning, word for word. Not "no - line in the diff": a log.md
+    # without a final newline shows its last line as removed and re-added whenever anything is appended (one
+    # session failed 30 runs on this, 2026-11-20), although no byte of it changed.
+    before = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI, capture_output=True, text=True).stdout
+    after = (WIKI / "log.md").read_text() if (WIKI / "log.md").exists() else ""
+    if not after.startswith(before):
         errs.append("log.md is append-only: restore the lines you removed or changed")
     heads = [l for l in log_diff if re.match(rf"\+## \[\d{{4}}-\d\d-\d\d\] {kind} \| ", l)]
     missing = [s for s in sids if not any(s in h for h in heads)]
@@ -2122,6 +2128,7 @@ def run(a, engines=None):
     items = []
     # A bounded pending run must not consume closure hints for deferred sessions.
     pending = getattr(a, "pending", False) and not a.nightly
+    proposal = family((engines or [ENGINE])[0]) == "codex"
     closed = (set(QUEUE.read_text().split()) if pending and QUEUE.exists() else
               set() if pending else take_queue()) | ({a.session} if a.session else set())
     for p in ready(db, None if closed else a.session, closed):
@@ -2133,7 +2140,9 @@ def run(a, engines=None):
                 it = dict(end=partial[0], _chunk=partial[1], _part=partial[2], text="", prompts=1, cwd="", title="")
             else:
                 # a session whose batches failed n times retries 1/2^n as much (#619): halving, not the whole batch again
-                n = (db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0] if pending else 0
+                # A proposal's first call is saved per session input: its retry keeps the session whole (and free).
+                n = ((db.execute("select n from fails where id=?", (p.stem,)).fetchone() or [0])[0]
+                     if pending and not proposal else 0)
                 it = pending_extract(p, start, MAX_CHARS >> n if n else None) if pending else extract(p, start)
         except HouseholdError as e:  # not marked read: the next run tries it again
             household_unreadable(f"ingest {p.stem}", e)
@@ -2589,9 +2598,165 @@ def remember(db, pages, res):
     db.commit()
 
 
+PROPOSE_DIR = REPO / ".ingest-propose"  # empty cwd, JSON schemas and saved facts of the tool-less proposal calls
+# source: a failed session is retried every 30 minutes by day and once a night; two days span a missed night
+CACHE_DAYS = 2
+
+
+def propose_dir():
+    """PROPOSE_DIR ready for a pass. Its facts/ holds session text: kept out of git for wikis installed before the
+    template ignored it, and cleared once no retry can still read it."""
+    PROPOSE_DIR.mkdir(exist_ok=True)
+    exclude = REPO / git("rev-parse", "--git-path", "info/exclude", cwd=REPO)
+    text = exclude.read_text() if exclude.exists() else ""
+    if PROPOSE_DIR.name + "/" not in text.splitlines():
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n") + PROPOSE_DIR.name + "/\n")
+    for path in (PROPOSE_DIR / "facts").glob("*.json"):
+        if time.time() - path.stat().st_mtime > CACHE_DAYS * 86400:
+            path.unlink()
+
+
+def role_record():
+    """What a role wiki records: its own SOP_INGEST rules, minus the steps about reading files and running tools
+    (R1 schema reading, R3 grep, R9 file scope — the program does those now), plus A7 (the user's words)."""
+    rules = SOP_INGEST.split("## 规则（违反任一条即不合格）\n", 1)[1].split("\n## SOP", 1)[0]
+    groups = re.split(r"\n(?=R\d+b? )", rules.strip())
+    keep = [g for g in groups if not re.match(r"R(1|3|9) ", g)]
+    a7 = re.search(r"^A7 .*?(?=\n\S|\Z)", SOP_INGEST, re.S | re.M)
+    return "\n".join(keep + ([a7[0]] if a7 else []))
+
+
+def codex_json(prompt, schema, label, model, effort):
+    """One tool-less Codex call whose final message must match `schema` (propose.py's calls); read-only, empty cwd.
+    Returns (ok, text, cost, thread_id) like codex(), for codex_retry.run."""
+    name = PROPOSE_DIR / (label.rsplit(" ", 1)[-1] + ".schema.json")
+    name.write_text(json.dumps(schema, ensure_ascii=False))
+    # source: 2026-11-20 measurement — a one-line prompt costs 19560 input tokens as configured, 16956 with these off
+    off = [flag for feature in ("plugins", "apps", "browser_use", "computer_use", "image_generation")
+           for flag in ("--disable", feature)]
+    with tempfile.NamedTemporaryFile("r", suffix=".txt", prefix="wiki-codex-") as out:
+        cmd = ["codex", "exec", "-m", model, "-c", f"model_reasoning_effort={effort}", "-c", "notify=[]",
+               *(["-c", f'service_tier="{TIER}"'] if TIER else []), *off, "-s", "read-only", "--skip-git-repo-check",
+               "--json", "-C", str(PROPOSE_DIR), "--output-schema", str(name), "-o", out.name, "-"]
+        r = engine_run(cmd, input=prompt, cwd=PROPOSE_DIR, capture_output=True, text=True, timeout=3600,
+                       env={**os.environ, "WIKI_INGEST": "1"})
+        result = out.read().strip()
+    u, turns, errors, tid, terminal, active, progress = codex_retry.events(r.stdout)
+    with open(USAGE, "a") as f:
+        f.write("\t".join(map(str, [time.strftime("%F %T"), label, f"{model}/{effort}{'/' + TIER if TIER else ''}", turns,
+                u.get("input_tokens", 0) - u.get("cached_input_tokens", 0), u.get("cached_input_tokens", 0), 0,
+                u.get("output_tokens", 0), u.get("reasoning_output_tokens", 0), 0])) + "\n")
+    log(f"{label} tokens: {u}")
+    if r.returncode == 0 and result and terminal != "turn.failed":
+        return True, result, 0, tid
+    return False, codex_retry.failure(errors, tid, terminal, active, progress, result, r.stderr, u), 0, tid
+
+
+def role_rules(sources, text=""):
+    said, by_session, words = [], {}, {}
+    sessions = propose.session_transcripts(text)
+    for p in sources:
+        words[str(p)] = user_texts(p, strict=True)
+        own = sessions.get(p.stem[:8], text if len(sources) == 1 else "")
+        if not words[str(p)] and re.search(r"^USER", own, re.M):
+            raise discord_said.Unavailable(f"the user's words of {p.stem[:8]} are unreadable now; retry later")
+        said.extend(words[str(p)])
+        by_session[p.stem[:8]] = words[str(p)]
+    before = []  # the wiki before this pass, read once: the base page_misquotes compares new lines against
+
+    def old():
+        if not before:
+            before.append(wiki_text("HEAD"))
+        return before[0]
+
+    def line_check(lines, structural=False):
+        """page_misquotes' two tests on the lines one operation is about to write. Acceptance used to be the first
+        to run them: one line it refused reverted every session of the batch and the model never saw why, so the
+        next round wrote the same line. Here the operation is refused with the reason and asked again once."""
+        bad = bad_quotes(lines, old, sources, said=words)
+        claims = [] if structural else claim_msgs(lines, old, sources, said=words)
+        return ([f"归给用户的引文 {'、'.join(bad)} 不是这些会话里用户的原话（「用户说/定/要求…」后面的引号、紧挨着行尾"
+                 "「（用户原话…）」的引号都算用户的话）：改成不带引号的陈述，或写明这句是谁说的"] if bad else []) + \
+               ([f"新行没有可核对的用户原话引文：{'；'.join(claims)}"] if claims else [])
+    return said, propose.Rules(lint, record=role_record(), labels="见下面 R6 的标签说明", user_quote=True,
+                               todo_check=lint.UNANSWERED, user_said=lambda q: quote_ok(q, said),
+                               source_said=lambda q, sid: quote_ok(q, by_session.get(sid, said if len(sources) == 1 else [])),
+                               line_check=line_check)
+
+
+def propose_pass(label, it, text, sids, sources, engine):
+    """Ingest one batch through propose.py: two tool-less calls, the script
+    searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
+    agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
+    Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
+    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED
+    LAST_REJECTED, CRASHED = False, ""
+    if budget.exhausted():
+        return False
+    effort = engine.partition(":")[2] or EFFORT
+    WIKI = WORK
+    sync_work()
+    propose_dir()
+    failed = []
+
+    def call(prompt, schema, sub):
+        global LAST_ENGINE
+        # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
+        # is bounded by the run's deadline; each call only needs room for one such call.
+        ok, out, _, _, model = codex_retry.run(lambda m, _tid: codex_json(prompt, schema, sub, m, effort), CODEX_CHAIN,
+                                               budget.remaining, 97, lambda msg: log(f"{sub}: {msg}"))
+        if ok:
+            try:
+                LAST_ENGINE = f"codex:{model}"
+                return json.loads(out)
+            except ValueError:
+                out = f"not JSON: {out[:300]}"
+        failed.append(out)
+        return None
+
+    said, rules = role_rules(sources, text)
+    try:
+        def finish(plan):
+            def ask(prompt):
+                answer = call(prompt, invalidate.SCHEMA, label + " invalidate")
+                if answer is None:
+                    raise RuntimeError("contradiction check unavailable")
+                return json.dumps(answer)
+            order = {lossless.norm(line): min(op["facts"]) for op, _ in plan.done
+                     for line in plan.quoted(op, op["lines"])}
+            invalidate.run(WORK, ask=ask, log=lambda msg: log(f"{label} {msg}"), order=order)
+        summary = None if failed else propose.ingest(WORK, text, it["id"][:8], it["date"], rules, call, label,
+                                                     cache=PROPOSE_DIR / "facts",
+                                                     sessions=it.get("_sessions"), finish=finish,
+                                                     log=lambda msg: log(f"{label} {msg}"))
+        errs = "" if summary is None else "\n".join(
+            e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
+    except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
+        CRASHED = f"{type(e).__name__}: {e}"[:300]
+        log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
+        summary, errs = None, ""
+    if summary is None or errs:
+        LAST_REJECTED = bool(errs)
+        discard()
+        why = errs or (str(failed[-1]) if failed else CRASHED or "model failed")
+        log(f"{label} REVERTED: {why[:500]}")
+        REJECT_REASONS.append(why)
+        return False
+    log(f"{label}: {summary}")
+    git("add", "-A")
+    if not git("status", "--porcelain"):
+        return True
+    git("commit", "-qm", label)
+    return "changed" if deliver(label) is True else False
+
+
 def ingest_batches(db, items, engines, pending=False):
     global quota_hit, CRASHED
-    batches = batches_of(items)
+    batches = batches_of(items)  # reuse the existing input budget: small sessions share both tool-less calls
+    if family((engines or [ENGINE])[0]) == "codex":
+        batches = [[(it, re.sub(r"\A=== SESSION [^\n]*\n", "", piece)) for it, piece in b] for b in batches]
+        batches = [[(it, f"=== SESSION {it['id'][:8]} | {it['date']} ===\n{piece}") for it, piece in b] for b in batches]
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
         if budget.stopped():
@@ -2610,9 +2775,19 @@ def ingest_batches(db, items, engines, pending=False):
             if quota_hit and is_claude(engine):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
-            prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
-            res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
-                             check=lambda: page_checks(label, sources))
+            if family(engine) == "codex":
+                item = {**batch[0][0], "_sessions": list(dict.fromkeys(
+                    (it["id"][:8], it["date"]) for it, _ in batch))}
+                try:
+                    res = propose_pass(label, item, text, sids, sources, engine)
+                except (HouseholdError, discord_said.Unavailable) as exc:
+                    log(f"{label} REVERTED: {exc}; retried on a later run")
+                    REJECT_REASONS.append(str(exc))
+                    break  # unreadable evidence cannot become readable by switching writing engines
+            else:
+                prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
+                res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
+                                 check=lambda: page_checks(label, sources))
             if res or CRASHED:  # a script error recurs on any engine: don't pay the next one for it
                 break
         crashed = CRASHED
@@ -2880,7 +3055,7 @@ def heard(msgs):
     return [t for m in msgs for t in dict.fromkeys((flat(m), *(flat(l) for l in m.splitlines() if l.strip()))) if t]
 
 
-def user_texts(p):
+def user_texts(p, strict=False):
     """The USER/USER→ lines of one session, normalized, one per message line; unreadable: none, so its quotes count
     as misquotes."""
     try:
@@ -2893,23 +3068,28 @@ def user_texts(p):
             # a day before its first turn: the message that started it may have waited behind a turn, across
             # midnight too (the old local-midnight bound missed 23:59 → 00:00); one day is that bound's widest
             lo = min(ts) - QUOTE_LEAD
-            return heard(m.text for m in discord_words(lo, max(ts) + 1))
+            return heard(m.text for m in discord_words(lo, max(ts) + 1, strict=strict))
         return heard(dialog(p, 0)["said"])
     except HouseholdError as e:
+        if strict:
+            raise
         household_unreadable(f"quote check {p.stem}", e)
         return []
     except discord_said.Unavailable as e:  # unverifiable: its quotes count as misquotes
+        if strict:
+            raise
         log(f"quote check {p.stem}: Discord history unavailable: {e}")
         return []
 
 
-def bad_quotes(added, old_text, sessions):
-    """page_misquotes on given lines: `old_text()` is the wiki before them, `sessions` the transcripts behind them."""
+def bad_quotes(added, old_text, sessions, said=None):
+    """page_misquotes on given lines: `old_text()` is the wiki before them, `sessions` the transcripts behind them
+    (`said`: their user words when the caller has read them already)."""
     quotes = [(l, q) for l in added for q in user_quotes(l)]
     if not quotes:
         return []
     old = flat(old_text())  # 「C 小心」 for the user's 「c小心」 is the same words
-    said = {str(p): user_texts(p) for p in sessions}
+    said = said if said is not None else {str(p): user_texts(p) for p in sessions}
     every = None
     bad = []
     for line, q in quotes:
@@ -2925,12 +3105,12 @@ def bad_quotes(added, old_text, sessions):
     return bad
 
 
-def claim_msgs(added, old_text, sessions):
+def claim_msgs(added, old_text, sessions, said=None):
     """page_misquotes on body lines (file structure already excluded): every new fact line needs one of its quotes
     to be the user's (quote_ok). A line already on the wiki at `old_text()` is a move; a pointer line (PTR) leaves the
     words to the page it names, checked when that page is written."""
     old = flat(old_text())
-    bad, said, every = [], None, None
+    bad, every = [], None
     for l in added:
         if not l.strip() or PTR.fullmatch(l) or flat(l) in old:
             continue
@@ -3939,10 +4119,10 @@ def depth(d):
     return d.count("/") + 1
 
 
-def discord_words(lo, hi):
+def discord_words(lo, hi, strict=False):
     """The user's own Discord messages in [lo, hi), every channel and DM (discord_said.said); a deleted or unreadable
     channel is logged and read as empty. discord_said.Unavailable propagates: the caller must not go on without them."""
-    msgs = discord_said.said(lo, hi, ASSISTANT, ASSISTANT == DEFAULTS["assistant"])
+    msgs = discord_said.said(lo, hi, ASSISTANT, ASSISTANT == DEFAULTS["assistant"], strict=strict)
     if discord_said.GONE:
         log(f"discord: {len(discord_said.GONE)} channel(s) deleted or unreadable, read as empty: "
             + ", ".join(sorted(discord_said.GONE)))

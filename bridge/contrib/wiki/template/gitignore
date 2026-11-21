@@ -6,4 +6,5 @@ __pycache__/
 .ingest.running
 .ingest.queue
 .ingest-work/
+.ingest-propose/
 config.json
