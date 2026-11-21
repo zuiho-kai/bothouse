@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>其他电脑</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --text: #1d2129; --muted: #6b7280; --line: #e5e7eb; --accent: #2563eb; --ok: #16a34a; --warn: #b45309; --bad: #dc2626; --chip: #eef2ff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181d; --card: #1f2229; --text: #e6e8eb; --muted: #9aa1ab; --line: #2e323b; --accent: #6b9bff; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --chip: #262b3a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  h2 { font-size: 16px; margin: 0 0 6px; }
+  h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 16px 0 6px; }
+  p.hint { color: var(--muted); margin: 0 0 12px; }
+  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  .code { font: 600 40px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 6px; text-align: center; padding: 14px 0 4px; user-select: all; }
+  .center { text-align: center; }
+  .muted { color: var(--muted); }
+  .err { color: var(--bad); min-height: 1.4em; margin: 6px 0 0; }
+  .ok { color: var(--ok); }
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  ul.list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+  ul.list li:first-child { border-top: 0; }
+  .grow { flex: 1; min-width: 0; }
+  .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
+  li.peer { cursor: pointer; border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+  li.peer.sel { outline: 2px solid var(--accent); }
+  li.peer.off { cursor: default; opacity: .55; }
+  .connect { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  input.digits { font: 600 22px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 4px; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); text-align: center; }
+  label.mode { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
+  label.mode input { margin-top: 3px; }
+  .dur { margin: 6px 0 0 24px; display: grid; gap: 4px; }
+  .dur[hidden] { display: none; }
+  .dur label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+  .dur input[type=number] { width: 80px; font: inherit; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .dur select { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .empty { color: var(--muted); padding: 6px 0; }
+  #viewer { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; }
+  #viewer.on { display: flex; }
+  #viewer header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
+  #viewer header .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #viewer iframe { flex: 1; border: 0; width: 100%; background: var(--bg); }
+  #viewer iframe[hidden], #viewer .react-note[hidden] { display: none; }
+  #viewer .react-note { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; text-align: center; color: var(--muted, inherit); }
+</style>
+</head>
+<body>
+<main>
+  <h1>其他电脑</h1>
+  <p class="sub">两台电脑都开着 DSH、都连着同一个 Tailscale，就能用一串数字连起来。只走 Tailscale 内网，不上公网。</p>
+  <div class="grid">
+    <section id="host">
+      <h2>让别的电脑连我</h2>
+      <p class="hint">在这台电脑生成一串数字，到另一台电脑的 DSH 里输入，那台就能看到并操作这台的频道、工作台和面板。</p>
+      <div id="hostIdle"><button class="primary" id="newCode">生成数字</button></div>
+      <div id="hostCode" hidden>
+        <div class="code" id="codeText">------</div>
+        <p class="center muted" id="codeLeft"></p>
+        <p class="center muted">在另一台电脑点「连到另一台电脑」，选这台电脑，输入上面的数字。只能用一次。</p>
+        <p class="center muted" id="phoneUrl" hidden></p>
+        <div class="center"><button id="cancelCode">不连了</button></div>
+      </div>
+      <p class="err" id="hostErr"></p>
+      <h3>已连接的设备</h3>
+      <ul class="list" id="devices"><li class="empty">还没有别的电脑连进来</li></ul>
+    </section>
+    <section id="ctl">
+      <h2>连到另一台电脑</h2>
+      <p class="hint">先在那台电脑点「让别的电脑连我」，再在下面选它、输数字。</p>
+      <div class="row"><button id="refresh">刷新列表</button><span class="muted" id="peersNote"></span></div>
+      <ul class="list" id="peers"><li class="empty">正在找同一网络里的电脑…</li></ul>
+      <div class="connect" id="connect" hidden>
+        <div class="muted">连到：<b id="selName"></b></div>
+        <input class="digits" id="digits" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="输入那台电脑上的数字">
+        <label class="mode"><input type="radio" name="mode" value="temp" checked><span><b>临时</b><br><span class="muted">断开后下次要重新输数字。</span></span></label>
+        <div class="dur" id="dur">
+          <label><input type="radio" name="dur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉 DSH 窗口；刷新页面、切到别的面板不会断）</span></label>
+          <label><input type="radio" name="dur" value="custom">自定义时长：<input type="number" id="durNum" min="1" step="1" value="1" inputmode="numeric"><select id="durUnit"><option value="60000">分钟</option><option value="3600000" selected>小时</option></select><span class="muted">到时自动断</span></label>
+        </div>
+        <label class="mode"><input type="radio" name="mode" value="remember"><span><b>记住这台电脑</b><br><span class="muted">以后打开就能直接连，不用再输。那台电脑随时可以在「已连接的设备」里踢掉。</span></span></label>
+        <div class="row" style="margin-top:10px"><button class="primary" id="doConnect">连接</button></div>
+      </div>
+      <p class="err" id="ctlErr"></p>
+      <h3>我连着的电脑</h3>
+      <ul class="list" id="links"><li class="empty">还没有连着的电脑</li></ul>
+    </section>
+  </div>
+</main>
+<div id="viewer">
+  <header>
+    <button id="back">← 返回</button>
+    <b id="viewName"></b>
+    <span class="tabs row">
+      <button data-tab="">频道</button>
+      <button data-tab="desk">工作台</button>
+      <button data-tab="panel/">面板</button>
+    </span>
+  </header>
+  <iframe id="frame" title="另一台电脑"></iframe>
+  <div id="reactNote" class="react-note" hidden>
+    <p>这台电脑的频道已在 DSH 的频道界面里打开（顶上写着电脑名，能 @ 人、点头像、悬停回复）。</p>
+    <button id="reopen" class="primary">再打开频道</button>
+  </div>
+</div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const MODE = { temp: '临时', remember: '记住' };
+let codeTimer, codePoll, selected, viewing, links = [];
+
+async function api(path, init) {
+  const res = await fetch(path, { credentials: 'same-origin', ...init });
+  let body = null;
+  try { body = await res.json(); } catch { /* empty */ }
+  if (!res.ok) {
+    const msg = body && body.error ? body.error : (res.status === 401 ? '请先在这台电脑的 DSH 网页登录' : `出错了（${res.status}）`);
+    throw new Error(msg);
+  }
+  return body;
+}
+const post = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+const del = path => api(path, { method: 'DELETE' });
+function clock(ms) {
+  const d = new Date(ms);
+  const t = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.getMonth() + 1}月${d.getDate()}日 ${t}`;
+}
+// How long a temporary link lasts, as shown in both lists.
+function lasts(x) {
+  if (x.mode !== 'temp') return '记住了';
+  return x.expires_at ? `临时 · ${clock(x.expires_at)} 自动断` : '临时 · 直到断开';
+}
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  return `${Math.floor(s / 3600)} 小时前`;
+}
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) n.append(k);
+  return n;
+}
+
+// ---- 让别的电脑连我 ----
+function showCode(code, expiresAt) {
+  $('hostIdle').hidden = true; $('hostCode').hidden = false;
+  $('codeText').textContent = code.slice(0, 3) + ' ' + code.slice(3);
+  clearInterval(codeTimer);
+  const tick = () => {
+    const left = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+    $('codeLeft').textContent = left > 0 ? `还剩 ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '已过期';
+    if (left <= 0) hideCode('这串数字过期了，需要的话再生成一个。');
+  };
+  tick();
+  codeTimer = setInterval(tick, 1000);
+  clearInterval(codePoll);
+  const before = new Set([...document.querySelectorAll('#devices li[data-id]')].map(li => li.dataset.id));
+  codePoll = setInterval(async () => {
+    try {
+      const s = await api('api/pair/code');
+      if (!s.waiting) {
+        const { devices } = await api('api/pair/devices');
+        renderDevices(devices);
+        const fresh = devices.find(d => !before.has(d.id));
+        hideCode(fresh ? '' : '这串数字已失效（输错太多次或被取消），需要的话再生成一个。');
+        if (fresh) $('hostErr').innerHTML = '', $('hostErr').append(el('span', { class: 'ok' }, `已连上：${fresh.name}`));
+      }
+    } catch { /* keep showing */ }
+  }, 2000);
+}
+function hideCode(note) {
+  clearInterval(codeTimer); clearInterval(codePoll);
+  $('hostIdle').hidden = false; $('hostCode').hidden = true;
+  $('hostErr').textContent = note || '';
+}
+$('newCode').onclick = async () => {
+  $('hostErr').textContent = '';
+  $('newCode').disabled = true;
+  try {
+    const r = await post('api/pair/code'); showCode(r.code, r.expires_at);
+    // #1327: a phone in the same tailnet opens this address in its browser and types the number there.
+    $('phoneUrl').hidden = !r.listening; $('phoneUrl').textContent = r.listening ? `手机：开着 Tailscale，用浏览器打开 http://${r.listening}/ 输入数字` : '';
+  }
+  catch (e) { $('hostErr').textContent = e.message; }
+  finally { $('newCode').disabled = false; }
+};
+$('cancelCode').onclick = async () => { try { await del('api/pair/code'); } catch { /* ignore */ } hideCode(''); };
+
+function renderDevices(devices) {
+  const ul = $('devices');
+  ul.replaceChildren();
+  if (!devices.length) { ul.append(el('li', { class: 'empty' }, '还没有别的电脑连进来')); return; }
+  for (const d of devices) {
+    ul.append(el('li', { 'data-id': d.id },
+      el('div', { class: 'grow' }, el('div', { class: 'name' }, d.name), el('div', { class: 'muted' }, `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`)),
+      el('button', { class: 'danger', onclick: async () => {
+        if (!confirm(`踢掉「${d.name}」？它要重新输数字才能再连。`)) return;
+        try { await del(`api/pair/devices/${d.id}`); loadDevices(); } catch (e) { $('hostErr').textContent = e.message; }
+      } }, '踢掉')));
+  }
+}
+async function loadDevices() {
+  try { renderDevices((await api('api/pair/devices')).devices); } catch (e) { $('hostErr').textContent = e.message; }
+}
+
+// ---- 连到另一台电脑 ----
+function peerTag(p) {
+  if (!p.online) return el('span', { class: 'tag' }, '离线');
+  if (p.waiting) return el('span', { class: 'tag ok' }, '在等配对');
+  if (p.dsh) return el('span', { class: 'tag' }, '开着 DSH');
+  return el('span', { class: 'tag' }, '没在等配对');
+}
+async function loadPeers() {
+  $('peersNote').textContent = '正在找…';
+  $('ctlErr').textContent = '';
+  try {
+    const { peers } = await api('api/remote/peers');
+    const ul = $('peers');
+    ul.replaceChildren();
+    if (!peers.length) ul.append(el('li', { class: 'empty' }, 'Tailscale 里没有别的电脑'));
+    for (const p of peers) {
+      const li = el('li', { class: 'peer' + (p.online ? '' : ' off') + (selected && selected.ip === p.ip ? ' sel' : '') },
+        el('div', { class: 'grow' }, el('div', { class: 'name' }, p.dsh_name || p.name), el('div', { class: 'muted' }, `${p.ip}${p.os ? ' · ' + p.os : ''}`)),
+        peerTag(p));
+      if (p.online) li.onclick = () => select(p, li);
+      ul.append(li);
+    }
+    $('peersNote').textContent = '';
+  } catch (e) {
+    $('peersNote').textContent = '';
+    $('peers').replaceChildren(el('li', { class: 'empty' }, '没列出电脑，看下面的原因'));
+    $('ctlErr').textContent = e.message;
+  }
+}
+function select(p, li) {
+  selected = p;
+  for (const n of document.querySelectorAll('li.peer')) n.classList.toggle('sel', n === li);
+  $('selName').textContent = p.dsh_name || p.name;
+  $('connect').hidden = false;
+  $('digits').value = '';
+  $('digits').focus();
+  if (!p.waiting) $('ctlErr').textContent = '那台电脑现在没在等配对：先在那台点「让别的电脑连我」，再点「刷新列表」。';
+  else $('ctlErr').textContent = '';
+}
+$('refresh').onclick = loadPeers;
+// Only the custom-length box belongs to 临时.
+for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', () => { $('dur').hidden = document.querySelector('input[name=mode]:checked').value !== 'temp'; });
+$('durNum').addEventListener('focus', () => { document.querySelector('input[name=dur][value=custom]').checked = true; });
+// 「直到我断开」: only these links lapse when no DSH window beats (pairing.mjs sweep), so only
+// these need a beat. Nothing paired, or only 「记住」 links (those never lapse), stays silent.
+// Switch to another panel and this page is gone, so the answer is published for the DSH window.
+// Every beat rechecks the server list, so a revoked link clears the published answer promptly.
+// 来源：与 pairing.mjs ALIVE_EVERY_MS 同一节拍。
+const ALIVE_EVERY_MS = 3000;
+const UNTIL_KEY = 'bothouse-dsh-devices: until-disconnect';
+const UNTIL_LEASE = 'bothouse-dsh-devices: heartbeat';
+const UNTIL_HOLDER = UNTIL_LEASE + ': holder';
+const UNTIL_OWNER = String(Date.now()) + '-' + Math.random();
+let holding = false;
+const untilDisconnect = () => links.some(l => l.mode === 'temp' && l.expires_at === null);
+const publish = () => {
+  try { localStorage.setItem(UNTIL_KEY, untilDisconnect() ? '1' : '0'); } catch (error) { /* no storage: this page still beats while it is open */ }
+};
+const pulse = async () => {
+    const result = await api('api/remote/links');
+    links = result.links;
+    publish();
+    if (!untilDisconnect()) return;
+    await fetch('api/remote/alive', { method: 'POST', credentials: 'same-origin' });
+};
+let tickNow = () => {};
+let holderTimer;
+if (navigator.locks?.request) {
+  const control = new AbortController();
+  globalThis.addEventListener?.('pagehide', () => { control.abort(); clearInterval(holderTimer); }, { once: true });
+  const acquire = () => { if (localStorage.getItem(UNTIL_KEY) !== '1') return Promise.resolve(); return navigator.locks.request(UNTIL_LEASE, { mode: 'exclusive', ifAvailable: true }, lock => {
+    if (!lock) return;
+    holderTimer = setInterval(pulse, ALIVE_EVERY_MS);
+    pulse();
+    return new Promise(resolve => control.signal.addEventListener('abort', resolve, { once: true }));
+  }).catch(() => {}); };
+  setInterval(acquire, ALIVE_EVERY_MS);
+  tickNow = acquire;
+} else {
+  const run = async () => {
+    if (localStorage.getItem(UNTIL_KEY) !== '1') return;
+  const now = Date.now();
+  let held;
+  try { held = JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null'); } catch (error) {}
+  if (held && held.owner !== UNTIL_OWNER && held.expires > now) return;
+  // 来源: two ALIVE_EVERY_MS ticks, so a closed tab's fallback lease is reclaimed promptly.
+  localStorage.setItem(UNTIL_HOLDER, JSON.stringify({ owner: UNTIL_OWNER, expires: now + ALIVE_EVERY_MS * 2 }));
+  holding = JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER;
+  if (!holding) return;
+  if (holderTimer === undefined) holderTimer = setInterval(pulse, ALIVE_EVERY_MS);
+  await pulse();
+  if (JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER) localStorage.setItem(UNTIL_HOLDER, JSON.stringify({ owner: UNTIL_OWNER, expires: Date.now() + ALIVE_EVERY_MS * 2 }));
+  };
+  setInterval(() => tickNow(), ALIVE_EVERY_MS);
+  tickNow = run;
+  globalThis.addEventListener?.('pagehide', () => {
+    clearInterval(holderTimer);
+    if (JSON.parse(localStorage.getItem(UNTIL_HOLDER) || 'null')?.owner === UNTIL_OWNER) localStorage.removeItem(UNTIL_HOLDER);
+  }, { once: true });
+}
+$('digits').addEventListener('keydown', e => { if (e.key === 'Enter') $('doConnect').click(); });
+$('doConnect').onclick = async () => {
+  if (!selected) return;
+  const code = $('digits').value.replace(/\D/g, '');
+  if (!code) { $('ctlErr').textContent = '先输入那台电脑上显示的数字'; return; }
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  let duration_ms = null;
+  if (mode === 'temp' && document.querySelector('input[name=dur]:checked').value === 'custom') {
+    const n = Number($('durNum').value);
+    if (!Number.isInteger(n) || n <= 0) { $('ctlErr').textContent = '自定义时长要填大于 0 的整数'; return; }
+    duration_ms = n * Number($('durUnit').value);
+  }
+  $('doConnect').disabled = true; $('ctlErr').textContent = '';
+  try {
+    const { link } = await post('api/remote/links', { host: selected.ip, code, mode, name: selected.dsh_name || selected.name, duration_ms });
+    $('connect').hidden = true; selected = undefined;
+    await loadLinks();
+    open(link, '');
+  } catch (e) { $('ctlErr').textContent = e.message; }
+  finally { $('doConnect').disabled = false; }
+};
+async function loadLinks() {
+  try {
+    ({ links } = await api('api/remote/links'));
+    // Read the list before beating: an 「直到我断开」 link already in it must be kept alive at once.
+    publish();
+    tickNow();
+    const ul = $('links');
+    ul.replaceChildren();
+    if (!links.length) { ul.append(el('li', { class: 'empty' }, '还没有连着的电脑')); return; }
+    for (const l of links) {
+      ul.append(el('li', null,
+        el('div', { class: 'grow' }, el('div', { class: 'name' }, l.name), el('div', { class: 'muted' }, lasts(l))),
+        el('button', { class: 'primary', onclick: () => open(l, '') }, '打开'),
+        el('button', { onclick: async () => {
+          if (!confirm(`断开「${l.name}」？下次要重新输数字。`)) return;
+          try { await del(`api/remote/links/${l.id}`); loadLinks(); } catch (e) { $('ctlErr').textContent = e.message; }
+        } }, '断开')));
+    }
+  } catch (e) { $('ctlErr').textContent = e.message; }
+}
+
+// ---- 看那台电脑 ----
+function open(link, tab, jump = true) {
+  viewing = link;
+  remember(link.id);
+  $('viewName').textContent = link.name;
+  $('viewer').classList.add('on');
+  show(tab, jump);
+}
+// #236: 频道 opens in this DSH's own channels page (client-ui-discord RemoteChannelsPage) with the
+// other computer's data, so @ candidates, the avatar menu and hover reply work as they do locally.
+// Without it (an older client-ui-discord, or this page opened outside DSH) the old page stays.
+function openReactChannels(link) {
+  try {
+    const openRemote = window.parent !== window ? window.parent.__bothouseOpenRemoteChannels : undefined;
+    return typeof openRemote === 'function' && openRemote(link.id, link.name) === true;
+  } catch { return false; }
+}
+// The shell remounts this page when 返回其他电脑 brings it back, so the link being viewed is kept for
+// the tab (per-viewer convenience only) and the viewer comes back on it without jumping again.
+const VIEWING_KEY = 'collab-devices:viewing';
+function remember(id) { try { if (id) sessionStorage.setItem(VIEWING_KEY, id); else sessionStorage.removeItem(VIEWING_KEY); } catch { /* storage off */ } }
+function remembered() { try { return sessionStorage.getItem(VIEWING_KEY); } catch { return null; } }
+function show(tab, jump = true) {
+  for (const b of document.querySelectorAll('#viewer [data-tab]')) b.classList.toggle('on', b.dataset.tab === tab);
+  const hasReact = tab === '' && (() => { try { return window.parent !== window && typeof window.parent.__bothouseOpenRemoteChannels === 'function'; } catch { return false; } })();
+  const react = tab === '' && (jump ? openReactChannels(viewing) : hasReact);
+  $('frame').hidden = react;
+  $('reactNote').hidden = !react;
+  $('frame').src = react ? 'about:blank' : `remote/${viewing.id}/${tab}`;
+}
+$('reopen').onclick = () => { if (viewing) show(''); };
+for (const b of document.querySelectorAll('#viewer [data-tab]')) b.onclick = () => show(b.dataset.tab);
+$('back').onclick = () => { $('viewer').classList.remove('on'); $('frame').src = 'about:blank'; viewing = undefined; remember(undefined); loadLinks(); };
+
+(async () => {
+  loadDevices(); loadPeers();
+  await loadLinks();
+  const back = links?.find(l => l.id === remembered());
+  if (back) open(back, '', false); else remember(undefined);
+  try { const s = await api('api/pair/code'); if (s.waiting) $('hostErr').textContent = '刚才生成的数字还在等待中；看不到数字的话点「生成数字」换一个。'; } catch { /* ignore */ }
+})();
+</script>
+</body>
+</html>
