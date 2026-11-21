@@ -1035,7 +1035,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		agent:                 ag,
 		platforms:             platforms,
 		sessions:              NewSessionManager(sessionStorePath),
-		proactive:             newProactiveOutbox(),
+		proactive:             sharedProactiveOutbox,
 		ctx:                   ctx,
 		cancel:                cancel,
 		i18n:                  NewI18n(lang),

@@ -55,17 +55,22 @@ type proactiveBatch struct {
 }
 
 // The handoff (#1857) leaves the answer window and the count to the workspace: 「「没理」的判定窗口和
-// N 次的具体值由工作区定」. Budget: the busiest proactive chat in the live cron list (11-21) gets 3 an
-// hour (盯进度每20分钟报); 想想瑞凤 gets 2 (:00 and :30). 6 an hour leaves those untouched.
+// N 次的具体值由工作区定」. Budget, from the live cron list (11-21): the busiest proactive chat is 后宅
+// with five roles' hourly 想想瑞凤 (:00 :12 :24 :36 :48); 盯进度每20分钟报 is 3 an hour. 6 an hour
+// leaves those untouched.
 const (
 	proactiveMergeWindow  = 5 * time.Second  // 实测: cron fires on the minute; jobs due together arrive within milliseconds
-	proactiveCapPerHour   = 6                // 来源 above: twice the busiest live chat
-	proactiveCapBurst     = 3                // 来源 above: the busiest live chat's hour, at once
+	proactiveCapPerHour   = 6                // 来源 above: just over the busiest live chat (5 an hour)
+	proactiveCapBurst     = 3                // 来源 above: 盯进度每20分钟报's hour at once
 	proactiveIgnoreWindow = 30 * time.Minute // 来源: handoff, the workspace sets the window
 	proactiveIgnoreLimit  = 3                // 来源: handoff, the workspace sets N
 	proactivePauseAfter   = 6                // 来源: handoff 「间隔翻倍或暂停」, pause once the gap has doubled three times (N + 3)
 	proactiveFrequentGap  = time.Hour        // 来源: handoff example 想想瑞凤 is hourly; daily reports must not be held back
 )
+
+// sharedProactiveOutbox: every role in this bridge shares one door, so the budget of a chat several
+// roles post in (后宅: five roles' 想想瑞凤 each hour) counts all of them.
+var sharedProactiveOutbox = newProactiveOutbox()
 
 func newProactiveOutbox() *proactiveOutbox {
 	return &proactiveOutbox{

@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// Engines built by other tests run their cron jobs without the shared door: its merge wait and
+// per-chat budget would carry over between unrelated tests. The tests below use their own.
+func init() { sharedProactiveOutbox = nil }
+
 type outboxClock struct{ t time.Time }
 
 func (c *outboxClock) now() time.Time      { return c.t }
