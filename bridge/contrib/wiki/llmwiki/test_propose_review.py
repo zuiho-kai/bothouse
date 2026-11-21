@@ -83,6 +83,25 @@ class ProposeReview(unittest.TestCase):
         self.assertIn("## 历史\n- 原来配置是旧值。", text)
         self.assertNotIn("原来配置是旧值", text.split("## 历史")[0])
 
+    def test_provider_down_stops_before_fallback_and_keeps_offsets_and_fail_count(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "s.jsonl", title="配置",
+                    cwd="/test", date="2026-11-20", text="USER: 现在配置用新值")
+        def down(*args):
+            I.ROUTE_DOWN = True
+            return False
+        with patch.object(I, "propose_pass", side_effect=down), patch.object(I, "model_pass", return_value=True) as fallback, \
+                patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
+                patch.object(I, "reject_streaks"):
+            I.ingest_batches(db, [item], ["codex", "sonnet"], False)
+        fallback.assert_not_called()
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
+        self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [])
+
     def test_failed_placement_reuses_durable_first_call(self):
         calls = []
         def call(prompt, schema, label):
@@ -182,6 +201,27 @@ class ProposeReview(unittest.TestCase):
         with patch.object(I, 'user_texts', side_effect=[[I.flat('甲的话')], []]):
             with self.assertRaises(I.discord_said.Unavailable):
                 I.role_rules(sources, text)
+
+    def test_codex_request_refusal_stops_paid_fallback(self):
+        I.ROUTE_DOWN = False
+        refusal = I.codex_retry.failure(['usage limit'], None, 'turn.failed', set())
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+                            PROPOSE_DIR=self.root / 'cache'), \
+                patch.object(I, 'sync_work'), patch.object(I, 'discard'), patch.object(I, 'log'), \
+                patch.object(I, 'role_rules', return_value=([], self.rules)), \
+                patch.object(I.codex_retry, 'run', return_value=(False, refusal, 0, None, 'luna')):
+            self.assertFalse(I.propose_pass('ingest aaaaaaaa', dict(id='aaaaaaaa', date='2026-11-20'),
+                                           'USER: 现在配置用新值', ['aaaaaaaa'], [], 'codex'))
+        self.assertTrue(I.ROUTE_DOWN)
+
+    def test_nightly_does_no_paid_maintenance_after_route_down(self):
+        def down(*args, **kw):
+            I.ROUTE_DOWN = True
+        with patch.object(I, 'run', side_effect=down), patch.object(I, 'split_pass') as split, \
+                patch.object(I, 'dream') as dream, patch.object(I, 'state'):
+            I.nightly(type('Args', (), {})())
+        split.assert_not_called()
+        dream.assert_not_called()
 
     def test_same_batch_new_value_supersedes_earlier_new_value(self):
         path = self.root / 'tooling/a.md'

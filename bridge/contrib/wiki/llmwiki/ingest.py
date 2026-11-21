@@ -2653,6 +2653,9 @@ def codex_json(prompt, schema, label, model, effort):
     return False, codex_retry.failure(errors, tid, terminal, active, progress, result, r.stderr, u), 0, tid
 
 
+ROUTE_DOWN = False  # the model provider refused a call for everyone (rate limit, sign-in, transport, server error)
+
+
 def role_rules(sources, text=""):
     said, by_session, words = [], {}, {}
     sessions = propose.session_transcripts(text)
@@ -2690,7 +2693,7 @@ def propose_pass(label, it, text, sids, sources, engine):
     searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
     agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
     Returns like model_pass; a delivery conflict is retried on a later run from the accepted offset (cheap now)."""
-    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED
+    global WIKI, LAST_ENGINE, LAST_REJECTED, CRASHED, ROUTE_DOWN
     LAST_REJECTED, CRASHED = False, ""
     if budget.exhausted():
         return False
@@ -2701,7 +2704,7 @@ def propose_pass(label, it, text, sids, sources, engine):
     failed = []
 
     def call(prompt, schema, sub):
-        global LAST_ENGINE
+        global LAST_ENGINE, ROUTE_DOWN
         # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
         # is bounded by the run's deadline; each call only needs room for one such call.
         ok, out, _, _, model = codex_retry.run(lambda m, _tid: codex_json(prompt, schema, sub, m, effort), CODEX_CHAIN,
@@ -2712,6 +2715,8 @@ def propose_pass(label, it, text, sids, sources, engine):
                 return json.loads(out)
             except ValueError:
                 out = f"not JSON: {out[:300]}"
+        if getattr(out, "provider_down", False):
+            ROUTE_DOWN = True  # source: #906 only global failures stop the run uncounted
         failed.append(out)
         return None
 
@@ -2752,7 +2757,7 @@ def propose_pass(label, it, text, sids, sources, engine):
 
 
 def ingest_batches(db, items, engines, pending=False):
-    global quota_hit, CRASHED
+    global quota_hit, CRASHED, ROUTE_DOWN
     batches = batches_of(items)  # reuse the existing input budget: small sessions share both tool-less calls
     if family((engines or [ENGINE])[0]) == "codex":
         batches = [[(it, re.sub(r"\A=== SESSION [^\n]*\n", "", piece)) for it, piece in b] for b in batches]
@@ -2768,7 +2773,7 @@ def ingest_batches(db, items, engines, pending=False):
         sids = [i[:8] for i in ids]
         sources = list(dict.fromkeys(it["path"] for it, _ in batch))
         retained = 0
-        res, quota_hit, CRASHED = False, False, ""
+        res, quota_hit, CRASHED, ROUTE_DOWN = False, False, "", False
         REJECT_REASONS.clear()
         cands = candidates_note(text)
         for engine in dict.fromkeys(filter(None, engines)):
@@ -2788,10 +2793,12 @@ def ingest_batches(db, items, engines, pending=False):
                 prompt = (SOP_INGEST if family(engine) in SOP_ENGINES else INGEST) + cands
                 res = model_pass(label, prompt, context=text, engine=engine, sids=sids, max_delete=MAX_NET_DELETE,
                                  check=lambda: page_checks(label, sources))
-            if res or CRASHED:  # a script error recurs on any engine: don't pay the next one for it
+            if res or CRASHED or ROUTE_DOWN:  # provider outage stops this run before any expensive fallback
                 break
         crashed = CRASHED
+        db.execute("create table if not exists meta(key text primary key, value text)")
         if res:
+            db.execute("delete from meta where key='route_down'")  # the route served a batch: the outage streak ends
             for it in {it["id"]: it for it, _ in batch}.values():
                 remaining[it["id"]] -= 1
                 if remaining[it["id"]]:
@@ -2810,6 +2817,17 @@ def ingest_batches(db, items, engines, pending=False):
             break
         elif quota_hit:
             log(f"{label}: Claude quota refused — left for tonight, not counted as a failure")
+        elif ROUTE_DOWN:  # the route refuses everyone, not this batch: stop sending batches into it this run
+            log(f"{label}: model provider unavailable — left for a later run, not counted as a failure")
+            # an expired key or used-up account never recovers by itself: a second stopped round in a row alerts
+            down = int((db.execute("select value from meta where key='route_down'").fetchone() or [0])[0]) + 1
+            db.execute("insert or replace into meta values ('route_down', ?)", (str(down),))
+            if down >= 2:
+                alert(db, ["route_down"], f"wiki 自动整理已连续 {down} 轮因模型中转站拒绝（凭据失效、额度用完、限流或"
+                                          f"服务出错）停下，这些轮不计失败次数、不会自己告警。凭据或额度的问题不会自己好，"
+                                          f"请查。日志看 {LOG}（model provider unavailable 行）。")
+            db.commit()
+            break
         else:
             for it in {it["id"]: it for it, _ in batch}.values():
                 n = (db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] + 1
@@ -3264,6 +3282,8 @@ def nightly(a):
     WIKI = WORK
     deadline = time.time() + NIGHT_BUDGET
     run(a, engines=[NIGHT_ENGINE])
+    if ROUTE_DOWN:
+        return  # the outage ends this round, including paid maintenance
     split_pass(state())
     dream(state(), deadline)  # before review: review backlog can eat the whole budget
     data_dir = bridge_data_dir()
