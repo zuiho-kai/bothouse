@@ -785,6 +785,13 @@ type ContextUsageReporter interface {
 	GetContextUsage() *ContextUsage
 }
 
+// SessionContextUsageReader retains authoritative context snapshots by native
+// session ID, including after a live process closes. Nil means not reported.
+// Cumulative token/cost totals must not be used as current window occupancy.
+type SessionContextUsageReader interface {
+	ReadContextUsage(sessionID string) *ContextUsage
+}
+
 // ContextUsage describes runtime context consumption for the active session.
 type ContextUsage struct {
 	// UsedTokens is the current token load to compare against ContextWindow when

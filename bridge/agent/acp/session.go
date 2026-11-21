@@ -47,6 +47,9 @@ type acpSession struct {
 	acpSessMu sync.RWMutex
 	acpSessID string
 
+	contextMu    sync.RWMutex
+	contextUsage *core.ContextUsage
+
 	outputMu           sync.Mutex
 	outputFilter       privateOutput
 	outputMessageID    string
@@ -474,6 +477,9 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 		return
 	}
 	if !s.acceptInputUpdate(params) {
+		return
+	}
+	if s.absorbContextUsage(params) {
 		return
 	}
 	s.cacheToolCallInput(params)
