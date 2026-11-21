@@ -453,6 +453,7 @@ type Engine struct {
 	rateLimiter      atomic.Pointer[RateLimiter]         // swapped by SetRateLimitCfg (config reload)
 	outgoingRL       atomic.Pointer[OutgoingRateLimiter] // swapped by SetOutgoingRateLimitCfg
 	proactive        *proactiveOutbox                    // #1857: one door for scheduled messages (proactive_outbox.go)
+	proactiveOn      atomic.Bool                         // #1860: [proactive] enabled; off by default, then everything goes straight through
 	streamPreview    StreamPreviewCfg
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
@@ -1892,12 +1893,12 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
 	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
 	var proactiveIDs []string
-	if !job.IsShellJob() && e.proactive != nil {
-		if ok, why := e.proactive.admit(job, proactiveChat(job.SessionKey)); !ok {
+	if ob := e.outbox(); !job.IsShellJob() && ob != nil {
+		if ok, why := ob.admit(job, proactiveChat(job.SessionKey)); !ok {
 			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
 			return nil
 		}
-		merged, ids := e.proactive.batch(job)
+		merged, ids := ob.batch(job)
 		if merged == nil {
 			return nil // joined a run due at the same time; that run does this job too
 		}
@@ -3792,8 +3793,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
-	if msg.authorization == nil && msg.TaskForum == nil && !msg.FromBot && e.proactive != nil {
-		e.proactive.answered(proactiveChat(msg.SessionKey)) // #1857: a person spoke here
+	if ob := e.outbox(); msg.authorization == nil && msg.TaskForum == nil && !msg.FromBot && ob != nil {
+		ob.answered(proactiveChat(msg.SessionKey)) // #1857: a person spoke here
 	}
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,

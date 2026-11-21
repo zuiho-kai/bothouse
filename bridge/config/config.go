@@ -126,6 +126,10 @@ type Config struct {
 	// whose children nobody touched for a week are removed, on top of the bridge's own (bgrun runs,
 	// iso-check test dirs, walkthrough runs).
 	Cleanup         CleanupConfig `toml:"cleanup"`
+	// Proactive: the door for messages roles send on their own (core/proactive_outbox.go, #1857):
+	// merge reminders due together, per-chat budget, back off when nobody answers. Off unless
+	// enabled = true (#1860).
+	Proactive ProactiveConfig `toml:"proactive"`
 	Hooks           []HookConfig  `toml:"hooks"`
 	IdleTimeoutMins *int          `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
 	MaxTurnTimeMins *int          `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
@@ -253,6 +257,10 @@ type PluginsConfig struct {
 type CleanupConfig struct {
 	Enabled *bool    `toml:"enabled,omitempty"`
 	Dirs    []string `toml:"dirs,omitempty"`
+}
+
+type ProactiveConfig struct {
+	Enabled *bool `toml:"enabled,omitempty"` // default false
 }
 
 type GateConfig struct {

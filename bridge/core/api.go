@@ -414,8 +414,8 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		// #1857: a send from a running scheduled turn goes through the proactive outbox.
-		if engine.proactive != nil && proactiveFrom != "" {
-			if why := engine.proactive.checkSend(proactiveFrom, req.SessionKey); why != "" {
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			if why := ob.checkSend(proactiveFrom, req.SessionKey); why != "" {
 				slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
 				http.Error(w, why, http.StatusTooManyRequests)
 				return
@@ -445,8 +445,8 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if engine.proactive != nil && proactiveFrom != "" {
-			engine.proactive.deliveredFrom(proactiveFrom, req.SessionKey)
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			ob.deliveredFrom(proactiveFrom, req.SessionKey)
 		}
 	}
 

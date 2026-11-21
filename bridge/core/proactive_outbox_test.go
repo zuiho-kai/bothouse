@@ -219,3 +219,32 @@ func TestProactiveOutboxDoesNotMergeDailyJobs(t *testing.T) {
 		t.Fatalf("daily jobs were merged: %v %v", got[0], got[1])
 	}
 }
+
+// #1860 「这个默认关一下」: with no [proactive] setting, two hourly reminders due at the same minute
+// for the same chat each run their own turn, as before #1857; turning it on puts the door back.
+func TestProactiveOutboxOffByDefaultPassesThrough(t *testing.T) {
+	p := &cronHistoryPlatform{historyPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}
+	e, as, _ := newImgEngine(t, p)
+	o := newTestOutbox(&outboxClock{t: time.Now()})
+	o.mergeWindow = time.Second
+	e.proactive = o // what NewEngine holds in the bridge; off until SetProactiveOutbox(true)
+	if e.outbox() != nil {
+		t.Fatal("outbox is on without [proactive] enabled = true")
+	}
+	for _, id := range []string{"a", "b"} {
+		as.sendOnce = sync.Once{} // the stub answers one turn per Once
+		if err := e.ExecuteCronJob(&CronJob{ID: id, SessionKey: "discord:c1", CronExpr: "0 * * * *", Prompt: "想想瑞凤 " + id}); err != nil {
+			t.Fatalf("ExecuteCronJob(%s): %v", id, err)
+		}
+	}
+	if _, prompts := as.sent(); len(prompts) != 2 || strings.Contains(strings.Join(prompts, "\n"), "合成一轮") {
+		t.Fatalf("off: want two separate turns, got %d: %q", len(prompts), prompts)
+	}
+	if len(o.jobs) != 0 || len(o.freq) != 0 {
+		t.Fatalf("off: the outbox saw the jobs: %v %v", o.jobs, o.freq)
+	}
+	e.SetProactiveOutbox(true)
+	if e.outbox() != o {
+		t.Fatal("[proactive] enabled = true does not turn the outbox on")
+	}
+}
