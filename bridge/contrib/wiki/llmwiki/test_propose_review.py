@@ -393,6 +393,24 @@ class ProposeReview(unittest.TestCase):
         template = (Path(__file__).resolve().parent.parent / "template/gitignore").read_text()
         self.assertIn(".ingest-propose/\n", template)
 
+    def test_openai_call_always_has_a_timeout_and_never_pauses_past_the_deadline(self):
+        (self.root / "key").write_text("secret")
+        api = P.Api("http://127.0.0.1:9/v1", "model", self.root / "key", 1, log=lambda msg: None)
+        seen = []
+        def urlopen(request, timeout=None):
+            seen.append(timeout)
+            raise P.urllib.error.URLError("refused")
+        with patch.object(P.urllib.request, "urlopen", urlopen), patch.object(P.time, "sleep") as sleep:
+            ok, _, _, status = api.json("prompt", {}, "facts", lambda: None)  # no job deadline
+            self.assertEqual((ok, status, seen), (False, 0, [P.Api.TIMEOUT] * P.Api.TRIES))
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], [P.Api.PAUSE, 2 * P.Api.PAUSE])
+            seen.clear()
+            sleep.reset_mock()
+            left = P.Api.ROOM + P.Api.PAUSE - 1  # room for this call, not for a pause and another call
+            ok, _, _, status = api.json("prompt", {}, "facts", lambda: left)
+            self.assertEqual((ok, status, seen), (False, 0, [left]))
+            sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

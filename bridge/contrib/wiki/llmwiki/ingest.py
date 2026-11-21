@@ -152,10 +152,10 @@ DEFAULTS = {
     # written by rolewiki.go; "" = leave DSH_HOME as inherited)
     "dsh_cmd": ["dsh"], "dsh_patch": "", "dsh_env_file": "", "dsh_home": "",
     # engine "openai": the day ingest's two tool-less proposal calls go to an OpenAI-compatible chat/completions route
-    # instead of the Codex CLI, several sessions at once (user 2026-11-20 「https://ai.shrinken.pw 用这个」「可以多并发」).
+    # instead of the Codex CLI, several batches at once.
     # api_key_file holds the key; the key never goes into config, logs or the usage table.
     "api_base": "", "api_model": "", "api_key_file": "",
-    "api_concurrency": 6,  # source: C酱 2026-11-20 19:2x 实测 6 路并发全部成功
+    "api_concurrency": 6,  # source: measured 2026-11-20, six concurrent calls all succeeded
 }
 
 
@@ -2173,7 +2173,7 @@ def run(a, engines=None):
         items.sort(key=lambda it: it["path"].stat().st_mtime, reverse=True)
     if pending and not openai_route(engines):
         # One existing batch per cron round; SQLite offsets leave the rest ready. The openai route runs several
-        # batches at once instead and takes what the run's deadline allows (user 2026-11-20 「可以多并发」).
+        # batches at once instead and takes what the run's deadline allows.
         # Oversized single records resume from their accepted-piece checkpoint.
         batch = batches_of(items)[0]
         n = max((db.execute("select n from fails where id=?", (it["id"],)).fetchone() or [0])[0] for it, _ in batch)
@@ -2681,10 +2681,9 @@ def api_json(prompt, schema, label):
         API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
                           effort, log)
     left = budget.remaining()
-    # Source: measured 2026-11-20 over 110 tool-less proposal calls: longest 97 s (same admission as the codex route).
-    if left is not None and left < 97:
+    if left is not None and left < API.ROOM:  # the same admission as the codex route
         return False, "not enough remaining time for a proposal call", True
-    ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], left)
+    ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
     cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
     row = [time.strftime("%F %T"), label, f"openai:{CFG['api_model']}/{effort}",
            1 if u else 0, u.get("prompt_tokens", 0) - cached, cached, 0, u.get("completion_tokens", 0),
@@ -2733,6 +2732,7 @@ class Prefetch:
     at most api_concurrency at once. Calls read REPO (never the worktree the loop rewrites); the loop then checks
     each operation against the current wiki, so a page changed meanwhile only costs one correction call."""
     def __init__(self, batches):
+        propose_dir()  # the workers save facts there before the first pass runs
         n = max(1, int(CFG["api_concurrency"]))
         self.pool, self.window, self.jobs, self.stopped = ThreadPoolExecutor(n), 2 * n, {}, False
         self.queue = list(batches)
@@ -2983,7 +2983,7 @@ def _ingest_batches(db, batches, engines, pending):
         db.commit()
         # run() keeps a pending round of the other routes to one session, but an oversized session still splits
         # into several batches here: stop after the first so each round's cost stays one batch. The openai route
-        # takes several batches per round (user 2026-11-20 「可以多并发」).
+        # takes several batches per round.
         if (pending and not openai_route(engines)) or \
                 (not res and any(len(session_chunk(it)) > MAX_CHARS for it, _ in batch)):
             return  # never skip ahead within an unfinished record
