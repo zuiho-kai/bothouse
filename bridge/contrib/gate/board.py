@@ -888,11 +888,18 @@ def watch_pr(nid, url):
     return True
 
 
+def _gh():
+    """gh 的完整路径。桥和定时任务起的进程 PATH 常不带 ~/.local/bin、/opt/homebrew/bin（11-21 #1855 的临时脚本在定时里
+    连着报找不到 gh），所以 PATH 里没有就到常见安装目录找。"""
+    return shutil.which("gh") or next((c for c in (os.path.expanduser("~/.local/bin/gh"), "/opt/homebrew/bin/gh",
+                                                    "/usr/local/bin/gh") if os.path.isfile(c)), "gh")
+
+
 def _pr_query(url):
     """gh 查一个合并请求的评论、审核、检查和状态；查不到返回 None（这轮不动，下轮再查）。"""
     owner, name, num = PR_URL.fullmatch(url).groups()
     try:
-        p = subprocess.run(["gh", "api", "graphql", "-f", "query=" + PR_EVENTS_QUERY % (owner, name, num)],
+        p = subprocess.run([_gh(), "api", "graphql", "-f", "query=" + PR_EVENTS_QUERY % (owner, name, num)],
                            capture_output=True, text=True, timeout=30)
         if p.returncode != 0:
             return None
