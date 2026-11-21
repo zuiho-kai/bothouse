@@ -203,7 +203,7 @@ class ProviderFailure(unittest.TestCase):
             self.assertIsNone(call("facts", I.propose.FACTS_SCHEMA, label + " facts"))
             return None
         with ExitStack() as stack:
-            stack.enter_context(patch.multiple(I, WIKI=ROOT, WORK=ROOT, REPO=ROOT))
+            stack.enter_context(patch.multiple(I, WIKI=ROOT, WORK=ROOT, REPO=ROOT, PREFETCH=None))
             for name in ("sync_work", "propose_dir", "discard", "candidates_note", "reject_streaks", "alert",
                          "lint_errors"):
                 if hasattr(I, name):
@@ -222,8 +222,7 @@ class ProviderFailure(unittest.TestCase):
             stack.enter_context(patch.object(I.propose, "prepare", side_effect=prepare))
             engines = ["codex", "sonnet"] if paid_fallback else ["codex"]
             if role:
-                with patch.object(I, "batches_of", return_value=[[(it, it["text"])] for it in items]):
-                    I.ingest_batches(db, items, engines, False)
+                I._ingest_batches(db, [[(it, it["text"])] for it in items], engines, False)
                 down = I.ROUTE_DOWN
             else:
                 I._ingest_proposal_batches(db, items, engines, {})

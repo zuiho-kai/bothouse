@@ -54,6 +54,16 @@ class ProposeReview(unittest.TestCase):
                                                                              return_value=[I.flat(fact()["quote"])]):
                     self.assertEqual(I.page_misquotes([self.root / "source.jsonl"]), "")
 
+    def test_prefetch_unreadable_words_cannot_prepare_a_dropped_fact_result(self):
+        worker = I.Prefetch.__new__(I.Prefetch)
+        worker.stopped = False
+        with patch.object(I, "REPO", self.root), patch.object(I, "user_texts", return_value=[]), \
+                patch.object(I, "api_json", return_value=(True, json.dumps(dict(
+                    title="配置", nothing_reason="", facts=[fact()])), False)) as api:
+            with self.assertRaises(I.discord_said.Unavailable):
+                worker.work("ingest aaaaaaaa", "USER: 现在配置用新值", [self.root / "source.jsonl"])
+        api.assert_not_called()
+
     def test_omitted_fact_is_preserved_in_unplaced_log(self):
         prepared = (dict(title="配置", nothing_reason=""), [fact()], [], dict(ops=[], unplaced=[]))
         P.ingest(self.root, "", "aaaaaaaa", "2026-11-20", self.rules, None, "ingest", prepared)
@@ -61,7 +71,7 @@ class ProposeReview(unittest.TestCase):
         self.assertIn(fact()["fact"], (self.root / "log.md").read_text())
 
     def test_proposal_pass_moves_superseded_old_fact_to_history(self):
-        def codex(prompt, schema, label, model, effort):
+        def api(prompt, schema, label):
             if schema == P.FACTS_SCHEMA:
                 answer = dict(title="配置", nothing_reason="", facts=[fact()])
             elif schema == P.OPS_SCHEMA:
@@ -69,15 +79,15 @@ class ProposeReview(unittest.TestCase):
             else:
                 self.assertEqual(schema, I.invalidate.SCHEMA)
                 answer = dict(results=[dict(g=0, n=0, contradicted_facts=[0])])
-            return True, json.dumps(answer), 0, None
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+            return True, json.dumps(answer), False
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / "cache"), \
-                patch.object(I, "sync_work"), patch.object(I, "codex_json", codex), \
+                patch.object(I, "sync_work"), patch.object(I, "api_json", api), \
                 patch.object(I, "user_texts", return_value=[I.flat(fact()["quote"])]), \
                 patch.object(I, "acceptance", return_value=""), patch.object(I, "log"), \
                 patch.object(I, "deliver", return_value=True):
             result = I.propose_pass("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
-                                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "codex")
+                                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "openai:high")
         self.assertEqual(result, "changed")
         text = (self.root / "tooling/a.md").read_text()
         self.assertIn("## 历史\n- 原来配置是旧值。", text)
@@ -97,7 +107,7 @@ class ProposeReview(unittest.TestCase):
         with patch.object(I, "propose_pass", side_effect=down), patch.object(I, "model_pass", return_value=True) as fallback, \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, [item], ["codex", "sonnet"], False)
+            I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
         fallback.assert_not_called()
         self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
         self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [])
@@ -124,7 +134,7 @@ class ProposeReview(unittest.TestCase):
                 patch.object(I, "model_pass", return_value=True) as fallback, \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, [item], ["codex", "sonnet"], False)
+            I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
         fallback.assert_not_called()
         self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
 
@@ -147,7 +157,7 @@ class ProposeReview(unittest.TestCase):
         def discard():
             for path, text in originals.items():
                 path.write_text(text)
-        def codex(prompt, schema, label, model, effort):
+        def api(prompt, schema, label):
             calls.append(label.rsplit(" ", 1)[-1])
             if schema == P.FACTS_SCHEMA:
                 answer = dict(title="配置", nothing_reason="", facts=[fact()])
@@ -155,16 +165,16 @@ class ProposeReview(unittest.TestCase):
                 answer = dict(ops=[op(readme="", description="")], unplaced=[])
             else:
                 answer = dict(results=[])
-            return True, json.dumps(answer), 0, None
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+            return True, json.dumps(answer), False
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / "cache"), \
                 patch.object(I, "sync_work"), patch.object(I, "discard", discard), \
-                patch.object(I, "codex_json", codex), patch.object(I, "log"), \
+                patch.object(I, "api_json", api), patch.object(I, "log"), \
                 patch.object(I, "user_texts", return_value=[I.flat(fact()["quote"])]), \
                 patch.object(I, "acceptance", side_effect=["refused", ""]), \
                 patch.object(I, "deliver", return_value=True):
             args = ("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
-                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "codex")
+                    "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"], "openai:high")
             self.assertFalse(I.propose_pass(*args))
             self.assertEqual(I.propose_pass(*args), "changed")
         self.assertEqual(calls.count("facts"), 1)
@@ -185,10 +195,10 @@ class ProposeReview(unittest.TestCase):
                          "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
-        with patch.object(I, "propose_pass", accept), \
+        with patch.object(I, "propose_pass", accept), patch.object(I, "Prefetch"), \
                 patch.object(I, "log"), patch.object(I, "candidates_note", return_value=""), \
                 patch.object(I, "reject_streaks"):
-            I.ingest_batches(db, items, ["codex"], pending=True)
+            I.ingest_batches(db, items, ["openai:high"], pending=True)
         self.assertEqual(seen, [["aaaaaaaa", "bbbbbbbb"]])
         for sid in ["aaaaaaaa", "bbbbbbbb"]:
             self.assertIn("ingest | " + sid, (self.root / "log.md").read_text())
@@ -205,7 +215,7 @@ class ProposeReview(unittest.TestCase):
     def test_codex_request_refusal_stops_paid_fallback(self):
         I.ROUTE_DOWN = False
         refusal = I.codex_retry.failure(['usage limit'], None, 'turn.failed', set())
-        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root,
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
                             PROPOSE_DIR=self.root / 'cache'), \
                 patch.object(I, 'sync_work'), patch.object(I, 'discard'), patch.object(I, 'log'), \
                 patch.object(I, 'role_rules', return_value=([], self.rules)), \
