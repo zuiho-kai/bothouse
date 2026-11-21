@@ -98,6 +98,21 @@ class ReviewResume(unittest.TestCase):
             self.assertFalse(self.mod["start"]("notes", "redo", "room:chat", 46, "reviewer"))
         self.assertEqual(seen, [("room:chat", "redo", 46, "room:3")])
 
+    def test_answered_task_goes_back_to_its_own_session_workspace(self):
+        # #933（11-21 #928）：提问那一轮还在原工作区跑，答复续办原先按编号挑了另一个空工作区，两个会话并行
+        board = self.g["board"]
+        seen = []
+        def pick(*args):
+            seen.append(args)
+            return None
+        state = {"tasks": {"928": {"id": 928, "state": "paused", "session_ws": "room:446"}}}
+        with patch.object(board, "items", return_value=[{"id": 928, "ws_was": "room:1"}]), \
+             patch.dict(self.g, {"pick_pool": pick, "_ws_state": lambda: state}):
+            self.assertFalse(self.mod["start"]("notes", "redo", "room:chat", 928, "reviewer"))
+        self.assertEqual(seen, [("room:chat", "redo", 928, "room:446")])
+        pool = [{"id": "1", "name": "工作区1", "open": 0}, {"id": "446", "name": "工作区7", "owner": "room:chat", "open": 0}]
+        self.assertEqual(self.choose(pool, "room:446")[0][0], "room:446")
+
 
 if __name__ == "__main__":
     unittest.main()
