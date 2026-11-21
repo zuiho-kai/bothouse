@@ -5,6 +5,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,6 +277,25 @@ func applyDSHDisabled(plugin *dshModulePlugin, entry *yaml.Node) error {
 func GetDSHModuleState() (DSHModuleState, error) {
 	st, _, _, err := dshModuleProfile(DSHProfile)
 	return st, err
+}
+
+// ListDSHModuleProfiles reads the installed Channels plugin state in both profiles.
+// A profile that cannot be read does not prevent reporting the other profile.
+func ListDSHModuleProfiles() (enabled, disabled []string, err error) {
+	for _, profile := range []string{DSHProfile, DSHDesktopProfile} {
+		st, _, _, readErr := dshModuleProfile(profile)
+		switch {
+		case readErr != nil:
+			err = errors.Join(err, fmt.Errorf("DSH profile %s: %w", profile, readErr))
+		case !st.Installed:
+			continue
+		case st.Disabled:
+			disabled = append(disabled, profile)
+		default:
+			enabled = append(enabled, profile)
+		}
+	}
+	return enabled, disabled, err
 }
 
 func validateDSHModuleChange(plugins []dshModulePlugin, disabled bool) error {

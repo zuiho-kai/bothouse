@@ -57,6 +57,7 @@ func printModuleUsage() {
 Platforms are optional modules: only the ones in config.toml start.
 
   list                  Each platform: enabled / disabled / not configured, and which roles use it
+                        DSH reports Channels plugin profiles. DSH project connections appear under cloud_web.
   add <platform>        Configure the platform with its own flags (below), or turn a disabled one back on
   disable <platform>    Stop a platform; its settings stay in config.toml (add turns it back on).
                         Takes no parameters and no --dry-run: it only marks the section disabled
@@ -314,18 +315,28 @@ func moduleList() error {
 	for _, mod := range moduleOrder {
 		label := fmt.Sprintf("%-12s", mod)
 		if mod == "dsh" {
-			st, err := core.GetDSHModuleState()
-			if err != nil {
+			enabled, disabled, err := core.ListDSHModuleProfiles()
+			if len(enabled)+len(disabled) == 0 && err != nil {
 				return err
 			}
-			switch {
-			case !st.Installed:
-				fmt.Printf("%s not configured\n", label)
-			case st.Disabled:
-				fmt.Printf("%s disabled (DSH profile %s)\n", label, core.DSHProfile)
-			default:
-				fmt.Printf("%s enabled (DSH profile %s)\n", label, core.DSHProfile)
+			var parts []string
+			for _, group := range []struct {
+				state    string
+				profiles []string
+			}{{"enabled", enabled}, {"disabled", disabled}} {
+				if len(group.profiles) == 0 {
+					continue
+				}
+				noun := "profile"
+				if len(group.profiles) > 1 {
+					noun = "profiles"
+				}
+				parts = append(parts, fmt.Sprintf("%s (DSH %s %s)", group.state, noun, strings.Join(group.profiles, ", ")))
 			}
+			if len(parts) == 0 {
+				parts = append(parts, "not configured")
+			}
+			fmt.Printf("%s %s\n", label, strings.Join(parts, "; "))
 			continue
 		}
 		st, ok := states[mod]

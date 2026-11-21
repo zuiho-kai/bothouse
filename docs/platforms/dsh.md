@@ -78,7 +78,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 ## 以后
 
 - 再加 QQ、Discord、飞书：管理面板「添加平台」，见[首页](../GETTING_STARTED.md#以后添加或停用平台)。
-- `bothouse module list` 显示 DSH 未配置、已启用或已停用。
+- `bothouse module list` 的 `dsh` 行显示频道插件在 DSH 的 `web` 和 `desktop` profile 中的状态。项目到 DSH 频道的连接列在 `cloud_web` 行。
 - `bothouse module disable dsh` 停用，`bothouse module add dsh` 恢复启用；结果为 JSON。
 - 插件位于 DSH 的 `web` profile；机器上装过 DeepSeek Harness 桌面版时，安装器也装进桌面版的 `desktop` profile（桌面版只允许它自带的 CLI 改这个 profile，安装器会自动找 `/Applications/DeepSeek Harness.app/...`、`~/Applications/...` 或 `%LOCALAPPDATA%\Programs\DeepSeek Harness\...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。桌面版会自动加载插件，不用重启。
 - 只装了 DeepSeek Harness 桌面版、`PATH` 里没有 `dsh` 的 Mac 不用另装命令行：检测、`module add dsh`、`setup hooks --cli dsh` 和面板里给出的打开命令都用桌面版 app 包内自带的那份 CLI（`/Applications/DeepSeek Harness.app/...` 或 `~/Applications/...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。机器上另有 `dsh` 命令时仍然优先用它。
