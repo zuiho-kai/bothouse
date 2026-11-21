@@ -346,7 +346,7 @@ class InIngest(Fake):
         jsonl(p, [user("zuiho_kai: 别这样", iso(first))])
         said = [D.Msg(first - 40, "c", "#c", "别再加没要的开关")]  # 23:59:50 the night before
         asked = []
-        def words(lo, hi):
+        def words(lo, hi, strict=False):
             asked.append((lo, hi))
             return [m for m in said if lo <= m.ts < hi]
         with mock.patch.object(I, "bridged", return_value=True), mock.patch.object(I, "discord_words", words):
