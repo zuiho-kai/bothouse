@@ -99,6 +99,36 @@ func UsagePricesWithDefaults(configured map[string]TokenPrice) map[string]TokenP
 var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n",
 	"-minimal", "-xhigh", "-medium", "-high", "-low", "-none", "-max", "-thinking", "-1m"}
 
+// usagePriceProviders are live price sources registered by agent packages from
+// init(). An agent that can enumerate its own catalog (the Devin CLI's
+// `models list --format json` names every variant's rate, including paid tiers
+// like -lightning/-fast/-priority that no suffix rule can derive) reports its
+// rates this way instead of growing hand-keyed default rows (#2071 follow-up).
+// Providers run when the static table misses and must be safe for concurrent
+// use; they are consulted with the raw model id and the stripped base id.
+var usagePriceProviders []func() map[string]TokenPrice
+var usagePriceProvidersMu sync.RWMutex
+
+// RegisterUsagePriceProvider adds a live price source. Call it once from an
+// agent package's init(); fn may compute lazily and should cache.
+func RegisterUsagePriceProvider(fn func() map[string]TokenPrice) {
+	usagePriceProvidersMu.Lock()
+	defer usagePriceProvidersMu.Unlock()
+	usagePriceProviders = append(usagePriceProviders, fn)
+}
+
+// providerPrices queries every registered source for id; the first hit wins.
+func providerPrices(id string) (TokenPrice, bool) {
+	usagePriceProvidersMu.RLock()
+	defer usagePriceProvidersMu.RUnlock()
+	for _, fn := range usagePriceProviders {
+		if p, ok := fn()[id]; ok {
+			return p, true
+		}
+	}
+	return TokenPrice{}, false
+}
+
 // lookupPrice finds the rate for a model id. Logs record ids exactly as the
 // caller wrote them ("xiao/gpt-6-astra", "gemini-4-argon-trial"), while the price
 // tables key on the bare model name, so an exact match is tried first and then
@@ -126,7 +156,10 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 			}
 		}
 	}
-	return TokenPrice{}, false
+	if p, ok := providerPrices(model); ok {
+		return p, true
+	}
+	return providerPrices(base)
 }
 
 // syntheticModel is what Claude Code logs for messages it makes up locally

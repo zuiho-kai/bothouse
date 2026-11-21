@@ -25,11 +25,35 @@ func TestLookupPrice(t *testing.T) {
 		{"claude-fable-5-2-high", 8.0, true}, // effort suffix on a priced model
 		{"claude-fable-5-2-medium", 8.0, true},
 		{"gpt-5-4-none", 0, false}, // base has no price → still unpriced
+		{"swe-1-6", 0.5, true},     // real catalog price (follow-up: not free)
 	}
 	for _, c := range cases {
 		p, ok := lookupPrice(prices, c.model)
 		if ok != c.found || (ok && p.Input != c.want) {
 			t.Errorf("lookupPrice(%q) = %+v, %v; want input %v found=%v", c.model, p, ok, c.want, c.found)
 		}
+	}
+}
+
+// #2071 follow-up: an agent-registered catalog supplies ids the static table
+// never heard of — paid tiers like -lightning whose rates no suffix rule can
+// derive.
+func TestLookupPriceProvider(t *testing.T) {
+	RegisterUsagePriceProvider(func() map[string]TokenPrice {
+		return map[string]TokenPrice{
+			"swe-2-max-lightning": {Input: 1, Output: 5, CacheRead: 0.1},
+			"catalog-only-model":  {Input: 3, Output: 9},
+		}
+	})
+	if p, ok := lookupPrice(UsagePricesWithDefaults(nil), "swe-2-max-lightning"); !ok || p.Input != 1 || p.Output != 5 {
+		t.Fatalf("provider rate: %+v found=%v", p, ok)
+	}
+	// A provider-prefixed id still resolves via the stripped base.
+	if p, ok := lookupPrice(UsagePricesWithDefaults(nil), "xiao/catalog-only-model"); !ok || p.Input != 3 {
+		t.Fatalf("provider rate after prefix strip: %+v found=%v", p, ok)
+	}
+	// Unknown everywhere stays unpriced.
+	if _, ok := lookupPrice(UsagePricesWithDefaults(nil), "still-unknown"); ok {
+		t.Fatal("unknown id must not gain a price")
 	}
 }

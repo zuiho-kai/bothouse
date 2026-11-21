@@ -254,13 +254,10 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"step-3.5-flash-2603":            {Input: 0.1, Output: 0.3, CacheRead: 0.02, CacheWrite: 0.0},
 	"step-3.7-flash":                 {Input: 0.19, Output: 1.13, CacheRead: 0.04, CacheWrite: 0.0},
 	"step-5-preview":                 {Input: 0.98, Output: 2.8, CacheRead: 0.05, CacheWrite: 0.0},
-	// swe-* are Devin-native models: Cognition does not price them per token — turns
-	// are billed by plan quota — and the user confirmed swe-2-max is free this month
-	// (zzzx0757 2026-11-21「杂活这个月可以给免费的 swe-2-max」). Explicit zero rows keep
-	// the spend cap from charging them at the no-price fallback (#2071); the effort
-	// suffixes in priceSuffixes map swe-2-max/-high/-medium onto these.
-	"swe-1-6":     {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
-	"swe-1-7":     {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
-	"swe-2":       {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
-	"swe-2-flash": {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0},
+	"swe-1-6":                        {Input: 0.5, Output: 2.5, CacheRead: 0.2, CacheWrite: 0.0}, // 来源 devin models list 目录 2026-11-22
+	"swe-2":                          {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0}, // 同上，目录标 Free
+	"swe-2-flash":                    {Input: 0.0, Output: 0.0, CacheRead: 0.0, CacheWrite: 0.0}, // 同上，目录标 Free
+	// Paid tiers (-lightning, -fast, -priority, fusion-*) carry their own rates
+	// in the catalog and resolve at runtime through the devin package's price
+	// provider — do not key them here (#2071).
 }
