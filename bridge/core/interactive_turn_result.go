@@ -798,12 +798,17 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		// (the backfill already marked those posts seen).
 		*turn.chainedQueued = queued
 		queued.content = turn.session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
-		queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
-		queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		queuedPrompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			queuedPrompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
+			queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		}
 		e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-		queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		if !queued.nativeCommand {
+			queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		}
 
 		turn.state.mu.Lock()
 		as := turn.agentSession // capture under lock to avoid race with cleanup

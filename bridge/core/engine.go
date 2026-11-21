@@ -695,6 +695,7 @@ type queuedMessage struct {
 	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
 	// cancels; a batch that folds it in still answers it (queue_batch.go).
 	abortFront    bool
+	nativeCommand bool   // Message.nativeCommand, kept across the queue
 	queueOrder    uint64 // #739: assigned at admission, before an abort moves to the queue front
 	turnCtxSender string // #1160
 	fromBot       bool
@@ -3856,8 +3857,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	// The prompt of this message: the sender's words under the platform blocks.
-	{
-		keepUserText(msg)
+	if keepUserText(msg); !msg.nativeCommand {
 		body := content
 		// A multi-party chat's own words need the speaker's name; otherwise the newest message
 		// reads as if the previous speaker said it. GroupChat
@@ -4028,7 +4028,7 @@ func (e *Engine) dispatchMessage(p Platform, msg *Message, route messageRoute) {
 	if msg.Direct {
 		sessions.MarkDirect(msg.SessionKey)
 	}
-	if msg.TaskForum == nil && e.applyGate(p, msg, session, interactiveKey) {
+	if msg.TaskForum == nil && !msg.nativeCommand && e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
 	// 任务帖里的回话不过 gate。会话正忙、agent 又收得下中途输入时，
@@ -4284,6 +4284,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
 		abortFront:          msg.abortFront, // #739: the batch still answers this one
+		nativeCommand:       msg.nativeCommand,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -5248,18 +5249,21 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
 		content := session.renderReference(msg.Content, msg.Reference)
 		images := msg.Images
-		if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
-			// maomao fork: first turn of a fresh context gets the recent channel images back.
-			content = note + "\n\n" + content
-			images = append(imgs, images...)
+		promptContent := content // #2041: a native command is the whole prompt, as typed
+		if !msg.nativeCommand {
+			if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
+				// maomao fork: first turn of a fresh context gets the recent channel images back.
+				content = note + "\n\n" + content
+				images = append(imgs, images...)
+			}
+			content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+			// voiceMarked: a merged queue batch already carries its per-part marks, so this
+			// turn must not mark the whole text again (#215).
+			content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
+			promptContent = e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+			promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
+			promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		}
-		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
-		// voiceMarked: a merged queue batch already carries its per-part marks, so this
-		// turn must not mark the whole text again (#215).
-		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
-		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
-		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -5290,7 +5294,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				state.authorization = msg.authorization
 				state.mu.Unlock()
 				e.noteCallerTurn(msg.SessionKey, msg.Platform, msg.UserID, msg.UserName, msg.ChannelKey, msg.FromBot, msg.timerJobID != "" || msg.cronJobID != "", msg.inputTurn != nil)
-				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				attemptPrompt = promptContent
+				if !msg.nativeCommand {
+					attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -8399,13 +8406,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
-		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		prompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			prompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
+			prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		}
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -8447,7 +8457,10 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
 				state.mu.Unlock()
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				attemptPrompt = prompt
+				if !queued.nativeCommand {
+					attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -8838,6 +8851,17 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 				"project", e.name, "command", skill.Name, "type", "skill")
 			e.executeSkill(p, msg, skill, args)
 			return true
+		}
+		// #2041: one of the agent's own slash commands. It falls through like any other text
+		// the bridge does not own, marked so that it reaches the agent as typed.
+		if agent, _, _, err := e.commandContext(p, msg); err == nil {
+			if nc, ok := agent.(NativeCommandAgent); ok && nc.IsNativeCommand(e.ctx, raw) {
+				slog.Info("audit: command_executed",
+					"user_id", msg.UserID, "platform", msg.Platform,
+					"project", e.name, "command", cmd, "type", "agent")
+				msg.nativeCommand = true
+				return false
+			}
 		}
 		// Not a cc-connect command — notify user, then fall through to agent.
 		// In a QQ group it is usually meant for another bot: say nothing there.

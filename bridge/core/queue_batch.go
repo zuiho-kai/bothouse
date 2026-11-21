@@ -291,7 +291,7 @@ func (e *Engine) trimQueuedOverflowLocked(state *interactiveState, interactiveKe
 func batchableQueued(q *queuedMessage) bool {
 	return q.authorization == nil && !q.fromBot && !scheduledTurnUser(q.userID) && q.userID != "" &&
 		q.turnTrigger == "" && q.resumedFrom == "" && q.timerJobID == "" && q.resumeFallback == "" &&
-		q.modeOverride == "" && q.scheduledFrom == nil && !q.scheduledBackfilled
+		q.modeOverride == "" && q.scheduledFrom == nil && !q.scheduledBackfilled && !q.nativeCommand
 }
 
 func sameQueuedThread(a, b *queuedMessage) bool {

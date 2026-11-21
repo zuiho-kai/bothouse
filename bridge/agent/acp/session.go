@@ -82,6 +82,8 @@ type acpSession struct {
 	availableModes []acpModeInfo
 	currentMode    string
 
+	commands nativeCommands // the slash commands the server advertised (native_commands.go)
+
 	callbacks sessionCallbacks // may be nil (tests, integration harness)
 }
 
@@ -469,6 +471,9 @@ func (s *acpSession) onNotification(method string, params json.RawMessage) {
 		slog.Debug("acp: notification", "method", method)
 		return
 	}
+	if s.absorbAvailableCommands(params) {
+		return
+	}
 	if s.handleSubTaskUpdate(params) {
 		return
 	}
@@ -844,7 +849,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, true),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files, !s.commands.has(prompt)),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
