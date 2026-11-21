@@ -933,10 +933,22 @@ def arm_drift(nid):
 GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 
 
+def own_workspace(previous, nid) -> str:
+    """这件活自己的会话所在的工作区：桥暂停它时记下会话的那个（team_workspaces.json tasks[编号].session_ws），
+    没有就用任务板上上次绑的 ws_was。挑工作区时排第一，认领得了就回原会话接着做。
+    来源：#933（11-21 #928）。ws-up --ask 在工作区自己那一轮里暂停任务，#1729 起那一轮照常跑完、工作区等它结束才放回；
+    这里原先只在验收退回时才优先原工作区，答复续办按编号挑了另一个空工作区，桥把原会话复制过去
+    （15:01:26「resumed with its saved session … from=…446」），原工作区那一轮还在跑：同一件活两个会话并行，
+    后台命令的叫醒和转话又进了原工作区。原工作区在那一轮里只收这件活本身（桥 claim 对别的活报占用），
+    被别的活占了就照常换下一个。"""
+    t = ((_ws_state().get("tasks") or {}).get(str(nid)) or {}) if nid else {}
+    return str(t.get("session_ws") or previous.get("ws_was") or "")
+
+
 def start(path, task, chat, nid, project, answer=None):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
-    picked = held(previous, chat) or pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
+    picked = held(previous, chat) or pick_pool(chat, task, nid, own_workspace(previous, nid))
     if picked is None:
         return False
     ws, name, parent = picked

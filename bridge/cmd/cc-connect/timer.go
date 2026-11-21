@@ -195,6 +195,11 @@ func runTimerAdd(args []string) {
 	if replyBoard > 0 {
 		body["reply_board"] = replyBoard
 	}
+	// A timer for the caller's own session belongs to the workspace task the caller was started
+	// for (as in send.go): the bridge delivers it where that task is when it comes due.
+	if h := strings.TrimSpace(os.Getenv("CC_HANDOFF")); h != "" && sessionKey == envSessionKey() {
+		body["task_handoff"] = h
+	}
 	if timeoutMins != nil {
 		body["timeout_mins"] = *timeoutMins
 	}
