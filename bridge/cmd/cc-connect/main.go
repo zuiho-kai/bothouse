@@ -2000,7 +2000,10 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
 	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
 	core.SetTeamWatchCheckAfter(time.Duration(derefInt(cfg.TeamWatchCheckMins)) * time.Minute) // bridge-wide; <= 0 = the default
-	engine.SetProactiveOutbox(cfg.Proactive.Enabled != nil && *cfg.Proactive.Enabled) // #1860: off unless [proactive] enabled = true
+	// #1860: off unless [proactive] enabled = true. #1866: min_gap (default on) keeps the 11-20
+	// two-hour rhythm while nobody answers, in one place instead of each role's script.
+	engine.SetProactiveOutbox(cfg.Proactive.Enabled != nil && *cfg.Proactive.Enabled,
+		cfg.Proactive.MinGap == nil || *cfg.Proactive.MinGap)
 	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Session lifetime and context.

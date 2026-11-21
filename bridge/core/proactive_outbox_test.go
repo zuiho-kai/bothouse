@@ -243,8 +243,90 @@ func TestProactiveOutboxOffByDefaultPassesThrough(t *testing.T) {
 	if len(o.jobs) != 0 || len(o.freq) != 0 {
 		t.Fatalf("off: the outbox saw the jobs: %v %v", o.jobs, o.freq)
 	}
-	e.SetProactiveOutbox(true)
+	e.SetProactiveOutbox(true, true)
 	if e.outbox() != o {
 		t.Fatal("[proactive] enabled = true does not turn the outbox on")
+	}
+	if !o.minGap {
+		t.Fatal("[proactive] min_gap = true was not passed to the outbox")
+	}
+}
+
+// #1866 用户 11-20 「他没回也没关系，过一阵再找他」: with min gap on, a chat that still has an
+// unanswered proactive message gets no second one for two hours; an answer starts it over.
+func TestProactiveOutboxMinGapWaitsForAnswer(t *testing.T) {
+	clk := &outboxClock{t: time.Date(2026, 11, 22, 9, 0, 0, 0, time.Local)}
+	o := newTestOutbox(clk)
+	o.minGap = true
+	o.caps["discord:100"] = &tokenBucket{tokens: 1e9, maxTokens: 1e9, lastRefill: clk.t}
+	first := &CronJob{ID: "a", SessionKey: "discord:100", CronExpr: "0 * * * *"}
+	chat := proactiveChat(first.SessionKey)
+	if ok, why := o.admit(first, chat); !ok {
+		t.Fatalf("first message held: %s", why)
+	}
+	o.delivered([]string{first.ID}, chat)
+
+	clk.add(time.Hour)
+	second := &CronJob{ID: "b", SessionKey: "discord:100", CronExpr: "0 * * * *"}
+	if ok, why := o.admit(second, chat); ok || !strings.HasPrefix(why, "min gap:") {
+		t.Fatalf("second message inside two hours got through (ok=%v why=%q)", ok, why)
+	}
+	end := o.startRun([]string{second.ID}, "discord:100")
+	if why := o.checkSend("discord:100", chat); why == "" {
+		t.Fatal("a bothouse send inside the min gap was not refused")
+	}
+	end()
+
+	clk.add(61 * time.Minute) // 2h1m after the first
+	if ok, why := o.admit(second, chat); !ok {
+		t.Fatalf("min gap did not expire after two hours: %s", why)
+	}
+	o.delivered([]string{second.ID}, chat)
+
+	// an answer in the chat resets it: the next run may speak right away
+	o.answered(chat)
+	clk.add(time.Minute)
+	if ok, why := o.admit(first, chat); !ok {
+		t.Fatalf("after an answer the chat speaks again, got skipped: %s", why)
+	}
+}
+
+// A daily report is not held by the min gap, and neither is another chat's message.
+func TestProactiveOutboxMinGapLeavesDailyJobsAndOtherChatsAlone(t *testing.T) {
+	clk := &outboxClock{t: time.Date(2026, 11, 22, 9, 0, 0, 0, time.Local)}
+	o := newTestOutbox(clk)
+	o.minGap = true
+	hourly := &CronJob{ID: "h", SessionKey: "discord:100", CronExpr: "0 * * * *"}
+	daily := &CronJob{ID: "d", SessionKey: "discord:100", CronExpr: "0 10 * * 1-5"}
+	chat := proactiveChat(hourly.SessionKey)
+	if ok, why := o.admit(hourly, chat); !ok {
+		t.Fatalf("hourly message held: %s", why)
+	}
+	o.delivered([]string{hourly.ID}, chat)
+	clk.add(time.Minute)
+	if ok, why := o.admit(daily, chat); !ok {
+		t.Fatalf("daily report held by the min gap: %s", why)
+	}
+	o.delivered([]string{daily.ID}, chat)
+	other := &CronJob{ID: "o", SessionKey: "discord:200", CronExpr: "0 * * * *"}
+	if ok, why := o.admit(other, proactiveChat(other.SessionKey)); !ok {
+		t.Fatalf("another chat is held by the first chat's gap: %s", why)
+	}
+}
+
+// Without the switch (min gap off, the pre-#1866 behaviour when enabled) an unanswered chat is
+// held only by the budget.
+func TestProactiveOutboxMinGapOffKeepsHourlyPace(t *testing.T) {
+	clk := &outboxClock{t: time.Date(2026, 11, 22, 9, 0, 0, 0, time.Local)}
+	o := newTestOutbox(clk)
+	o.caps["discord:100"] = &tokenBucket{tokens: 1e9, maxTokens: 1e9, lastRefill: clk.t}
+	job := &CronJob{ID: "a", SessionKey: "discord:100", CronExpr: "0 * * * *"}
+	chat := proactiveChat(job.SessionKey)
+	for i := 0; i < 3; i++ {
+		if ok, why := o.admit(job, chat); !ok {
+			t.Fatalf("run %d held with min gap off: %s", i, why)
+		}
+		o.delivered([]string{job.ID}, chat)
+		clk.add(time.Hour)
 	}
 }

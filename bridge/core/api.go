@@ -405,6 +405,22 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
+	// #1866: one door for every way a scheduled turn can post — text, images/files, audio, video
+	// and TTS. Before this, a voice message sent with `--audio` slipped past the outbox.
+	if ob := engine.outbox(); ob != nil && proactiveFrom != "" && req.TaskText == nil {
+		if why := ob.checkSend(proactiveFrom, req.SessionKey); why != "" {
+			slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
+			http.Error(w, why, http.StatusTooManyRequests)
+			return
+		}
+	}
+	// proactiveSent records a delivery from a running scheduled turn (the outbox counts it and,
+	// while min gap is on, holds the chat's next proactive message for two hours).
+	proactiveSent := func() {
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			ob.deliveredFrom(proactiveFrom, req.SessionKey)
+		}
+	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
 			req.TaskText.Text, req.TaskText.SessionKey = req.Message, req.SessionKey
@@ -417,14 +433,6 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		// #1857: a send from a running scheduled turn goes through the proactive outbox.
-		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
-			if why := ob.checkSend(proactiveFrom, req.SessionKey); why != "" {
-				slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
-				http.Error(w, why, http.StatusTooManyRequests)
-				return
-			}
-		}
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
@@ -449,9 +457,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
-			ob.deliveredFrom(proactiveFrom, req.SessionKey)
-		}
+		proactiveSent()
 	}
 
 	if len(req.Audios) > 0 {
@@ -459,6 +465,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if len(req.Videos) > 0 {
@@ -466,6 +473,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if strings.TrimSpace(req.TTSText) != "" {
@@ -473,6 +481,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if dmNote != "" {
