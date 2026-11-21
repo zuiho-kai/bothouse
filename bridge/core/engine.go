@@ -669,6 +669,7 @@ type queuedMessage struct {
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom      string
 	timerJobID       string
+	wakeID           string // #2024
 	cronJobID        string
 	resumeNoProgress int
 	resumeFallback   string
@@ -695,6 +696,7 @@ type queuedMessage struct {
 	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
 	// cancels; a batch that folds it in still answers it (queue_batch.go).
 	abortFront    bool
+	nativeCommand bool   // Message.nativeCommand, kept across the queue
 	queueOrder    uint64 // #739: assigned at admission, before an abort moves to the queue front
 	turnCtxSender string // #1160
 	fromBot       bool
@@ -815,6 +817,9 @@ type interactiveState struct {
 	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
 	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
 	currentJobID string
+	// currentWakeID: the wake (#2024, wake_return.go) this turn runs; its result goes back to
+	// the conversation that woke it. Guarded by mu.
+	currentWakeID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
 	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
@@ -2542,7 +2547,7 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 	}
 	e.teamNoteTurn(msg, session)
 	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
-		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+		markSeen(msg.scheduledFrom, session, &Message{MessageID: msg.handoffSeenMark})
 	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
@@ -3048,6 +3053,15 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, silent, "")
+}
+
+// executeWake is a silent heartbeat turn that carries a wake ID (#2024, wake_return.go).
+func (e *Engine) executeWake(sessionKey, prompt, wakeID string) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, true, wakeID)
+}
+
+func (e *Engine) executeHeartbeatTurn(sessionKey, prompt string, silent bool, wakeID string) error {
 	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -3103,6 +3117,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		UserName:   "heartbeat",
 		Content:    prompt,
 		ReplyCtx:   replyCtx,
+		wakeID:     wakeID,
 	}
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
@@ -3856,8 +3871,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	// The prompt of this message: the sender's words under the platform blocks.
-	{
-		keepUserText(msg)
+	if keepUserText(msg); !msg.nativeCommand {
 		body := content
 		// A multi-party chat's own words need the speaker's name; otherwise the newest message
 		// reads as if the previous speaker said it. GroupChat
@@ -4272,6 +4286,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnTrigger:         msg.turnTrigger,
 		resumedFrom:         msg.resumedFrom,
 		timerJobID:          msg.timerJobID,
+		wakeID:              msg.wakeID,
 		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
@@ -4284,6 +4299,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
 		abortFront:          msg.abortFront, // #739: the batch still answers this one
+		nativeCommand:       msg.nativeCommand,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -4984,11 +5000,13 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if e.IsPaused() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine %q is paused", e.name))
 		return
 	}
 	if !e.beginMessageWork() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine stopped"))
 		return
 	}
 	defer e.messageWorkers.Done()
@@ -5141,6 +5159,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.mu.Unlock()
 	if agentSession == nil {
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("start session: %s", startErr)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("start session: %s", startErr))
 		text := e.i18n.T(MsgFailedToStartAgentSession)
 		if startErr != "" {
 			// maomao fork: say why, so whoever reads it can act.
@@ -5248,18 +5267,21 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
 		content := session.renderReference(msg.Content, msg.Reference)
 		images := msg.Images
-		if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
-			// maomao fork: first turn of a fresh context gets the recent channel images back.
-			content = note + "\n\n" + content
-			images = append(imgs, images...)
+		promptContent := content // #2041: a native command is the whole prompt, as typed
+		if !msg.nativeCommand {
+			if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
+				// maomao fork: first turn of a fresh context gets the recent channel images back.
+				content = note + "\n\n" + content
+				images = append(imgs, images...)
+			}
+			content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+			// voiceMarked: a merged queue batch already carries its per-part marks, so this
+			// turn must not mark the whole text again (#215).
+			content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
+			promptContent = e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+			promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
+			promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		}
-		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
-		// voiceMarked: a merged queue batch already carries its per-part marks, so this
-		// turn must not mark the whole text again (#215).
-		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
-		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
-		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -5274,6 +5296,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
+		state.currentWakeID = msg.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
 		e.armTurnSpendCap(state, session, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.SessionKey)
@@ -5286,11 +5309,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func() {
 				state.mu.Lock()
 				state.currentJobID = msg.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = msg.wakeID
 				state.externalTaskInput = msg.externalInput
 				state.authorization = msg.authorization
 				state.mu.Unlock()
 				e.noteCallerTurn(msg.SessionKey, msg.Platform, msg.UserID, msg.UserName, msg.ChannelKey, msg.FromBot, msg.timerJobID != "" || msg.cronJobID != "", msg.inputTurn != nil)
-				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				attemptPrompt = promptContent
+				if !msg.nativeCommand {
+					attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -6717,13 +6744,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// still owns a pending handback; settle it empty so the fallback posts the result.
 	defer func() {
 		turn.state.mu.Lock()
-		jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+		jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 		if !retrying {
 			turn.state.currentJobID = ""
+			turn.state.currentWakeID = ""
 		}
 		turn.state.mu.Unlock()
 		if jobID != "" && !retrying {
 			e.settleReportWake(jobID, "", nil)
+		}
+		if wakeID != "" && !retrying {
+			settleWakeReturn(wakeID, "", errWakeNoResult)
 		}
 	}()
 	turn.state.mu.Lock()
@@ -8399,13 +8430,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
-		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		prompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			prompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
+			prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		}
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -8436,6 +8470,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.setTurnMode(state, as, queued.modeOverride) // restored when runTurnWithCapacityRetry returns
 		state.mu.Lock()
 		state.currentJobID = queued.timerJobID
+		state.currentWakeID = queued.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
@@ -8445,9 +8480,13 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
 				state.mu.Lock()
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = queued.wakeID
 				state.mu.Unlock()
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				attemptPrompt = prompt
+				if !queued.nativeCommand {
+					attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -8838,6 +8877,34 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 				"project", e.name, "command", skill.Name, "type", "skill")
 			e.executeSkill(p, msg, skill, args)
 			return true
+		}
+		// #2041: one of the agent's own slash commands, in a message that calls this role. It
+		// falls through like any other text the bridge does not own, marked so that it reaches
+		// the agent as typed. Said to someone else or to no one it is chat, not a command here.
+		if agent, _, _, err := e.commandContext(p, msg); err == nil && e.addresseeOf(p, msg) == AddrSelf {
+			if nc, ok := agent.(NativeCommandAgent); ok {
+				if name, readOnly := nc.NativeCommand(e.ctx, raw); name != "" {
+					if disabledCmds[strings.ToLower(name)] {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "disabled")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "/"+name))
+						return true
+					}
+					if !readOnly && !e.isAdmin(msg.UserID) {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "unauthorized")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgAdminRequired), "/"+name))
+						return true
+					}
+					slog.Info("audit: command_executed",
+						"user_id", msg.UserID, "platform", msg.Platform,
+						"project", e.name, "command", name, "type", "agent")
+					msg.nativeCommand = true
+					return false
+				}
+			}
 		}
 		// Not a cc-connect command — notify user, then fall through to agent.
 		// In a QQ group it is usually meant for another bot: say nothing there.
@@ -19611,7 +19678,9 @@ func (e *Engine) resolveWorkspace(p Platform, channelID string) (string, string,
 		name, err := resolver.ResolveChannelName(channelID)
 		if err != nil {
 			slog.Warn("failed to resolve channel name", "channel", channelID, "err", err)
-		} else {
+		} else if name == filepath.Base(name) && name != "." && name != ".." {
+			// Only a plain directory name becomes a path under base_dir. A Feishu group can be
+			// called "../x" or "a/b" (Discord and Slack channel names cannot): no convention match.
 			channelName = name
 		}
 	}

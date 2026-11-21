@@ -435,6 +435,10 @@ type Message struct {
 	userTextSet bool       // maomao fork: userText is set (see userTextOf)
 	gateParts   []gatePart // maomao fork: the messages an idle gate burst folded into this one, as each was (gate.go)
 	abortFront  bool       // maomao fork: a gate abort; queued first, then the running turn is cancelled (gate.go)
+	// nativeCommand: one of the agent's own slash commands (NativeCommandAgent), in a message that
+	// calls this role, from someone allowed to run it (handleCommand). It runs as a turn of its own
+	// and reaches the agent as typed: not held, merged or routed, no blocks, no instructions (#2041).
+	nativeCommand bool
 	// maomao fork: the gate asks for the per-turn context blocks (teammate
 	// status, wiki pages); they are added right before the send, once the agent
 	// process for this turn is known. A pending handoff goes either way.
@@ -484,6 +488,7 @@ type Message struct {
 	// a resumed turn, the no-progress count it carries on and the prompt to
 	// re-run on a fresh session if the resumed session errors at once (S1).
 	timerJobID       string
+	wakeID           string // #2024: the wake whose result goes back to the waking conversation (wake_return.go)
 	cronJobID        string // the cron job a cron turn runs (its time limit when it starts queued)
 	resumeNoProgress int
 	resumeFallback   string

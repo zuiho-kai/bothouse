@@ -144,18 +144,18 @@ def outcome(items, key="", turn=""):
                      "agent": "score_night"} for cid, v in items])
 
 
-def main(args):
-    voter = os.environ.get("CC_PROJECT") or "terminal"  # 终端会话没有 CC_PROJECT，算一个账号
+def vote(args, voter, key="", agent=""):
+    """投票本体，返回 (退出码, 回执)；命令行和 gate 的 /memvote（沙盒里的角色代写）共用。"""
     want, bad = [], []
     for a in args:
         m = ARG.match(a.strip())
         (want.append((SIGN[m.group(1)], m.group(2))) if m else bad.append(a))
     if bad or not want:
         ctx = [a for a in bad if re.fullmatch(r"[+=x-]?#?[0-9a-f]{8}", a.strip())]
-        if ctx:  # 11-05 实测：角色拿卡片/页面的 8 位取正文编号来投，两次都只看到「用法」
-            print(f"{' '.join(ctx)} 是取正文用的 8 位编号（bothouse ctx），不是记忆条，不用投；能投的是定案、经验条行尾的 10 位编号")
-        print(f"用法：memvote.py +编号（赞） -编号（踩） x编号（撤回）…；编号是定案、经验条行尾 [#…] 里那串 10 位；看不懂的：{' '.join(bad) or '无'}")
-        return 2
+        # 11-05 实测：角色拿卡片/页面的 8 位取正文编号来投，两次都只看到「用法」
+        out = [f"{' '.join(ctx)} 是取正文用的 8 位编号（bothouse ctx），不是记忆条，不用投；能投的是定案、经验条行尾的 10 位编号"] if ctx else []
+        out.append(f"用法：memvote.py +编号（赞） -编号（踩） x编号（撤回）…；编号是定案、经验条行尾 [#…] 里那串 10 位；看不懂的：{' '.join(bad) or '无'}")
+        return 2, "\n".join(out)
     sc = json.loads(SCORES.read_text()) if SCORES.exists() else {}
     items, miss = [], []
     for v, h in want:
@@ -163,10 +163,39 @@ def main(args):
         (items.append((cid, v)) if cid else miss.append(h))
     word = {1: "用到", -1: "内容有错", 0: "撤回"}
     lines = [f"#{h} 找不到这条（编号抄错了？）" for h in miss]
-    for r in cite(voter, items, key=os.environ.get("CC_SESSION_KEY", ""), agent=os.environ.get("CC_AGENT", "")):
+    for r in cite(voter, items, key=key, agent=agent):
         lines.append(f"#{r['id'].rpartition('#')[2]} 已记：{word[r['vote']]}")
-    print("\n".join(lines))
-    return 0
+    return 0, "\n".join(lines)
+
+
+def gate_url():
+    """本数据目录的 gate：桥给角色的 LEAD_GATE_URL（core/role_env.go）去掉 /lead，没有就按 GATE_PORT、默认 9930（gate.py PORT）。"""
+    lead = os.environ.get("LEAD_GATE_URL", "")
+    if lead.endswith("/lead"):
+        return lead[: -len("/lead")] + "/memvote"
+    return f"http://127.0.0.1:{os.environ.get('GATE_PORT') or 9930}/memvote"
+
+
+def main(args):
+    voter = os.environ.get("CC_PROJECT") or "terminal"  # 终端会话没有 CC_PROJECT，算一个账号
+    key, agent = os.environ.get("CC_SESSION_KEY", ""), os.environ.get("CC_AGENT", "")
+    try:
+        code, text = vote(args, voter, key, agent)
+    except OSError:
+        # #1823：DSH 成员的命令跑在 workspace-write 沙盒里，只能写自己的工作目录，写不进 gate 目录；
+        # 照 #1651 写记忆页的做法，交给沙盒外的 gate 代写（同 contrib/lead/lead 走 HTTP 找 gate）。
+        import urllib.request
+        req = urllib.request.Request(gate_url(), method="POST", headers={"Content-Type": "application/json"},
+                                     data=json.dumps({"args": args, "voter": voter, "key": key, "agent": agent}).encode())
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                r = json.loads(resp.read() or b"{}")
+            code, text = r.get("code", 1), r.get("text", "")
+        except (OSError, ValueError):
+            # 投票只是记账：投不上不影响这一轮，回执写明别在回话里提（截图里模型把失败写进了给用户的话）
+            code, text = 0, "这次没投上，不影响回答；不用重试，也不用在回话里提。"
+    print(text)
+    return code
 
 
 if __name__ == "__main__":

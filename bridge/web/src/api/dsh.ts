@@ -23,6 +23,15 @@ export interface DSHSummary {
 
 export const getDSHSummary = () => api.get<DSHSummary>('/dsh/summary');
 
+export interface DSHProjectRoom {
+  id: number;
+  name: string;
+}
+
+export const listDSHProjectRooms = () => api.get<{ rooms: DSHProjectRoom[] }>('/dsh/channels');
+export const attachDSHProject = (projectName: string, roomId: number) =>
+  api.post<{ restart_required: boolean }>(`/dsh/projects/${encodeURIComponent(projectName)}`, { room_id: roomId });
+
 export type DSHCli = 'codex' | 'claude' | 'gemini';
 export interface DSHManagedMember {
   id: string; name: string; source: 'ui' | 'config' | 'external';

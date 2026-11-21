@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/components/library', () => ({ useLibrary: () => ({ lib: { personas: [] }, reload: vi.fn() }), PersonaLibrary: () => null }));
-vi.mock('@/pages/Roles/DSHMemberEditor', () => ({ DSHMemberEditor: () => <div data-testid="member-editor" /> }));
+vi.mock('@/components/dsh/DSHMemberEditor', () => ({ DSHMemberEditor: () => <div data-testid="member-editor" /> }));
 vi.mock('@/api/wizard', async (original) => ({
   ...await original<object>(),
   getDSHStatus: async () => ({ found: true, plugin_installed: true, version: 'fixture', has_deepseek_key: true }),

@@ -65,6 +65,17 @@ backend's terminal usage includes it. There is no independent provider invoice
 reconciliation. Failed/interrupted turns without a terminal result are not billed
 by this ledger. Late/missing provider usage notifications cannot be reconstructed.
 
+## Account quota
+
+Account quota is separate from this token ledger. For a signed-in Devin
+subscription, chat `/usage` and reply footers query the official CLI account
+status service using the CLI's credential environment. Max exposes its weekly
+allowance; the server's hidden daily window is omitted. The CLI's own `/usage`
+command reports session consumption and is not used as remaining plan quota.
+Accounts without quota billing or a visible reset window remain unavailable.
+The account status endpoint is used by the official client but has no published
+external API contract, so upstream changes may make quota queries fail.
+
 ## Estimated cost
 
 Built-in USD rates (copied from cc-switch's `model_pricing` table) price common

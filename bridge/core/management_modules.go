@@ -73,17 +73,14 @@ func (m *ManagementServer) platformModuleRows() []PlatformModule {
 		if rows[i].Name != "dsh" {
 			continue
 		}
-		rows[i].State = "not_configured"
-		for _, profile := range []string{DSHProfile, DSHDesktopProfile} {
-			st, _, _, err := dshModuleProfile(profile)
-			if err != nil || !st.Installed {
-				continue
-			}
-			if !st.Disabled {
-				rows[i].State = "enabled"
-				break
-			}
+		enabled, disabled, _ := ListDSHModuleProfiles()
+		switch {
+		case len(enabled) > 0:
+			rows[i].State = "enabled"
+		case len(disabled) > 0:
 			rows[i].State = "disabled"
+		default:
+			rows[i].State = "not_configured"
 		}
 		// DSH is configured on its own page (setup wizard's DSH step), not by a platform param.
 		rows[i].AddPath = "/setup?add=1&platform=dsh"

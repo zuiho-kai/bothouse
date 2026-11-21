@@ -98,6 +98,12 @@ type Platform struct {
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
 	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
 	dmDenyFrom                 map[string]bool   // dm_deny_from: DMs from these users are dropped; see dm_deny_from.go
+	meetingOn                  bool              // meeting_assistant: join voice on "@bot 开会" and write minutes; see meeting.go
+	meetingASRPython           string            // meeting_asr_python: the python with mlx_whisper that transcribes
+	meetingScreenToken         string            // meeting_screen_token: user token of the account that watches screen shares; "" = off
+	meetingDataDir             string            // the voice listener is installed under it (meeting_listener.go)
+	meetingMu                  sync.Mutex
+	meetings                   map[string]*meeting // guild ID → the meeting being recorded there
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -251,7 +257,13 @@ func New(opts map[string]any) (core.Platform, error) {
 	if on, _ := opts["ack_reaction"].(bool); on {
 		base.acks = newAckReactions(opts)
 	}
+	base.meetingOn, _ = opts["meeting_assistant"].(bool)
+	if base.meetingASRPython, _ = opts["meeting_asr_python"].(string); base.meetingASRPython == "" {
+		base.meetingASRPython = defaultMeetingASRPython
+	}
+	base.meetingScreenToken, _ = opts["meeting_screen_token"].(string)
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
+		base.meetingDataDir = dir
 		base.workspaceShelves = workspaceShelfStoreFor(dir)
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
@@ -746,6 +758,9 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 	p.cancel = cancel
 	p.mu.Unlock()
 
+	if p.meetingOn {
+		go p.prepareVoiceListener()
+	}
 	go p.connectLoop(ctx)
 	return nil
 }
@@ -828,6 +843,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	p.noteMeetingImages(m) // meeting.go: pictures posted during a meeting go into its minutes
 	if p.dmDenied(m.GuildID, m.Author.ID) {
 		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
 		return
@@ -885,6 +901,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 			return
 		}
 		m.ReferencedMessage = nil // its quote is already in the channel history
+	}
+	if mentioned && p.handleMeetingCommand(s, m, botRoleID) {
+		return
 	}
 	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.selfID()))
 	// bodySelf: the text itself @-s this bot (user, nickname or managed-role mention), as opposed to
@@ -2009,6 +2028,7 @@ func (p *Platform) Stop() error {
 	p.session = nil
 	p.mu.Unlock()
 
+	p.stopMeetings()
 	if cancel != nil {
 		cancel()
 	}

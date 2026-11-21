@@ -877,6 +877,12 @@ class H(BaseHTTPRequestHandler):
                 s = lead.state()
                 return self._json({"ok": True, "changed": changed, "lead": s["lead"], "name": lead.NAME[s["lead"]], "at": s["at"]})
             return self._json({"ok": False, "error": f"action 只认 get / set：{action!r}"}, 400)
+        if url.path == "/memvote":  # #1823：沙盒里的角色写不进 gate 目录，memvote.py 把票交给这里代写
+            import memvote
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            args = [a for a in req.get("args") or [] if isinstance(a, str)]
+            code, text = memvote.vote(args, str(req.get("voter") or "terminal"), str(req.get("key") or ""), str(req.get("agent") or ""))
+            return self._json({"code": code, "text": text})
         if url.path == "/context":  # 每轮相关的 wiki 页（ctxsvc.py）
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             req.setdefault("bot", bot)  # sub 的 gate_url 带 ?bot=

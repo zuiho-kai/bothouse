@@ -704,6 +704,15 @@
     "noBridgeProjects": "No bridge projects",
     "addBridgeProjectHint": "Use the button above to add a bridge project."
   },
+  "dshProject": {
+    "platform": "DSH (local)",
+    "automatic": "Use local DSH settings",
+    "room": "DSH channel",
+    "chooseRoom": "Choose a channel",
+    "connect": "Connect",
+    "noRooms": "No group channels are available in local DSH.",
+    "unavailable": "Local DSH setup is unavailable in this bothouse build."
+  },
   "dshManage": {
     "add": "Add DSH member",
     "edit": "Edit member",

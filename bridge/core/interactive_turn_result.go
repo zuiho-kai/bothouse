@@ -629,11 +629,22 @@ func (e *Engine) finishTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	}
 	turn.watchTurnFinished = true
 	turn.state.mu.Lock()
-	jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+	jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 	if !retrying {
 		turn.state.currentJobID = ""
+		turn.state.currentWakeID = ""
 	}
 	turn.state.mu.Unlock()
+	if wakeID != "" && !retrying {
+		// #2024: the woken turn's answer (or its failure) goes back to the conversation that woke it.
+		var wakeErr error
+		if event.Error != nil {
+			wakeErr = event.Error
+		} else if _, exhausted := QuotaExhaustedReset(event); exhausted {
+			wakeErr = fmt.Errorf("provider quota exhausted")
+		}
+		settleWakeReturn(wakeID, baseResponse, wakeErr)
+	}
 	if jobID != "" && !retrying {
 		text := ""
 		if event.Error == nil {
@@ -798,12 +809,17 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		// (the backfill already marked those posts seen).
 		*turn.chainedQueued = queued
 		queued.content = turn.session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
-		queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
-		queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		queuedPrompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			queuedPrompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
+			queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		}
 		e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-		queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		if !queued.nativeCommand {
+			queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		}
 
 		turn.state.mu.Lock()
 		as := turn.agentSession // capture under lock to avoid race with cleanup

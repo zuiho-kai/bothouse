@@ -785,6 +785,13 @@ type ContextUsageReporter interface {
 	GetContextUsage() *ContextUsage
 }
 
+// SessionContextUsageReader retains authoritative context snapshots by native
+// session ID, including after a live process closes. Nil means not reported.
+// Cumulative token/cost totals must not be used as current window occupancy.
+type SessionContextUsageReader interface {
+	ReadContextUsage(sessionID string) *ContextUsage
+}
+
 // ContextUsage describes runtime context consumption for the active session.
 type ContextUsage struct {
 	// UsedTokens is the current token load to compare against ContextWindow when
@@ -837,6 +844,17 @@ type SessionSettings struct {
 	// starts on instead of the active one (workspace_provider: a team workspace
 	// runs on a cheap local model while the lead keeps the expensive one).
 	Provider string
+}
+
+// NativeCommandAgent is an optional interface for agents whose backend runs its own slash
+// commands when one arrives as the whole prompt (ACP available_commands_update). The engine sends
+// a message that is one of them to the agent as typed; wrapped like chat text, the backend would
+// hand it to the model as ordinary words.
+type NativeCommandAgent interface {
+	// NativeCommand reports the backend command that text invokes: its advertised name ("" when
+	// text is not one) and whether it only reports on the session. Any other command acts on the
+	// account, the environment or the session, and takes an admin.
+	NativeCommand(ctx context.Context, text string) (name string, readOnly bool)
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support
