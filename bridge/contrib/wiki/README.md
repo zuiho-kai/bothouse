@@ -120,6 +120,10 @@ cron / timer 的 shell 任务超时会取消其所属子进程；Mac / Linux 使
 环境变量：`WIKI_DIR`（主 wiki，默认 `~/wiki`）、`WIKI_BIN`（共享工具目录，默认 `~/wiki/bin`）、`WIKI_BOTS`、
 `WIKI_TRANSCRIPTS`（转录输出，默认本目录 `transcripts/`）、`WIKI_PYTHON`、`AGENT_ROLE`、`LLM_WIKI_SRC`。
 模型引擎（haiku / sonnet / codex …）在向导里选，或在 config.json 的 `*_engine` 键改。
+Claude 短名由 wiki 固定解析：haiku → claude-haiku-5-5，sonnet → claude-sonnet-5-5，opus → claude-opus-5-5；
+也可直接填写完整的 Claude 模型 ID（例如 claude-haiku-4-5-20251001），`claude` 引擎读取 `WIKI_CLAUDE_MODEL`（默认 sonnet）。
+CLI 与 api-* 引擎共用这套解析，不修改用户的全局 Claude 设置。返回的 modelUsage 必须只包含请求的确切 ID；
+不符或成功回执缺少模型信息时，记录已报告的实际用量、撤回本批并报错退出，不继续模型兜底或交付该批。
 论坛任务可用 `GATE_DEFAULT_BOT`、`GATE_WIKI`、`CODEMAP_DIR` 指定默认角色、Wiki 和地图目录；
 `WIKI_CODEX_MODEL` / `REFLECTOR_MODEL` 可分别指定夜间结算和反思任务的模型，未设置时使用 Codex CLI 的配置模型；
 `CODEX_SESSIONS_DIR` / `CLAUDE_PROJECTS_DIR`
