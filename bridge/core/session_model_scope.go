@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"time"
 )
@@ -143,4 +144,130 @@ func (e *Engine) selectSessionModel(key, model string) (string, error) {
 		return "", err
 	}
 	return model, nil
+}
+
+// ---- #2075: a model picked for one handed-off task ----
+//
+// ws-handoff --model queues an ordinary switch on the workspace session (applied before its next
+// turn, like `model set`) and remembers the selection the session had before. When the workspace
+// is given back (ResetTeamWorkspaceSessions) that selection comes back, so the next task there
+// starts on the workspace's usual model again. A later pick for the same task (ws-forward
+// --model) keeps the first remembered selection.
+
+// QueueHandoffModelSwitch is QueueModelSwitch for a handed-off task on workspace session key.
+func (e *Engine) QueueHandoffModelSwitch(ctx context.Context, key, model, effort string) ModelSwitchResult {
+	before := e.sessionSelection(key)
+	res := e.QueueModelSwitch(ctx, key, model, effort, false)
+	if !res.OK {
+		return res
+	}
+	if err := e.rememberHandoffModelBase(key, before); err != nil {
+		return ModelSwitchResult{Message: err.Error()}
+	}
+	res.Message = "queued for this task: takes effect from the workspace's next turn; the workspace's own model comes back when it is given back"
+	return res
+}
+
+func (e *Engine) rememberHandoffModelBase(key string, before sessionModelSelection) error {
+	before.ChangedAt = time.Time{}
+	if ps := e.projectState; ps != nil {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		if _, ok := ps.state.HandoffModelBases[key]; ok {
+			return nil
+		}
+		next := ps.state
+		next.HandoffModelBases = maps.Clone(next.HandoffModelBases)
+		if next.HandoffModelBases == nil {
+			next.HandoffModelBases = make(map[string]sessionModelSelection)
+		}
+		next.HandoffModelBases[key] = before
+		if ps.storePath != "" {
+			data, err := json.MarshalIndent(next, "", "  ")
+			if err != nil {
+				return fmt.Errorf("encode handoff model: %w", err)
+			}
+			if err := ps.write(data); err != nil {
+				return fmt.Errorf("save handoff model: %w", err)
+			}
+		}
+		ps.state = next
+		return nil
+	}
+	e.sessionModelsMu.Lock()
+	defer e.sessionModelsMu.Unlock()
+	if _, ok := e.handoffModelBases[key]; ok {
+		return nil
+	}
+	if e.handoffModelBases == nil {
+		e.handoffModelBases = make(map[string]sessionModelSelection)
+	}
+	e.handoffModelBases[key] = before
+	return nil
+}
+
+// restoreHandoffModels puts back the selection of every session in workspace chat that a
+// handed-off task changed, and drops a switch for that task still queued there. Returns how many
+// sessions were restored. The caller recycles the live process (ResetTeamWorkspaceSessions).
+func (e *Engine) restoreHandoffModels(chat string) int {
+	chat = chatOf(chat)
+	restore := func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) int {
+		n := 0
+		for k, base := range bases {
+			if chatOf(k) != chat {
+				continue
+			}
+			delete(bases, k)
+			delete(pending, k)
+			if base == (sessionModelSelection{}) {
+				delete(selections, k)
+			} else {
+				selections[k] = base
+			}
+			n++
+		}
+		return n
+	}
+	e.modelSwitchMu.Lock()
+	defer e.modelSwitchMu.Unlock()
+	pending := maps.Clone(e.pendingSwitch)
+	if ps := e.projectState; ps != nil {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		next := ps.state
+		next.HandoffModelBases = maps.Clone(next.HandoffModelBases)
+		next.SessionModelOverrides = maps.Clone(next.SessionModelOverrides)
+		if next.SessionModelOverrides == nil {
+			next.SessionModelOverrides = make(map[string]sessionModelSelection)
+		}
+		n := restore(next.HandoffModelBases, next.SessionModelOverrides, pending)
+		if n == 0 {
+			return 0
+		}
+		next.PendingModelSwitches = pending
+		if ps.storePath != "" {
+			data, err := json.MarshalIndent(next, "", "  ")
+			if err == nil {
+				err = ps.write(data)
+			}
+			if err != nil {
+				slog.Error("handoff model: restore not saved; the task's model stays", "workspace", chat, "error", err)
+				return 0
+			}
+		}
+		ps.state = next
+		e.pendingSwitch = pending
+		slog.Info("handoff model: workspace back on its own model", "workspace", chat, "sessions", n)
+		return n
+	}
+	e.sessionModelsMu.Lock()
+	defer e.sessionModelsMu.Unlock()
+	if e.sessionSelections == nil {
+		e.sessionSelections = make(map[string]sessionModelSelection)
+	}
+	n := restore(e.handoffModelBases, e.sessionSelections, pending)
+	if n > 0 {
+		e.pendingSwitch = pending
+	}
+	return n
 }

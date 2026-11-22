@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force] [--probe]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--model <id> [--effort <级别>]] [--guard 时长] [--confirmed] [--force] [--probe]
+#   --model / --effort：这件活在工作区用的模型和推理强度（#2075）。id 照抄本项目 `model list` 里的，不在列表里就不交并列出可选项；
+#     工作区这一轮起按它跑，任务板记着，接回（--resume）、ws-forward 续做照它再切；工作区放回时桥换回原来的模型。不写就和原来一样。
 #   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   任务句或交接标题以「接回 #N」「续 #N」「续做 #N」「接着做 #N」开头、#N 还在工作区做着：不新开任务，内容转进那个工作区（见 join）。
@@ -29,6 +31,7 @@ import _team  # noqa: E402
 import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.py）
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
+import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
@@ -36,7 +39,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字）\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字） [--model <id> [--effort <级别>]]\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部、已完成要返工）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
@@ -310,7 +313,7 @@ def held(it, chat: str):
     return it["ws"], name, str(r.get("parent") or lead_chat(chat))
 
 
-def join(old, path: str, task: str) -> int:
+def join(old, path: str, task: str, model=None, effort=None) -> int:
     """这次交的内容用 ws-forward 转进正在做 old 的工作区；转成返回 0，没转成退出并说明。两种都不上板、不认领。"""
     who = old.get("who") or "工作区"
     same = _real(old.get("where") or "") == _real(path)
@@ -319,7 +322,8 @@ def join(old, path: str, task: str) -> int:
     env = dict(os.environ)
     if board.foreign_why(old):  # 转话命令不碰别的频道派的活（#836）；交接点了名要进这件，按它的聊天频道转
         env["CC_SESSION_KEY"] = board.channel_of(old)
-    r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), "--id", str(old["id"]), what],
+    pick = (["--model", model] + (["--effort", effort] if effort else [])) if model else []  # 重新指定的模型一并转过去（#2075）
+    r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), *pick, "--id", str(old["id"]), what],
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
         sys.exit(f"ws-handoff: #{old['id']} 还在{who}做着，没新开任务；内容没转进去：{(r.stderr or r.stdout).strip()[:300]}")
@@ -1070,7 +1074,10 @@ def start(path, task, chat, nid, project, answer=None):
     board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
     board.rebind(nid, ws)
     append_skeleton(path, nid)
-    r = subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True)
+    # 交活指定过模型的活接回、续做时照它再切（#2075）：新认领的工作区放回时已换回它自己的模型
+    why = _model.apply(ws if ":" in ws else f"discord:{ws}", previous.get("model"), previous.get("effort"), project)
+    r = (subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True) if why is None else
+         subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(previous.get('model'), previous.get('effort'))} 没切成：{why}"))
     if r.returncode != 0:
         # 没叫醒：工作区放回、任务板整条退回改前（#1492 L3：原先只放工作区，板停在「已交接」绑着那个工作区）
         parked = board._park_once(cc_bin(), ws, parent)
@@ -1081,7 +1088,8 @@ def start(path, task, chat, nid, project, answer=None):
     record_last(path, ws, task, chat, nid, project)
     board.arm_guard(nid, GUARD)
     arm_drift(nid)
-    print(f"ws-handoff: #{nid} 交给 {name}", file=sys.stderr)
+    md = _model.label(previous.get("model"), previous.get("effort"))
+    print(f"ws-handoff: #{nid} 交给 {name}" + (f"，模型 {md}" if md else ""), file=sys.stderr)
     return True
 
 
@@ -1186,6 +1194,7 @@ def main(argv):
     probe = "--probe" in argv
     argv = [a for a in argv if a not in ("--confirmed", "--force", "--probe")]
     short_name = None
+    argv, model, effort = _model.parse(argv)
     if "--short" in argv:
         k = argv.index("--short")
         short_name = argv[k + 1] if k + 1 < len(argv) else None
@@ -1215,6 +1224,9 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    err = _model.check(model, effort)  # 模型 id 不在列表里：不交，列出可选项（#2075）
+    if err:
+        sys.exit(f"ws-handoff: {err}")
     # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
     print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
           "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
@@ -1229,10 +1241,10 @@ def main(argv):
         sys.exit(f"ws-handoff: {gate}")
     ref = resume_ref(task, notes)
     if in_progress(ref):
-        return join(ref, path, task)
+        return join(ref, path, task, model, effort)
     dup = None if force else live_dup(path)
     if in_progress(dup):
-        return join(dup, path, task)
+        return join(dup, path, task, model, effort)
     if dup:
         sys.exit(f"ws-handoff: {dup_error(dup)}")
     hits = [] if force else live_overlap(path, given_short, notes)
@@ -1283,7 +1295,13 @@ def main(argv):
     elif block:
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     append_skeleton(path, nid)
-    r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
+    # 交活指定的模型（#2075）：先记上任务板，再排到工作区会话下一轮（就是下面叫醒的这一轮）；没切成按叫醒失败撤回
+    why = None
+    if model:
+        board.set_model(nid, model, effort)
+        why = _model.apply(key, model, effort)
+    r = (subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True) if why is None else
+         subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(model, effort)} 没切成：{why}"))
     if r.returncode != 0:
         # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展
         # _park_once 返回 None（桥没响应、拒绝或出错）时交接还记在桥里，不能说撤掉了（审稿 pr410 必须改 2）
@@ -1303,7 +1321,8 @@ def main(argv):
     record_last(path, ws, task, chat, nid)
     guard = board.arm_guard(nid, GUARD)
     arm_drift(nid)
-    print(f"ws-handoff: 任务板 #{nid}" + (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
+    print(f"ws-handoff: 任务板 #{nid}" + (f"，模型 {_model.label(model, effort)}" if model else "") +
+          (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
     # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
     print(DONE.format(name=name))

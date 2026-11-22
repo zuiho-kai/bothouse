@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -I
 # 把本频道收到的结果摘要转给工作区里的主角色：插进最近一次 ws-handoff 的交接文件「## 转交结果」节末尾，再叫醒她（提示里直接带原文）。
-# 用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"
+# 用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] [--model <id> [--effort <级别>]] "<摘要>"
+#   --model / --effort 这件活换个模型接着做（#2075）；不写就沿用交活时指定的（任务板记着，接回时照它再切）。
 #       ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限> "<大白话>"
 #   --ask-user 工作区的提问主角色定不了、属于四类之一：主角色改写成大白话（_ask.plain_problems 拦代码、路径、英文报错、
 #     内部状态词、超字数），程序发到交活的聊天频道，任务板改成等用户（任务帖这时才标「等你」并 @ 用户）。
@@ -19,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 import _ask  # noqa: E402
+import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
 import board  # noqa: E402  转交结果节的插入和暂停状态都以任务板为准（../gate/board.py）
@@ -248,6 +250,10 @@ def ask_user(last: dict, nid: int, kind: str, plain: str = ""):
 
 def main(argv):
     notes, interrupt, nid, to_user = None, False, 0, ""
+    argv, model, effort = _model.parse(argv)
+    err = _model.check(model, effort)
+    if err:
+        sys.exit(f"ws-forward: 没转。{err}")
     while argv[:1] and argv[0] in ("--interrupt", "--notes", "--id", "--ask-user") and len(argv) > 1:
         if argv[0] == "--interrupt":
             interrupt, argv = True, argv[1:]
@@ -268,7 +274,7 @@ def main(argv):
                      f'最多 {_ask.PLAIN_MAX} 字，写明推荐哪个')
         plain, argv = argv[0], [""]  # 下面认任务的几步照走，不转话
     elif len(argv) != 1 or not argv[0].strip() or argv[0].lstrip().startswith("-"):
-        sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"  |  '
+        sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] [--model <id> [--effort <级别>]] "<摘要>"  |  '
                  'ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限> "<大白话>"')
     bad = forward_forbid(argv[0])
     if bad:
@@ -317,6 +323,8 @@ def main(argv):
         # 扣着的中间进度 10 分钟后照贴成「主角色未验收」）
         if reject_on_board(hit, argv[0]):
             sys.exit(0)
+        if model:  # 换的模型记上任务板，接回时照它切（ws-handoff start）
+            board.set_model(hit["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], hit.get("id"))
@@ -327,6 +335,8 @@ def main(argv):
         # names the old workspace. Its terminal state cannot run another report.
         if reject_on_board(live, argv[0]):
             sys.exit(0)
+        if model:  # 换的模型记上任务板，接回时照它切（ws-handoff start）
+            board.set_model(live["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], live.get("id"))
@@ -349,6 +359,12 @@ def main(argv):
         sys.exit(str(exc))
     if nid and not last["file"]:  # 路径栏只有链接、也没有 ws-handoff 记录：转交结果没处写，工作区读不到（#1371）
         sys.exit(f"ws-forward: #{nid} 在任务板上没有交接文件（路径栏只有链接），转不了话；用 board update {nid} <状态> <交接文件> 补上再转")
+    if model:  # 换模型接着做：排到工作区下一轮（就是下面叫醒的这一轮），没切成不转
+        why = _model.apply(last["channel"] if ":" in str(last["channel"]) else f"discord:{last['channel']}", model, effort, project)
+        if why:
+            sys.exit(f"ws-forward: 没转。模型 {_model.label(model, effort)} 没切成：{why}")
+        if live:
+            board.set_model(live["id"], model, effort)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt, project), capture_output=True, text=True)

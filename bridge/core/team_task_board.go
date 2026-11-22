@@ -31,6 +31,8 @@ type teamTaskBoardItem struct {
 	Short    string `json:"short"` // board.py add --short / short_of: the name the board shows
 	Status   string `json:"status"`
 	Who      string `json:"who"`
+	Model    string `json:"model"`  // the model ws-handoff --model picked for this task (#2075)
+	Effort   string `json:"effort"` // and its reasoning effort, when given
 	Where    string `json:"where"`
 	At       string `json:"at"`
 	Next     string `json:"next"`
@@ -1277,6 +1279,9 @@ func renderTeamTaskTableAsks(items []teamTaskBoardItem, links []teamTaskLink, ch
 			wsLast := teamTaskBoardWorkspaceActive(it, now)
 			if card != nil && card.UpdatedAt.After(wsLast) {
 				wsLast = card.UpdatedAt
+			}
+			if m := strings.TrimSpace(it.Model + " " + it.Effort); m != "" {
+				short += " · " + m // #2075: which model this task runs on, to check against the handoff
 			}
 			running = append(running, runRow{where: where, short: short, span: span,
 				last: wsLast, bound: bound, stuck: state == teamTaskStuck || !wsLast.IsZero() && now.Sub(wsLast) >= teamTaskBoardStuckAfter})

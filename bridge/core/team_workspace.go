@@ -2363,6 +2363,7 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 	if e == nil || e.sessions == nil {
 		return 0
 	}
+	e.restoreHandoffModels(key) // #2075: the task's own model ends with the task
 	n := 0
 	for _, k := range e.sessions.UserKeys() {
 		if chatOf(k) != key {

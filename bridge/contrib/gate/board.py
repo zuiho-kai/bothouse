@@ -211,7 +211,12 @@ def fmt(i):
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     card += f"｜帖 {i['post']}" if i.get("post") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
+    md = f"｜模型 {model_label(i)}" if i.get("model") else ""  # 交活指定的模型（ws-handoff --model，#2075）
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{md}{nxt}{pz}{bl}{hd}{card}"
+
+
+def model_label(i):
+    return " ".join(x for x in (i.get("model"), i.get("effort")) if x)
 
 
 def lines(all_chats=False):
@@ -1416,6 +1421,22 @@ def mark_deployed(commit, nids=None):
 
 
 REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
+
+
+def set_model(nid, model, effort=None):
+    """这件活交活时指定的模型和推理强度（ws-handoff / ws-forward --model，#2075）：任务板显示，接回、续做时照它再切。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        hit["model"] = model
+        if effort:
+            hit["effort"] = effort
+        else:
+            hit.pop("effort", None)
+        _write(cur)
+    return True
 
 
 def set_tier(nid, tier):

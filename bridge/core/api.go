@@ -1186,6 +1186,7 @@ func (s *APIServer) handleModelSet(w http.ResponseWriter, r *http.Request) {
 		Model      string `json:"model"`
 		Effort     string `json:"effort"`
 		Auto       bool   `json:"auto"`
+		Handoff    bool   `json:"handoff"` // #2075: for one handed-off task, undone when the workspace is given back
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -1202,6 +1203,10 @@ func (s *APIServer) handleModelSet(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
+	if req.Handoff && !req.Auto {
+		apiJSON(w, http.StatusOK, e.QueueHandoffModelSwitch(ctx, req.SessionKey, req.Model, req.Effort))
+		return
+	}
 	apiJSON(w, http.StatusOK, e.QueueModelSwitch(ctx, req.SessionKey, req.Model, req.Effort, req.Auto))
 }
 
