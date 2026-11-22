@@ -29,7 +29,7 @@ reason=${1:-未写原因}
 next=${2:-}
 [ -n "$next" ] || { echo "要写第二个参数：重启后接着做什么（没有就写「无」）" >&2; exit 1; }
 [ "$next" = 无 ] && next=
-[ -f "$LOG" ] || { echo "找不到日志 $LOG（设 CC_LOG）" >&2; exit 1; }
+[ -f "$LOG" ] || { echo "找不到日志 ${LOG}（设 CC_LOG）" >&2; exit 1; }
 if [ -n "${CC_SIGN_BIN:-}" ] && [ -n "${CC_SIGN_ID:-}" ]; then
   codesign -dv "$CC_SIGN_BIN" 2>&1 | grep -q "Identifier=$CC_SIGN_ID" || { echo "签名不是固定签名，拒绝重启（会丢授权），先重新编译签名" >&2; exit 1; }
 fi

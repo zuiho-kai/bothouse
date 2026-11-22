@@ -2692,7 +2692,10 @@ def api_json(prompt, schema, label):
             raise ConfigError("config.json: the openai engine needs api_base, api_model and api_key_file")
         API = propose.Api(CFG["api_base"], CFG["api_model"], CFG["api_key_file"], CFG["api_concurrency"],
                           effort, log)
-    ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
+    try:
+        ok, out, u, status = API.json(prompt, schema, label.rsplit(" ", 1)[-1], budget.remaining)
+    except OSError as e:  # a key file that is missing or unreadable never heals by waiting: not a route outage
+        raise ConfigError(f"config.json: api_key_file {CFG['api_key_file']} unreadable ({type(e).__name__})") from e
     if status is None:  # not sent for lack of time: the codex route's admission outcome, not the route's failure
         return False, codex_retry.Failure(out, "budget_exhausted", started=False), False
     cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
@@ -3027,7 +3030,9 @@ def _ingest_batches(db, batches, engines, pending):
             if res or CRASHED or ROUTE_DOWN or OUT_OF_TIME:  # an outage or the deadline: no expensive fallback
                 break
         crashed = CRASHED
+        db.execute("create table if not exists meta(key text primary key, value text)")
         if res:
+            db.execute("delete from meta where key='route_down'")  # the route served a batch: the outage streak ends
             for it in {it["id"]: it for it, _ in batch}.values():
                 remaining[it["id"]] -= 1
                 if remaining[it["id"]]:
@@ -3048,6 +3053,13 @@ def _ingest_batches(db, batches, engines, pending):
             log(f"{label}: Claude quota refused — left for tonight, not counted as a failure")
         elif ROUTE_DOWN:  # the route refuses everyone, not this batch: stop sending batches into it this run
             log(f"{label}: model provider unavailable — left for a later run, not counted as a failure")
+            # an expired key or used-up account never recovers by itself: a second stopped round in a row alerts
+            down = int((db.execute("select value from meta where key='route_down'").fetchone() or [0])[0]) + 1
+            db.execute("insert or replace into meta values ('route_down', ?)", (str(down),))
+            if down >= 2:
+                alert(db, ["route_down"], f"wiki 自动整理已连续 {down} 轮因模型中转站拒绝（凭据失效、额度用完、限流或"
+                                          f"服务出错）停下，这些轮不计失败次数、不会自己告警。凭据或额度的问题不会自己好，"
+                                          f"请查。日志看 {LOG}（model provider unavailable 行）。")
             db.commit()
             break
         else:

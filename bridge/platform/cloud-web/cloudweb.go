@@ -47,6 +47,7 @@ type Platform struct {
 
 	// maomao fork: channel backfill reads the hub over HTTP (history.go).
 	historyBase string // hub http(s) origin
+	localDSH    bool
 	selfID      string // this bot's id on the hub
 	rosterMu    sync.Mutex
 	roster      map[string]hubMember // hub members seen (hub_message.go)
@@ -106,13 +107,17 @@ func New(opts map[string]any) (core.Platform, error) {
 	}
 	project, _ := opts["cc_project"].(string)
 	token, _ := opts["token"].(string)
-	if strings.TrimSpace(token) == "" {
+	room, localDSH := opts[core.LocalDSHRoomOption]
+	if !localDSH && strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("cloud_web: token is required")
 	}
 
 	transportKind, _ := opts["transport"].(string)
 	if transportKind == "" {
 		transportKind = "websocket"
+	}
+	if localDSH && transportKind != "websocket" {
+		return nil, fmt.Errorf("cloud_web: local DSH requires websocket transport")
 	}
 	switch transportKind {
 	case "websocket", "long_poll", "gateway":
@@ -155,14 +160,24 @@ func New(opts map[string]any) (core.Platform, error) {
 	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
 	teamLead, _ := opts["team_lead_bot"].(string)
 
+	selfID, botName := hubBotID(wsURL, project), hubBotName(wsURL)
 	var tp transport
 	switch transportKind {
 	case "websocket":
 		resolved := resolveWSURL(baseURL, wsURL)
-		if strings.TrimSpace(resolved) == "" {
+		if !localDSH && strings.TrimSpace(resolved) == "" {
 			return nil, fmt.Errorf("cloud_web: ws_url or base_url is required for websocket transport")
 		}
-		tp = newWSTransport(resolved, token, name, project)
+		ws := newWSTransport(resolved, token, name, project)
+		if localDSH {
+			ws.localDSHRoom = pickInt(room)
+			if ws.localDSHRoom <= 0 || project == "" {
+				return nil, fmt.Errorf("cloud_web: local DSH requires a project and a positive room ID")
+			}
+			ws.localDSHName, _ = opts["dsh_member_name"].(string)
+			selfID, botName = project, ws.localDSHName
+		}
+		tp = ws
 	case "long_poll":
 		if strings.TrimSpace(baseURL) == "" {
 			return nil, fmt.Errorf("cloud_web: base_url is required for long_poll transport")
@@ -196,8 +211,9 @@ func New(opts map[string]any) (core.Platform, error) {
 		tp:               tp,
 		replyCtxs:        make(map[string]string),
 		historyBase:      historyBaseURL(baseURL, wsURL),
-		selfID:           hubBotID(wsURL, project),
-		botName:          hubBotName(wsURL),
+		localDSH:         localDSH,
+		selfID:           selfID,
+		botName:          botName,
 		teamLead:         strings.TrimSpace(teamLead),
 		startOpts:        copyOpts(opts),
 	}, nil

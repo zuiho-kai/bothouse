@@ -708,6 +708,7 @@ func queuedToMessage(q queuedMessage) Message {
 		Mentioned:     q.mentioned,
 		Direct:        q.direct,
 		abortFront:    q.abortFront, // #739: preserve redirect priority and reply target on redelivery.
+		nativeCommand: q.nativeCommand,
 		UserID:        q.userID,
 		UserName:      q.userName,
 		TurnCtx:       q.turnCtx,
@@ -723,6 +724,7 @@ func queuedToMessage(q queuedMessage) Message {
 		turnTrigger:         q.turnTrigger,
 		resumedFrom:         q.resumedFrom,
 		timerJobID:          q.timerJobID,
+		wakeID:              q.wakeID,
 		cronJobID:           q.cronJobID,
 		resumeNoProgress:    q.resumeNoProgress,
 		resumeFallback:      q.resumeFallback,

@@ -88,6 +88,7 @@
     "wikiGalaxy": "Wiki 星河",
     "forum": "记忆论坛",
     "gate": "闸门",
+    "features": "功能开关",
     "pet": "桌宠插件"
   },
   "plugins": {
@@ -703,6 +704,15 @@
     "manageChannels": "管理 DSH 频道和成员",
     "noBridgeProjects": "暂无桥接项目",
     "addBridgeProjectHint": "可使用右上角按钮添加桥接项目。"
+  },
+  "dshProject": {
+    "platform": "DSH（本机）",
+    "automatic": "使用本机 DSH 设置",
+    "room": "DSH 频道",
+    "chooseRoom": "选择频道",
+    "connect": "连接",
+    "noRooms": "本机 DSH 没有可用的群聊频道。",
+    "unavailable": "当前 bothouse 版本无法配置本机 DSH。"
   },
   "dshManage": {
     "add": "添加 DSH 成员",

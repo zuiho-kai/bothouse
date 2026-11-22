@@ -147,7 +147,7 @@ Use an ID supplied by this conversation, never invent one or reuse one from anot
 
 // aboutHint points every role at the built-in product notes (`bothouse about`). Agents that take
 // AgentSystemPrompt natively get it there; the others get it with the turn rules (contextRules).
-const aboutHint = "When asked what you or bothouse are, what bothouse can do, or how it compares with another project (LobeHub, OpenClaw…), run `bothouse about` first and answer from its product notes and this machine's actual roles and platforms: lead with a clear conclusion, then the reasons and what was not tested."
+const aboutHint = "When asked what you or bothouse are, what bothouse can do, or how it compares with another project (LobeHub, OpenClaw…), run `bothouse about` first and answer from its product notes and this machine's actual roles and platforms: lead with a clear conclusion, then the reasons and what was not tested. When asked whether a bothouse feature is on or off, run `bothouse features list` first and answer from its output."
 
 // AgentSystemPrompt returns the system prompt fragment that informs agents about
 // cc-connect capabilities (cron scheduling, etc.).
@@ -573,6 +573,15 @@ type SilentChannelAware interface {
 	SetSilentChannel(isSilent func(channelID string) bool)
 }
 
+// HumanMentionGateAware is an optional interface for platforms that can gate human @
+// notifications on ordinary outbound messages (#2091). The engine hands it a predicate
+// backed by the mention_human_gate project switch (default off); while it returns true,
+// ordinary sends keep <@human> as visible text without pinging unless ctx carries
+// WithAllowHumanMentions.
+type HumanMentionGateAware interface {
+	SetHumanMentionGate(enabled func() bool)
+}
+
 // MessageHandler is called by platforms when a new message arrives.
 type MessageHandler func(p Platform, msg *Message)
 
@@ -785,6 +794,13 @@ type ContextUsageReporter interface {
 	GetContextUsage() *ContextUsage
 }
 
+// SessionContextUsageReader retains authoritative context snapshots by native
+// session ID, including after a live process closes. Nil means not reported.
+// Cumulative token/cost totals must not be used as current window occupancy.
+type SessionContextUsageReader interface {
+	ReadContextUsage(sessionID string) *ContextUsage
+}
+
 // ContextUsage describes runtime context consumption for the active session.
 type ContextUsage struct {
 	// UsedTokens is the current token load to compare against ContextWindow when
@@ -837,6 +853,17 @@ type SessionSettings struct {
 	// starts on instead of the active one (workspace_provider: a team workspace
 	// runs on a cheap local model while the lead keeps the expensive one).
 	Provider string
+}
+
+// NativeCommandAgent is an optional interface for agents whose backend runs its own slash
+// commands when one arrives as the whole prompt (ACP available_commands_update). The engine sends
+// a message that is one of them to the agent as typed; wrapped like chat text, the backend would
+// hand it to the model as ordinary words.
+type NativeCommandAgent interface {
+	// NativeCommand reports the backend command that text invokes: its advertised name ("" when
+	// text is not one) and whether it only reports on the session. Any other command acts on the
+	// account, the environment or the session, and takes an admin.
+	NativeCommand(ctx context.Context, text string) (name string, readOnly bool)
 }
 
 // AgentSessionCanceller is an optional interface for agent sessions that support

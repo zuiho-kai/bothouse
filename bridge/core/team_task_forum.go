@@ -933,7 +933,10 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if node != "" {
 		var err error
 		notifier, canMention := poster.(TaskForumUserNotifier)
-		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		user := e.assignerUser(p, &it) // the person who set the task is the one asked (#988)
+		if user == "" {
+			user = e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		}
 		// Only a question the item itself carries mentions the user; a waiting move without one
 		// (an old ws-up --ask wrote no question) posts its line unmentioned.
 		waitingNow := tag != ps.Tag && tag == TaskForumTagWaiting && user != "" && taskForumQuestion(it, "") != ""
@@ -975,12 +978,21 @@ func (e *Engine) taskForumCallInChat(ctx context.Context, p Platform, chat, user
 		return false
 	}
 	rc, err := rcr.ReconstructReplyCtx(chat)
+	allowed := false
 	if err == nil {
-		err = p.Send(ctx, rc, fmt.Sprintf("<@%s> 「%s」有件事要你定，问题就是上面那条，直接回它就行。", user, teamTaskBoardShort(it)))
+		sendCtx := ctx
+		if !e.isHumanMentionDeduped(chat, user, it.ID) {
+			sendCtx = WithAllowHumanMentions(ctx, user)
+			allowed = true
+		}
+		err = p.Send(sendCtx, rc, fmt.Sprintf("<@%s> 「%s」有件事要你定，问题就是上面那条，直接回它就行。", user, teamTaskBoardShort(it)))
 	}
 	if err != nil {
 		slog.Warn("task forum: user not called in the chat channel", "chat", chat, "board_item", it.ID, "error", err)
 		return false
+	}
+	if allowed {
+		e.recordHumanMention(chat, user, it.ID)
 	}
 	return true
 }

@@ -113,6 +113,9 @@ app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 # progress_style = "card"  # 可选：legacy | compact | card（默认 card）
 # done_emoji = "none"          # 可选：agent 完成回复后添加的表情回复（如 "Done"）；设为 "none" 可禁用
 # image_batch_window_ms = 500  # 可选：连续多图合批窗口（默认 500ms，详见下文）
+# progress_card_entries = 6     # 可选：进度卡保留最近几步（和 Discord 同名；不配 = 原样）
+# progress_line_len = 80        # 可选：进度卡每步最多几个字（配了 progress_card_entries 才生效）
+# progress_hide_thinking = true # 可选：进度卡里不显示思考
 ```
 
 > 如果应用没有交互卡片权限，或后台未配置卡片回调，可将 `enable_feishu_card = false`，让所有命令统一走纯文本回复，避免卡片发送失败后用户看不到内容。
@@ -140,6 +143,16 @@ app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 | 机器人描述 | `Claude Code 远程助手` |
 | 机器人头像 | 与应用图标一致 |
 
+### 3.3 机器人菜单（可选，代替 Discord 输入 / 的命令提示）
+
+飞书不让机器人注册 `/` 命令，群里输入 `/` 不会弹提示；直接打字发 `/help`、`/stop` 这些命令照常能用。想要点一下就发命令，可以配机器人菜单：
+
+1. 「应用能力」→「机器人」→「机器人自定义菜单」，打开开关。
+2. 添加菜单项，响应动作选「推送事件」，事件 key 填命令本身，比如 `/help`、`/status`、`/stop`。key 以 `/` 开头的才会被当成命令。
+3. 在第五步的事件配置里加上「机器人自定义菜单」事件（`application.bot.menu_v6`），发版后生效。
+
+飞书官方原话「目前，机器人菜单仅支持单聊场景，不支持群聊场景」，所以菜单只在和机器人的单聊里出现。
+
 ---
 
 ## 第四步：配置权限
@@ -160,6 +173,7 @@ app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 | 获取群组中所有消息（敏感权限） | `im:message.group_msg` | 读取群消息内容 |
 | 读取单聊消息 | `im:message.p2p_msg:readonly` | 读取私聊内容 |
 | 以应用身份发送群消息 | `im:message:send_as_bot` | 发送消息回复用户 |
+| 获取群组中其他机器人和用户@当前机器人的消息 | `im:message.group_at_msg.include_bot:readonly` | 接收群里别的机器人 @ 本机器人的消息。多个机器人组队派活（`allow_bots`、`team_lead_bot`）时才需要；不申请就收不到别的机器人发的群消息 |
 
 ### 4.3 发布权限申请
 
@@ -192,6 +206,7 @@ app_secret = "QhkMpxxxxxxxxxxxxxxxxxxxx"
 | 事件名称 | 事件标识 | 用途 |
 |---------|---------|------|
 | 接收消息 | `im.message.receive_v1` | 接收用户发送的消息 |
+| 机器人自定义菜单（可选） | `application.bot.menu_v6` | 单聊里点菜单发命令，见 3.3 |
 
 ### 5.3 选择回调配置
 

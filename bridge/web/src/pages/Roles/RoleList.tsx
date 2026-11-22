@@ -23,7 +23,7 @@ import { withBase } from '@/lib/basePath';
 import { deleteDSHMember, listDSHMembers, type DSHManagedMember } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
 import { usePageRefresh } from '@/lib/usePageRefresh';
-import { DSHMemberEditor } from './DSHMemberEditor';
+import { DSHMemberEditor } from '@/components/dsh/DSHMemberEditor';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
 

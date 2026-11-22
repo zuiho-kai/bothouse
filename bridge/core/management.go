@@ -89,6 +89,10 @@ type ManagementServer struct {
 	getAutostart       func() (AutostartInfo, error)
 	setAutostart       func(bool) (AutostartInfo, error)
 
+	// featureList / featureSet: the 功能开关 page (management_features.go)
+	featureList func() (FeatureList, error)
+	featureSet  func(project, key string, on bool) (bool, error)
+
 	// Global provider callbacks (set by cmd/cc-connect)
 	listGlobalProviders  func() ([]GlobalProviderInfo, error)
 	addGlobalProvider    func(GlobalProviderInfo) error
@@ -329,6 +333,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/reload", m.wrap(m.handleReload))
 	mux.HandleFunc(prefix+"/config", m.wrap(m.handleConfig))
 	mux.HandleFunc(prefix+"/settings", m.wrap(m.handleGlobalSettings))
+	mux.HandleFunc(prefix+"/features", m.wrap(m.handleFeatures)) // 功能开关 (management_features.go)
 	mux.HandleFunc(prefix+"/autostart", m.wrap(m.handleAutostart))
 
 	// Agents & Platforms (registry)
@@ -418,10 +423,12 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/roles/events", m.wrap(m.handleRoleEvents))
 	mux.HandleFunc(prefix+"/roles/", m.wrap(m.handleRoleRoutes))
 	mux.HandleFunc(prefix+"/dsh/summary", m.wrap(m.handleDSHSummary))
-	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHMembersAPI))
-	mux.HandleFunc(prefix+"/dsh/members/", m.wrap(m.handleDSHMembersAPI))
-	mux.HandleFunc(prefix+"/dsh/model-routes", m.wrap(m.handleDSHMembersAPI))
-	mux.HandleFunc(prefix+"/dsh/cli-options", m.wrap(m.handleDSHMembersAPI))
+	mux.HandleFunc(prefix+"/dsh/members", m.wrap(m.handleDSHAPI))
+	mux.HandleFunc(prefix+"/dsh/members/", m.wrap(m.handleDSHAPI))
+	mux.HandleFunc(prefix+"/dsh/model-routes", m.wrap(m.handleDSHAPI))
+	mux.HandleFunc(prefix+"/dsh/cli-options", m.wrap(m.handleDSHAPI))
+	mux.HandleFunc(prefix+"/dsh/channels", m.wrap(m.handleDSHAPI))
+	mux.HandleFunc(prefix+"/dsh/projects/", m.wrap(m.handleDSHAPI))
 
 	// Devices (adapters from bridge server)
 	mux.HandleFunc(prefix+"/devices", m.wrap(m.handleDevices))

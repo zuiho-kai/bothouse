@@ -1,53 +1,29 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 )
 
-// The Channels plugin publishes this private record after acquiring its data lock.
 // Desktop's shell launch URL is delivered over IPC and may never appear in our logs.
 func localDSHClient(transport http.RoundTripper) (dshAPI, bool) {
-	b, err := os.ReadFile(filepath.Join(collabDataDir(), "collab.owner.json"))
-	if err != nil {
+	host, ok := FindLocalDSHHost()
+	if !ok {
 		return dshAPI{}, false
 	}
-	var owner struct {
-		PID   int `json:"pid"`
-		Local struct {
-			Origin string `json:"origin"`
-			Token  string `json:"token"`
-		} `json:"local"`
-	}
-	if json.Unmarshal(b, &owner) != nil || owner.PID <= 0 || !processAlive(owner.PID) {
-		return dshAPI{}, false
-	}
-	u, err := url.Parse(owner.Local.Origin)
-	if err != nil || u.Scheme != "http" || u.User != nil || u.Opaque != "" ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return dshAPI{}, false
-	}
-	ip := net.ParseIP(u.Hostname())
-	port, err := strconv.Atoi(u.Port())
-	if ip == nil || !ip.IsLoopback() || err != nil || port < 1 || port > 65535 ||
-		owner.Local.Token == "" || strings.ContainsAny(owner.Local.Token, "\r\n") {
-		return dshAPI{}, false
-	}
+	return host.channelsClient(transport), true
+}
+
+func (h LocalDSHHost) channelsClient(transport http.RoundTripper) dshAPI {
 	return dshAPI{
-		target: u.Host,
+		target: h.target,
 		rt: &dshLocalTransport{
 			transport: transport,
-			target:    u.Host,
-			token:     owner.Local.Token,
+			target:    h.target,
+			token:     h.ownerToken,
 		},
-	}, true
+	}
 }
 
 // The local owner credential applies to Channels routes, not the DSH shell.

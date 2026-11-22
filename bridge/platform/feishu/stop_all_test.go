@@ -64,3 +64,72 @@ func TestOnMessageStopAllWithoutMention(t *testing.T) {
 		t.Errorf("unmentioned message dispatched: %+v", got)
 	}
 }
+
+// A bare stop word with no @ and no reply reaches the bot marked StopAll (core stops the
+// whole chat); with an @, as a reply, from a bot, or with other words it does not.
+func TestOnMessageBareStopWithoutMention(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal" {
+			writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "expire": 7200, "tenant_access_token": "tok"})
+			return
+		}
+		writeJSON(t, w, map[string]any{"code": 0, "msg": "success", "data": map[string]any{}})
+	}))
+	defer srv.Close()
+
+	n := 0
+	run := func(senderType, text, parent string, mentions []*larkim.MentionEvent) *core.Message {
+		n++
+		received := make(chan *core.Message, 1)
+		p := &Platform{
+			platformName: "feishu", domain: srv.URL, appID: "cli_stop", appSecret: "s", botOpenID: "ou_bot",
+			groupReplyAll: true, // the gate is open: StopAll must still only mark a bare stop
+			dedup:         &core.MessageDedup{},
+			client:        lark.NewClient("cli_stop", "s", lark.WithOpenBaseUrl(srv.URL), lark.WithHttpClient(srv.Client())),
+			handler:       func(_ core.Platform, msg *core.Message) { received <- msg },
+		}
+		if text == "停 (gated)" { // the default gate: only @ or a bare stop gets through
+			p.groupReplyAll, text = false, "停"
+		}
+		chatType, ct := "group", strconv.FormatInt(time.Now().UnixMilli(), 10)
+		content := `{"text":"` + text + `"}`
+		m := &larkim.EventMessage{MessageId: stringPtr("om_s" + strconv.Itoa(n)), ChatId: stringPtr("oc_chat"),
+			ChatType: &chatType, MessageType: stringPtr("text"), Content: &content, CreateTime: &ct, Mentions: mentions}
+		if parent != "" {
+			m.ParentId, m.RootId = stringPtr(parent), stringPtr(parent)
+		}
+		ev := &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+			Sender:  &larkim.EventSender{SenderId: &larkim.UserId{OpenId: stringPtr("ou_user")}, SenderType: &senderType},
+			Message: m,
+		}}
+		if err := p.onMessage(context.Background(), ev); err != nil {
+			t.Fatalf("onMessage: %v", err)
+		}
+		select {
+		case msg := <-received:
+			return msg
+		case <-time.After(500 * time.Millisecond):
+			return nil
+		}
+	}
+	if got := run("user", "停 (gated)", "", nil); got == nil || !got.StopAll || got.Mentioned {
+		t.Errorf("bare 停 without @ not passed as StopAll: %+v", got)
+	}
+	if got := run("user", "停", "", nil); got == nil || !got.StopAll {
+		t.Errorf("bare 停 (reply-all chat) not StopAll: %+v", got)
+	}
+	other := []*larkim.MentionEvent{{Key: stringPtr("@_user_1"), Id: &larkim.UserId{OpenId: stringPtr("ou_other")}, Name: stringPtr("龙娘")}}
+	if got := run("user", "@_user_1 停", "", other); got != nil && got.StopAll {
+		t.Errorf("停 with an @ marked StopAll: %+v", got)
+	}
+	if got := run("user", "停", "om_parent", nil); got != nil && got.StopAll {
+		t.Errorf("停 as a reply marked StopAll: %+v", got)
+	}
+	if got := run("user", "停一下这个文件怎么写", "", nil); got != nil && got.StopAll {
+		t.Errorf("a sentence marked StopAll: %+v", got)
+	}
+	if got := run("app", "停", "", nil); got != nil && got.StopAll {
+		t.Errorf("a bot's 停 marked StopAll: %+v", got)
+	}
+}

@@ -1,0 +1,16 @@
+2026-11-21 15:53:40 fixture ingest: 510 s left, less than one round (511 s); continuation waits
+2026-11-21 15:53:40 fixture ingest $0.000: not enough remaining time for a Codex round
+2026-11-21 15:53:40 fixture ingest REVERTED: model failed
+2026-11-21 15:53:40 fixture ingest tokens: {}
+2026-11-21 15:53:40 fixture ingest: fixture-model failed: ssage": "exceeded retry limit, last status: 429 Too Many Requests"}]
+2026-11-16T14:30:02.563711Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+
+2026-11-21 15:53:40 fixture ingest: resuming thread fixture-thread
+2026-11-21 15:53:40 fixture ingest tokens: {}
+2026-11-21 15:53:40 fixture ingest: fixture-model failed: ssage": "exceeded retry limit, last status: 429 Too Many Requests"}]
+2026-11-16T14:30:02.563711Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+
+2026-11-21 15:53:40 fixture ingest $0.000: ["exceeded retry limit, last status: 429 Too Many Requests", {"message": "exceeded retry limit, last status: 429 Too Many Requests"}]
+2026-11-16T14:30:02.563711Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+
+2026-11-21 15:53:40 fixture ingest REVERTED: model failed

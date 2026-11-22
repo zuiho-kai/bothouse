@@ -13,7 +13,9 @@ test('README and prose skip all existing test jobs', () => {
 test('workflow, helper, lockfile, script and embedded inputs force full coverage', () => {
   for (const path of ['.github/workflows/ci.yml', '.github/ci/classify.cjs',
     'dsh/package-lock.json', 'dsh/collab/tasks.mjs', 'companion/tool.py',
-    'bridge/core/dsh_bundle/team-mode-rules.md', 'unknown/input']) {
+    'bridge/core/dsh_bundle/team-mode-rules.md', 'unknown/input',
+    'patches/jiuwenswarm/manifest.json', 'patches/jiuwenswarm/workswarm-0.2.8/runtime_prompt_rail.patch',
+    'jiuwenswarm/plugin-pkg/files.txt', 'bridge/contrib/wiki/template/MEMORY.md']) {
     assert.deepEqual(classify([path]), full, path);
   }
 });

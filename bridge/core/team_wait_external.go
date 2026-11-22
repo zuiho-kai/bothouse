@@ -35,10 +35,12 @@ func (it teamTaskBoardItem) waitingExternal() bool {
 
 // parkWaitingExternal runs board.py wait for item hid: pause as 「等外部：why」, wait_until now+after,
 // free the workspace. Off the turn's goroutine: freeing the workspace resets this very session.
-func (e *Engine) parkWaitingExternal(chat string, hid int, why string, after time.Duration) {
+// prs are the pull requests the report links: board.py records them, and they are watched while the
+// item waits (team_pr_events.go).
+func (e *Engine) parkWaitingExternal(chat string, hid int, why string, after time.Duration, prs []string) {
 	mins := strconv.Itoa(int(after / time.Minute))
 	go func() {
-		out, err := e.runLeadScript(chat, "board", "wait", strconv.Itoa(hid), why, mins)
+		out, err := e.runLeadScript(chat, "board", append([]string{"wait", strconv.Itoa(hid), why, mins}, prs...)...)
 		if err != nil {
 			slog.Warn("team workspace: park as waiting on external failed", "board_item", hid, "error", err, "output", strings.TrimSpace(string(out)))
 			return
@@ -75,7 +77,9 @@ func (w *handoffWatch) retryWaitingExternal(now time.Time) {
 				coolingSkipLog(e.team.dir, it.ID, until)
 				continue
 			}
-			key := e.team.dir + "#" + strconv.Itoa(it.ID)
+			// One pause is one series of tries: an item parked again inside the gap of its last hand-back
+			// and woken by its pull request (team_pr_events.go) is not held back by that older try.
+			key := e.team.dir + "#" + strconv.Itoa(it.ID) + "#" + it.PausedAt
 			waitExternalTried.Lock()
 			last := waitExternalTried.at[key]
 			if now.Sub(last) < waitExternalRetryGap {
@@ -112,7 +116,10 @@ var resumeWaitingExternalFn = (*Engine).resumeWaitingExternal
 func (e *Engine) resumeWaitingExternal(it teamTaskBoardItem) {
 	why := strings.TrimPrefix(it.PauseWhy, team.WaitExternalWhy)
 	note := "到点重试：上次卡在「" + why + "」。先查这个条件满足没有：满足就接着做没做完的；还不满足，不要重做已做的，" +
-		"照旧交 [report]，写一行「等外部：卡在什么」和一行「再看：<多久后>」。"
+		"照旧交 [report]，写一行「等外部：卡在什么」和一行「再看：<多久后或到点钟点，如 2h、11-23 18:00>」。"
+	if len(it.PRNews) > 0 {
+		note = prNewsNote(it.PRNews)
+	}
 	out, err := e.runLeadScript(it.Chat, "ws-handoff", "--resume", strconv.Itoa(it.ID), note)
 	if err != nil {
 		slog.Warn("team workspace: retry of a task waiting on external failed", "board_item", it.ID, "error", err, "output", strings.TrimSpace(string(out)))

@@ -11,6 +11,7 @@ import (
 type projectStateData struct {
 	SessionModelOverrides   map[string]sessionModelSelection `json:"session_model_overrides,omitempty"`
 	PendingModelSwitches    map[string]pendingModelSwitch    `json:"pending_model_switches,omitempty"`
+	HandoffModelBases       map[string]sessionModelSelection `json:"handoff_model_bases,omitempty"` // #2075: workspace sessions on a handoff's model → selection before it (restored on give-back)
 	WorkDirOverride         string                           `json:"work_dir_override,omitempty"`
 	WorkspaceDirOverrides   map[string]string                `json:"workspace_dir_overrides,omitempty"`
 	WorkspaceModelOverrides map[string]string                `json:"workspace_model_overrides,omitempty"`

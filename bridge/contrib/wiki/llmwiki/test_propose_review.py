@@ -342,6 +342,17 @@ class ProposeReview(unittest.TestCase):
         self.assertEqual([sids for sids, _ in offered], [["aaaaaaaa"]])
         self.assertIn("limit=None", offered[0][1])  # the session itself stays whole: its saved facts still match
 
+    def test_two_facts_in_one_op_each_line_carries_its_own_quote_and_source(self):
+        said, relayed = fact("以后把这句去掉"), dict(fact("每天早上汇报进度"), relay="cron")
+        plan = P.Plan(self.root, self.rules, [said, relayed])
+        self.assertEqual(plan.apply([op(facts=[0, 1], lines=["- 以后把这句去掉", "- cron 转述：每天早上汇报进度"],
+                                        readme="", description="")]), [])
+        plan.write()
+        rows = (self.root / "tooling/a.md").read_text().splitlines()
+        self.assertEqual(rows[-2:], ["- 以后把这句去掉（用户原话「以后把这句去掉」）",
+                                     "- cron 转述：每天早上汇报进度（用户原话「每天早上汇报进度」）｜源：转述 · cron"])
+        self.assertEqual(plan.placed, {0: f"tooling/a.md:{len(rows) - 1}", 1: f"tooling/a.md:{len(rows)}"})
+
     def relayed(self, said_by_teammate, quote):
         """A session whose only incoming message is a teammate relaying a request; the user's own message is in the
         channel's record (user_texts), not in this session. Rules as the role wikis build them."""
@@ -496,6 +507,29 @@ class ProposeReview(unittest.TestCase):
             self.assertIn("api_base, api_model and api_key_file", alert.call_args.args[2])
             with self.assertRaises(I.ConfigError):
                 I.api_json("prompt", {}, "ingest facts")
+
+    def test_openai_key_file_unreadable_is_a_config_error_and_alerts(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
+                         "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
+        item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
+                    date="2026-11-20", text="USER: 现在配置用新值")
+        I.ROUTE_DOWN = False
+        with patch.dict(I.CFG, api_base="http://127.0.0.1:9", api_model="model",
+                        api_key_file=str(self.root / "no-such-key")), \
+                patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, API=None,
+                               PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "discard"), patch.object(I, "log"), \
+                patch.object(I, "role_rules", return_value=([], self.rules)), \
+                patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"), \
+                patch.object(I, "alert") as alert:
+            I.ingest_batches(db, [item], ["openai:high"], pending=True)
+            self.assertFalse(I.ROUTE_DOWN)
+            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
+            self.assertIn("no-such-key", alert.call_args.args[2])
 
 
 if __name__ == "__main__":

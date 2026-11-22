@@ -20,6 +20,9 @@ func (p *Platform) SendWithDetail(ctx context.Context, rctx any, text, title, de
 		if err := p.Send(ctx, rctx, text); err != nil {
 			return err
 		}
+		if ok {
+			return p.sendChannelWithMentions(ctx, rc, title+"\n"+detail, false)
+		}
 		return p.Send(ctx, rctx, title+"\n"+detail)
 	}
 	first := ""
@@ -32,15 +35,15 @@ func (p *Platform) SendWithDetail(ctx context.Context, rctx any, text, title, de
 			inner(id)
 		}
 	}
-	if err := p.sendChannel(rc, text); err != nil {
+	if err := p.sendChannel(ctx, rc, text); err != nil {
 		return err
 	}
 	if first != "" {
 		th, err := p.session.MessageThreadStart(rc.channelID, first, truncateDiscordThreadName(title, 90), discordTaskThreadAutoArchiveMinutes, discordgo.WithContext(ctx))
 		if err == nil {
-			return p.sendChannel(replyContext{channelID: th.ID, threadID: th.ID}, detail)
+			return p.sendChannelWithMentions(ctx, replyContext{channelID: th.ID, threadID: th.ID}, detail, false)
 		}
 		slog.Warn("discord: detail thread not started; detail posted after the message", "channel", rc.channelID, "error", err)
 	}
-	return p.sendChannel(rc, title+"\n"+detail)
+	return p.sendChannelWithMentions(ctx, rc, title+"\n"+detail, false)
 }
