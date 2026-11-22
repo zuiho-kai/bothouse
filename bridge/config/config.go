@@ -281,7 +281,7 @@ const (
 type DisplayConfig struct {
 	Mode                 *string `toml:"mode"`                   // "full" (default), "compact", or "quiet"
 	CardMode             *string `toml:"card_mode"`              // "legacy" (default) or "rich" (Card 2.0 Feishu)
-	ThinkingMessages     *bool   `toml:"thinking_messages"`      // whether thinking messages are shown; default true
+	ThinkingMessages     *bool   `toml:"thinking_messages"`      // whether thinking messages are shown; default false
 	ThinkingMaxLen       *int    `toml:"thinking_max_len"`       // max chars for thinking messages; 0 = no truncation; default 300
 	ToolMaxLen           *int    `toml:"tool_max_len"`           // max chars for tool use messages; 0 = no truncation; default 500
 	ToolMessages         *bool   `toml:"tool_messages"`          // whether tool progress messages are shown; default true
@@ -749,6 +749,17 @@ type ProjectConfig struct {
 	TeamBoard *bool `toml:"team_board,omitempty"`
 	// TaskForum mirrors team tasks in the server forum. Unset preserves the enabled default.
 	TaskForum *bool `toml:"task_forum,omitempty"`
+	// MentionAssigner (lead only): the report post and the question passed to the owner open with
+	// an @ of whoever set the task — a task set by a bot or a timer @ the owner
+	// (core/team_task_assigner.go, #988). Default off (user 11-23 「做个开关默认关闭 有的人可能
+	// 不喜欢被打扰」); the assigner is still recorded on the board row either way.
+	MentionAssigner *bool `toml:"mention_assigner,omitempty"`
+	// MentionHumanGate: gate human @ notifications so ordinary bot replies keep <@human> as text
+	// without pinging; only release posts (ws-pass, controlled by mention_assigner) and decision
+	// asks (ws-forward --ask-user / bothouse send --ask-user) ping, with short-window dedup
+	// (core/mention_gate.go, #2091). Default off (user 11-23 「依旧是开关默认关的形式 就是关了
+	// 用户也能通过添加规则让角色做完了或者啥时侯at它 就是不要影响或者导致冲突」).
+	MentionHumanGate *bool `toml:"mention_human_gate,omitempty"`
 	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
 	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
@@ -861,6 +872,18 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
 // TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
 func (p ProjectConfig) TaskForumEnabled() bool { return p.TaskForum == nil || *p.TaskForum }
+
+// MentionAssignerEnabled: default off (user 11-23 「做个开关默认关闭」); mention_assigner = true
+// restores the #988 mentions.
+func (p ProjectConfig) MentionAssignerEnabled() bool {
+	return p.MentionAssigner != nil && *p.MentionAssigner
+}
+
+// MentionHumanGateEnabled: default off (user 11-23 「依旧是开关默认关的形式 就是关了用户也能通过
+// 添加规则让角色做完了或者啥时侯at它」); mention_human_gate = true enables #2091 human mention gating.
+func (p ProjectConfig) MentionHumanGateEnabled() bool {
+	return p.MentionHumanGate != nil && *p.MentionHumanGate
+}
 
 func (p ProjectConfig) TeamBoardEnabled() bool {
 	return p.TeamBoard == nil || *p.TeamBoard
@@ -1251,7 +1274,7 @@ func EffectiveDisplay(cfg *Config, proj *ProjectConfig) (mode string, thinkingMe
 	}
 
 	// Mode-derived defaults.
-	thinkingDefault, toolDefault := true, true
+	thinkingDefault, toolDefault := false, true
 	switch mode {
 	case DisplayModeCompact, DisplayModeQuiet:
 		thinkingDefault, toolDefault = false, false
@@ -4387,7 +4410,7 @@ func GetGlobalSettings() map[string]any {
 	if cfg.Display.ThinkingMessages != nil {
 		result["thinking_messages"] = *cfg.Display.ThinkingMessages
 	} else {
-		result["thinking_messages"] = true
+		result["thinking_messages"] = false
 	}
 	if cfg.Display.ThinkingMaxLen != nil {
 		result["thinking_max_len"] = *cfg.Display.ThinkingMaxLen

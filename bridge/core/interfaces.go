@@ -573,6 +573,15 @@ type SilentChannelAware interface {
 	SetSilentChannel(isSilent func(channelID string) bool)
 }
 
+// HumanMentionGateAware is an optional interface for platforms that can gate human @
+// notifications on ordinary outbound messages (#2091). The engine hands it a predicate
+// backed by the mention_human_gate project switch (default off); while it returns true,
+// ordinary sends keep <@human> as visible text without pinging unless ctx carries
+// WithAllowHumanMentions.
+type HumanMentionGateAware interface {
+	SetHumanMentionGate(enabled func() bool)
+}
+
 // MessageHandler is called by platforms when a new message arrives.
 type MessageHandler func(p Platform, msg *Message)
 

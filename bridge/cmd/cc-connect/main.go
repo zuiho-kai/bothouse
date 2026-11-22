@@ -2055,6 +2055,8 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
 	engine.SetLifePage(proj.LifePage)
 	engine.SetTaskForum(proj.TaskForumEnabled())
+	engine.SetMentionAssigner(proj.MentionAssignerEnabled())
+	engine.SetMentionHumanGate(proj.MentionHumanGateEnabled())
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())
