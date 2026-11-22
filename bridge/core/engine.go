@@ -7329,10 +7329,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				break
 			}
 			// When thinking messages are hidden, behavior depends on display mode:
-			//   quiet:   append separator to keep all text in one card
+			//   quiet / progress_style=card: keep text in the open segment so a
+			//     hidden thinking boundary never splits narration into chat
 			//   compact: freeze+detach to split text into separate cards
 			if !e.display.ThinkingMessages && len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) {
-				if e.display.Mode == "quiet" {
+				if e.display.Mode == "quiet" || turn.cp.style == progressStyleCard {
 					if turn.sp.canPreview() && turn.sp.appendSeparator("\n\n") {
 						turn.textParts = append(turn.textParts, "\n\n")
 					}
@@ -7362,6 +7363,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					continue // skip original independent message sending
 				}
 				// --- Original path (fallback) ---
+				// maomao fork: with progress_style=card, narration before a
+				// thinking step goes into the progress card and never into
+				// standalone chat messages, even after a card transport failure.
+				if turn.cp.style == progressStyleCard && len(turn.textParts) > turn.segmentStart {
+					turn.sp.discard()
+					if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+						turn.cp.Append(segment)
+					}
+					turn.segmentStart = len(turn.textParts)
+					turn.silentHold = false
+				}
 				// Flush accumulated text segment before thinking display
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {
@@ -7403,6 +7415,20 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			e.journalProgress(turn.sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
 			e.emitStreamEvent(StreamEventTool, turn.sessionKey, event.ToolInput, map[string]any{"tool": event.ToolName})
 			e.notePublicProgressTool(turn.state, event.ToolInput)
+			// maomao fork: with progress_style=card (or an active compact
+			// progress writer when tool messages are shown), narration between
+			// tool calls ("Now my own file.") goes into the progress card and
+			// never into standalone chat messages — even when tool_messages is
+			// false or after a transient card transport failure.
+			if !hasRichCard && len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) &&
+				(turn.cp.style == progressStyleCard || (e.display.ToolMessages && turn.cp.Active())) {
+				turn.sp.discard()
+				if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+					turn.cp.Append(segment)
+				}
+				turn.segmentStart = len(turn.textParts)
+				turn.silentHold = false
+			}
 			// Tool detail visibility must not suppress the progress event itself.
 			if !e.display.ToolMessages && turn.cp.style == progressStyleCard {
 				turn.cp.AppendEvent(ProgressEntryToolUse, "", event.ToolName, "")
@@ -7492,18 +7518,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					continue // skip original independent message sending
 				}
 				// --- Original path (fallback) ---
-				// maomao fork: with an in-place progress card, narration between
-				// tool calls ("Now my own file.") goes into the card, not the chat.
-				if turn.cp.Active() && len(turn.textParts) > turn.segmentStart {
-					if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) {
-						if turn.sp.canPreview() {
-							turn.sp.discard()
-						}
-						turn.cp.Append(segment)
-					}
-					turn.segmentStart = len(turn.textParts)
-					turn.silentHold = false
-				}
 				// Flush accumulated text segment before tool display
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {

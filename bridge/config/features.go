@@ -118,7 +118,7 @@ var featureSwitches = []FeatureSwitch{
 		"Instant reply", "Answer \"processing\" right away, before the work starts.",
 		func(c *Config) **bool { return &c.InstantReply.Enabled }),
 	{Key: "display.thinking_messages", Scope: FeatureScopeGlobal, Name: "显示思考过程", Desc: "把模型的思考过程也发到聊天里。",
-		NameEN: "Thinking messages", DescEN: "Post the model's thinking to the chat.", def: always(true),
+		NameEN: "Thinking messages", DescEN: "Post the model's thinking to the chat.", def: always(false),
 		get: func(c *Config, _ *ProjectConfig) bool { v, _, _, _, _ := globalDisplay(c); return v },
 		set: func(c *Config, _ *ProjectConfig, on bool) { c.Display.ThinkingMessages = &on }},
 	{Key: "display.tool_messages", Scope: FeatureScopeGlobal, Name: "显示工具调用", Desc: "把跑命令、读文件这些进度发到聊天里。",
