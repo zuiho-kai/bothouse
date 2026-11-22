@@ -548,6 +548,7 @@ type Engine struct {
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
 	workspaceExec     workspaceExec     // team workspaces start on this provider/model (session_models.go)
 	sessionSelections map[string]sessionModelSelection
+	handoffModelBases map[string]sessionModelSelection // projectState nil: see projectStateData.HandoffModelBases
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
 

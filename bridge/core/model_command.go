@@ -214,6 +214,20 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 		}
 		return ModelSwitchResult{OK: true, Message: fmt.Sprintf("from the next message, models are picked automatically again: chat %s, task %s", e.tiers.chatModel, e.tiers.taskModel)}
 	}
+	p, res := e.resolveModelSwitch(ctx, sessionKey, agent, model, effort)
+	if !res.OK {
+		return res
+	}
+	if err := e.queueSwitch(sessionKey, p); err != nil {
+		return ModelSwitchResult{Message: err.Error()}
+	}
+	res.Message = "queued: takes effect from the user's next message (the conversation is kept)"
+	return res
+}
+
+// resolveModelSwitch checks a hand-picked model/effort against the session's agent and returns the
+// request to queue (res.OK) or why not. It queues nothing (QueueModelSwitch, QueueHandoffModelSwitch).
+func (e *Engine) resolveModelSwitch(ctx context.Context, sessionKey string, agent Agent, model, effort string) (pendingModelSwitch, ModelSwitchResult) {
 	sw, canModel := agent.(ModelSwitcher)
 	var options []ModelOption
 	if canModel {
@@ -223,10 +237,10 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 	target := ""
 	if model = strings.TrimSpace(model); model != "" {
 		if !canModel {
-			return ModelSwitchResult{Message: "this agent cannot switch models"}
+			return pendingModelSwitch{}, ModelSwitchResult{Message: "this agent cannot switch models"}
 		}
 		if len(options) == 0 {
-			return ModelSwitchResult{Message: e.i18n.T(MsgModelListUnavailable)}
+			return pendingModelSwitch{}, ModelSwitchResult{Message: e.i18n.T(MsgModelListUnavailable)}
 		}
 		var cands []ModelOption
 		target, cands = resolveModelQuery(model, options)
@@ -234,7 +248,7 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 			if len(cands) == 0 {
 				cands = options
 			}
-			return ModelSwitchResult{Message: fmt.Sprintf("no unique model matches %q; pick an exact id from candidates (or ask the user)", model), Candidates: cands}
+			return pendingModelSwitch{}, ModelSwitchResult{Message: fmt.Sprintf("no unique model matches %q; pick an exact id from candidates (or ask the user)", model), Candidates: cands}
 		}
 	}
 	eff := ""
@@ -255,20 +269,16 @@ func (e *Engine) QueueModelSwitch(ctx context.Context, sessionKey, model, effort
 			if v := effortVariant(base, effort, options); v != "" {
 				target = v // effort is part of the model id (Gemini "-high", Cursor "effort=high")
 			} else if len(levels) > 0 {
-				return ModelSwitchResult{Message: "supported reasoning efforts: " + strings.Join(levels, ", ")}
+				return pendingModelSwitch{}, ModelSwitchResult{Message: "supported reasoning efforts: " + strings.Join(levels, ", ")}
 			} else {
-				return ModelSwitchResult{Message: "this agent has no separate reasoning effort setting; switch to a model variant that carries the level instead"}
+				return pendingModelSwitch{}, ModelSwitchResult{Message: "this agent has no separate reasoning effort setting; switch to a model variant that carries the level instead"}
 			}
 		}
 	}
 	if target == "" && eff == "" {
-		return ModelSwitchResult{Message: "nothing to change: give a model and/or --effort"}
+		return pendingModelSwitch{}, ModelSwitchResult{Message: "nothing to change: give a model and/or --effort"}
 	}
-	if err := e.queueSwitch(sessionKey, pendingModelSwitch{Model: target, Effort: eff}); err != nil {
-		return ModelSwitchResult{Message: err.Error()}
-	}
-	return ModelSwitchResult{OK: true, Model: target, Effort: eff,
-		Message: "queued: takes effect from the user's next message (the conversation is kept)"}
+	return pendingModelSwitch{Model: target, Effort: eff}, ModelSwitchResult{OK: true, Model: target, Effort: eff}
 }
 
 func (e *Engine) queueSwitch(key string, p pendingModelSwitch) error {
