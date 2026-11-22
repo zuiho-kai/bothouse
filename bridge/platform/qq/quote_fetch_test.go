@@ -69,7 +69,7 @@ func TestQuoteOriginalFormatsAndScope(t *testing.T) {
 func TestQuoteCacheHitDoesNotFetchAndRejectsOtherChat(t *testing.T) {
 	f := newFakeOneBot(t)
 	p, _ := startTestPlatform(t, f)
-	p.storeQuote("4242", "旧原文", "原作者", false, "g:111")
+	p.storeQuote("4242", "旧原文", "原作者", false, 2002, "g:111")
 	if _, err := p.resolveQuote(context.Background(), "4242", "g:111", false); err != nil {
 		t.Fatal(err)
 	}
