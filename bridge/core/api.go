@@ -854,6 +854,9 @@ type TimerAddRequest struct {
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
 	Handoff      bool   `json:"handoff,omitempty"`
 	Forward      bool   `json:"forward,omitempty"`
+	// TaskHandoff: the workspace task the caller was started for (CC_HANDOFF), sent with a timer
+	// for the caller's own session; the job follows that task (TimerJob.TaskHandoff).
+	TaskHandoff string `json:"task_handoff,omitempty"`
 	// ReplyBoard: the turn's posts report on this task-board item (reply_task.go), so a user's
 	// reply to them reaches the work (ws-up --ask: the lead relays a workspace's question).
 	ReplyBoard int `json:"reply_board,omitempty"`
@@ -942,6 +945,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		InjectIfBusy: req.InjectIfBusy,
 		Handoff:      req.Handoff,
 		Forward:      req.Forward,
+		TaskHandoff:  req.TaskHandoff,
 		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),
 	}

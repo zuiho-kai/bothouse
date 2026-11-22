@@ -26,7 +26,8 @@ class DrainQueue(unittest.TestCase):
         self.queue = Path(self.g["QUEUE"])
         self.queue.parent.mkdir(parents=True, exist_ok=True)
         self.state = Path(self.tmp) / "team_workspaces.json"
-        self.g["_ws_state"] = lambda: json.loads(self.state.read_text())
+        # 替身按真 _ws_state 的语义来：team_workspaces.json 读不到就 {}（start() 现在经 own_workspace 也走它）
+        self.g["_ws_state"] = lambda: json.loads(self.state.read_text()) if self.state.exists() else {}
 
     def test_lead_chat_maps_workspace_to_its_chat(self):
         self.state.write_text(json.dumps({
