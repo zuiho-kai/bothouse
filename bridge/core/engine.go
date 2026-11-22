@@ -8182,14 +8182,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							break
 						}
 					}
-					if reset, ok := QuotaExhaustedReset(event); ok {
-						userMsg = e.quotaExhaustedMessage(reset, turn.agentSession, turn.replyAgent)
-					}
 					if errorAnswer != "" {
 						if !errorAnswerDelivered {
 							sendChunksWithStatusFooter(turn.outputCtx, p, turn.replyCtx, errorAnswer, "", turn.sendWorkspaceWithError)
 						}
 						userMsg = e.i18n.Tf(MsgAnswerWithFailure, detail)
+					}
+					// The answer does not replace the provider's typed quota notice.
+					if reset, ok := QuotaExhaustedReset(event); ok {
+						userMsg = e.quotaExhaustedMessage(reset, turn.agentSession, turn.replyAgent)
 					}
 					// Quota describes the account/model, not whether this turn succeeded.
 					// Keep failures on the error path while showing the same measured
