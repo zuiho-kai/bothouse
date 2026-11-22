@@ -84,6 +84,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		return a, nil
 	}
 	command, _ := core.ParseCmdOpts(opts, "")
+	catalogBin.Store(command) // catalog price provider reuses the configured binary (#2071)
 	return &Agent{Agent: base, quotaCommand: command}, nil
 }
 
