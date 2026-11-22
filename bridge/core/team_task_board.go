@@ -99,7 +99,10 @@ type teamTaskBoardItem struct {
 
 	ReviewRejected string `json:"review_rejected"`
 	Dispatcher     string `json:"dispatcher"`
-	Reviewer       string `json:"reviewer"`
+	// Assigner: who set the task (ws-handoff, from the turn's caller identity); the final report and
+	// the question call mention them (team_task_assigner.go, #988). nil on rows from before.
+	Assigner *teamTaskAssigner `json:"assigner,omitempty"`
+	Reviewer string            `json:"reviewer"`
 	// ReviewTier: "complex" sends the verification to the complex-tier role (board tier); anything
 	// else, including unmarked, is simple (user 2026-11-04, 主角色代答 A+C).
 	ReviewTier   string   `json:"review_tier,omitempty"`

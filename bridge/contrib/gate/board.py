@@ -465,9 +465,11 @@ def _back_to_chat(it):
         it["ch"] = chat.split(":", 1)[1]
 
 
-def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None, probe=False):
+def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None, probe=False, assigner=None):
     """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
-    chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
+    chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。
+    assigner：布置这件活的人 {"id", "name", "kind"}（kind 是桥的 human/bot/scheduled/local，ws-handoff 取自
+    bothouse identity show）；桥贴最终汇报、叫人拍板时 @ 他，不是真人就 @ 主人（#988 用户 11-22「谁布置的任务 需要拍板或者做完了要@他」）。"""
     with _locked():
         cur = _read_locked()
         nid = max([i["id"] for i in cur + _read_locked("board-done.jsonl")] + [0]) + 1
@@ -475,6 +477,8 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None,
               "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
         if probe:
             it["probe"] = True
+        if assigner:
+            it["assigner"] = assigner
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():

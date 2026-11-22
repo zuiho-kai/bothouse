@@ -933,7 +933,10 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if node != "" {
 		var err error
 		notifier, canMention := poster.(TaskForumUserNotifier)
-		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		user := e.assignerUser(p, &it) // the person who set the task is the one asked (#988)
+		if user == "" {
+			user = e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		}
 		// Only a question the item itself carries mentions the user; a waiting move without one
 		// (an old ws-up --ask wrote no question) posts its line unmentioned.
 		waitingNow := tag != ps.Tag && tag == TaskForumTagWaiting && user != "" && taskForumQuestion(it, "") != ""
