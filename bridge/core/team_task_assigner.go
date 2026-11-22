@@ -47,3 +47,13 @@ func (e *Engine) withAssignerMention(p Platform, item *teamTaskBoardItem, text s
 	}
 	return text
 }
+
+// withAssignerMentionFor is withAssignerMention for a message sent to sessionKey that delivers the
+// result of board item id (ws-pass posting the finished files, #988).
+func (e *Engine) withAssignerMentionFor(sessionKey string, id int, text string) string {
+	name, _, err := parseSessionKeyParts(sessionKey)
+	if err != nil {
+		return text
+	}
+	return e.withAssignerMention(e.platformForName(name), e.boardItemByID(id), text)
+}

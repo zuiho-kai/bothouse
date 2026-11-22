@@ -90,6 +90,23 @@ class PassClosesTextTest(unittest.TestCase):
         self.assertIn("附件也没发", r.stderr)
         self.assertNotIn("send", self.kinds())
 
+    def send_args(self):
+        return next(c for c in self.sent() if c[0] == "send")
+
+    def test_attachments_alone_mention_assigner(self):
+        # #988：没有挂着的文字汇报，成品附件就是结果，桥给这条开头 @ 布置人
+        r = self.run_pass("--notes", str(self.notes), "--verdict", VERDICT, str(self.shot), "成片给你看")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a = self.send_args()
+        self.assertEqual(a[a.index("--mention-assigner") + 1], "1398")
+
+    def test_text_released_with_attachments_mentions_once(self):
+        # 同一次放行文字+附件：文字汇报那条已 @，附件不再要 @
+        self.state("held")
+        r = self.run_pass("--notes", str(self.notes), "--verdict", VERDICT, str(self.shot), "成片给你看")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("--mention-assigner", self.send_args())
+
 
 if __name__ == "__main__":
     unittest.main()

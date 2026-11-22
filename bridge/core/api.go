@@ -98,6 +98,9 @@ type SendRequest struct {
 	// Channel: send to the channel with this name in the server of FromSession instead of
 	// SessionKey (send_channel.go). Not found or ambiguous is an error; nothing is sent.
 	Channel string `json:"channel,omitempty"`
+	// MentionAssigner: the board item this message delivers the result of (ws-pass with
+	// attachments). The text opens with the mention of whoever set that task (#988).
+	MentionAssigner int `json:"mention_assigner,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -404,6 +407,9 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	keptNote := "" // the attachments stayed in the workspace: tell the sender (SendTargetForAttachments)
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
+	}
+	if req.MentionAssigner > 0 && req.Message != "" {
+		req.Message = engine.withAssignerMentionFor(req.SessionKey, req.MentionAssigner, req.Message)
 	}
 	// #1866: one door for every way a scheduled turn can post — text, images/files, audio, video
 	// and TTS. Before this, a voice message sent with `--audio` slipped past the outbox.

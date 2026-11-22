@@ -1,6 +1,10 @@
 package core
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +108,39 @@ func TestAssignerOwnerFallback(t *testing.T) {
 	e.SetAdminFrom("777")
 	if got := e.assignerUser(p, timer); got != "777" {
 		t.Fatalf("admin_from set: %q", got)
+	}
+}
+
+// ws-pass posting the finished files (send --mention-assigner) is the result too (lead 11-23: 「很多活的
+// 最终结果就是视频、图片这类附件」): the message opens with the assigner's mention, once; a row from
+// before the field gets none.
+func TestSendMentionAssigner(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		assigner *teamTaskAssigner
+		want     string
+	}{
+		{"person", &teamTaskAssigner{ID: "1498", Kind: CallerHuman}, "<@1498> 成片给你看"},
+		{"timer", &teamTaskAssigner{ID: "timer", Kind: CallerScheduled}, "<@777> 成片给你看"},
+		{"old row", nil, "成片给你看"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, p, _, item := heldFixture(t)
+			e.SetAdminFrom("777")
+			item.Assigner = tc.assigner
+			writeReviewBoard(t, e, *item)
+			s := &APIServer{engines: map[string]*Engine{e.name: e}}
+			b, _ := json.Marshal(SendRequest{Project: e.name, SessionKey: "discord:chat1", Message: "成片给你看",
+				MentionAssigner: 46}) // the test platform takes no images; the mention goes on the text either way
+			w := httptest.NewRecorder()
+			s.handleSend(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(b)))
+			if w.Code != http.StatusOK {
+				t.Fatalf("send = %d %s", w.Code, w.Body)
+			}
+			got := p.sentTo("discord:chat1")
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("post = %q, want [%q]", got, tc.want)
+			}
+		})
 	}
 }
