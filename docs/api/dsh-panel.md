@@ -6,6 +6,8 @@ All endpoints use the management API authentication and return the usual `{ "ok"
 
 Each channel remains in `channels` when its latest-message read fails, with an optional safe `error` string. A successful empty message list has no error and a null `last_message`.
 
+Channels discovery first reads `collab.owner.json` from the configured channel data directory. A live owner PID, a literal loopback HTTP origin, and a local token let the panel read Channels even when Desktop was opened separately and the saved shell URL is stale. Requests use `X-Collab-Local`; the token stays inside the management server. Each new connection reads the record again to follow owner restarts. Missing or invalid records fall back to the existing shell URL and startup-log discovery. This credential covers `/collab` routes; the full DSH shell proxy retains its launch-token authentication.
+
 `GET /api/v1/roles` retains `roles` and adds `dsh: { status, error? }` with the same state semantics. Bridge roles remain present if DSH cannot be read.
 
 ## Member management

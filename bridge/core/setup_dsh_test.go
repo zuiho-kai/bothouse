@@ -40,6 +40,26 @@ func TestDSHLogin(t *testing.T) {
 	if dshLogin(h) != "logged_in" {
 		t.Fatal("the user's own model setup counts as logged in")
 	}
+	// #1798: the web profile's model setup is copied into the role (dshOwnModelPatch), so it counts too.
+	_ = os.Remove(filepath.Join(home, "profiles", "acp", "cordis.patch.yml"))
+	if err := os.MkdirAll(filepath.Join(home, "profiles", "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "profiles", "web", "cordis.patch.yml"),
+		[]byte("- id: llm-deepseek\n  config:\n    baseURL: https://relay\n    apiKeyEnv: RELAY_API_KEY\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if dshLogin(h) != "logged_in" {
+		t.Fatal("the web profile's model setup counts as logged in")
+	}
+	_ = os.Remove(filepath.Join(home, "profiles", "web", "cordis.patch.yml"))
+	if err := os.WriteFile(filepath.Join(home, ".env"), []byte("DEEPSEEK_API_KEY=sk-x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if dshLogin(h) != "logged_in" {
+		t.Fatal("a key in $DSH_HOME/.env counts as logged in")
+	}
+	_ = os.Remove(filepath.Join(home, ".env"))
 	other := t.TempDir()
 	t.Setenv("DSH_HOME", other)
 	if dshLogin(h) != "not_logged_in" {

@@ -352,7 +352,7 @@ func TestTaskForumRunningStepIsNotAQuestion(t *testing.T) {
 			if len(p.mentions) != 0 {
 				t.Fatalf("a workspace running a command mentioned %v", p.mentions)
 			}
-			row(`,"wait_kind":"user","paused":"11-16 19:44","pause_why":"` + tc.why + `"`)
+			row(`,"wait_kind":"user","ask":{"to":"user"},"paused":"11-16 19:44","pause_why":"` + tc.why + `"`) // passed on to the user (#1791)
 			e.syncTaskForum()
 			if len(p.mentions) != tc.mentions {
 				t.Fatalf("mentions=%v, want %d", p.mentions, tc.mentions)
@@ -364,6 +364,39 @@ func TestTaskForumRunningStepIsNotAQuestion(t *testing.T) {
 			it := readTeamTaskBoard(dir)[0]
 			if state, why := teamTaskBoardStateOf(it, time.Now()); state != teamTaskWaiting || strings.Contains(why, "Bash") {
 				t.Fatalf("board state %v reason %q", state, why)
+			}
+		})
+	}
+}
+
+// #1787 (user 11-19 「谁给你发任务，你给谁说去啊」): a waiting row the dispatcher has not passed on
+// waits on the dispatcher — the post names it, never says 等你拍板 and never mentions the user;
+// only after ws-forward --ask-user (wait_kind user, ask.to user) is the user mentioned.
+func TestTaskForumWaitsOnDispatcherUntilForwarded(t *testing.T) {
+	for _, tc := range []struct{ name, waiting string }{
+		{"workspace ask", `,"wait_kind":"lead","paused":"11-19 09:50","pause_why":"等主角色定：要不要推 PR","ask":{"title":"要不要推 PR","to":"lead"}`},
+		{"status says 等用户", `,"wait_kind":"lead","status":"等用户 GitHub 授权后推送创建 PR"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, p, dir := forumRoutingEngine(t)
+			e.SetAdminFrom("123")
+			row := func(extra string) {
+				writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":195,"what":"升 vLLM","status":"在做","chat":"discord:111","ws":"discord:222","dispatcher":"lead"`+extra+"}\n")
+			}
+			row("")
+			e.syncTaskForum()
+			row(tc.waiting)
+			e.syncTaskForum()
+			said := strings.Join(p.posts["th1"].nodes, "\n") + "\n" + p.posts["th1"].card
+			t.Logf("before forward:\n%s", said)
+			if len(p.mentions) != 0 || strings.Contains(said, "等你") || !strings.Contains(said, "等 lead 定") {
+				t.Fatalf("mentions=%v post:\n%s\nwant it to wait on the dispatcher, nobody mentioned", p.mentions, said)
+			}
+			row(`,"wait_kind":"user","paused":"11-19 09:55","pause_why":"等待用户答复：要不要推 PR","ask":{"title":"要不要推 PR","to":"user","kind":"权限"}`)
+			e.syncTaskForum()
+			t.Logf("after forward:\n%s", strings.Join(p.posts["th1"].nodes, "\n")+"\n"+p.posts["th1"].card)
+			if len(p.mentions) != 1 || p.mentions[0] != "123" {
+				t.Fatalf("after ws-forward --ask-user mentions=%v, want the user once", p.mentions)
 			}
 		})
 	}

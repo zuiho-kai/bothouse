@@ -38,6 +38,7 @@ var helpNoopSubcommands = [][]string{
 	{"workspace", "new"}, {"workspace", "claim"}, {"workspace", "park"},
 	{"channel", "create"},
 	{"relay", "send"},
+	{"secret", "run"}, {"secret", "list"},
 	{"sessions", "prune"},
 	{"session", "new"},
 	{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "restart"},

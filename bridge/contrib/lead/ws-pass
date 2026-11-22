@@ -198,6 +198,7 @@ def close_text(rec, path, verdict, nid=0):
                        capture_output=True, text=True, timeout=120)
     if r.returncode == 0:
         print(f"ws-pass: #{nid} 挂着的文字汇报一并放行，桥已照原文贴出", file=sys.stderr)
+        return True
     elif r.returncode != 3:  # 3：桥上没有这件活等验收的文字汇报
         sys.exit(f"ws-pass: #{nid} 挂着的文字汇报放行失败，附件也没发（改好 --verdict 重跑即可）：{(r.stderr or r.stdout).strip()}")
 
@@ -281,8 +282,12 @@ def main(argv):
     if board.is_probe(rec.get("board")):
         print(f"ws-pass: 探针（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
         return
-    close_text(rec, path, verdict, nid)
+    # #988：成品附件就是结果，开头 @ 布置人；同一次一并放行的文字汇报已 @ 过就不再 @
+    texted = close_text(rec, path, verdict, nid)
+    nid = nid or board_id(rec, path)
     args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
+    if nid and not texted:
+        args += ["--mention-assigner", str(nid)]
     for p in shots:
         args += ["--image" if p.lower().endswith(IMG) else "--file", p]
     r = subprocess.run(args + ["--message", msg], capture_output=True, text=True, timeout=300)

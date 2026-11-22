@@ -1,0 +1,13 @@
+{
+  "note": "One entry per workswarm version on PyPI. sha256 = the file as that version ships it, patched_sha256 = after the patch; install.py applies a patch only when the installed version and the file's sha256 both match.",
+  "workswarm": {
+    "0.2.8": [
+      {
+        "file": "jiuwenswarm/agents/harness/common/rails/runtime_prompt_rail.py",
+        "patch": "workswarm-0.2.8/runtime_prompt_rail.patch",
+        "sha256": "be5fbf61e491d91599819aa3cab2ea1d5b09f23aeb2d34335ac512565ca267c3",
+        "patched_sha256": "6fcf9af460d762f147d168fb42baf7dfa2e9e3c6c552336d6ab757f024869db1"
+      }
+    ]
+  }
+}

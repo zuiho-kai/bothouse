@@ -19,7 +19,8 @@ const bareMention = "（只 @ 了你，没写内容：看上面的频道消息�
 // readHubMessage rewrites m for this bot: Content as this bot reads it, Mentioned set. ok=false: the
 // message is not this bot's to see (it is not in the room, a reply addressed to other bots, or a
 // teammate's text with nothing left once this bot's own @ is taken out). elsewhere: a person's
-// message @-ing other members and not this bot.
+// message @-ing other members and not this bot, or calling no one in a room whose default reply
+// member is another bot.
 func (p *Platform) readHubMessage(m *wireInboundMessage) (elsewhere, ok bool) {
 	var self hubMember
 	var team []string
@@ -63,6 +64,15 @@ func (p *Platform) readHubMessage(m *wireInboundMessage) (elsewhere, ok bool) {
 	}
 	direct := !m.FromBot && strings.EqualFold(strings.TrimSpace(m.ChatType), "direct")
 	hit := routed || called[self.ID] || core.NameCalled(raw, self.Name, team...) || direct
+	// #1798 (user 11-19「点一下就能直接用」): a person's message calling no one goes to the room's
+	// default reply member, and to no one else, so one role answers it whether or not the gate
+	// has a model to judge with (without one, a message calling no one is only context, gate.go
+	// noModelFallback).
+	defaultOther := false
+	if !m.FromBot && m.DefaultReply != "" && !hit && len(called) == 0 && !routed && !anyNameCalled(raw, m.Members) {
+		hit = m.DefaultReply == self.ID
+		defaultOther = !hit
+	}
 	content := mentionsForMember(raw, self, m.Members)
 	switch {
 	case m.FromBot:
@@ -80,7 +90,23 @@ func (p *Platform) readHubMessage(m *wireInboundMessage) (elsewhere, ok bool) {
 	}
 	m.Content = content
 	m.Mentioned = &hit
-	return !m.FromBot && !hit && len(called) > 0, true
+	return !m.FromBot && !hit && (len(called) > 0 || defaultOther), true
+}
+
+// anyNameCalled: the text opens by calling some member of the room by name (core.NameCalled).
+func anyNameCalled(raw string, members []hubMember) bool {
+	for i, mem := range members {
+		var others []string
+		for j, o := range members {
+			if j != i && o.Name != "" {
+				others = append(others, o.Name)
+			}
+		}
+		if mem.Name != "" && core.NameCalled(raw, mem.Name, others...) {
+			return true
+		}
+	}
+	return false
 }
 
 // rememberRoster keeps every member seen (by id), so this bot's own text can be shown with names.

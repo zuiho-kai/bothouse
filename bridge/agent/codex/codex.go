@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -56,6 +57,10 @@ type Agent struct {
 	// spawnOpts: run_as_user isolation (#1367); zero value = start codex as the bridge user.
 	spawnOpts core.SpawnOptions
 	mu        sync.RWMutex
+
+	defaultModelMu     sync.Mutex
+	defaultModel       string
+	defaultModelReadAt time.Time
 }
 
 func New(opts map[string]any) (core.Agent, error) {
@@ -213,6 +218,43 @@ func (a *Agent) GetModel() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return core.GetProviderModel(a.providers, a.activeIdx, a.model)
+}
+
+// DefaultModel asks Codex for the inherited model when the bridge has no explicit
+// model and there is no live session to report one. Roles polls this value.
+func (a *Agent) DefaultModel(ctx context.Context) string {
+	a.defaultModelMu.Lock()
+	defer a.defaultModelMu.Unlock()
+	if time.Since(a.defaultModelReadAt) < time.Minute {
+		return a.defaultModel
+	}
+
+	a.mu.RLock()
+	bin, workDir, spawnOpts := a.cmd, a.workDir, a.spawnOpts
+	var args []string
+	if a.backend != "app_server" {
+		args = a.cliExtraArgs
+	}
+	env := append([]string(nil), a.configEnv...)
+	env = append(env, a.providerEnvLocked()...)
+	env = append(env, a.sessionEnv...)
+	if a.codexHome != "" {
+		env = append(env, "CODEX_HOME="+a.codexHome)
+	}
+	a.mu.RUnlock()
+
+	probeCtx, cancel := context.WithTimeout(ctx, codexRuntimeConfigTimeout)
+	defer cancel()
+	model, _, err := loadCodexRuntimeConfigAs(probeCtx, spawnOpts, bin, args, workDir, env)
+	if err == nil {
+		a.defaultModel = model
+	} else if ctx.Err() != nil {
+		return a.defaultModel
+	} else {
+		slog.Debug("codex: could not read inherited model", "error", err)
+	}
+	a.defaultModelReadAt = time.Now()
+	return a.defaultModel
 }
 
 func (a *Agent) SetReasoningEffort(effort string) {

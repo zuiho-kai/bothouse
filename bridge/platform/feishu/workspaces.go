@@ -101,7 +101,26 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 		return core.TeamChannel{}, nil, err
 	}
 
+	chats, err := p.listBotChats(ctx)
+	if err != nil {
+		return core.TeamChannel{}, nil, err
+	}
 	all := []core.TeamChannel{self}
+	for _, c := range chats {
+		if c.ID != chatID {
+			all = append(all, c)
+		}
+	}
+	return self, all, nil
+}
+
+// listBotChats pages through every group the bot is in (GET im/v1/chats; private chats are not
+// listed). API https://open.feishu.cn/document/server-docs/group/chat/list.
+func (p *Platform) listBotChats(ctx context.Context) ([]core.TeamChannel, error) {
+	if p.client == nil {
+		return nil, fmt.Errorf("%s: list chats: client not initialized", p.tag())
+	}
+	var all []core.TeamChannel
 	var pageToken string
 	for {
 		var items []*larkim.ListChat
@@ -126,10 +145,10 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 			return nil
 		})
 		if err != nil {
-			return core.TeamChannel{}, nil, err
+			return nil, err
 		}
 		for _, c := range items {
-			if id := stringValue(c.ChatId); id != "" && id != chatID {
+			if id := stringValue(c.ChatId); id != "" {
 				all = append(all, core.TeamChannel{ID: id, Name: stringValue(c.Name)})
 			}
 		}
@@ -137,7 +156,7 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 			break
 		}
 	}
-	return self, all, nil
+	return all, nil
 }
 
 // RenameTeamWorkspaceChannel renames a workspace group (PUT im/v1/chats/:chat_id; core moves

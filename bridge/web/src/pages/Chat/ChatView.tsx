@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
@@ -9,6 +9,7 @@ import {
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
 import { getProject, shownName } from '@/api/projects';
+import { useSessionModel } from '@/hooks/useSessionModel';
 import {
   useBridgeSocket, fetchBridgeConfig,
   type BridgeConfig, type BridgeIncoming, type BridgeStatus,
@@ -293,6 +294,8 @@ function MsgCopyButton({ text }: { text: string }) {
 export default function ChatView() {
   const { t } = useTranslation();
   const { name: projectName } = useParams<{ name: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedSessionId = searchParams.get('session') || '';
   const [shown, setShown] = useState('');
   const [projectMeta, setProjectMeta] = useState<{ agentType?: string }>({});
   useEffect(() => {
@@ -310,15 +313,13 @@ export default function ChatView() {
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSession, setCurrentSession] = useState<SessionDetail | null>(null);
+  const [loadedSession, setLoadedSession] = useState<{ project: string; selectedId: string; detail: SessionDetail }>();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [typing, setTyping] = useState(false);
   const [bridgeCfg, setBridgeCfg] = useState<BridgeConfig | null>(null);
-  // Whether the user explicitly picked a session from the drawer
-  const [userPickedSession, setUserPickedSession] = useState(false);
 
   // UI state
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -334,87 +335,73 @@ export default function ChatView() {
   // Mirrors cmdResult.command so card-action callbacks can route follow-ups back to the panel
   const cmdPanelRef = useRef<string | null>(null);
 
-  // Web platform uses its own per-project session key by default.
-  // Only use the original session's key when the user explicitly switches via the drawer.
   const webSessionKey = projectName ? `bridge:web-admin:${projectName}` : '';
-  const sessionKey = userPickedSession && currentSession?.session_key
-    ? currentSession.session_key
-    : webSessionKey;
+  const currentSession = loadedSession && loadedSession.project === projectName && loadedSession.selectedId === selectedSessionId
+    ? loadedSession.detail : null;
+  const sessionKey = selectedSessionId ? currentSession?.session_key || '' : webSessionKey;
+  const sessionModel = useSessionModel(projectName, sessionKey, selectedSessionId);
   sessionKeyRef.current = sessionKey;
 
-  // Load project sessions and auto-select latest
-  const fetchData = useCallback(async () => {
-    if (!projectName) return;
-    setLoading(true);
-    try {
-      const [{ sessions: allSessions }, cfg] = await Promise.all([
-        listSessions(projectName),
-        fetchBridgeConfig(),
-      ]);
-      setBridgeCfg(cfg);
-      const sorted = (allSessions || []).sort(
-        (a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''),
-      );
-      setSessions(sorted);
-
-      if (sorted.length > 0) {
-        const latest = sorted[0];
-        const detail = await getSession(projectName, latest.id, 200);
-        setCurrentSession(detail);
-        if (detail.history) {
-          setMessages(detail.history.map((h, i) => ({
-            id: `hist-${i}`,
-            role: h.role as 'user' | 'assistant',
-            content: h.content,
-            format: 'markdown',
-            timestamp: h.timestamp,
-          })));
-        }
-      } else {
-        setCurrentSession(null);
-        setMessages([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [projectName]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // Keep ref in sync with cmdResult so callbacks avoid stale closures
   useEffect(() => {
-    cmdPanelRef.current = cmdResult?.command ?? null;
-  }, [cmdResult]);
-
-  // Switch to a different session (user explicitly chose from drawer)
-  const switchToSession = useCallback(async (s: Session) => {
     if (!projectName) return;
-    setDrawerOpen(false);
+    let cancelled = false;
     setLoading(true);
-    setUserPickedSession(true);
-    try {
-      const detail = await getSession(projectName, s.id, 200);
-      setCurrentSession(detail);
-      if (detail.history) {
-        setMessages(detail.history.map((h, i) => ({
+    setLoadedSession(undefined);
+    setMessages([]);
+    setCmdResult(null);
+    pendingCmdRef.current = null;
+
+    void (async () => {
+      try {
+        const [{ sessions: allSessions }, cfg] = await Promise.all([
+          listSessions(projectName),
+          fetchBridgeConfig(),
+        ]);
+        if (cancelled) return;
+        setBridgeCfg(cfg);
+        const sorted = (allSessions || []).sort(
+          (a, b) => (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''),
+        );
+        setSessions(sorted);
+        const target = selectedSessionId
+          ? sorted.find(s => s.id === selectedSessionId)
+          : sorted.find(s => s.active && s.session_key === webSessionKey);
+        if (!target) return;
+        const detail = await getSession(projectName, target.id, 200);
+        if (cancelled) return;
+        setLoadedSession({ project: projectName, selectedId: selectedSessionId, detail });
+        setMessages((detail.history || []).map((h, i) => ({
           id: `hist-${i}`,
           role: h.role as 'user' | 'assistant',
           content: h.content,
           format: 'markdown',
           timestamp: h.timestamp,
         })));
-      } else {
-        setMessages([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [projectName]);
+    })();
+    return () => { cancelled = true; };
+  }, [projectName, selectedSessionId, webSessionKey]);
+
+  // Keep ref in sync with cmdResult so callbacks avoid stale closures
+  useEffect(() => {
+    cmdPanelRef.current = cmdResult?.command ?? null;
+  }, [cmdResult]);
+
+  const switchToSession = useCallback((s: Session) => {
+    setDrawerOpen(false);
+    setSearchParams(params => {
+      const next = new URLSearchParams(params);
+      next.set('session', s.id);
+      return next;
+    });
+  }, [setSearchParams]);
 
   // Handle bridge incoming messages — only process messages for the current session
   const handleBridgeMessage = useCallback((msg: BridgeIncoming) => {
     const msgKey = (msg as any).session_key;
-    if (msgKey && sessionKeyRef.current && msgKey !== sessionKeyRef.current) {
+    if (!sessionKeyRef.current || (msgKey && msgKey !== sessionKeyRef.current)) {
       return;
     }
 
@@ -509,7 +496,7 @@ export default function ChatView() {
   }, []);
 
   const { status: bridgeStatus, sendMessage: bridgeSend, sendCardAction, sendPreviewAck } = useBridgeSocket({
-    bridgeCfg,
+    bridgeCfg: sessionKey ? bridgeCfg : null,
     sessionKey,
     projectName: projectName || '',
     onMessage: handleBridgeMessage,
@@ -576,13 +563,12 @@ export default function ChatView() {
 
   const handleNewSession = useCallback(() => {
     if (bridgeStatus !== 'connected') return;
-    setUserPickedSession(false);
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '/new' }]);
     bridgeSend('/new');
     setDrawerOpen(false);
   }, [bridgeStatus, bridgeSend]);
 
-  const canSend = bridgeStatus === 'connected';
+  const canSend = !!sessionKey && !loading && bridgeStatus === 'connected';
 
   if (loading && !currentSession && sessions.length === 0) {
     return <div className="flex items-center justify-center h-64 text-gray-400 animate-pulse">Loading...</div>;
@@ -601,14 +587,15 @@ export default function ChatView() {
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold tracking-tight text-ink">{shown || projectName}</h2>
               <StatusBadge status={bridgeStatus} />
+              {sessionModel && <Badge className="min-w-0 max-w-40"><span className="truncate" title={`${t('providers.model')} · ${sessionModel}`}>{sessionModel}</span></Badge>}
             </div>
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
               className="mt-0.5 flex items-center gap-1 text-xs text-ink-mute transition-colors duration-base hover:text-accent-text"
             >
-              <span>{userPickedSession && currentSession
-                ? (currentSession.name || currentSession.id.slice(0, 8))
+              <span>{selectedSessionId
+                ? (currentSession?.name || selectedSessionId.slice(0, 8))
                 : t('chat.defaultSession')}</span>
               <ChevronDown size={12} />
             </button>
@@ -732,6 +719,8 @@ export default function ChatView() {
               {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
+        ) : selectedSessionId && !sessionKey && !loading ? (
+          <p className="px-4 py-3 text-sm text-ink-mute">{t('chat.sessionUnavailable', 'Conversation unavailable. Choose another from the session list.')}</p>
         ) : !bridgeCfg ? (
           <div className="flex items-center gap-2 px-4 py-3 text-sm rounded-[14px] bg-amber-500/[0.08] text-amber-700 dark:text-amber-400">
             <WifiOff size={14} />

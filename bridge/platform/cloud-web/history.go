@@ -38,6 +38,10 @@ var (
 const historyTimeout = 20 * time.Second
 
 var historyClient = &http.Client{Timeout: historyTimeout}
+var localDSHHistoryClient = &http.Client{
+	Timeout:       historyTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 const hubIDPrefix = "hub-"
 
@@ -84,7 +88,7 @@ func hubBotID(wsURL, project string) string {
 // ChannelHistory implements core.ChannelHistoryReader: up to limit messages of room channelID
 // ("room-<id>") posted before beforeID ("hub-<id>", "" = up to the newest), oldest first.
 func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core.ChannelHistoryMessage, error) {
-	if p.historyBase == "" {
+	if !p.localDSH && p.historyBase == "" {
 		return nil, fmt.Errorf("cloud_web: channel history: no hub http address")
 	}
 	room, ok := strings.CutPrefix(channelID, "room-")
@@ -100,14 +104,22 @@ func (p *Platform) ChannelHistory(channelID, beforeID string, limit int) ([]core
 		q.Set("before", n)
 	}
 	q.Set("limit", strconv.Itoa(limit))
+	base, token, client := p.historyBase, p.token, historyClient
+	if p.localDSH {
+		origin, localToken, err := findLocalDSHGateway()
+		if err != nil {
+			return nil, err
+		}
+		base, token, client = origin, localToken, localDSHHistoryClient
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), historyTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.historyBase+"/api/rooms/"+room+"/messages?"+q.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/rooms/"+room+"/messages?"+q.Encode(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("cloud_web: channel history: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+p.token)
-	resp, err := historyClient.Do(req)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("cloud_web: channel history: %w", err)
 	}

@@ -1,0 +1,4 @@
+bin/
+bin-single/
+.webview2-sdk/
+*.log

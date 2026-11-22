@@ -8,6 +8,8 @@
 
 ## 角色与插件
 
+DSH Channels discovery first reads the channel data directory's private `collab.owner.json`. A live owner PID and a validated loopback HTTP origin select the Channels transport, which authenticates with `X-Collab-Local` for state, member management and event streams. New connections re-read the record to follow host restarts. Missing or invalid records use the existing shell launch-record and log discovery. The local credential is scoped to Channels routes and stays inside the management server; DSH shell proxy authentication still uses its launch token.
+
 管理 API 的角色 SSE 聚合桥接实际会话忙闲/智能体事件与 DSH 原生状态/事件流，角色键按来源隔离；连接先发快照，重连恢复当前状态。角色插件绑定独立存入数据目录 plugins/role-bindings.json，不改变 DSH 的全局插件加载和开关，不内置形象素材。字段、多会话规则及实测边界见 [角色事件接口](plugins/role-events.md)。
 
 ## 原生引用回复
@@ -135,6 +137,8 @@ The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
 credential filtering. Gate services and platform credentials are configured separately.
 
 ## Usage ledger
+
+QQ's optional group collector intercepts configured groups in the platform adapter before allow-list checks, attachment parsing and engine dispatch. A private SQLite store under the platform data directory keeps owner events, keyword-selected text and durable batch ownership. One Chat Completions request per nonempty batch records its returned usage in that store, independently of conversational agent usage; useful results use OneBot private delivery with a stored receipt. Neither collected events nor these sends create engine sessions. Calls or sends interrupted without a receipt remain recorded and are not replayed automatically. Configuration and inspection are documented in [QQ setup](platforms/qq.md#静默监听群消息).
 
 The bridge entry point creates one `core.UsageLedger` per configured data directory and shares it with all engines and the management API. Agent adapters emit authoritative per-turn token categories on terminal events; core does not infer billing from context-window snapshots. Daily files contain individual records plus date/hour/role/model buckets. Read-only management endpoints provide dashboard aggregations with optional configured pricing. Unknown usage remains explicit. See [usage API](api/usage.md).
 

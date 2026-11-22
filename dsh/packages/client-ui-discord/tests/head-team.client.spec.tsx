@@ -70,3 +70,12 @@ it('opens the activity drawer on narrow screens', () => {
   fireEvent.click(within(team()).getAllByRole('button')[0]!)
   expect(screen.getByRole('dialog', { name: zh.activityPanel })).toBeTruthy()
 })
+
+it('#1798 a member whose CLI is not logged in says 需登录 with how to log in, not online', () => {
+  const hint = '在终端运行 codex login，按提示登录一次'
+  render(<ChannelsPage {...props({ ...base, members: [bot('lead'), bot('cx', { online: false, login: hint })], tasks: [], thinking: {} })} />)
+  expect(within(team()).getByRole('button', { name: `cx · ${zh.needsLogin}：${hint}` }).dataset.state).toBe('offline')
+  fireEvent.click(screen.getByRole('button', { name: zh.expandMembers }))
+  const status = screen.getAllByText(zh.needsLogin).find(el => el.getAttribute('title') === hint)
+  expect(status?.dataset.status).toBe('login')
+})

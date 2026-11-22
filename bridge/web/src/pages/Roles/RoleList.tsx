@@ -23,7 +23,7 @@ import { withBase } from '@/lib/basePath';
 import { deleteDSHMember, listDSHMembers, type DSHManagedMember } from '@/api/dsh';
 import { errorMessage } from '@/components/DSHNotice';
 import { usePageRefresh } from '@/lib/usePageRefresh';
-import { DSHMemberEditor } from './DSHMemberEditor';
+import { DSHMemberEditor } from '@/components/dsh/DSHMemberEditor';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
 
@@ -230,6 +230,7 @@ export default function RoleList() {
             const shown = shownName(role);
             const state = roleState(role);
             const busy = state === 'busy';
+            const model = role.conversation_model || role.model;
 
             return (
               <article
@@ -251,9 +252,9 @@ export default function RoleList() {
                         <StatePill state={state} />
                       </div>
                       {/* 型号和平台降级：后端 · 型号，一行小字 */}
-                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-mute" title={role.model || undefined}>
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-mute" title={model || undefined}>
                         <span className="shrink-0">{backendLabel(role.agent_type)}</span>
-                        {role.model && <><span aria-hidden>·</span><span className="truncate font-mono text-[11px]">{role.model}</span></>}
+                        {model && <><span aria-hidden>·</span><span className="truncate font-mono text-[11px]">{model}</span></>}
                       </p>
                     </div>
                     {role.source !== 'dsh' && (

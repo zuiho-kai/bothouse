@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui';
 import { getDSHStatus, type DSHStatus } from '@/api/wizard';
 import { errorMessage } from '@/components/DSHNotice';
-import { DSHMemberEditor } from '@/pages/Roles/DSHMemberEditor';
+import { DSHMemberEditor } from '@/components/dsh/DSHMemberEditor';
 import DSHSetup from './DSHSetup';
 
 export default function DSHAdd({ lang, onBack }: { lang: string; onBack: () => void }) {

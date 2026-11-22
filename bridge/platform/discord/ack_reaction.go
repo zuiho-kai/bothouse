@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
@@ -13,25 +14,54 @@ import (
 )
 
 // ack_reaction (config, default off; user 2026-11-16「第二个做成可选 可选打开或者关闭
-// 这个功能」): 👀 on the person's message once the bridge accepts it, swapped for ✅
-// or ❌ when its turn ends. Messages still marked 👀 are kept in a small file, so a
-// restart that cut a turn short takes its own 👀 off at the next Ready.
+// 这个功能」): a "received" emoji on the person's message once the bridge accepts it,
+// swapped for ✅ or ❌ when its turn ends. ack_emoji picks the received emoji per bot
+// (user 2026-11-20「支持自定义」), default 👀. Messages still marked are kept in a
+// small file together with the emoji that was put on, so a restart that cut a turn
+// short takes exactly that emoji off at the next Ready, even after ack_emoji changed.
 const (
-	ackEmojiReceived = "👀"
-	ackEmojiDone     = "✅"
-	ackEmojiFailed   = "❌"
+	defaultAckEmoji = "👀"
+	ackEmojiDone    = "✅"
+	ackEmojiFailed  = "❌"
 )
 
 type ackReactions struct {
-	mu      sync.Mutex
-	path    string            // "" = keep in memory only
-	pending map[string]string // message ID → channel ID, while 👀 is on
+	mu       sync.Mutex
+	path     string // "" = keep in memory only
+	received string // emoji put on when a message is taken
+	pending  map[string]ackPending
+}
+
+// ackPending is one message still carrying the received emoji.
+type ackPending struct {
+	Channel string `json:"c"`
+	Emoji   string `json:"e"`
+}
+
+// UnmarshalJSON also reads the older file format, where the value was just the
+// channel ID and the emoji was always 👀.
+func (a *ackPending) UnmarshalJSON(raw []byte) error {
+	var channel string
+	if err := json.Unmarshal(raw, &channel); err == nil {
+		*a = ackPending{Channel: channel, Emoji: defaultAckEmoji}
+		return nil
+	}
+	type plain ackPending
+	var v plain
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	*a = ackPending(v)
+	return nil
 }
 
 var _ core.TurnReactor = (*Platform)(nil)
 
 func newAckReactions(opts map[string]any) *ackReactions {
-	a := &ackReactions{pending: map[string]string{}}
+	a := &ackReactions{received: defaultAckEmoji, pending: map[string]ackPending{}}
+	if e, _ := opts["ack_emoji"].(string); strings.TrimSpace(e) != "" {
+		a.received = strings.TrimSpace(e)
+	}
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
 		project, _ := opts["cc_project"].(string)
 		a.path = filepath.Join(dir, "discord_ack_pending_"+project+".json")
@@ -58,33 +88,34 @@ func (a *ackReactions) set(msgID, channelID string, on bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if on {
-		a.pending[msgID] = channelID
+		a.pending[msgID] = ackPending{Channel: channelID, Emoji: a.received}
 	} else {
 		delete(a.pending, msgID)
 	}
 	a.saveLocked()
 }
 
-func (a *ackReactions) has(msgID string) bool {
+// lookup returns the emoji put on msgID, if it is still marked.
+func (a *ackReactions) lookup(msgID string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	_, ok := a.pending[msgID]
-	return ok
+	p, ok := a.pending[msgID]
+	return p.Emoji, ok
 }
 
-// clearStale takes this bot's 👀 off messages left marked by the previous run.
+// clearStale takes this bot's received emoji off messages left marked by the previous run.
 func (a *ackReactions) clearStale(s *discordgo.Session) {
 	if a == nil || s == nil {
 		return
 	}
 	a.mu.Lock()
-	stale := make(map[string]string, len(a.pending))
-	for id, ch := range a.pending {
-		stale[id] = ch
+	stale := make(map[string]ackPending, len(a.pending))
+	for id, p := range a.pending {
+		stale[id] = p
 	}
 	a.mu.Unlock()
-	for id, ch := range stale {
-		if err := s.MessageReactionRemove(ch, id, ackEmojiReceived, "@me"); err != nil {
+	for id, p := range stale {
+		if err := s.MessageReactionRemove(p.Channel, id, p.Emoji, "@me"); err != nil {
 			slog.Debug("discord: clear stale ack reaction failed", "message", id, "error", err)
 		}
 		a.set(id, "", false)
@@ -117,7 +148,7 @@ func (p *Platform) ReactReceived(replyCtx any) {
 	if !ok {
 		return
 	}
-	if err := s.MessageReactionAdd(ch, id, ackEmojiReceived); err != nil {
+	if err := s.MessageReactionAdd(ch, id, p.acks.received); err != nil {
 		slog.Debug("discord: ack reaction failed", "message", id, "error", err)
 		return
 	}
@@ -127,7 +158,11 @@ func (p *Platform) ReactReceived(replyCtx any) {
 // ReactTurnOutcome implements core.TurnReactor.
 func (p *Platform) ReactTurnOutcome(replyCtx any, failed bool) {
 	s, ch, id, ok := p.ackTarget(replyCtx)
-	if !ok || !p.acks.has(id) {
+	if !ok {
+		return
+	}
+	received, marked := p.acks.lookup(id)
+	if !marked {
 		return
 	}
 	emoji := ackEmojiDone
@@ -137,7 +172,7 @@ func (p *Platform) ReactTurnOutcome(replyCtx any, failed bool) {
 	if err := s.MessageReactionAdd(ch, id, emoji); err != nil {
 		slog.Debug("discord: outcome reaction failed", "message", id, "error", err)
 	}
-	if err := s.MessageReactionRemove(ch, id, ackEmojiReceived, "@me"); err != nil {
+	if err := s.MessageReactionRemove(ch, id, received, "@me"); err != nil {
 		slog.Debug("discord: remove ack reaction failed", "message", id, "error", err)
 	}
 	p.acks.set(id, "", false)

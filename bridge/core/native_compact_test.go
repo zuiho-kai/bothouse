@@ -154,7 +154,9 @@ func (a *nativeCompactAgent) StartSession(_ context.Context, id string) (AgentSe
 }
 func TestNativeCompactPendingSwitchAndNoSession(t *testing.T) {
 	e, a, p, s := compactFixture(t)
-	e.queueSwitch("test:compact", pendingModelSwitch{model: "new"})
+	if err := e.queueSwitch("test:compact", pendingModelSwitch{Model: "new"}); err != nil {
+		t.Fatal(err)
+	}
 	e.cmdCompress(p, compactMessage("/compact"))
 	select {
 	case got := <-a.called:

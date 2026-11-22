@@ -204,11 +204,10 @@ func (m *ManagementServer) watchDSHRoleEvents(ctx context.Context, out chan<- ds
 func streamDSHRoleEvents(ctx context.Context, c dshAPI, send func(dshRoleUpdate) bool) error {
 	// Subscribe before reading state: events occurring during GET /state stay in the
 	// HTTP stream, so the initial snapshot cannot miss a transition in that window.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+c.target+"/collab/api/events", nil)
+	req, err := c.newRequest(ctx, http.MethodGet, "/collab/api/events", nil)
 	if err != nil {
 		return err
 	}
-	req.Host = c.target
 	// Bound the initial headers using the existing DSH read timeout; keep the
 	// established event stream alive until its subscriber disconnects.
 	streamCtx, cancelStream := context.WithCancel(ctx)

@@ -23,6 +23,7 @@ import (
 var (
 	_ core.TaskCardPublisher = (*Platform)(nil)
 	_ core.BoardPoster       = (*Platform)(nil)
+	_ core.BoardRemover      = (*Platform)(nil)
 )
 
 // TaskCardDestination is the session's chat ID.
@@ -116,6 +117,35 @@ func (p *Platform) UpsertBoard(ctx context.Context, sessionKey, messageID, conte
 	}
 	p.boardPinned.Store(id, struct{}{})
 	return id, nil
+}
+
+// feishuMessageDeletedCode: recalling a message that is already deleted
+// (SPEC: Feishu "撤回消息" error code table, 230110).
+const feishuMessageDeletedCode = 230110
+
+// RemoveBoard unpins the board card and recalls it (the bot's own message, so
+// no extra scope). The unpin goes first and its failure is only logged: when
+// the recall is refused (e.g. past the tenant's recall time limit) the stale
+// board at least leaves the pin list. A board already deleted counts as removed.
+func (p *Platform) RemoveBoard(ctx context.Context, _ string, messageID string) error {
+	if messageID == "" {
+		return nil
+	}
+	if err := p.unpinMessage(ctx, messageID); err != nil {
+		slog.Warn(p.tag()+": unpin old board failed", "message_id", messageID, "error", err)
+	}
+	if err := p.deleteMessage(ctx, messageID); err != nil && !isFeishuMessageDeleted(err) {
+		return fmt.Errorf("feishu: remove board: %w", unrecoverableErr(err))
+	}
+	p.boardPinned.Delete(messageID)
+	return nil
+}
+
+// isFeishuMessageDeleted: the message was already deleted or withdrawn, so
+// there is nothing left to recall.
+func isFeishuMessageDeleted(err error) bool {
+	var e *feishuIMError
+	return errors.As(err, &e) && (e.Code == feishuMessageDeletedCode || e.Code == feishuMessageWithdrawnCode)
 }
 
 // feishuMessageWithdrawnCode: the message was withdrawn/deleted (same code
@@ -241,6 +271,38 @@ func (p *Platform) pinMessage(ctx context.Context, messageID string) error {
 			}
 			if !resp.Success() {
 				return p.imAPIErr("pin message failed", resp.ApiResp, resp.Code, resp.Msg)
+			}
+			return nil
+		})
+	})
+}
+
+func (p *Platform) unpinMessage(ctx context.Context, messageID string) error {
+	req := larkim.NewDeletePinReqBuilder().MessageId(messageID).Build()
+	return p.withTransientRetry(ctx, "unpin message", func() error {
+		return p.withFreshTenantAccessTokenRetry(ctx, "unpin message", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
+			resp, err := client.Im.Pin.Delete(ctx, req, options...)
+			if err != nil {
+				return fmt.Errorf("%s: unpin message api call: %w", p.tag(), err)
+			}
+			if !resp.Success() {
+				return p.imAPIErr("unpin message failed", resp.ApiResp, resp.Code, resp.Msg)
+			}
+			return nil
+		})
+	})
+}
+
+func (p *Platform) deleteMessage(ctx context.Context, messageID string) error {
+	req := larkim.NewDeleteMessageReqBuilder().MessageId(messageID).Build()
+	return p.withTransientRetry(ctx, "delete message", func() error {
+		return p.withFreshTenantAccessTokenRetry(ctx, "delete message", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
+			resp, err := client.Im.Message.Delete(ctx, req, options...)
+			if err != nil {
+				return fmt.Errorf("%s: delete message api call: %w", p.tag(), err)
+			}
+			if !resp.Success() {
+				return p.imAPIErr("delete message failed", resp.ApiResp, resp.Code, resp.Msg)
 			}
 			return nil
 		})

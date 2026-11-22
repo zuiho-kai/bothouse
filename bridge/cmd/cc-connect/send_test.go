@@ -375,3 +375,24 @@ func TestParseSendArgs_DM(t *testing.T) {
 		t.Fatal("--dm with --session must be rejected")
 	}
 }
+
+func TestParseSendArgs_AskUser(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CC_PROJECT", "maomao")
+	t.Setenv("CC_SESSION_KEY", "discord:chan:user")
+
+	req, _, err := parseSendArgs([]string{"--ask-user", "开关默认关，要不要打开？"})
+	if err != nil {
+		t.Fatalf("parseSendArgs: %v", err)
+	}
+	if !req.AskUser || req.Message != "开关默认关，要不要打开？" {
+		t.Fatalf("req = %+v", req)
+	}
+	payload, err := buildSendPayload(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"ask_user":true`) {
+		t.Fatalf("payload lacks ask_user flag: %s", payload)
+	}
+}

@@ -61,9 +61,15 @@ type Agent struct {
 	modesCache   []core.PermissionModeInfo
 	modesCurrent string
 
+	// commands is what the last handshake advertised as the server's slash commands;
+	// commandsProbe asks once when nothing has been seen yet (native_commands.go).
+	commands      nativeCommands
+	commandsProbe sync.Once
+
 	// contextTokens holds each ACP session's last reported prompt size (reportContextTokens).
 	contextMu     sync.Mutex
 	contextTokens map[string]int
+	contextUsage  map[string]core.ContextUsage
 
 	mu sync.RWMutex
 }
@@ -76,6 +82,7 @@ type sessionCallbacks interface {
 	reportModes(block acpModesBlock)
 	reportListSupported(supported bool)
 	reportContextTokens(sessionID string, tokens int)
+	reportContextUsage(sessionID string, usage core.ContextUsage)
 }
 
 // Ensure *Agent satisfies sessionCallbacks at compile time.
@@ -444,7 +451,7 @@ func (a *Agent) reportContextTokens(sessionID string, tokens int) {
 }
 
 // LastContextTokens implements core.ContextSizeReader: the prompt size the agent last reported
-// for this session, 0 when it never did (only Grok's ACP server reports it, see onXAIUpdate).
+// for this session, 0 when unknown or empty (usage_update or Grok's onXAIUpdate).
 func (a *Agent) LastContextTokens(sessionID string) int {
 	a.contextMu.Lock()
 	defer a.contextMu.Unlock()

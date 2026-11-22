@@ -91,16 +91,69 @@ func UsagePricesWithDefaults(configured map[string]TokenPrice) map[string]TokenP
 
 // priceSuffixes are trailing id segments that name a variant of a priced model
 // without changing its rate (date stamps, preview/trial markers, provider
-// variants). They are trimmed only when the remaining id has a price.
-var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n"}
+// variants, agent effort tiers). They are trimmed only when the remaining id
+// has a price. The effort tiers (-medium/-high/-low/-max/-minimal/-xhigh/
+// -none/-thinking/-1m) come from the Devin CLI catalog, which appends the
+// effort or variant tier to the base model id ("claude-fable-5-2-medium",
+// "swe-2-high"); the tokens are still the base model's (#2071).
+var priceSuffixes = []string{"-trial", "-preview", "-latest", "-exp", "-free", "-n",
+	"-minimal", "-xhigh", "-medium", "-high", "-low", "-none", "-max", "-thinking", "-1m"}
+
+// usagePriceProviders are live price sources registered by agent packages from
+// init(). An agent that can enumerate its own catalog (the Devin CLI's
+// `models list --format json` names every variant's rate, including paid tiers
+// like -lightning/-fast/-priority that no suffix rule can derive) reports its
+// rates this way instead of growing hand-keyed default rows (#2071 follow-up).
+// Providers run when the static table misses and must be safe for concurrent
+// use; they are consulted with the raw model id and every stripped form of it.
+//
+// A nil value means the catalog lists the id but gives no usable rate (a paid
+// tier with no cost summary). Such an id is authoritative too: lookup reports
+// it unpriced instead of stripping suffixes down to a base model's estimate —
+// "swe-2-max" listed as paid must never be charged at "swe-2"'s $0 (#2073).
+var usagePriceProviders []func() map[string]*TokenPrice
+var usagePriceProvidersMu sync.RWMutex
+
+// RegisterUsagePriceProvider adds a live price source. Call it once from an
+// agent package's init(); fn may compute lazily and should cache.
+func RegisterUsagePriceProvider(fn func() map[string]*TokenPrice) {
+	usagePriceProvidersMu.Lock()
+	defer usagePriceProvidersMu.Unlock()
+	usagePriceProviders = append(usagePriceProviders, fn)
+}
+
+// providerPrices queries every registered source for id; the first source
+// listing it wins. listed reports whether any source knows the id; ok whether
+// that source also gave a rate.
+func providerPrices(id string) (p TokenPrice, ok, listed bool) {
+	usagePriceProvidersMu.RLock()
+	defer usagePriceProvidersMu.RUnlock()
+	for _, fn := range usagePriceProviders {
+		if v, found := fn()[id]; found {
+			if v == nil {
+				return TokenPrice{}, false, true
+			}
+			return *v, true, true
+		}
+	}
+	return TokenPrice{}, false, false
+}
 
 // lookupPrice finds the rate for a model id. Logs record ids exactly as the
 // caller wrote them ("xiao/gpt-6-astra", "gemini-4-argon-trial"), while the price
 // tables key on the bare model name, so an exact match is tried first and then
-// the provider prefix and variant suffixes are trimmed.
+// the provider prefix and variant suffixes are trimmed. At every step a live
+// catalog's answer for that exact id — a rate or "listed, price unknown" — is
+// final and beats any estimate from a shorter id.
 func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) {
 	if p, ok := prices[model]; ok {
 		return p, true
+	}
+	// Live catalogs key on the exact variant id ("swe-2-max" ≠ "swe-2"), so the
+	// full id is priced before any base-model estimate — a tier can flip from
+	// free to paid at any time and the estimate would hide it (#2071 review).
+	if p, ok, listed := providerPrices(model); listed {
+		return p, ok
 	}
 	base := model
 	if i := strings.LastIndex(base, "/"); i >= 0 {
@@ -109,12 +162,18 @@ func lookupPrice(prices map[string]TokenPrice, model string) (TokenPrice, bool) 
 	if p, ok := prices[base]; ok {
 		return p, true
 	}
+	if p, ok, listed := providerPrices(base); listed {
+		return p, ok
+	}
 	for changed := true; changed; {
 		changed = false
 		for _, suf := range priceSuffixes {
 			if strings.HasSuffix(base, suf) && len(base) > len(suf) {
 				base = strings.TrimSuffix(base, suf)
 				changed = true
+				if p, ok, listed := providerPrices(base); listed {
+					return p, ok
+				}
 				if p, ok := prices[base]; ok {
 					return p, true
 				}

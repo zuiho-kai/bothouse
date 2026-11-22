@@ -147,7 +147,7 @@ func dshModelSetup(lang, project, dshHome string, p *WizardProvider) (map[string
 			return nil, err
 		}
 		if strings.TrimSpace(p.APIKey) == "" {
-			return nil, fmt.Errorf("%s", dshNoKeyText(lang, project, "provider.api_key"))
+			return nil, &wizardCodedError{code: "dsh_no_key", msg: dshNoKeyText(lang, project, "provider.api_key")}
 		}
 		return map[string]string{DSHKeyEnv: strings.TrimSpace(p.APIKey)}, nil
 	}
@@ -168,8 +168,13 @@ func dshModelSetup(lang, project, dshHome string, p *WizardProvider) (map[string
 	if account {
 		return nil, nil
 	}
-	return nil, fmt.Errorf("%s", dshNoKeyText(lang, project, keyEnv))
+	return nil, &wizardCodedError{code: "dsh_no_key", msg: dshNoKeyText(lang, project, keyEnv)}
 }
+
+// wizardCodedError is an error with a code the setup result carries (WizardResult.ErrorCode).
+type wizardCodedError struct{ code, msg string }
+
+func (e *wizardCodedError) Error() string { return e.msg }
 
 // dshNoKeyText: a DSH role would have no key for its model (what = the missing field or env name).
 func dshNoKeyText(lang, project, what string) string {

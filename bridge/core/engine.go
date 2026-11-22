@@ -381,13 +381,20 @@ type RateLimitCfg struct {
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
 	taskForumOff           atomic.Bool
+	mentionAssignerOn      atomic.Bool
+	mentionHumanGateOn     atomic.Bool
+	humanMentions          humanMentionGate
 	proactiveMu            sync.Mutex
 	proactiveAuthorization *ProactiveAuthorization
 	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
 	turnJournal     *TurnJournal
 	turnJournalOnce sync.Once
 	// #624 K4: resume interrupted turns once, after the first platform is ready.
-	turnResumeOnce  sync.Once
+	turnResumeOnce sync.Once
+	// #1856 restart catch-up (missed_catchup.go)
+	missedSkipOnce  sync.Once
+	missedSkip      map[string]bool
+	missedCaughtUp  sync.Map // Platform -> true once read
 	releaseHoldOnce sync.Once
 	turnResumeHooks turnResumeHooks
 	relaySessions   relaySessionSet
@@ -448,6 +455,8 @@ type Engine struct {
 
 	rateLimiter      atomic.Pointer[RateLimiter]         // swapped by SetRateLimitCfg (config reload)
 	outgoingRL       atomic.Pointer[OutgoingRateLimiter] // swapped by SetOutgoingRateLimitCfg
+	proactive        *proactiveOutbox                    // #1857: one door for scheduled messages (proactive_outbox.go)
+	proactiveOn      atomic.Bool                         // #1860: [proactive] enabled; off by default, then everything goes straight through
 	streamPreview    StreamPreviewCfg
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
@@ -542,6 +551,7 @@ type Engine struct {
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
 	workspaceExec     workspaceExec     // team workspaces start on this provider/model (session_models.go)
 	sessionSelections map[string]sessionModelSelection
+	handoffModelBases map[string]sessionModelSelection // projectState nil: see projectStateData.HandoffModelBases
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
 
@@ -669,6 +679,7 @@ type queuedMessage struct {
 	// #618 K4: Message.resumedFrom/timerJobID/resumeNoProgress/resumeFallback, kept across the queue.
 	resumedFrom      string
 	timerJobID       string
+	wakeID           string // #2024
 	cronJobID        string
 	resumeNoProgress int
 	resumeFallback   string
@@ -695,6 +706,7 @@ type queuedMessage struct {
 	// #739: a gate abort/redirect (Message.abortFront) is queued at the front, ahead of what it
 	// cancels; a batch that folds it in still answers it (queue_batch.go).
 	abortFront    bool
+	nativeCommand bool   // Message.nativeCommand, kept across the queue
 	queueOrder    uint64 // #739: assigned at admission, before an abort moves to the queue front
 	turnCtxSender string // #1160
 	fromBot       bool
@@ -731,6 +743,7 @@ type interactiveState struct {
 	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
+	agentStartDone           <-chan struct{} // startup: placeholder while StartSession runs outside interactiveMu; guarded by interactiveMu
 	agentSession             AgentSession
 	processClaimed           bool           // foreground owns the process until the final queue check and session unlock; guarded by mu
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
@@ -815,6 +828,9 @@ type interactiveState struct {
 	// currentJobID: the timer job this turn is running (a workspace-handback wake settles
 	// against it, team_report_delivery.go); empty for a user turn. Guarded by mu.
 	currentJobID string
+	// currentWakeID: the wake (#2024, wake_return.go) this turn runs; its result goes back to
+	// the conversation that woke it. Guarded by mu.
+	currentWakeID string
 	// scheduledWatch: the token of the time limit armed for this turn (armScheduledTurnTimeout); 0 none.
 	scheduledWatch uint64
 	// scheduledCancel: open while a time limit's cancel claimed for the running turn is in flight
@@ -1029,6 +1045,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		agent:                 ag,
 		platforms:             platforms,
 		sessions:              NewSessionManager(sessionStorePath),
+		proactive:             sharedProactiveOutbox,
 		ctx:                   ctx,
 		cancel:                cancel,
 		i18n:                  NewI18n(lang),
@@ -1759,6 +1776,9 @@ func (e *Engine) SetBaseWorkDir(dir string) {
 
 func (e *Engine) SetProjectStateStore(store *ProjectStateStore) {
 	e.projectState = store
+	if store != nil {
+		e.pendingSwitch = maps.Clone(store.state.PendingModelSwitches)
+	}
 }
 
 func (e *Engine) SetDataDir(dir string) {
@@ -1874,6 +1894,20 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		j.Mute = true
 		job = &j
 		slog.Info("cron: test job runs muted", "job", job.ID, "desc", job.Description)
+	}
+	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
+	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
+	var proactiveIDs []string
+	if ob := e.outbox(); !job.IsShellJob() && ob != nil {
+		if ok, why := ob.admit(job, proactiveChat(job.SessionKey)); !ok {
+			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
+			return nil
+		}
+		merged, ids := ob.batch(job)
+		if merged == nil {
+			return nil // joined a run due at the same time; that run does this job too
+		}
+		job, proactiveIDs = merged, ids
 	}
 	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
 	e.hooks.Emit(HookEvent{
@@ -2075,9 +2109,14 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		}
 		prevHistLen := session.HistoryLen()
 		e.noteScheduledTurn(job.ID, iKey)
+		endProactive := e.startProactiveRun(proactiveIDs, sessionKey, runSessionKey, msg.SessionKey)
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
+		endProactive()
 		e.forgetScheduledTurn(job.ID, iKey)
-		e.cleanupInteractiveState(iKey)
+		e.cleanupSideRunState(iKey)
+		if !job.Mute && turnDelivered(session, prevHistLen) {
+			e.proactiveDelivered(proactiveIDs, runSessionKey)
+		}
 		// Empty-response detection via session history delta: processInteractiveMessageWith
 		// always adds a "user" entry (prevHistLen+1), then an "assistant" entry on success
 		// (prevHistLen+2). This approach correctly detects empty responses across all
@@ -2115,8 +2154,13 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	prevHistLen := session.HistoryLen()
 	e.noteScheduledTurn(job.ID, iKey)
+	endProactive := e.startProactiveRun(proactiveIDs, sessionKey, runSessionKey)
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
+	endProactive()
 	e.forgetScheduledTurn(job.ID, iKey)
+	if !job.Mute && turnDelivered(session, prevHistLen) {
+		e.proactiveDelivered(proactiveIDs, sessionKey)
+	}
 	// Same empty-response detection as the useNewSession path above.
 	if !job.Mute && session.HistoryLen() < prevHistLen+2 {
 		return fmt.Errorf("cron job %q produced an empty response", job.ID)
@@ -2453,7 +2497,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		e.setTurnModel(iKey, "")
 		e.forgetScheduledTurn(job.ID, iKey)
-		e.cleanupInteractiveState(iKey)
+		e.cleanupSideRunState(iKey)
 		return nil
 	}
 
@@ -2539,7 +2583,7 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 	}
 	e.teamNoteTurn(msg, session)
 	if msg.handoffSeenMark != "" && session.GetLastSeenMsgID() == "" { // #1705
-		markSeen(session, &Message{MessageID: msg.handoffSeenMark})
+		markSeen(msg.scheduledFrom, session, &Message{MessageID: msg.handoffSeenMark})
 	}
 	if !msg.scheduledBackfilled {
 		e.cronChannelBackfill(msg.scheduledFrom, msg.SessionKey, session, msg)
@@ -3045,6 +3089,15 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 // ExecuteHeartbeat runs a heartbeat check by injecting a synthetic message
 // into the main session, similar to cron but designed for periodic awareness.
 func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, silent, "")
+}
+
+// executeWake is a silent heartbeat turn that carries a wake ID (#2024, wake_return.go).
+func (e *Engine) executeWake(sessionKey, prompt, wakeID string) error {
+	return e.executeHeartbeatTurn(sessionKey, prompt, true, wakeID)
+}
+
+func (e *Engine) executeHeartbeatTurn(sessionKey, prompt string, silent bool, wakeID string) error {
 	runID := heartbeatRunID(sessionKey) // before the workspace prefix is stripped below
 	if e.IsPaused() {
 		return fmt.Errorf("engine %q is paused", e.name)
@@ -3100,6 +3153,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 		UserName:   "heartbeat",
 		Content:    prompt,
 		ReplyCtx:   replyCtx,
+		wakeID:     wakeID,
 	}
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
@@ -3140,6 +3194,9 @@ func (e *Engine) Start() error {
 		if sc, ok := p.(SilentChannelAware); ok {
 			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
 			sc.SetSilentChannel(e.isTeamWorkspaceChat)
+		}
+		if mg, ok := p.(HumanMentionGateAware); ok {
+			mg.SetHumanMentionGate(e.mentionHumanGateEnabled)
 		}
 		if err := p.Start(e.handlePlatformMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
@@ -3288,7 +3345,13 @@ func (e *Engine) onPlatformReady(p Platform) {
 	e.initPlatformCapabilities(p)
 	// #624 K4: scan the turn journal once; each entry waits for its own platform.
 	// Tracked as message work so Stop waits for it (it opens the journal under dataDir).
+	// #1856: what the inherited journal holds is left to the resume; read it before the resume runs.
+	e.missedSkipOnce.Do(func() { e.missedSkip = e.journalMessageIDs() })
 	e.turnResumeOnce.Do(func() { e.startMessageWorker(e.ResumeInterruptedTurns) })
+	if _, done := e.missedCaughtUp.LoadOrStore(p, true); !done {
+		skip := e.missedSkip
+		e.startMessageWorker(func() { e.catchUpMissed(p, skip) })
+	}
 	e.releaseHoldOnce.Do(func() { e.startMessageWorker(e.resumeReleaseHolds) })
 }
 
@@ -3738,6 +3801,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
+	if ob := e.outbox(); msg.authorization == nil && msg.TaskForum == nil && !msg.FromBot && ob != nil {
+		ob.answered(proactiveChat(msg.SessionKey)) // #1857: a person spoke here
+	}
 	slog.Info("message received",
 		"platform", msg.Platform, "msg_id", msg.MessageID,
 		"session", msg.SessionKey, "user", msg.UserName,
@@ -3853,8 +3919,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	// The prompt of this message: the sender's words under the platform blocks.
-	{
-		keepUserText(msg)
+	if keepUserText(msg); !msg.nativeCommand {
 		body := content
 		// A multi-party chat's own words need the speaker's name; otherwise the newest message
 		// reads as if the previous speaker said it. GroupChat
@@ -4269,6 +4334,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		turnTrigger:         msg.turnTrigger,
 		resumedFrom:         msg.resumedFrom,
 		timerJobID:          msg.timerJobID,
+		wakeID:              msg.wakeID,
 		cronJobID:           msg.cronJobID,
 		resumeNoProgress:    msg.resumeNoProgress,
 		resumeFallback:      msg.resumeFallback,
@@ -4281,6 +4347,7 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 		mentioned:           msg.Mentioned,
 		direct:              msg.Direct,
 		abortFront:          msg.abortFront, // #739: the batch still answers this one
+		nativeCommand:       msg.nativeCommand,
 		boardDesc:           boardDescOf(msg),
 	}
 	// Mixed explicit/automatic turns keep separate durable queue entries.
@@ -4981,11 +5048,13 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if e.IsPaused() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine %q is paused", e.name)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine %q is paused", e.name))
 		return
 	}
 	if !e.beginMessageWork() {
 		session.Unlock()
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("engine stopped")})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("engine stopped"))
 		return
 	}
 	defer e.messageWorkers.Done()
@@ -5138,6 +5207,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	state.mu.Unlock()
 	if agentSession == nil {
 		msg.inputTurn.finish(inputTurnResult{err: fmt.Errorf("start session: %s", startErr)})
+		settleWakeReturn(msg.wakeID, "", fmt.Errorf("start session: %s", startErr))
 		text := e.i18n.T(MsgFailedToStartAgentSession)
 		if startErr != "" {
 			// maomao fork: say why, so whoever reads it can act.
@@ -5245,18 +5315,21 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
 		content := session.renderReference(msg.Content, msg.Reference)
 		images := msg.Images
-		if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
-			// maomao fork: first turn of a fresh context gets the recent channel images back.
-			content = note + "\n\n" + content
-			images = append(imgs, images...)
+		promptContent := content // #2041: a native command is the whole prompt, as typed
+		if !msg.nativeCommand {
+			if note, imgs := e.freshContextImages(p, session, msg, images); note != "" {
+				// maomao fork: first turn of a fresh context gets the recent channel images back.
+				content = note + "\n\n" + content
+				images = append(imgs, images...)
+			}
+			content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
+			// voiceMarked: a merged queue batch already carries its per-part marks, so this
+			// turn must not mark the whole text again (#215).
+			content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
+			promptContent = e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
+			promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
+			promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		}
-		content = e.withTurnBlocksRef(session, msg.SessionKey, msg.TurnCtxQuery, msg.TurnCtxSender, content, msg.TurnCtx, msg.Reference)
-		// voiceMarked: a merged queue batch already carries its per-part marks, so this
-		// turn must not mark the whole text again (#215).
-		content = withVoiceNote(content, msg.FromVoice && !msg.voiceMarked)
-		promptContent := e.buildSenderPrompt(content, msg.UserID, msg.UserName, msg.Platform, msg.SessionKey, msg.ChannelKey)
-		promptContent = e.withSharedMemoryHint(promptContent, agent, msg, workspaceDir)
-		promptContent = e.withChannelAgentInstructions(promptContent, msg.UserID, msg.FromBot, p, msg.SessionKey, session, agent)
 		// The public-progress run is minted per attempt (beginAttempt): a capacity
 		// retry's earlier attempt closed its run when its event loop ended.
 		var attemptPrompt string
@@ -5271,6 +5344,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		state.turnDesc = boardDescOf(msg) // maomao fork: channel task board
 		state.turnScheduled = scheduledTurnUser(msg.UserID)
 		state.currentJobID = msg.timerJobID
+		state.currentWakeID = msg.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.UserID, false)
 		e.armTurnSpendCap(state, session, interactiveKey, msg.turnTrigger, msg.timerJobID, msg.cronJobID, msg.SessionKey)
@@ -5283,11 +5357,15 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func() {
 				state.mu.Lock()
 				state.currentJobID = msg.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = msg.wakeID
 				state.externalTaskInput = msg.externalInput
 				state.authorization = msg.authorization
 				state.mu.Unlock()
 				e.noteCallerTurn(msg.SessionKey, msg.Platform, msg.UserID, msg.UserName, msg.ChannelKey, msg.FromBot, msg.timerJobID != "" || msg.cronJobID != "", msg.inputTurn != nil)
-				attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				attemptPrompt = promptContent
+				if !msg.nativeCommand {
+					attemptPrompt = e.withPublicProgress(promptContent, state, msg.SessionKey, msg.FromBot, msg.FromVoice || msg.inputTurn != nil)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -5551,28 +5629,42 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		slog.Info("workspace exec: session starts on workspace provider", "session", ccKey, "provider", settings.Provider, "model", settings.Model)
 	}
 	e.interactiveMu.Lock()
-	defer e.interactiveMu.Unlock()
 	var input *inputTurn
 	if len(inputs) > 0 {
 		input = inputs[0]
 	}
 	if input != nil && (input.expectedID == "" || session.GetAgentSessionID() != input.expectedID || sessions.ActiveSessionID(ccSessionKey) != session.ID) {
+		e.interactiveMu.Unlock()
 		return &interactiveState{startErr: "original session binding changed"}
 	}
 
 	state, ok := e.interactiveStates[sessionKey]
-	for ok && state.agentCloseDone != nil {
+	for ok && (state.agentCloseDone != nil || state.agentStartDone != nil) {
 		closed := state.agentCloseDone
+		started := state.agentStartDone
 		e.interactiveMu.Unlock()
-		select {
-		case <-closed:
-		case <-e.ctx.Done():
-			e.interactiveMu.Lock()
-			return &interactiveState{startErr: "engine stopped while closing the previous process"}
+		if closed != nil {
+			select {
+			case <-closed:
+			case <-e.ctx.Done():
+				e.interactiveMu.Lock()
+				defer e.interactiveMu.Unlock()
+				return &interactiveState{startErr: "engine stopped while closing the previous process"}
+			}
+		} else if started != nil {
+			select {
+			case <-started:
+			case <-e.ctx.Done():
+				e.interactiveMu.Lock()
+				defer e.interactiveMu.Unlock()
+				return &interactiveState{startErr: "engine stopped while starting the process"}
+			}
 		}
 		e.interactiveMu.Lock()
 		if e.interactiveStates[sessionKey] == state {
-			state.agentCloseDone = nil
+			if state.agentCloseDone == closed {
+				state.agentCloseDone = nil
+			}
 		}
 		state, ok = e.interactiveStates[sessionKey]
 	}
@@ -5595,6 +5687,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		if input != nil {
 			_, supported := state.agentSession.(StrictResumeSession)
 			if !supported || currentID != input.expectedID {
+				e.interactiveMu.Unlock()
 				return &interactiveState{startErr: "live session cannot strictly resume the original binding"}
 			}
 		}
@@ -5628,6 +5721,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			state.mu.Lock()
 			state.processClaimed = true
 			state.mu.Unlock()
+			e.interactiveMu.Unlock()
 			return state
 		}
 		// Tear down the stale agent so we start one that matches the Session below.
@@ -5687,9 +5781,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		slog.Debug("skipping session start: context canceled", "session_key", sessionKey)
 		newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true}
 		adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-		state = newState
-		e.interactiveStates[sessionKey] = state
-		return state
+		e.interactiveStates[sessionKey] = newState
+		e.interactiveMu.Unlock()
+		return newState
 	}
 
 	// Restore the agent's active provider from the session before starting a
@@ -5728,6 +5822,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if startSessionID != "" {
 		if validator, ok := agent.(SessionIDValidator); ok && !validator.ValidateSessionID(e.ctx, startSessionID) {
 			if input != nil {
+				e.interactiveMu.Unlock()
 				return &interactiveState{startErr: "original agent session failed validation"}
 			}
 			slog.Warn("session ID does not belong to this project, clearing it",
@@ -5739,15 +5834,32 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	isResume := startSessionID != ""
 	startedFresh := !isResume // maomao fork: see MarkFreshContext below
+
+	startDone := make(chan struct{})
+	placeholder := &interactiveState{
+		modelSettings:    settings,
+		handoffID:        handoffID,
+		agentStartDone:   startDone,
+		platform:         p,
+		replyCtx:         replyCtx,
+		agent:            agent,
+		eventsNeedResync: true,
+		approveAll:       isYoloMode(agent),
+	}
+	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], placeholder)
+	e.interactiveStates[sessionKey] = placeholder
+	e.interactiveMu.Unlock()
+
 	startAt := time.Now()
 	var agentSession AgentSession
 	var err error
 	if input != nil {
 		strict, ok := agent.(StrictResumeAgent)
 		if !ok || !strict.SupportsStrictResume() {
-			return &interactiveState{startErr: "strict resume unsupported"}
+			err = errors.New("strict resume unsupported")
+		} else {
+			agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 		}
-		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 	} else {
 		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
 	}
@@ -5781,21 +5893,37 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				go e.send(p, replyCtx, notice)
 			}
 		}
-		if err != nil {
-			slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-			e.hooks.Emit(HookEvent{
-				Event:      HookEventError,
-				SessionKey: sessionKey,
-				Platform:   p.Name(),
-				Error:      fmt.Sprintf("failed to start session: %v", err),
-			})
-			newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true, startErr: err.Error()}
-			adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-			state = newState
-			e.interactiveStates[sessionKey] = state
-			return state
-		}
 	}
+
+	e.interactiveMu.Lock()
+	defer e.interactiveMu.Unlock()
+	defer close(startDone)
+	placeholder.agentStartDone = nil
+
+	if placeholder.stopped || e.interactiveStates[sessionKey] != placeholder {
+		if agentSession != nil {
+			go e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+		}
+		if placeholder.startErr == "" {
+			placeholder.startErr = "session cleaned up during startup"
+		}
+		return placeholder
+	}
+
+	if err != nil {
+		slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
+		e.hooks.Emit(HookEvent{
+			Event:      HookEventError,
+			SessionKey: sessionKey,
+			Platform:   p.Name(),
+			Error:      fmt.Sprintf("failed to start session: %v", err),
+		})
+		newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true, startErr: err.Error()}
+		adoptPendingFromPlaceholder(placeholder, newState)
+		e.interactiveStates[sessionKey] = newState
+		return newState
+	}
+
 	if startElapsed >= slowAgentStart {
 		slog.Warn("slow agent session start", "elapsed", startElapsed, "agent", agent.Name(), "session_id", startSessionID)
 	}
@@ -5806,7 +5934,8 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentSession != nil {
 				_ = agentSession.Close()
 			}
-			return &interactiveState{startErr: "strict resume returned a different or unsupported session"}
+			placeholder.startErr = "strict resume returned a different or unsupported session"
+			return placeholder
 		}
 	}
 
@@ -5853,9 +5982,8 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		eventsNeedResync: true,
 		approveAll:       isYoloMode(agent),
 	}
-	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-	state = newState
-	e.interactiveStates[sessionKey] = state
+	adoptPendingFromPlaceholder(placeholder, newState)
+	e.interactiveStates[sessionKey] = newState
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 
@@ -5869,7 +5997,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		},
 	})
 
-	return state
+	return newState
 }
 
 // cleanupInteractiveState removes the interactive state for the given session key
@@ -6055,6 +6183,29 @@ func agentSessionResumable(agent Agent, as AgentSession) bool {
 		return r.CanResume()
 	}
 	return true
+}
+
+// cleanupSideRunState ends a one-off scheduled run (cron/timer new_per_run) after its
+// turn. When the agent still runs background work, the turn-end idle close has already
+// kept the process until that work reports back; closing it here would kill the work
+// and the turn that reads its result, and that turn closes the process when it ends.
+// maomao fork, 2026-11-19 #1780: the 11-18 premarket cron put its data script in the
+// background and ended its first turn; this cleanup stopped the process (SIGTERM after
+// 2m) while the woken turn was still writing the judgment, so none was written.
+func (e *Engine) cleanupSideRunState(iKey string) {
+	e.interactiveMu.Lock()
+	keep := false
+	if state := e.interactiveStates[iKey]; state != nil {
+		state.mu.Lock()
+		keep = state.agentSession != nil && state.agentSession.Alive() && agentHasBackgroundWork(state.agentSession)
+		state.mu.Unlock()
+	}
+	e.interactiveMu.Unlock()
+	if keep {
+		slog.Info("scheduled run: agent still runs background work, process kept until it reports back", "session_key", iKey)
+		return
+	}
+	e.cleanupInteractiveState(iKey)
 }
 
 // agentHasBackgroundWork reports whether the agent process still runs work of its own
@@ -6691,13 +6842,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// still owns a pending handback; settle it empty so the fallback posts the result.
 	defer func() {
 		turn.state.mu.Lock()
-		jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+		jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 		if !retrying {
 			turn.state.currentJobID = ""
+			turn.state.currentWakeID = ""
 		}
 		turn.state.mu.Unlock()
 		if jobID != "" && !retrying {
 			e.settleReportWake(jobID, "", nil)
+		}
+		if wakeID != "" && !retrying {
+			settleWakeReturn(wakeID, "", errWakeNoResult)
 		}
 	}()
 	turn.state.mu.Lock()
@@ -6801,6 +6956,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 
 	turn.sendReplySegment = func(p Platform, replyCtx any, segment string) {
+		// A scheduled turn's narration between tool calls is the agent thinking
+		// aloud; only its final reply is meant for the chat (#953).
+		if turn.quietNarration {
+			return
+		}
 		// A live streaming card already shows every word of this turn; a
 		// segment sent beside it repeats the same text as a second message
 		// (#703: DingTalk AI card, thinking/tool/permission flushes).
@@ -6834,8 +6994,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		turn.sentReplySegments = append(turn.sentReplySegments, segment)
 	}
 
-	// Streaming card: aggregate entire turn into a single updatable card.
-	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok {
+	turn.quietNarration = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
+	// Streaming card: aggregate entire turn into a single updatable card. A
+	// quiet scheduled turn opens none — the card is a live preview surface
+	// and its interim text would stream into the chat (#953).
+	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok && !turn.quietNarration {
 		if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, turn.state.replyCtx) }); err != nil {
 			slog.Warn("streaming card creation failed, falling back to normal messages", "error", err)
 		} else {
@@ -6844,7 +7007,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
-	turn.sp = newStreamPreview(e.streamPreview, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
+	turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
 	// A failed freeze has not delivered the segment. Stop this output turn
 	// before detaching its preview or recording the segment as sent.
 	turn.freezePreview = func() bool {
@@ -6860,7 +7023,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	turn.cp = newCompactProgressWriter(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), turn.sessionKey, workspaceRenderer)
-	if turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey) {
+	if turn.quietNarration {
 		turn.cp.hideForScheduled()
 	}
 	turn.state.mu.Unlock()
@@ -6874,7 +7037,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
 	// is only needed when the platform doesn't support cards or card creation failed.
-	if e.instantReply.Enabled && turn.streamCard == nil {
+	if e.instantReply.Enabled && turn.streamCard == nil && !turn.quietNarration {
 		replyContent := e.instantReply.Content
 		if replyContent == "" {
 			replyContent = e.i18n.T(MsgStarting)
@@ -7069,7 +7232,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		richCardSupporter, hasRichCard := p.(RichCardSupporter)
 		// Card 2.0 rich-card path is opt-in via [display] mode = "rich".
 		// Default "legacy" keeps upstream behavior for all platforms.
-		if e.display.CardMode != "rich" {
+		// A quiet scheduled turn streams no interim card either (#953).
+		if e.display.CardMode != "rich" || turn.quietNarration {
 			hasRichCard = false
 		}
 		richMarkdownResolver, hasRichMarkdownResolver := p.(RichCardMarkdownResolver)
@@ -7230,10 +7394,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				break
 			}
 			// When thinking messages are hidden, behavior depends on display mode:
-			//   quiet:   append separator to keep all text in one card
+			//   quiet / progress_style=card: keep text in the open segment so a
+			//     hidden thinking boundary never splits narration into chat
 			//   compact: freeze+detach to split text into separate cards
 			if !e.display.ThinkingMessages && len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) {
-				if e.display.Mode == "quiet" {
+				if e.display.Mode == "quiet" || turn.cp.style == progressStyleCard {
 					if turn.sp.canPreview() && turn.sp.appendSeparator("\n\n") {
 						turn.textParts = append(turn.textParts, "\n\n")
 					}
@@ -7263,6 +7428,17 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					continue // skip original independent message sending
 				}
 				// --- Original path (fallback) ---
+				// maomao fork: with progress_style=card, narration before a
+				// thinking step goes into the progress card and never into
+				// standalone chat messages, even after a card transport failure.
+				if turn.cp.style == progressStyleCard && len(turn.textParts) > turn.segmentStart {
+					turn.sp.discard()
+					if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+						turn.cp.Append(segment)
+					}
+					turn.segmentStart = len(turn.textParts)
+					turn.silentHold = false
+				}
 				// Flush accumulated text segment before thinking display
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {
@@ -7304,6 +7480,20 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			e.journalProgress(turn.sessionKey, strings.TrimSpace(event.ToolName+" "+event.ToolInput), "", true) // #618 K4
 			e.emitStreamEvent(StreamEventTool, turn.sessionKey, event.ToolInput, map[string]any{"tool": event.ToolName})
 			e.notePublicProgressTool(turn.state, event.ToolInput)
+			// maomao fork: with progress_style=card (or an active compact
+			// progress writer when tool messages are shown), narration between
+			// tool calls ("Now my own file.") goes into the progress card and
+			// never into standalone chat messages — even when tool_messages is
+			// false or after a transient card transport failure.
+			if !hasRichCard && len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) &&
+				(turn.cp.style == progressStyleCard || (e.display.ToolMessages && turn.cp.Active())) {
+				turn.sp.discard()
+				if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+					turn.cp.Append(segment)
+				}
+				turn.segmentStart = len(turn.textParts)
+				turn.silentHold = false
+			}
 			// Tool detail visibility must not suppress the progress event itself.
 			if !e.display.ToolMessages && turn.cp.style == progressStyleCard {
 				turn.cp.AppendEvent(ProgressEntryToolUse, "", event.ToolName, "")
@@ -7393,18 +7583,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					continue // skip original independent message sending
 				}
 				// --- Original path (fallback) ---
-				// maomao fork: with an in-place progress card, narration between
-				// tool calls ("Now my own file.") goes into the card, not the chat.
-				if turn.cp.Active() && len(turn.textParts) > turn.segmentStart {
-					if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) {
-						if turn.sp.canPreview() {
-							turn.sp.discard()
-						}
-						turn.cp.Append(segment)
-					}
-					turn.segmentStart = len(turn.textParts)
-					turn.silentHold = false
-				}
 				// Flush accumulated text segment before tool display
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {
@@ -8374,13 +8552,16 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.startScheduledQueuedTurn(&queued, session)
 		rawQueued = queued // maomao fork: re-delivered with its backfill (those posts are marked seen now)
 		queued.content = session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		prompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
 		state.mu.Lock()
 		queuedAgent, queuedWorkspace := state.agent, state.workspaceDir
 		state.mu.Unlock()
-		prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
-		prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		prompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			prompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			prompt = e.withSharedMemoryHint(prompt, queuedAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, queuedWorkspace)
+			prompt = e.withChannelAgentInstructions(prompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, session, queuedAgent)
+		}
 
 		state.mu.Lock()
 		as := state.agentSession // capture under lock to avoid race with cleanup (mirrors #1436)
@@ -8411,6 +8592,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 		e.setTurnMode(state, as, queued.modeOverride) // restored when runTurnWithCapacityRetry returns
 		state.mu.Lock()
 		state.currentJobID = queued.timerJobID
+		state.currentWakeID = queued.wakeID
 		state.mu.Unlock()
 		e.armScheduledTurnTimeout(state, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		e.armTurnSpendCap(state, session, sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
@@ -8420,9 +8602,13 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 			func() { // per attempt, like the direct turn: a capacity retry needs a live run
 				state.mu.Lock()
 				state.currentJobID = queued.timerJobID // re-armed for a capacity retry
+				state.currentWakeID = queued.wakeID
 				state.mu.Unlock()
 				e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-				attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				attemptPrompt = prompt
+				if !queued.nativeCommand {
+					attemptPrompt = e.withPublicProgress(prompt, state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+				}
 			},
 			func(as AgentSession) error {
 				if as == nil {
@@ -8813,6 +8999,34 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 				"project", e.name, "command", skill.Name, "type", "skill")
 			e.executeSkill(p, msg, skill, args)
 			return true
+		}
+		// #2041: one of the agent's own slash commands, in a message that calls this role. It
+		// falls through like any other text the bridge does not own, marked so that it reaches
+		// the agent as typed. Said to someone else or to no one it is chat, not a command here.
+		if agent, _, _, err := e.commandContext(p, msg); err == nil && e.addresseeOf(p, msg) == AddrSelf {
+			if nc, ok := agent.(NativeCommandAgent); ok {
+				if name, readOnly := nc.NativeCommand(e.ctx, raw); name != "" {
+					if disabledCmds[strings.ToLower(name)] {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "disabled")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgCommandDisabled), "/"+name))
+						return true
+					}
+					if !readOnly && !e.isAdmin(msg.UserID) {
+						slog.Info("audit: command_blocked",
+							"user_id", msg.UserID, "platform", msg.Platform,
+							"project", e.name, "command", name, "reason", "unauthorized")
+						e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgAdminRequired), "/"+name))
+						return true
+					}
+					slog.Info("audit: command_executed",
+						"user_id", msg.UserID, "platform", msg.Platform,
+						"project", e.name, "command", name, "type", "agent")
+					msg.nativeCommand = true
+					return false
+				}
+			}
 		}
 		// Not a cc-connect command — notify user, then fall through to agent.
 		// In a QQ group it is usually meant for another bot: say nothing there.
@@ -13568,10 +13782,11 @@ func (e *Engine) SendToSession(sessionKey, message string) error {
 
 // SendOptions controls optional behavior for external send callers.
 type SendOptions struct {
-	WorkDir          string
-	AtUsers          []string
-	AtAll            bool
-	ReplyToMessageID string
+	WorkDir            string
+	AtUsers            []string
+	AtAll              bool
+	ReplyToMessageID   string
+	AllowHumanMentions []string
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13588,7 +13803,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 		if useWorkDirSession {
-			return e.SendToSessionInWorkDir(sessionKey, message, images, files, workDir, opts.AtUsers, opts.AtAll)
+			return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, opts.AtUsers, opts.AtAll, opts.AllowHumanMentions)
 		}
 	}
 
@@ -13639,23 +13854,27 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		if err := e.waitOutgoing(p); err != nil {
 			return err
 		}
+		sendCtx := e.ctx
+		if len(opts.AllowHumanMentions) > 0 {
+			sendCtx = WithAllowHumanMentions(sendCtx, opts.AllowHumanMentions...)
+		}
 		// Use AtMentionSender when @users specified and platform supports it
 		if replySender != nil {
-			if err := replySender.ReplyToMessage(e.ctx, replyCtx, message, opts.ReplyToMessageID, opts.AtUsers, opts.AtAll); err != nil {
+			if err := replySender.ReplyToMessage(sendCtx, replyCtx, message, opts.ReplyToMessageID, opts.AtUsers, opts.AtAll); err != nil {
 				return err
 			}
 		} else if len(opts.AtUsers) > 0 || opts.AtAll {
 			if atSender, ok := p.(AtMentionSender); ok {
-				if err := atSender.ReplyWithAt(e.ctx, replyCtx, message, opts.AtUsers, opts.AtAll); err != nil {
+				if err := atSender.ReplyWithAt(sendCtx, replyCtx, message, opts.AtUsers, opts.AtAll); err != nil {
 					return err
 				}
 			} else {
-				if err := p.Send(e.ctx, replyCtx, message); err != nil {
+				if err := p.Send(sendCtx, replyCtx, message); err != nil {
 					return err
 				}
 			}
 		} else {
-			if err := p.Send(e.ctx, replyCtx, message); err != nil {
+			if err := p.Send(sendCtx, replyCtx, message); err != nil {
 				return err
 			}
 		}
@@ -13722,6 +13941,10 @@ type sendTarget struct {
 }
 
 func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []ImageAttachment, files []FileAttachment, workDir string, atUsers []string, atAll bool) error {
+	return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, atUsers, atAll, nil)
+}
+
+func (e *Engine) sendToSessionInWorkDir(sessionKey, message string, images []ImageAttachment, files []FileAttachment, workDir string, atUsers []string, atAll bool, allowHumans []string) error {
 	if message == "" && len(images) == 0 && len(files) == 0 {
 		return fmt.Errorf("message or attachment is required")
 	}
@@ -13767,16 +13990,20 @@ func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []Ima
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err
 		}
+		sendCtx := e.ctx
+		if len(allowHumans) > 0 {
+			sendCtx = WithAllowHumanMentions(sendCtx, allowHumans...)
+		}
 		if len(atUsers) > 0 || atAll {
 			if atSender, ok := target.platform.(AtMentionSender); ok {
-				if err := atSender.ReplyWithAt(e.ctx, target.replyCtx, message, atUsers, atAll); err != nil {
+				if err := atSender.ReplyWithAt(sendCtx, target.replyCtx, message, atUsers, atAll); err != nil {
 					return err
 				}
-			} else if err := target.platform.Send(e.ctx, target.replyCtx, message); err != nil {
+			} else if err := target.platform.Send(sendCtx, target.replyCtx, message); err != nil {
 				return err
 			}
 		} else {
-			if err := target.platform.Send(e.ctx, target.replyCtx, message); err != nil {
+			if err := target.platform.Send(sendCtx, target.replyCtx, message); err != nil {
 				return err
 			}
 		}
@@ -14502,6 +14729,16 @@ func (e *Engine) sendRenderedWithContext(ctx context.Context, p Platform, replyC
 }
 
 // send wraps p.Send with error logging, slow-operation warnings, and outgoing rate limiting.
+// turnPreviewCfg: a quiet (scheduled) turn shows no live preview; its text would
+// otherwise appear in the chat while it is written and stay at each tool boundary.
+func (e *Engine) turnPreviewCfg(quiet bool) StreamPreviewCfg {
+	cfg := e.streamPreview
+	if quiet {
+		cfg.Enabled = false
+	}
+	return cfg
+}
+
 func (e *Engine) send(p Platform, replyCtx any, content string) {
 	_ = e.sendWithError(p, replyCtx, content)
 }
@@ -19586,7 +19823,9 @@ func (e *Engine) resolveWorkspace(p Platform, channelID string) (string, string,
 		name, err := resolver.ResolveChannelName(channelID)
 		if err != nil {
 			slog.Warn("failed to resolve channel name", "channel", channelID, "err", err)
-		} else {
+		} else if name == filepath.Base(name) && name != "." && name != ".." {
+			// Only a plain directory name becomes a path under base_dir. A Feishu group can be
+			// called "../x" or "a/b" (Discord and Slack channel names cannot): no convention match.
 			channelName = name
 		}
 	}

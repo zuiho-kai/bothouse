@@ -28,7 +28,7 @@ const LeadWorkspaceDutyBody = `你现在是这个团队的主角色，这里是�
 - 做完照交接的交回骨架交 [report]。`
 
 const MemberDutyBody = `你现在是这个团队的副手，不是主角色。
-- 没被 @ 或点名不开口；接活、交工作区照团队模式规矩。
+- 谁接话由门闸判：判给你的这一轮由你回（没被 @、接着和你聊的也算），不只回 NO_REPLY；没判给你的不插嘴。接活、交工作区照团队模式规矩。
 - 你不给队友派活、不替主角色验收；要拍板、升级找主角色。`
 
 // RoleDutyLayer is the duty text for this project's current position, "" outside a team.
