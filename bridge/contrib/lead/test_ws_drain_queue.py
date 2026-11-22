@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,9 @@ class DrainQueue(unittest.TestCase):
                                           "CC_BIN": "/usr/bin/false", "CC_PROJECT": "lead"})
         self.env.start()
         self.addCleanup(self.env.stop)
+        # 别的测试先 import 过 board 时，它的目录是那时的环境定的：丢掉缓存，按本测试的临时目录重新加载
+        for name in ("board", "datadir"):
+            sys.modules.pop(name, None)
         self.mod = runpy.run_path(str(Path(__file__).with_name("ws-handoff")))
         self.g = self.mod["drain"].__globals__
         self.queue = Path(self.g["QUEUE"])

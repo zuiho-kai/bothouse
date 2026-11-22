@@ -95,7 +95,7 @@ def _board_dir():
     return (SETUP / "team").expanduser()
 
 
-DIR = _board_dir()
+DIR = datadir.guard(_board_dir())  # BOARD_DIR / team_status_dir 也过测试守卫（11-22 测试经 BOARD_DIR 写进了线上板）
 
 
 def _path(name):
