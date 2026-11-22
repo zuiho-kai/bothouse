@@ -1224,6 +1224,8 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    if effort and not model:  # 分流前统一拦：并进已有任务的分支只转 --model，单写的 --effort 会被丢掉（审稿 #2076 第三轮）
+        sys.exit(f"ws-handoff: {_model.check(None, effort)}")
     # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
     print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
           "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)

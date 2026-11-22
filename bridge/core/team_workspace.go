@@ -1836,8 +1836,9 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	// Review #2076 round 2: the task's model goes back before anything of the release is marked
 	// (st is the store's cached copy): an unsaved restore leaves the workspace and its handoffs as
 	// they were, and the next handback tries again.
+	undo := func() error { return nil }
 	if !keep {
-		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+		if undo, err = e.restoreWorkspaceHandoffModels(key); err != nil {
 			teamWorkspaceStore.mu.Unlock()
 			slog.Error("team workspace: not released", "workspace", key, "error", err)
 			return false
@@ -1865,8 +1866,12 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		// The save put the state back to the file: the workspace is still owned and its handoffs
-		// open. Not released, so callers do not reset its sessions or hand it to the queue.
+		// open. Not released, so callers do not reset its sessions or hand it to the queue; the
+		// task kept there keeps its model (review #2076 round 3).
 		slog.Error("team workspace: save state on release failed; not released", "workspace", key, "error", err)
+		if uerr := undo(); uerr != nil {
+			slog.Error("team workspace: release not saved and the task's model not given back", "workspace", key, "error", uerr)
+		}
 		return false
 	}
 	if keep {
@@ -2058,8 +2063,9 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	later := open == 0 && !stop && teamTurnRunning(key)
 	// Review #2076 round 2: the task's model goes back before anything of the give-back is marked
 	// (st is the store's cached copy): an unsaved restore refuses the whole park.
+	undo := func() error { return nil }
 	if open == 0 && !later {
-		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+		if undo, err = e.restoreWorkspaceHandoffModels(key); err != nil {
 			teamWorkspaceStore.mu.Unlock()
 			return false, fmt.Errorf("team workspace park: %s: not given back: %w", key, err)
 		}
@@ -2086,6 +2092,11 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	err = commitTeamTaskAndWorkspacesLocked(e.dataDir, path, st, ev, now)
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
+		// Nothing of the park was saved: the task stays in work in its workspace, on its model
+		// (review #2076 round 3: the restore above is rolled back with it).
+		if uerr := undo(); uerr != nil {
+			err = errors.Join(err, uerr)
+		}
 		return false, fmt.Errorf("team workspace park: %s: save: %w", key, err)
 	}
 	if open > 0 {
@@ -2153,6 +2164,7 @@ func (e *Engine) freeParkedWorkspace(key string) bool {
 		return false
 	}
 	open, _ := teamWorkspaceCountsLocked(st, key)
+	undo := func() error { return nil }
 	if open > 0 {
 		for i, x := range st.Parents[owner] {
 			if x.ID == wsID {
@@ -2160,7 +2172,7 @@ func (e *Engine) freeParkedWorkspace(key string) bool {
 			}
 		}
 	} else {
-		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+		if undo, err = e.restoreWorkspaceHandoffModels(key); err != nil {
 			teamWorkspaceStore.mu.Unlock()
 			slog.Error("team workspace: paused workspace not given back", "workspace", key, "error", err)
 			return false
@@ -2171,6 +2183,9 @@ func (e *Engine) freeParkedWorkspace(key string) bool {
 	teamWorkspaceStore.mu.Unlock()
 	if err != nil {
 		slog.Error("team workspace: save state failed; paused workspace not given back", "workspace", key, "error", err)
+		if uerr := undo(); uerr != nil {
+			slog.Error("team workspace: give-back not saved and the task's model not given back", "workspace", key, "error", uerr)
+		}
 		return false
 	}
 	if open > 0 {

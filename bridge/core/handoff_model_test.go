@@ -46,7 +46,7 @@ func TestHandoffModelRestoredOnGiveBack(t *testing.T) {
 	t.Cleanup(func() { e2.Stop() })
 	e2.SetProjectStateStore(NewProjectStateStore(statePath))
 	for _, ws := range []string{"discord:ws1", "discord:ws2"} { // ws2's switch was never applied: dropped from the queue
-		if err := e2.restoreWorkspaceHandoffModels(ws); err != nil {
+		if _, err := e2.restoreWorkspaceHandoffModels(ws); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -68,7 +68,7 @@ func TestHandoffModelRestoredOnGiveBack(t *testing.T) {
 		t.Fatal(r.Message)
 	}
 	e2.applyPendingSwitch("discord:ws1")
-	if err := e2.restoreWorkspaceHandoffModels("discord:ws1"); err != nil {
+	if _, err := e2.restoreWorkspaceHandoffModels("discord:ws1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := e2.sessionModelFor("discord:ws1"); got != "gemini-4-neon-high" {
@@ -225,5 +225,57 @@ func TestHandoffModelRefusedWhileTurnRuns(t *testing.T) {
 	session.Unlock()
 	if r := e.QueueHandoffModelSwitch(context.Background(), "discord:ws1", "gemini-4-neon-high", ""); !r.OK {
 		t.Fatalf("idle workspace = %+v", r)
+	}
+}
+
+// Review #2076 round 3: the model comes back before the park is saved; when that save then fails,
+// the task stays in its workspace and gets its model back with it (the restore is rolled back).
+func TestParkSaveFailureKeepsHandoffModel(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveSessionSelection(exitWSKey, "own-model", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.queueHandoffSwitch(exitWSKey, pendingModelSwitch{Model: "task-model"}); err != nil {
+		t.Fatal(err)
+	}
+	e.applyPendingSwitch(exitWSKey) // the task runs on its model
+	if err := e.queueHandoffSwitch(exitWSKey, pendingModelSwitch{Model: "task-model-2"}); err != nil {
+		t.Fatal(err) // re-picked by ws-forward, not applied yet
+	}
+	wsDir := filepath.Dir(teamWorkspacePath(e.dataDir))
+	if err := os.Chmod(wsDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(wsDir, 0o755) })
+
+	if freed, err := e.ParkTeamWorkspace("discord:ws1"); err == nil || freed {
+		t.Fatalf("park with an unwritable workspace state = %v, %v; want refused", freed, err)
+	}
+	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatA" {
+		t.Fatalf("workspace given back although the park was not saved: %q,%v", p, ok)
+	}
+	for _, st := range []projectStateData{e.projectState.state, NewProjectStateStore(statePath).state} { // memory and disk
+		if got := st.SessionModelOverrides[exitWSKey].Model; got != "task-model" {
+			t.Fatalf("task's model after a failed park = %q, want task-model", got)
+		}
+		if st.PendingModelSwitches[exitWSKey].Model != "task-model-2" || st.HandoffModelBases[exitWSKey].Model != "own-model" {
+			t.Fatalf("after a failed park: pending=%v bases=%v", st.PendingModelSwitches, st.HandoffModelBases)
+		}
+	}
+
+	if err := os.Chmod(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if freed, err := e.ParkTeamWorkspace("discord:ws1"); err != nil || !freed {
+		t.Fatalf("park after the state is writable = %v, %v; want freed", freed, err)
+	}
+	if got := e.projectState.state.SessionModelOverrides[exitWSKey].Model; got != "own-model" {
+		t.Fatalf("after give-back = %q, want own-model", got)
 	}
 }

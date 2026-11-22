@@ -170,7 +170,8 @@ class HandoffJoinModelTest(unittest.TestCase):
             append_own=Mock(side_effect=AssertionError("must not get past the model check")),
             join=lambda old, path, task, m, e: self.joined.append((old["id"], m, e)) or 0,
             _model=types.SimpleNamespace(parse=_model.parse,
-                                         check=lambda m, e, *a: self.checked.append((m, e)) or (None if m in (None, "opus") else f"模型 {m} 不在本项目的模型列表里"))))
+                                         check=lambda m, e, *a: (_model.check(m, e) if not m else
+                                                                         self.checked.append((m, e)) or (None if m == "opus" else f"模型 {m} 不在本项目的模型列表里")))))
 
     def main(self, *args):
         with contextlib.redirect_stderr(io.StringIO()):
@@ -181,6 +182,13 @@ class HandoffJoinModelTest(unittest.TestCase):
         self.assertEqual(self.main("--model", "deepseek-v5", "--effort", "high"), 0)
         self.assertEqual(self.joined, [(362, "deepseek-v5", "high")])
         self.assertEqual(self.checked, [])
+
+    def test_effort_without_model_refused_before_join(self):
+        # 审稿 #2076 第三轮：单写 --effort 不能在并进分支里被悄悄丢掉，分流前就拦下（不查模型列表）
+        with self.assertRaises(SystemExit) as cm:
+            self.main("--effort", "high")
+        self.assertIn("一起写", str(cm.exception))
+        self.assertEqual(self.joined, [])
 
     def test_new_task_checked_against_own_project(self):
         self.live = False
