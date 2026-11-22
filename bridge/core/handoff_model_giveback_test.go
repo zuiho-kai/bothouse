@@ -189,3 +189,29 @@ func TestDeleteFailureKeepsHandoffModel(t *testing.T) {
 	}
 	wantModel(t, e, statePath, "discord:206:u1", "own-model", false)
 }
+
+// Delete: the channel is gone but the local record could not be dropped (state file unwritable).
+// The delete has happened, so the restore stands: the sessions there are back on their own model,
+// not rolled back to a workspace that no longer exists (review #2076 round 4 follow-up).
+func TestDeleteLocalSaveFailureKeepsRestore(t *testing.T) {
+	g := &failingDeleteGuild{deletingGuild: &deletingGuild{fakeWorkspaceGuild: newWorkspaceGuild()}}
+	g.channels = append(g.channels, TeamChannel{ID: "206", Name: "工作区6", ParentID: "catB"})
+	dataDir := t.TempDir()
+	e := NewEngine("lead", &stubAgent{}, []Platform{g}, "", LangEnglish)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(dataDir)
+	e.SetTeam(t.TempDir(), "橘", true)
+	e.SetTeamWorkspaces(true)
+	statePath := handoffModelOn(t, e, t.TempDir(), "discord:206:u1")
+	if err := os.MkdirAll(filepath.Join(dataDir, teamWorkspaceArchiveDir), 0o700); err != nil {
+		t.Fatal(err) // the archive still lands; only the workspace state beside it cannot be written
+	}
+	readOnlyDir(t, dataDir)
+	if err := e.DeleteTeamWorkspace("discord:206"); err != nil {
+		t.Fatalf("delete with the channel gone = %v, want done", err)
+	}
+	if gone, _ := g.TeamChannelGone(context.Background(), "206"); !gone {
+		t.Fatal("channel not deleted")
+	}
+	wantModel(t, e, statePath, "discord:206:u1", "own-model", false)
+}
