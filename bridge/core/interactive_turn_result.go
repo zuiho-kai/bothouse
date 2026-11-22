@@ -910,8 +910,9 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.cardThinkingText = ""
 		turn.cardAnswerText.Reset()
 
-		// Try to create a new streaming card for the queued turn
-		if scp, ok := queued.platform.(StreamingCardPlatform); ok {
+		// Try to create a new streaming card for the queued turn; a quiet
+		// scheduled turn opens none, same as the first turn (#953).
+		if scp, ok := queued.platform.(StreamingCardPlatform); ok && !turn.quietNarration {
 			if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, queued.replyCtx) }); err != nil {
 				slog.Warn("streaming card creation failed for queued turn", "error", err)
 			} else {
@@ -920,7 +921,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		}
 
 		// Send instant reply for queued turn if no streaming card is active.
-		if e.instantReply.Enabled && turn.streamCard == nil {
+		if e.instantReply.Enabled && turn.streamCard == nil && !turn.quietNarration {
 			replyContent := e.instantReply.Content
 			if replyContent == "" {
 				replyContent = e.i18n.T(MsgStarting)

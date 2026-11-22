@@ -6938,8 +6938,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		turn.sentReplySegments = append(turn.sentReplySegments, segment)
 	}
 
-	// Streaming card: aggregate entire turn into a single updatable card.
-	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok {
+	turn.quietNarration = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
+	// Streaming card: aggregate entire turn into a single updatable card. A
+	// quiet scheduled turn opens none — the card is a live preview surface
+	// and its interim text would stream into the chat (#953).
+	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok && !turn.quietNarration {
 		if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, turn.state.replyCtx) }); err != nil {
 			slog.Warn("streaming card creation failed, falling back to normal messages", "error", err)
 		} else {
@@ -6947,7 +6950,6 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			slog.Info("streaming card created for turn", "session", turn.sessionKey)
 		}
 	}
-	turn.quietNarration = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
 	turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
 	// A failed freeze has not delivered the segment. Stop this output turn
@@ -6979,7 +6981,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
 	// is only needed when the platform doesn't support cards or card creation failed.
-	if e.instantReply.Enabled && turn.streamCard == nil {
+	if e.instantReply.Enabled && turn.streamCard == nil && !turn.quietNarration {
 		replyContent := e.instantReply.Content
 		if replyContent == "" {
 			replyContent = e.i18n.T(MsgStarting)
@@ -7174,7 +7176,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		richCardSupporter, hasRichCard := p.(RichCardSupporter)
 		// Card 2.0 rich-card path is opt-in via [display] mode = "rich".
 		// Default "legacy" keeps upstream behavior for all platforms.
-		if e.display.CardMode != "rich" {
+		// A quiet scheduled turn streams no interim card either (#953).
+		if e.display.CardMode != "rich" || turn.quietNarration {
 			hasRichCard = false
 		}
 		richMarkdownResolver, hasRichMarkdownResolver := p.(RichCardMarkdownResolver)
