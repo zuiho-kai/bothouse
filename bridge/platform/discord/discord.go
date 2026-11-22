@@ -1425,14 +1425,7 @@ func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) er
 // OwnerUserID is the first user ID in allow_from (the setup wizard writes the owner's ID into an
 // empty one).
 // The bridge mentions them for a task a bot or a timer set (core.PlatformOwner, #988).
-func (p *Platform) OwnerUserID() string {
-	for _, id := range strings.Split(p.allowFrom, ",") {
-		if id = strings.TrimSpace(id); id != "" && id != "*" {
-			return id
-		}
-	}
-	return ""
-}
+func (p *Platform) OwnerUserID() string { return core.FirstAllowFrom(p.allowFrom) }
 
 func (p *Platform) sendChannelReply(rc replyContext, content string) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
