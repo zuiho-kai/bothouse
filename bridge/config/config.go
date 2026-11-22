@@ -281,7 +281,7 @@ const (
 type DisplayConfig struct {
 	Mode                 *string `toml:"mode"`                   // "full" (default), "compact", or "quiet"
 	CardMode             *string `toml:"card_mode"`              // "legacy" (default) or "rich" (Card 2.0 Feishu)
-	ThinkingMessages     *bool   `toml:"thinking_messages"`      // whether thinking messages are shown; default true
+	ThinkingMessages     *bool   `toml:"thinking_messages"`      // whether thinking messages are shown; default false
 	ThinkingMaxLen       *int    `toml:"thinking_max_len"`       // max chars for thinking messages; 0 = no truncation; default 300
 	ToolMaxLen           *int    `toml:"tool_max_len"`           // max chars for tool use messages; 0 = no truncation; default 500
 	ToolMessages         *bool   `toml:"tool_messages"`          // whether tool progress messages are shown; default true
@@ -1262,7 +1262,7 @@ func EffectiveDisplay(cfg *Config, proj *ProjectConfig) (mode string, thinkingMe
 	}
 
 	// Mode-derived defaults.
-	thinkingDefault, toolDefault := true, true
+	thinkingDefault, toolDefault := false, true
 	switch mode {
 	case DisplayModeCompact, DisplayModeQuiet:
 		thinkingDefault, toolDefault = false, false
@@ -4398,7 +4398,7 @@ func GetGlobalSettings() map[string]any {
 	if cfg.Display.ThinkingMessages != nil {
 		result["thinking_messages"] = *cfg.Display.ThinkingMessages
 	} else {
-		result["thinking_messages"] = true
+		result["thinking_messages"] = false
 	}
 	if cfg.Display.ThinkingMaxLen != nil {
 		result["thinking_max_len"] = *cfg.Display.ThinkingMaxLen
