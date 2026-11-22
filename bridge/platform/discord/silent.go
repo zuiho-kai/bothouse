@@ -188,12 +188,31 @@ func (p *Platform) workspaceMentionUsers() []string {
 	return users
 }
 
+// SetHumanMentionGate implements core.HumanMentionGateAware (#2091).
+func (p *Platform) SetHumanMentionGate(enabled func() bool) {
+	if enabled == nil {
+		p.humanMentionGate.Store(nil)
+		return
+	}
+	p.humanMentionGate.Store(&enabled)
+}
+
+func (p *Platform) humanMentionGateEnabled() bool {
+	f := p.humanMentionGate.Load()
+	return f != nil && (*f)()
+}
+
 // outboundAllowedMentions returns Discord's allowed_mentions for a bot text message (#2091).
-// By default human mentions, @everyone/@here and role mentions are suppressed while registered
-// teammate bots may still mention each other. Only an explicit core.WithAllowHumanMentions
-// context (release posts and decision asks) lets named human user IDs notify, and never in a
-// silent workspace channel (#1951).
+// While mention_human_gate is off (the default), it returns nil so Discord preserves its
+// standard mention behavior (workspace channels still enforce workspaceAllowedMentions via
+// silentTransport). While mention_human_gate is on, human mentions, @everyone/@here and role
+// mentions are suppressed while registered teammate bots may still mention each other; only an
+// explicit core.WithAllowHumanMentions context (release posts and decision asks) lets named
+// human user IDs notify, and never in a silent workspace channel (#1951).
 func (p *Platform) outboundAllowedMentions(ctx context.Context, channelID string, allowHuman bool) *discordgo.MessageAllowedMentions {
+	if !p.humanMentionGateEnabled() {
+		return nil
+	}
 	allowed := &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
 	seen := make(map[string]struct{})
 	for _, id := range p.workspaceMentionUsers() {
@@ -226,7 +245,13 @@ func discordReqOptions(ctx context.Context) []discordgo.RequestOption {
 }
 
 // Interaction webhook URLs do not contain their channel ID. Apply the same
-// outbound mention policy where the interaction still carries its structured channel.
+// channel / mention-gate policy where the interaction still carries its structured channel.
 func (p *Platform) interactionAllowedMentions(ctx context.Context, channelID string, allowHuman bool) *discordgo.MessageAllowedMentions {
+	if !p.humanMentionGateEnabled() {
+		if !p.isSilentChannel(channelID) {
+			return nil
+		}
+		return workspaceAllowedMentions(p.workspaceMentionUsers(), nil)
+	}
 	return p.outboundAllowedMentions(ctx, channelID, allowHuman)
 }

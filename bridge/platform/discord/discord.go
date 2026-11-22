@@ -83,6 +83,7 @@ type Platform struct {
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
 	acks                       *ackReactions                     // ack_reaction: nil = off (ack_reaction.go)
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
+	humanMentionGate           atomic.Pointer[func() bool]       // maomao fork: see silent.go (#2091)
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
 	cardViews                  cardViews                         // maomao fork: 细节/简略 view per card message (card_view.go)
 	token                      string
@@ -1876,6 +1877,9 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 		view = p.cardViews.turnMode(origin)
 	}
 	msg := buildDiscordPreviewMessageView(content, view)
+	if p.humanMentionGateEnabled() {
+		msg.AllowedMentions = noMentions()
+	}
 	sent, err := p.session.ChannelMessageSendComplex(channelID, msg)
 	if err != nil {
 		return nil, fmt.Errorf("discord: send preview: %w", err)
@@ -1897,7 +1901,11 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
 	p.rememberPreview(h.origin, h.channelID, h.messageID, content)
-	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditViewPage(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID), p.cardViews.page(h.messageID)))
+	edit := buildDiscordPreviewEditViewPage(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID), p.cardViews.page(h.messageID))
+	if p.humanMentionGateEnabled() {
+		edit.AllowedMentions = noMentions()
+	}
+	_, err := p.session.ChannelMessageEditComplex(edit)
 	if err != nil {
 		return fmt.Errorf("discord: edit message: %w", err)
 	}

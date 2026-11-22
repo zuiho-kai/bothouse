@@ -250,3 +250,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 已接
 - cloud-web: 不支持：网页频道的 @ 按成员名字认，allow_from 里是 hub 用户 id，写成 @id 不会提醒到人；DSH 房间里布置人多是真人，直接 @ 布置人
 - dsh: 不支持：同 cloud-web
+
+## HumanMentionGateAware
+
+项目级开关 `mention_human_gate` 控制「收口真 @ 真人」（默认关，支持热加载；团队里主角色打开后全队生效，core/mention_gate.go，#2091）。开关关着时桥不拦，正文里的 `<@真人>` 按角色规矩照常提醒；开关开着时普通回复里的 `<@真人>` 只留文字不响提醒（保留队友机器人互 @），只在「放行交回」（`ws-pass` / 超时交回，由 `mention_assigner` 控制是否带 @ 布置人）和「要拍板」（`ws-forward --ask-user` / `bothouse send --ask-user`）两个出口响铃并做短窗去重。注意：`mention_human_gate` 开着时，角色规矩里写的 `@` 也只在这两个出口响，与 `mention_assigner` 各自独立、不冲突。
+
+- discord: 已接
+- feishu: 不支持：飞书没有类似 Discord `allowed_mentions` 的「正文留 `<@id>` 但不响提醒」发送字段，这次只接 Discord（#2091）
+- cloud-web: 不支持：网页频道没有类似 Discord `allowed_mentions` 的静音 @ 发送字段，这次只接 Discord（#2091）
+- dsh: 不支持：走 cloud-web 帧，同 cloud-web

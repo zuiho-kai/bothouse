@@ -26,21 +26,18 @@ func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
 func buildDiscordPreviewMessageView(content string, view cardView) *discordgo.MessageSend {
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		return &discordgo.MessageSend{
-			Embeds:          []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)},
-			AllowedMentions: noMentions(),
+			Embeds: []*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)},
 		}
 	}
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
 		embed, cur, total := buildDiscordProgressEmbedPage(payload, view, -1)
 		return &discordgo.MessageSend{
-			Embeds:          []*discordgo.MessageEmbed{embed},
-			Components:      cardViewComponentsPaged(view, payload.Lang, cur, total),
-			AllowedMentions: noMentions(),
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: cardViewComponentsPaged(view, payload.Lang, cur, total),
 		}
 	}
 	return &discordgo.MessageSend{
-		Content:         trimDiscordRunes(content, maxDiscordLen),
-		AllowedMentions: noMentions(),
+		Content: trimDiscordRunes(content, maxDiscordLen),
 	}
 }
 
@@ -59,7 +56,6 @@ func buildDiscordPreviewEditView(channelID, messageID, content string, view card
 // 细节 page (-1 = the newest, following new lines).
 func buildDiscordPreviewEditViewPage(channelID, messageID, content string, view cardView, page int) *discordgo.MessageEdit {
 	edit := discordgo.NewMessageEdit(channelID, messageID)
-	edit.AllowedMentions = noMentions()
 	if table, ok := core.ParseSubTaskTablePayload(content); ok {
 		edit.SetContent("")
 		edit.SetEmbeds([]*discordgo.MessageEmbed{buildDiscordSubTaskEmbedView(table, view)})

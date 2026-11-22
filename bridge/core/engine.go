@@ -382,6 +382,7 @@ type RateLimitCfg struct {
 type Engine struct {
 	taskForumOff           atomic.Bool
 	mentionAssignerOn      atomic.Bool
+	mentionHumanGateOn     atomic.Bool
 	humanMentions          humanMentionGate
 	proactiveMu            sync.Mutex
 	proactiveAuthorization *ProactiveAuthorization
@@ -3192,6 +3193,9 @@ func (e *Engine) Start() error {
 		if sc, ok := p.(SilentChannelAware); ok {
 			// A released workspace is still a workspace (isTeamWorkspaceChat checks Handoffs too).
 			sc.SetSilentChannel(e.isTeamWorkspaceChat)
+		}
+		if mg, ok := p.(HumanMentionGateAware); ok {
+			mg.SetHumanMentionGate(e.mentionHumanGateEnabled)
 		}
 		if err := p.Start(e.handlePlatformMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)

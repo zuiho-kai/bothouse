@@ -144,11 +144,46 @@ func (g *humanMentionGate) record(sessionKey, userID string, taskID int) {
 	}
 }
 
+// SetMentionHumanGate wires the project's mention_human_gate switch (#2091); off is the default.
+// It also attaches the live predicate to any already-registered HumanMentionGateAware platform
+// so hot reload and unit tests without Engine.Start() see changes immediately.
+func (e *Engine) SetMentionHumanGate(on bool) {
+	e.mentionHumanGateOn.Store(on)
+	for _, p := range e.platforms {
+		if mg, ok := p.(HumanMentionGateAware); ok {
+			mg.SetHumanMentionGate(e.mentionHumanGateEnabled)
+		}
+	}
+}
+
+// mentionHumanGateEnabled reports whether human mention gating and dedup are active.
+// Off by default (user 11-23 「依旧是开关默认关的形式 就是关了用户也能通过添加规则让角色做完了或者
+// 啥时侯at它」). Per project; in a team, enabling it on the lead also gates teammate engines.
+func (e *Engine) mentionHumanGateEnabled() bool {
+	if e.mentionHumanGateOn.Load() {
+		return true
+	}
+	if e.team != nil {
+		for _, peer := range e.taskForumPeers() {
+			if peer.isTeamLead() {
+				return peer.mentionHumanGateOn.Load()
+			}
+		}
+	}
+	return false
+}
+
 func (e *Engine) isHumanMentionDeduped(sessionKey, userID string, taskID int) bool {
+	if !e.mentionHumanGateEnabled() {
+		return false
+	}
 	return e.humanMentions.isDeduped(sessionKey, userID, taskID)
 }
 
 func (e *Engine) recordHumanMention(sessionKey, userID string, taskID int) {
+	if !e.mentionHumanGateEnabled() {
+		return
+	}
 	e.humanMentions.record(sessionKey, userID, taskID)
 }
 
