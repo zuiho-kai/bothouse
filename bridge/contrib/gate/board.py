@@ -562,7 +562,7 @@ def _keeps_handoff(old, new):
     return bool(old) and new != old and os.path.isfile(old) and not os.path.isfile(os.path.expanduser(new))
 
 
-def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
+def update(nid, status, where=None, who=None, nxt=None, same_ws=False, dispatcher=None):
     """same_ws：调用方已查明新「谁」指的就是条目眼下绑的工作区（main 里按桥的池子对过 id），不解绑。"""
     with _locked():
         cur = _read_locked()
@@ -585,6 +585,8 @@ def update(nid, status, where=None, who=None, nxt=None, same_ws=False):
                 hit["where"] = where
         if who:
             hit["who"] = who
+        if dispatcher:
+            hit["dispatcher"] = dispatcher
         if nxt:
             hit["next"], hit["next_ts"] = nxt, _deadline(nxt)
         if not hit.get("ch") and _cur_channel():
@@ -1081,24 +1083,36 @@ def _ws_key(it):
     return it.get("sk") or (f"discord:{it['ch']}" if it.get("ch") else "")
 
 
-def _park_once(cc, sk, chat, bound=None, stop=False):
+# 来源：988 5 秒超时教训，软停有 10 秒宽限期（max_turn_time_mins），带 --stop 放回工作区需 15 秒
+WS_PARK_TIMEOUT = 15
+
+
+def _park_once(cc, sk, chat, bound=None, stop=False, raise_on_err=False):
     """<桥> workspace park 一次，只放 chat 交的那一件（绑定时刻 bound 及以前最新的那件）：工作区眼下不归 chat、
     或那件早已收尾（工作区做完放回、又被别人或 chat 自己的新活领走）时桥拒绝（not owned），什么都不动。
-    True 放回了 / False 那里还有活 / None 不在工作区、不归它、早已放回或失败（失败写 stderr）。"""
+    True 放回了 / False 那里还有活 / None 不在工作区、不归它、早已放回或失败（失败写 stderr）。
+    raise_on_err: True 时遇到超时或命令报错（排除 not owned）抛出 RuntimeError，供 pause 等入口阻断并报错。"""
     args = [cc, "workspace", "park", "--session-key", sk, "--chat", chat]
     if bound:
         args += ["--before", bound]
     if stop:
         args.append("--stop")
+    timeout = WS_PARK_TIMEOUT if stop else WS_TIMEOUT
     try:
         p = subprocess.run(args + ["--json"],
-                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+                           capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"board: 工作区没放回（{e}），pause 照常记", file=sys.stderr)
+        err = f"工作区没放回（{e}）"
+        if raise_on_err:
+            raise RuntimeError(err) from e
+        print(f"board: {err}", file=sys.stderr)
         return None
     if p.returncode != 0:
         if "not owned" not in p.stderr:  # 不在工作区里（聊天频道）或工作区早已空：不用放
-            print(f"board: 工作区没放回（{p.stderr.strip()[:200]}），pause 照常记", file=sys.stderr)
+            err = f"工作区没放回（{p.stderr.strip()[:200]}）"
+            if raise_on_err:
+                raise RuntimeError(err)
+            print(f"board: {err}", file=sys.stderr)
         return None
     try:
         return bool(json.loads(p.stdout).get("freed"))
@@ -1117,7 +1131,7 @@ def _park_done(hit):
         print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
 
 
-def park_workspace(it, stop=False):
+def park_workspace(it, stop=False, raise_on_err=False):
     """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
     <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
     （core/team_workspace.go ParkTeamWorkspace）。只按绑定的条目放：没绑的（在工作区里手动 add 的）不动桥，
@@ -1128,7 +1142,7 @@ def park_workspace(it, stop=False):
     cc = _cc_bin()
     if not it.get("ws") or not cc or not it.get("chat"):
         return None  # 没记交活的聊天频道：认不出工作区眼下是不是还在做这件，不放（宁可多占，不停别人的活）
-    return _park_once(cc, it["ws"], it["chat"], it.get("bound"), stop)
+    return _park_once(cc, it["ws"], it["chat"], it.get("bound"), stop, raise_on_err=raise_on_err)
 
 
 # User, 2026-10-24: "稳定的一放一收，以小时为力度". Unfinished tasks with no
@@ -2372,8 +2386,17 @@ def main(argv):
                 print(f"已记停手（#{nid}）：工作区里不自己暂停。把 [report] #{nid} 写进草稿文件，"
                       "说做到哪、卡在哪、要谁定，跑 ws-up --report <草稿文件> 交回；交回后桥自动放回工作区。")
                 return
-            if not any(i["id"] == nid for i in _read()):
+            before = next((i for i in _read() if i["id"] == nid), None)
+            if not before:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
+            # 若条目绑了工作区，暂停时连同工作区正在跑的一轮一起打断并放回（stop=True）。
+            # 根因修复（#2086）：放回失败不得吞错，必须阻断并报错，确保未放回时不落盘 paused。
+            freed = None
+            if before.get("ws"):
+                try:
+                    freed = park_workspace(before, stop=True, raise_on_err=True)
+                except RuntimeError as e:
+                    sys.exit(f"工作区放回失败（{e}），未暂停；请重试 board pause")
             task_state(nid, "paused", argv[2] if len(argv) > 2 else "board pause", in_workspace_ok=True)
             hit = pause(nid, argv[2] if len(argv) > 2 else None)
             if not hit:
@@ -2383,7 +2406,6 @@ def main(argv):
                 append_forward(hit["where"], f"{_now()} 已暂停（#{nid}）{'：' + hit['pause_why'] if hit.get('pause_why') else ''}。"
                                              "停手，不要再起后台命令，正在跑的停掉；上面更早的「接着做」作废，等主频道恢复再做。")
             schedule_prune_check(hit)
-            freed = park_workspace(hit, stop=True)  # 在那个工作区里自己 pause 的已在上面改成记停手
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
         elif cmd == "ask" and len(argv) == 2:

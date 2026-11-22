@@ -1077,14 +1077,15 @@ def arm_drift(nid):
 GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 
 
-def start(path, task, chat, nid, project, answer=None):
+def start(path, task, chat, nid, project, answer=None, reassigned=False):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
-    picked = held(previous, chat) or pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
+    reassigned = reassigned or bool(previous.get("dispatcher") and project and project != previous.get("dispatcher"))
+    picked = (None if reassigned else held(previous, chat)) or pick_pool(chat, task, nid, "" if reassigned else (previous.get("ws_was", "") if previous.get("review_rejected") else ""))
     if picked is None:
         return False
     ws, name, parent = picked
-    board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
+    board.update(nid, "已交接", who=f"{name}{_lead_name(project)}", dispatcher=project)
     board.rebind(nid, ws)
     append_skeleton(path, nid)
     # 交活指定过模型的活接回、续做时照它再切（#2075）：新认领的工作区放回时已换回它自己的模型
@@ -1131,7 +1132,7 @@ def drain():
             q.pop(index)
 
 
-def resume_answered(nid, answer):
+def resume_answered(nid, answer, project=None, model=None, effort=None):
     """等你的活收到答复：恢复条目、答复写进交接，找空工作区接着做；没有就排队（core resumeAskedTask 调）。"""
     board.refuse_foreign([nid], "ws-handoff")  # 别的频道派的活不在这里续（#836）；桥续办时以条目的 chat 调，照常过
     it = next((i for i in board.items() if i["id"] == nid), None)
@@ -1150,29 +1151,54 @@ def resume_answered(nid, answer):
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
     # 提问还在主角色手里（没转给用户）时到的答复是主角色定的，不写成用户说的
     by_lead = (it.get("pause_why") or "").startswith(board.ASK_LEAD_WHY)
+    is_ask = by_lead or (it.get("pause_why") or "") == board.ASK_WHY or (it.get("pause_why") or "").startswith(board.ASK_WHY)
     source = ("验收退回" if it.get("review_rejected") else
               "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else
               "主角色定案" if by_lead else "用户答复")
     if by_lead:
         answer = f"（主角色定的，不是用户说的）{answer}"
-    board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
+    if answer:
+        board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
-    # 接着做的是这件活原来的负责人（派它的那个项目，交活时工作区会话就是以它的身份跑的），不是眼下转话的人：
-    # 11-17 #1727 龙娘派的活，主角色转定案后落进了主角色自己在工作区的会话，那个会话不替她做、又去问用户谁来接。
-    project = it.get("dispatcher") or os.environ.get("CC_PROJECT", "")
+
+    # 接着做的是谁：
+    # 问答场景（is_ask）：按原负责人（11-17 #1727 龙娘派的活，主角色转定案后仍归龙娘），除非显式指定 --project。
+    # 非问答场景（如 board pause 暂停后改派、接手续做）：若显式指定 --project，或当前调用方不同，判定为改派（#2086）。
+    caller = os.environ.get("CC_PROJECT", "")
+    orig_dispatcher = it.get("dispatcher", "")
+    if project:
+        target_project = project
+    elif is_ask or (it.get("review_rejected") and not caller):
+        target_project = orig_dispatcher or caller
+    else:
+        target_project = caller or orig_dispatcher
+
+    reassigned = bool(target_project and target_project != orig_dispatcher)
+    # 若改派，更新任务板条目记录的 dispatcher
+    if reassigned:
+        board.update(nid, it.get("status", "已交接"), dispatcher=target_project)
+        it["dispatcher"] = target_project
+
+    # 若指定了模型，更新任务板
+    if model:
+        board.set_model(nid, model, effort)
+        it["model"] = model
+        if effort:
+            it["effort"] = effort
+
     in_queue = False
     with _queue() as q:
         for entry in q:
             if entry["nid"] == nid:
                 entry["answer"] = answer
-                entry["project"] = project
+                entry["project"] = target_project
                 in_queue = True
     board.resume(nid)
     if in_queue:
         return drain()  # 用户 2026-11-02：答复续办也保留原位置，不重复派发。
     with _queue() as q:
         try:
-            ok = start(it["where"], it["what"], it["chat"], nid, project, answer)
+            ok = start(it["where"], it["what"], it["chat"], nid, target_project, answer, reassigned=reassigned)
         except SystemExit as e:
             # 叫醒失败：start 已把板退回到续做前一刻；再退回接回前（暂停 / 待验收退回），答复留在交接里注明没送到，
             # 下次接回时照常再走（#1492 L3）
@@ -1181,7 +1207,7 @@ def resume_answered(nid, answer):
             sys.exit(f"{e.code}；#{nid} 已退回接回前（{it.get('status') or ''}），答复没送到")
         if not ok:
             board.update(nid, "排队")
-            q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": project, "answer": answer})
+            q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": target_project, "answer": answer})
             print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
 
 
@@ -1193,8 +1219,22 @@ SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的
 def main(argv):
     if argv[:1] == ["--drain"]:
         return 0
-    if argv[:1] == ["--resume"] and len(argv) == 3:
-        return resume_answered(int(argv[1].lstrip("#")), argv[2])
+    if argv[:1] == ["--resume"]:
+        rem = argv[1:]
+        rem, model, effort = _model.parse(rem)
+        resume_project = None
+        if "--project" in rem:
+            idx = rem.index("--project")
+            if idx + 1 < len(rem):
+                resume_project = rem[idx + 1].strip()
+                rem = rem[:idx] + rem[idx + 2:]
+            else:
+                sys.exit("ws-handoff: --project 后面要跟角色项目名")
+        if not rem:
+            sys.exit("ws-handoff: --resume 后面要跟任务编号，如 ws-handoff --resume 123 [答复]")
+        nid = int(rem[0].lstrip("#"))
+        answer = rem[1] if len(rem) > 1 else ""
+        return resume_answered(nid, answer, project=resume_project, model=model, effort=effort)
     global GUARD
     if "--guard" in argv:
         k = argv.index("--guard")
