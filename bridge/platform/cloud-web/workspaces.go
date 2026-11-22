@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -20,10 +22,16 @@ var (
 	_ core.TeamWorkspaceClaimer  = (*Platform)(nil)
 	_ core.TeamWorkspaceReleaser = (*Platform)(nil)
 	_ core.TeamWorkspaceDeleter  = (*Platform)(nil)
+	_ core.TeamChannelArchiver   = (*Platform)(nil)
 )
 
 // teamWorkspaceAckTimeout: 沿用已有配置, the 10 s SendPreviewStart waits for preview_ack.
 const teamWorkspaceAckTimeout = 10 * time.Second
+
+// teamWorkspaceArchivePage: one archive page of room messages. 来源：数据/实测，the collab
+// gateway's store.page caps a page at 200 (dsh/collab/store.mjs clampLimit); asking more only
+// gets 200 back.
+const teamWorkspaceArchivePage = 200
 
 func (p *Platform) handleTeamWorkspaceAck(raw []byte) {
 	var ack wireTeamWorkspaceAck
@@ -187,4 +195,81 @@ func (p *Platform) ParkTeamWorkspaceChannel(ctx context.Context, workspaceID, cl
 	}
 	_, err := p.teamWorkspaceRequest(ctx, "release", workspaceID, "", extra)
 	return err
+}
+
+// TeamChannelMessages implements core.TeamChannelArchiver: every message of a workspace room,
+// oldest first, for the compressed archive core writes before it deletes the workspace (#1788).
+//
+// Two gateways, two ways to read. The collab gateway (DSH rooms, and the one cloud-web team mode
+// runs on) keeps the room and answers team_workspace "messages" frames; the self-hosted web hub
+// has no such frame and serves the page API ChannelHistory uses. One page at a time; `before` is
+// the oldest id of the page just read.
+func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
+	if p.hasCap(capTeamWorkspace) {
+		return p.gatewayChannelMessages(ctx, channelID)
+	}
+	return p.hubChannelMessages(channelID)
+}
+
+func (p *Platform) gatewayChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
+	var out []core.TeamArchivedMessage
+	before := ""
+	for {
+		ack, err := p.teamWorkspaceRequest(ctx, "messages", channelID, "", map[string]any{"before": before, "limit": teamWorkspaceArchivePage})
+		if err != nil {
+			return nil, fmt.Errorf("cloud_web: read channel messages: %w", err)
+		}
+		page := ack.Messages
+		older := make([]core.TeamArchivedMessage, 0, len(page))
+		for _, m := range page {
+			// System notices are not sent to bots live either (same rule as ChannelHistory).
+			if m.AuthorKind == "system" || (strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0) {
+				continue
+			}
+			sec, frac := math.Modf(m.CreatedAt)
+			msg := core.TeamArchivedMessage{
+				ID: m.ID, Time: time.Unix(int64(sec), int64(math.Round(frac*1e9))),
+				Author: firstNonEmpty(m.Name, m.Author), Content: m.Text,
+			}
+			for _, a := range m.Attachments {
+				if a.Name != "" {
+					msg.Attachments = append(msg.Attachments, a.Name)
+				}
+			}
+			older = append(older, msg)
+		}
+		out = append(older, out...) // pages run newest → older; each page is oldest first
+		if len(page) < teamWorkspaceArchivePage {
+			break
+		}
+		before = page[0].ID
+		if before == "" {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (p *Platform) hubChannelMessages(channelID string) ([]core.TeamArchivedMessage, error) {
+	var out []core.TeamArchivedMessage
+	before := ""
+	for {
+		page, err := p.ChannelHistory(channelID, before, teamWorkspaceArchivePage)
+		if err != nil {
+			return nil, fmt.Errorf("cloud_web: read channel messages: %w", err)
+		}
+		older := make([]core.TeamArchivedMessage, 0, len(page))
+		for _, m := range page {
+			older = append(older, core.TeamArchivedMessage{ID: m.ID, Time: m.Time, Author: m.Author, Content: m.Content})
+		}
+		out = append(older, out...)
+		if len(page) < teamWorkspaceArchivePage {
+			break
+		}
+		before = page[0].ID
+		if before == "" {
+			break
+		}
+	}
+	return out, nil
 }

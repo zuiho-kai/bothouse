@@ -78,7 +78,7 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 ## 以后
 
 - 再加 QQ、Discord、飞书：管理面板「添加平台」，见[首页](../GETTING_STARTED.md#以后添加或停用平台)。
-- `bothouse module list` 显示 DSH 未配置、已启用或已停用。
+- `bothouse module list` 的 `dsh` 行显示频道插件在 DSH 的 `web` 和 `desktop` profile 中的状态。项目到 DSH 频道的连接列在 `cloud_web` 行。
 - `bothouse module disable dsh` 停用，`bothouse module add dsh` 恢复启用；结果为 JSON。
 - 插件位于 DSH 的 `web` profile；机器上装过 DeepSeek Harness 桌面版时，安装器也装进桌面版的 `desktop` profile（桌面版只允许它自带的 CLI 改这个 profile，安装器会自动找 `/Applications/DeepSeek Harness.app/...`、`~/Applications/...` 或 `%LOCALAPPDATA%\Programs\DeepSeek Harness\...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。桌面版会自动加载插件，不用重启。
 - 只装了 DeepSeek Harness 桌面版、`PATH` 里没有 `dsh` 的 Mac 不用另装命令行：检测、`module add dsh`、`setup hooks --cli dsh` 和面板里给出的打开命令都用桌面版 app 包内自带的那份 CLI（`/Applications/DeepSeek Harness.app/...` 或 `~/Applications/...`，别的位置用 `DSH_DESKTOP_BIN` 指过去）。机器上另有 `dsh` 命令时仍然优先用它。
@@ -106,6 +106,14 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-crop.jpg" width="750" alt="DSH 里对主角色说一句，建好写手和程序员"><br><b>说一句，建好两个角色</b></p>
 
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
+
+## 将现有项目接入本机 DSH
+
+1. 在运行 bothouse 的同一台机器上打开 DSH，并启用频道插件。
+2. 在 bothouse 面板的「项目」页面选择现有项目，点击「添加平台 → DSH（本机）」。
+3. 有 `#general` 时可沿用默认选择，也可以选另一个群聊频道。点击「连接」，按提示重启 bothouse。
+
+原机器人加入所选 DSH 频道，并保留 Discord 连接。bothouse 自动读取本机网关地址和默认凭据，DSH 桌面版更换端口后会重新连接。要换频道，重新执行这套流程即可。项目已有手动配置的 Cloud Web 连接时，面板会提示冲突。使用自定义网关 token 时，请用 Cloud Web 手动配置。
 
 ## 管理 DSH 角色
 

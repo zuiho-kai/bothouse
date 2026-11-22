@@ -112,8 +112,8 @@ func TestReleaseConfig_DefaultsKeepAttachmentsAndFullDisplayEnabled(t *testing.T
 		t.Fatalf("AttachmentSend = %q, want default on", cfg.AttachmentSend)
 	}
 	mode, thinking, tools, _, _, _, _, _ := config.EffectiveDisplay(cfg, &cfg.Projects[0])
-	if mode != config.DisplayModeFull || !thinking || !tools {
-		t.Fatalf("display = mode:%s thinking:%v tools:%v, want full/true/true", mode, thinking, tools)
+	if mode != config.DisplayModeFull || thinking || !tools {
+		t.Fatalf("display = mode:%s thinking:%v tools:%v, want full/false/true", mode, thinking, tools)
 	}
 	if got := config.EffectiveCardMode(cfg, &cfg.Projects[0]); got != "legacy" {
 		t.Fatalf("card mode = %q, want default legacy", got)

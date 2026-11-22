@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -109,7 +110,7 @@ func TestModelScopePartialChangesAndNewConversation(t *testing.T) {
 	}
 }
 
-func TestQueuedModelScopePersistenceFailureRetainsPending(t *testing.T) {
+func TestQueuedModelScopePersistenceFailureRejectsRequest(t *testing.T) {
 	a := &stubStrictModelAgent{models: []ModelOption{{Name: "sol"}}}
 	e := NewEngine("test", a, nil, "", LangEnglish)
 	t.Cleanup(func() { e.Stop() })
@@ -118,14 +119,24 @@ func TestQueuedModelScopePersistenceFailureRetainsPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(blocked, "state.json")))
-	if r := e.QueueModelSwitch(context.Background(), "discord:work", "sol", "high", false); !r.OK {
+	if r := e.QueueModelSwitch(context.Background(), "discord:work", "sol", "high", false); r.OK || !strings.Contains(r.Message, "save session model") {
 		t.Fatal(r)
-	}
-	if err := e.applyPendingSwitchOnAgent(a, "discord:work"); err == nil {
-		t.Fatal("expected write failure")
 	}
 	if got := e.sessionSelection("discord:work"); got != (sessionModelSelection{}) {
 		t.Fatal(got)
+	}
+	if got := e.ModelStatus(context.Background(), "discord:work"); got.Pending != "" {
+		t.Fatal(got)
+	}
+
+	store := NewProjectStateStore(filepath.Join(t.TempDir(), "state.json"))
+	e.SetProjectStateStore(store)
+	if r := e.QueueModelSwitch(context.Background(), "discord:work", "sol", "high", false); !r.OK {
+		t.Fatal(r)
+	}
+	store.storePath = filepath.Join(blocked, "state.json")
+	if err := e.applyPendingSwitchOnAgent(a, "discord:work"); err == nil {
+		t.Fatal("expected write failure while applying accepted request")
 	}
 	if got := e.ModelStatus(context.Background(), "discord:work"); got.Pending != "sol high" {
 		t.Fatal(got)
@@ -136,7 +147,9 @@ func TestQueuedModelScopeInteractiveAliasUsesExecutionKey(t *testing.T) {
 	a := &stubStrictModelAgent{models: []ModelOption{{Name: "sol"}}}
 	e := NewEngine("test", a, nil, "", LangEnglish)
 	t.Cleanup(func() { e.Stop() })
-	e.queueSwitch("/workspace:discord:work", pendingModelSwitch{model: "sol", effort: "high"})
+	if err := e.queueSwitch("/workspace:discord:work", pendingModelSwitch{Model: "sol", Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.applyPendingSwitchOnAgent(a, "/workspace:discord:work", "discord:work"); err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +162,12 @@ func TestQueuedModelScopeConsumesSupersededAliases(t *testing.T) {
 	a := &stubModelModeAgent{}
 	e := NewEngine("test", a, nil, "", LangEnglish)
 	t.Cleanup(func() { e.Stop() })
-	e.queueSwitch("/workspace:discord:work", pendingModelSwitch{model: "older"})
-	e.queueSwitch("discord:work", pendingModelSwitch{model: "newer"})
+	if err := e.queueSwitch("/workspace:discord:work", pendingModelSwitch{Model: "older"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.queueSwitch("discord:work", pendingModelSwitch{Model: "newer"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.applyPendingSwitchOnAgent(a, "/workspace:discord:work", "discord:work"); err != nil {
 		t.Fatal(err)
 	}

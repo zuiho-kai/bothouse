@@ -10,13 +10,13 @@ import { checkAvatar } from './avatars.mjs';
 const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'];
 
 const MAX_NAME = 32;
-/** The preset a plugin-only install starts with: 鲸鱼娘, the DeepSeek character, matching DSH's own model. */
-const DEFAULT_ROLE = 'jingyu';
 const MAX_PERSONA = 4000;
 const RESERVED = new Set(['owner', 'user', 'system']);
 const MODEL_LIST_TIMEOUT_MS = 5_000;
 /** Local CLI agents a member may run as (task spec 2026-10-23: cli: 'claude' | 'codex' | 'gemini'). */
 export const CLIS = ['claude', 'codex', 'gemini'];
+/** A CLI member's automatic name (also the name it is given when seeded on the first start). */
+export const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' };
 
 /** Store row → the member shape DshMembers and the hub use. */
 export function rowToMember(row) {
@@ -183,27 +183,36 @@ export class Roster {
 
   /**
    * Plugin-only installs (`dsh plugin add bothouse-dsh`) have no setup wizard: on the very first start,
-   * with no member ever stored, add one preset role (鲸鱼娘) as a DSH member on DSH's own default model, so
-   * the channel can be used right away; it becomes the primary role. Runs once (marker file); a channel that ever
-   * had members, or the wizard's roles, is left alone. Returns the names added.
+   * with no member ever stored, add a DSH member (DSH's own default model, no persona) and one member per
+   * local CLI found (Claude Code / Codex / Gemini), so the channel works with one click (user 11-19「一键就能装上
+   * 自动识别用户本地的cli…人设 名字 头像啥的都进阶玩法」). Avatars stay empty: the page draws each one's
+   * software icon from its cli / name (client avatars.ts matchAvatarSlug). The DSH member is the primary role.
+   * Runs once (marker file); a channel that ever had members, or the wizard's roles, is left alone.
+   * detect: () => [{ cli }] (clis.mjs detectClis). leadState (lead-state.mjs LeadState): when no product-wide
+   * primary role is selected yet, the DSH member becomes it, written before any apply can run (the apply's
+   * fallback_role reads it), so the bridge does not pick a CLI member itself (#1798: lead.json said
+   * claude-code while the page showed DSH). Returns the names added.
    */
-  async seedDefaults(markerPath, library, logger) {
+  async seedDefaults(markerPath, detect, logger, leadState = undefined) {
     if (existsSync(markerPath)) return [];
     const added = [];
     if (this.store.db.prepare('SELECT COUNT(*) AS n FROM members').get().n === 0) {
+      let found = [];
+      try { found = await detect(); } catch (error) { logger?.warn?.('conest-collab: CLI detection failed: %s', error?.message ?? error); }
+      const wanted = [{ name: 'DSH' }, ...CLIS.filter(cli => found.some(c => c.cli === cli)).map(cli => ({ name: CLI_NAMES[cli], cli }))];
       let lead;
-      // One role on DSH's one model is the default (user 11-03: 单模型单角色开箱就用); more are added from the UI.
-      // library: the bridge's persona presets (Bridge.personas, #1662).
-      for (const p of (await library()).filter(x => x.slug === DEFAULT_ROLE)) {
+      for (const w of wanted) {
         try {
-          const member = await this.create({ name: p.name, persona: p.text, avatar: p.avatar });
+          const member = await this.create({ ...w, persona: '', nameCustomized: false });
+          // Right after create (its putMember only schedules the debounced apply): set before that apply reads it.
+          if (lead === undefined && leadState !== undefined && leadState.selected() === undefined) leadState.set(member.id, member.name, { auto: true });
           lead ??= member;
           added.push(member.name);
         } catch (error) {
-          logger?.warn?.('conest-collab: default member %s not added: %s', p.name, error?.message ?? error);
+          logger?.warn?.('conest-collab: default member %s not added: %s', w.name, error?.message ?? error);
         }
       }
-      // Workspaces open only through a channel's primary role; the default role takes channels that have none, so「交给工作区」works without a trip to the channel settings.
+      // Workspaces open only through a channel's primary role; the DSH member takes channels that have none, so「交给工作区」works without a trip to the channel settings.
       if (lead !== undefined) {
         for (const room of this.store.rooms()) if (room.kind === 'chat' && this.store.leadId(room.id) === null) this.store.setLead(room.id, lead.id);
       }
@@ -291,7 +300,7 @@ export class Roster {
     const nameCustomized = input?.nameCustomized ?? (existing?.name_customized == null ? undefined : Boolean(existing.name_customized));
     if (nameCustomized !== undefined && typeof nameCustomized !== 'boolean') throw new CollabError('invalid', 'nameCustomized must be boolean');
     const cli = input?.cli ?? existing?.cli;
-    const backend = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }[cli] ?? 'DSH';
+    const backend = CLI_NAMES[cli] ?? 'DSH';
     const used = new Set(this.hub.memberList().filter(m => m.id !== selfId).map(m => m.name.toLowerCase()));
     const isNew = existing === undefined;
     if (!name || (nameCustomized === false && (isNew ? used.has(name.toLowerCase()) : existing.cli !== cli))) {

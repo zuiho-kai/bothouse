@@ -4,8 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -112,11 +116,21 @@ func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent)
 }
 
 // contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless
-// inject_team_rules is off, plus aboutHint for agents that do not take AgentSystemPrompt natively
-// (Codex, Gemini, DSH, Antigravity, ACP…), so every role knows to run `bothouse about`.
+// inject_team_rules is off, then the local house rules (<data dir>/rules/house.md, kept even when
+// inject_team_rules is off: they are the owner's own rules), plus aboutHint for agents that do not
+// take AgentSystemPrompt natively (Codex, Gemini, DSH, Antigravity, ACP…), so every role knows to run
+// `bothouse about`. The house file is read on every delivery; teamRulesOnce hashes the whole text,
+// so an edited file reaches each role on its next turn.
 func (e *Engine) contextRules(rules string, session *Session, agent Agent) string {
 	if e.skipTeamModeRules.Load() {
 		rules = ""
+	}
+	if house := readHouseRules(e.dataDir); house != "" {
+		if rules == "" {
+			rules = house
+		} else {
+			rules += "\n" + house
+		}
 	}
 	if _, native := agent.(SystemPromptSupporter); !native {
 		if rules == "" {
@@ -129,6 +143,41 @@ func (e *Engine) contextRules(rules string, session *Session, agent Agent) strin
 		return ""
 	}
 	return e.teamRulesOnce(rules, session, agent)
+}
+
+// houseRulesMaxBytes caps <data dir>/rules/house.md; a larger file is not sent at all (and logged),
+// so one runaway edit cannot flood every turn.
+const houseRulesMaxBytes = 4000
+
+const houseRulesHead = "本机守则（和上面冲突时照这里）："
+
+// houseRulesPath is the local house rules file under the bridge data dir, generated from the
+// owner's single rule source.
+func houseRulesPath(dataDir string) string { return filepath.Join(dataDir, "rules", "house.md") }
+
+// readHouseRules returns the house rules with their heading, or "" when the data dir is unset or the
+// file is missing, empty or over houseRulesMaxBytes.
+func readHouseRules(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	path := houseRulesPath(dataDir)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			slog.Warn("house rules: read failed", "path", path, "error", err)
+		}
+		return ""
+	}
+	if len(b) > houseRulesMaxBytes {
+		slog.Warn("house rules: file over the cap, not sent", "path", path, "bytes", len(b), "max", houseRulesMaxBytes)
+		return ""
+	}
+	text := strings.TrimSpace(string(b))
+	if text == "" {
+		return ""
+	}
+	return houseRulesHead + "\n" + text
 }
 
 func prefixRules(rules, prompt string) string {

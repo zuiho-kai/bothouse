@@ -21,7 +21,7 @@ const (
 )
 
 // intentWaitHint closes a fail: a report blocked outside says so instead of retrying in place.
-const intentWaitHint = "（要是被外部条件卡住测不了（没空卡、等 CI、等对方），别原地重试：先做不依赖它的部分，在汇报里写一行「等外部：卡在什么」和一行「再看：<多久后>」，桥会放行并到点再交给工作区）"
+const intentWaitHint = "（要是被外部条件卡住测不了（没空卡、等 CI、等对方），别原地重试：先做不依赖它的部分，在汇报里写一行「等外部：卡在什么」和一行「再看：<多久后或到点钟点，如 2h、11-23 18:00>」，桥会放行并到点再交给工作区）"
 
 type intentVerdict struct {
 	Problems []string `json:"problems"`

@@ -154,9 +154,9 @@ func (e *Engine) teamTaskTurnStarted(chat string) int {
 	}
 	key := teamChatKey(chat)
 	teamWorkspaceStore.mu.Lock()
-	defer teamWorkspaceStore.mu.Unlock()
 	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
 	if err != nil {
+		teamWorkspaceStore.mu.Unlock()
 		return 0
 	}
 	best := 0
@@ -166,12 +166,29 @@ func (e *Engine) teamTaskTurnStarted(chat string) int {
 			best, bestAt = id, t.Since
 		}
 	}
+	first := false // the task's first turn since it was handed to this workspace
 	if best > 0 && st.Tasks[best].State == TeamTaskDispatched {
 		if _, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: best, To: TeamTaskWorking, By: "turn start"}, time.Now()); err != nil {
 			slog.Warn("team task: not moved to working at its turn start", "board", best, "error", err)
+		} else {
+			first = true
 		}
 	}
+	teamWorkspaceStore.mu.Unlock()
+	if first && e.timerScheduler != nil {
+		e.timerScheduler.releaseTaskTimers(best) // its own wakes that came due while it was in no workspace
+	}
 	return best
+}
+
+// teamTurnOfTask: a turn of task id is running in chat.
+func teamTurnOfTask(chat string, id int) bool {
+	for _, f := range teamTurnsOf(chat) {
+		if f.TaskID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // teamTurnOfOtherTask: a turn running in chat belongs to a task other than id (a turn of no task

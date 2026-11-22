@@ -234,9 +234,11 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"vent":         runVent,
+	"secret":       runSecret,
 	"at":           runTimer,
 	"relay":        runRelay,
 	"sessions":     runSessions,
+	"cleanup":      runCleanup,
 	"session":      runSession,
 	"report":       runReport,
 	"agent-sid":    runAgentSID,
@@ -250,6 +252,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"pet":          runPet,
 	"setup":        runSetup,
 	"module":       runModule,
+	"features":     runFeatures,
 }
 
 func main() {
@@ -477,6 +480,13 @@ func runMain() {
 	core.UpdateStateDir = cfg.DataDir
 	// After an upgrade, installed hook scripts follow this version too (they were only written by setup hooks on).
 	refreshInstalledHookScripts(cfg.DataDir)
+	// #1792: retired guards' entries leave the role settings too, not only their scripts
+	pruneRetiredHooks("claudecode", "") // the user's global Claude Code settings
+	for _, proj := range cfg.Projects {
+		if wd, _ := proj.Agent.Options["work_dir"].(string); wd != "" {
+			pruneRetiredHooks(proj.Agent.Type, wd)
+		}
+	}
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
@@ -604,6 +614,11 @@ func runMain() {
 
 	heartbeatSched.Start()
 
+	// #1825: clear what the bridge's own tools leave behind, tell the owner when the disk runs low
+	if j := newJanitor(cfg, builtProjs, engines); j != nil {
+		j.Start(make(chan struct{}))
+	}
+
 	// Start bridge server if enabled
 	var bridgeSrv *core.BridgeServer
 	if cfg.Bridge.Enabled != nil && *cfg.Bridge.Enabled {
@@ -659,6 +674,7 @@ func runMain() {
 		webhookSrv.Start()
 	}
 
+	featureBoot = config.FeatureValues(cfg) // what restart-only switches run with until the next start
 	// Start management API server if enabled
 	var mgmtSrv *core.ManagementServer
 	if cfg.Management.Enabled != nil && *cfg.Management.Enabled {
@@ -826,6 +842,7 @@ func runMain() {
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		wireGlobalSettings(mgmtSrv)
+		wireFeatures(mgmtSrv)
 		wireAutostart(mgmtSrv)
 		mgmtSrv.SetListGlobalProviders(func() ([]core.GlobalProviderInfo, error) {
 			providers, err := config.ListGlobalProviders()
@@ -863,6 +880,7 @@ func runMain() {
 	} else {
 		globalAPIServer = apiSrv
 		apiSrv.SetMaxAttachmentSize(resolveMaxAttachmentSize(cfg))
+		apiSrv.SetFeatureList(featureList)
 
 		relayMgr := core.NewRelayManager(cfg.DataDir)
 		if cfg.Relay.TimeoutSecs != nil {
@@ -1982,6 +2000,10 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	core.SetTeamReviewTiers(cfg.TeamReview.Simple, cfg.TeamReview.Complex) // bridge-wide; each load re-applies
 	core.SetTeamReviewDisabled(cfg.TeamReview.Disabled)
 	core.SetTeamWatchCheckAfter(time.Duration(derefInt(cfg.TeamWatchCheckMins)) * time.Minute) // bridge-wide; <= 0 = the default
+	// #1860: off unless [proactive] enabled = true. #1866: min_gap (default on) keeps the 11-20
+	// two-hour rhythm while nobody answers, in one place instead of each role's script.
+	engine.SetProactiveOutbox(cfg.Proactive.Enabled != nil && *cfg.Proactive.Enabled,
+		cfg.Proactive.MinGap == nil || *cfg.Proactive.MinGap)
 	core.SetTeamReviewModels(cfg.TeamReview.SimpleModel, cfg.TeamReview.ComplexModel)
 
 	// Session lifetime and context.
@@ -2033,6 +2055,8 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	engine.SetTeamExperience(proj.TeamExperienceDir, proj.PersonalAgents)
 	engine.SetLifePage(proj.LifePage)
 	engine.SetTaskForum(proj.TaskForumEnabled())
+	engine.SetMentionAssigner(proj.MentionAssignerEnabled())
+	engine.SetMentionHumanGate(proj.MentionHumanGateEnabled())
 	engine.SetTeamBoard(proj.TeamBoardEnabled())
 	engine.SetTaskReviewAfter(time.Duration(proj.TeamReviewAfterSeconds) * time.Second)
 	engine.SetTeamWorkspaces(proj.TeamWorkspacesEnabled())

@@ -185,6 +185,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	// without these two it answered 503 to every load and save on a fresh install (#1370).
 	// Same wiring as normal mode, so the two cannot drift apart.
 	wireGlobalSettings(srv)
+	wireFeatures(srv)
 	wireAutostart(srv)
 	srv.Start()
 	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and
@@ -290,6 +291,14 @@ func refreshInstalledHookScripts(dataDir string) {
 		slog.Warn("hook scripts refresh failed", "dir", core.AgentHooksDir(dataDir), "error", err)
 	} else if refreshed {
 		slog.Info("hook scripts refreshed", "version", version)
+	}
+}
+
+func pruneRetiredHooks(cli, workDir string) {
+	if p, err := core.PruneRetiredAgentHooks(cli, workDir); err != nil {
+		slog.Warn("retired hook entries not pruned", "work_dir", workDir, "error", err)
+	} else if p != "" {
+		slog.Info("retired hook entries pruned", "file", p)
 	}
 }
 

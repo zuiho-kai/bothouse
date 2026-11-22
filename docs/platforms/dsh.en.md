@@ -22,6 +22,14 @@ The lead creates the channel and both roles in one go through the channels API (
 
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="In the new channel, the writer and the programmer are online, both on deepseek-v4.1-flash"><br><b>The roles are in the new channel</b></p>
 
+## Connect an existing project to local DSH
+
+1. Open DSH on the same machine as bothouse and enable the Channels plugin.
+2. In the bothouse panel, open **Projects**, select the existing project, and choose **Add platform → DSH (local)**.
+3. Keep `#general` when available or pick another group channel. Click **Connect**, then restart bothouse when prompted.
+
+The existing bot joins the selected DSH channel and keeps its Discord connection. Bothouse reads the local gateway address and default credential automatically and reconnects if DSH Desktop changes ports. To change the selected channel, run the same setup again. A project with an existing manual Cloud Web connection will show a conflict. For a DSH gateway with a custom token, use the manual Cloud Web setup.
+
 ## Managing DSH members
 
 The panel's Roles page can add, edit and delete DSH roster-managed members; config and external members are read-only. In an installed environment, adding a DSH role opens the daily member flow instead of reinstalling. Native members can select a DSH provider and model; Codex members can select advertised models and reasoning effort. The desired settings apply before the next turn, and the page shows their application status.

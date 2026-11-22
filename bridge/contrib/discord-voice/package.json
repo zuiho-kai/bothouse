@@ -1,0 +1,15 @@
+{
+  "name": "bothouse-discord-voice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord voice listener for the bothouse meeting assistant: joins through the bridge's gateway and emits transcribed speech segments per speaker.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@discordjs/voice": "0.19.2",
+    "opusscript": "0.1.1"
+  }
+}

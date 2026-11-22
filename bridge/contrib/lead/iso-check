@@ -78,8 +78,8 @@ export JIUWENSWARM_AGENT_HTTP_PORT=$(( b + 21 ))
 export BROWSER_RUNTIME_MCP_PORT=$(( b + 30 ))
 PORTS
   local busy=$(lsof -nP -iTCP:$b-$(( b + 99 )) -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $2"("$1")@"$9}' | sort -u | tr '\n' ' ')
-  echo "ISO_PORTS=$d/ports.env（工作区 $n 端口段 $b-$(( b + 99 ))：前端 $b、WEB $(( b + 10 ))、网关 $(( b + 11 ))、AgentServer $(( b + 20 ))；起测试实例前 source 它）"
-  [[ -z $busy ]] || echo "iso-check: 警告：端口段 $b-$(( b + 99 )) 里已有监听：$busy。多半是本工作区上一个测试实例没停，先停掉再起新的。" >&2
+  echo "ISO_PORTS=$d/ports.env（工作区 $n 端口段 $b-$(( b + 99 ))：前端 ${b}、WEB $(( b + 10 ))、网关 $(( b + 11 ))、AgentServer $(( b + 20 ))；起测试实例前 source 它）"
+  [[ -z $busy ]] || echo "iso-check: 警告：端口段 $b-$(( b + 99 )) 里已有监听：${busy}。多半是本工作区上一个测试实例没停，先停掉再起新的。" >&2
 }
 # 写 env.sh：测试实例先 source 它，清掉从本桥继承、指向线上数据目录的变量，HOME 换进隔离目录。
 # 来源：2026-11-10 #1349 隔离桥的启动脚本只清了 CC_/BOTHOUSE_，继承了线上 GATE_SETUP_DIR，任务板写入全被

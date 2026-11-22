@@ -1,0 +1,128 @@
+[
+  {
+    "source": "main:26854",
+    "errors": [
+      "exceeded retry limit, last status: 429 Too Many Requests"
+    ],
+    "stderr": "",
+    "statuses": [
+      429
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "main:28390",
+    "errors": [
+      "You’ve hit your usage limit. Try again at 7:35 PM."
+    ],
+    "stderr": "",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "main:27702",
+    "errors": [],
+    "stderr": "Failed to refresh token status=401 Unauthorized",
+    "statuses": [
+      401
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "main:28391",
+    "errors": [],
+    "stderr": "failed to connect to Responses WebSocket stage=Unknown",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "gge:11578",
+    "errors": [
+      "exceeded retry limit, last status: 429 Too Many Requests"
+    ],
+    "stderr": "",
+    "statuses": [
+      429
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "gge:12223",
+    "errors": [
+      "You’ve hit your usage limit. Try again at 7:35 PM."
+    ],
+    "stderr": "",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "gge:12190",
+    "errors": [],
+    "stderr": "Failed to refresh token status=401 Unauthorized",
+    "statuses": [
+      401
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "gge:12224",
+    "errors": [],
+    "stderr": "failed to connect to Responses WebSocket stage=Unknown",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "deep:7175",
+    "errors": [
+      "exceeded retry limit, last status: 429 Too Many Requests"
+    ],
+    "stderr": "",
+    "statuses": [
+      429
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "deep:13139",
+    "errors": [
+      "You’ve hit your usage limit. Try again at 7:35 PM."
+    ],
+    "stderr": "",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "deep:13085",
+    "errors": [],
+    "stderr": "Failed to refresh token status=401 Unauthorized",
+    "statuses": [
+      401
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "deep:13140",
+    "errors": [],
+    "stderr": "failed to connect to Responses WebSocket stage=Unknown",
+    "statuses": [],
+    "provider_down": true
+  },
+  {
+    "source": "main:29363",
+    "errors": [
+      "openai route: HTTP 0 (provider down): transport error: URLError: <urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>"
+    ],
+    "stderr": "",
+    "statuses": [
+      0
+    ],
+    "provider_down": true
+  },
+  {
+    "source": "gjiang:5995-5996",
+    "errors": [],
+    "stderr": "timeout after 3600s",
+    "statuses": [],
+    "provider_down": false
+  }
+]

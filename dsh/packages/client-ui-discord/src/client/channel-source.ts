@@ -116,6 +116,8 @@ export interface ChannelMember {
   readonly kind: 'human' | 'dsh' | 'bot'
   readonly online: boolean
   readonly error?: string
+  /** #1798: the member's CLI is not logged in (then online is false): how to log it in. */
+  readonly login?: string
   /** DSH provider route, Claude CLI model ID, or null for the backend default. */
   readonly model?: MemberModel | string | null
   /** Local CLI members only: which CLI the member runs as. */

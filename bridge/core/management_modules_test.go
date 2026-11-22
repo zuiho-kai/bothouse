@@ -129,7 +129,7 @@ func TestModulesDSHRowFollowsProfileEntries(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DSH_HOME", home)
 	dir := filepath.Join(home, "profiles", DSHProfile)
-	writeModulesProfile(t, dir, true)
+	writeModulesProfile(t, dir, "conest-collab", true)
 
 	_, ts, _ := testManagementServer(t, "tok")
 	r := mgmtGet(t, ts.URL+"/api/v1/modules", "tok")
@@ -154,18 +154,77 @@ func TestModulesDSHRowFollowsProfileEntries(t *testing.T) {
 	t.Fatal("no dsh row")
 }
 
-// writeModulesProfile lays out a profile whose only bundle inserts conest-collab, with the
-// disabled flag the test wants to read back.
-func writeModulesProfile(t *testing.T, dir string, disabled bool) {
+func TestModulesDSHRowIncludesDesktopProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		web             string
+		desktopDisabled bool
+		want            string
+	}{
+		{name: "desktop only", want: "enabled"},
+		{name: "desktop disabled", desktopDisabled: true, want: "disabled"},
+		{name: "broken web bundle", web: "missing_bundle", want: "enabled"},
+		{name: "invalid web manifest", web: "invalid", want: "enabled"},
+		{name: "web disabled", web: "disabled", want: "enabled"},
+		{name: "web enabled", web: "enabled", desktopDisabled: true, want: "enabled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dshDir := t.TempDir()
+			t.Setenv("DSH_HOME", dshDir)
+			writeModulesProfile(t, filepath.Join(dshDir, "profiles", DSHDesktopProfile), "bothouse-dsh", tc.desktopDisabled)
+			webDir := filepath.Join(dshDir, "profiles", DSHProfile)
+			switch tc.web {
+			case "enabled", "disabled":
+				writeModulesProfile(t, webDir, "conest-collab", tc.web == "disabled")
+			case "missing_bundle", "invalid":
+				if err := os.MkdirAll(webDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				manifest := `{"dsh":{"profile":{"bundles":["conest-collab"]}}}`
+				if tc.web == "invalid" {
+					manifest = `{`
+				}
+				if err := os.WriteFile(filepath.Join(webDir, "package.json"), []byte(manifest), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, ts, _ := testManagementServer(t, "tok")
+			r := mgmtGet(t, ts.URL+"/api/v1/modules", "tok")
+			if !r.OK {
+				t.Fatalf("modules failed: %s", r.Error)
+			}
+			var data struct {
+				Modules    []PlatformModule `json:"modules"`
+				Configured int              `json:"configured"`
+			}
+			if err := json.Unmarshal(r.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range data.Modules {
+				if m.Name == "dsh" {
+					if m.State != tc.want || data.Configured != 1 {
+						t.Fatalf("dsh state = %q, configured = %d, want %q and 1", m.State, data.Configured, tc.want)
+					}
+					return
+				}
+			}
+			t.Fatal("no dsh row")
+		})
+	}
+}
+
+// writeModulesProfile lays out a profile with one Bothouse bundle and an optional disabled override.
+func writeModulesProfile(t *testing.T, dir, bundle string, disabled bool) {
 	t.Helper()
 	files := map[string]string{
-		filepath.Join(dir, "package.json"):                                      `{"dsh":{"profile":{"bundles":["conest-collab"]}}}`,
-		filepath.Join(dir, "cordis.patch.yml"):                                  "[]\n",
-		filepath.Join(dir, "node_modules", "conest-collab", "package.json"):     `{"dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}`,
-		filepath.Join(dir, "node_modules", "conest-collab", "cordis.patch.yml"): "- insert:\n    - id: collab\n      name: conest-collab\n",
+		filepath.Join(dir, "package.json"):                             `{"dsh":{"profile":{"bundles":["` + bundle + `"]}}}`,
+		filepath.Join(dir, "cordis.patch.yml"):                         "[]\n",
+		filepath.Join(dir, "node_modules", bundle, "package.json"):     `{"dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}`,
+		filepath.Join(dir, "node_modules", bundle, "cordis.patch.yml"): "- insert:\n    - id: collab\n      name: " + bundle + "\n",
 	}
 	if disabled {
-		files[filepath.Join(dir, "cordis.patch.yml")] = "- id: collab\n  name: conest-collab\n  disabled: true\n"
+		files[filepath.Join(dir, "cordis.patch.yml")] = "- id: collab\n  name: " + bundle + "\n  disabled: true\n"
 	}
 	for path, body := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

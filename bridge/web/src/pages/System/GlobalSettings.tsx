@@ -84,7 +84,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   const [attachmentSend, setAttachmentSend] = useState('');
   const [logLevel, setLogLevel] = useState('info');
   const [idleTimeout, setIdleTimeout] = useState(120);
-  const [thinkingMessages, setThinkingMessages] = useState(true);
+  const [thinkingMessages, setThinkingMessages] = useState(false);
   const [thinkingMaxLen, setThinkingMaxLen] = useState(300);
   const [toolMessages, setToolMessages] = useState(true);
   const [toolMaxLen, setToolMaxLen] = useState(500);
@@ -110,7 +110,7 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       setAttachmentSend(s.attachment_send || '');
       setLogLevel(s.log_level || 'info');
       setIdleTimeout(s.idle_timeout_mins ?? 120);
-      setThinkingMessages(s.thinking_messages ?? true);
+      setThinkingMessages(s.thinking_messages ?? false);
       setThinkingMaxLen(s.thinking_max_len ?? 300);
       setToolMessages(s.tool_messages ?? true);
       setToolMaxLen(s.tool_max_len ?? 500);

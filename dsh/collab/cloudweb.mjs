@@ -210,6 +210,12 @@ export class CloudWebGateway {
     this.logger = logger;
     /** member id -> { ws, member } */
     this.bots = new Map();
+    /** Every accepted socket, registered or not, so closeAll() reaches one still mid-register too. */
+    this.sockets = new Set();
+    /** Set by closeAll(): the plugin is torn down and its store closed; late frames are dropped. */
+    this.closed = false;
+    /** #1798: ids of messages held while the first start is prepared (hold/release); undefined = not holding. */
+    this.held = undefined;
     /** #120: permission cards, shared with DSH members (approvals.mjs); meta = { gateway, bot, sessionKey } */
     this.approvals = ChannelApprovals.of(hub);
     /** Tasks (#139 B), set by the plugin; `task` frames act through it. */
@@ -234,10 +240,12 @@ export class CloudWebGateway {
 
   /** Own one upgraded socket: register handshake, then frames until close. auth: what authorize() returned. */
   accept(ws, url, auth) {
+    if (this.closed) { ws.close(1001, 'server shutdown'); return; }
+    this.sockets.add(ws);
     let bot;
     const timer = setTimeout(() => ws.close(WS_BAD_REGISTER, 'register timeout'), REGISTER_TIMEOUT_MS);
     ws.on('message', (data, isBinary) => {
-      if (isBinary) return;
+      if (isBinary || this.closed) return;
       let frame;
       try { frame = JSON.parse(String(data)); } catch { return; }
       if (frame === null || typeof frame !== 'object') return;
@@ -253,6 +261,8 @@ export class CloudWebGateway {
     });
     ws.on('close', () => {
       clearTimeout(timer);
+      this.sockets.delete(ws);
+      if (this.closed) return;
       if (bot !== undefined && this.bots.get(bot.member.id) === bot) {
         this.bots.delete(bot.member.id);
         this.hub.setOnline(bot.member.id, false);
@@ -370,14 +380,35 @@ export class CloudWebGateway {
     }
   }
 
+  /** #1798: the first start is being prepared: hold people's messages to rooms with no member online yet. */
+  hold() { this.held ??= []; }
+
+  /** #1798: the first start is over: deliver the held messages as if they were just sent. */
+  release() {
+    const ids = this.held ?? [];
+    this.held = undefined;
+    for (const id of ids) {
+      const row = this.hub.store.message(id);
+      if (row !== undefined) this.onNew(row);
+    }
+  }
+
   /** Forward one new channel message to every connected bot except its author. */
   onNew(msg) {
     if (msg.author_kind === 'system' || msg.card !== null) return;
+    if (this.held !== undefined && msg.author_kind === 'user' && !this.hub.routableIn(msg.room_id).some(m => this.bots.has(m.id))) {
+      this.held.push(msg.id);
+      this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: '还在准备，准备好会接着回这条。' });
+      return;
+    }
     // #321: a person calls an external member that is not connected: say so in the channel.
     if (msg.author_kind === 'user') {
       for (const m of this.hub.routableIn(msg.room_id)) {
-        if (!m.external || this.bots.has(m.id) || !mentionsMember(msg.text, m)) continue;
-        this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: `${m.name} 现在不在线，这条消息它没有收到。` });
+        if (this.bots.has(m.id) || !mentionsMember(msg.text, m)) continue;
+        if (m.external) this.hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text: `${m.name} 现在不在线，这条消息它没有收到。` });
+        // #1797: a member of this host whose bothouse role is not connected (no model key yet, the bridge
+        // stopped): the plugin says what is missing and tries again (plugin.mjs onOfflineMember).
+        else if (m.kind === 'dsh') this.onOfflineMember?.(m, msg);
       }
     }
     if (this.bots.size === 0) return;
@@ -401,6 +432,9 @@ export class CloudWebGateway {
     // The replied-to row's id (same id space as a task card's preview_handle and a reply_ack),
     // so the bridge can find the work it belongs to (core.Message.Reference, reply_task.go).
     const replyTo = replyToFields(quoted, this.hub.store, msg);
+    // #1798: who answers a message calling no one here (the room's primary role, or its only agent);
+    // the bridge gives it that member alone (hub_message.go readHubMessage).
+    const defaultReply = fromAgent ? undefined : this.hub.defaultReplyIn(msg.room_id)?.id;
     // #1662: the raw text and the room's members go to every bot in the room; the bridge decides who
     // the message calls and how each bot reads it (bridge/platform/cloud-web/hub_message.go).
     for (const { ws, member } of this.bots.values()) {
@@ -419,6 +453,7 @@ export class CloudWebGateway {
       if (tooBig) frame.note = tooBig;
       if (room !== undefined) frame.chat_name = room.name.replace(/\s+/g, ' ');
       if (author?.mentionId) frame.user_mention_id = author.mentionId;
+      if (defaultReply !== undefined) frame.default_reply = defaultReply;
       send(ws, frame);
     }
   }
@@ -441,7 +476,7 @@ export class CloudWebGateway {
     return true;
   }
 
-  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release | delete. */
+  /** Answer one team_workspace frame (see CAP_TEAM_WORKSPACE): op list | create | claim | release | delete | messages. */
   teamWorkspace(d) {
     const { store } = this.hub;
     if (!supportsWorkspaces(store)) return { ok: false, error: 'unsupported' };
@@ -492,6 +527,19 @@ export class CloudWebGateway {
         store.removeWorkspace(id);
         this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
+      }
+      if (d.op === 'messages') {
+        // #1788: before the bridge deletes an idle workspace it archives it, and the archive wants
+        // the room's whole history. One page at a time, oldest first; `before` is the oldest id of
+        // the page just read. Rows look like publicMessage rows so the bridge maps them the same way.
+        const raw = d.before == null ? '' : String(d.before).replace(/^hub-/, '');
+        const before = /^\d+$/.test(raw) ? Number(raw) : undefined;
+        const messages = store.page(id, before, Number(d.limit) || 200).map(r => ({
+          id: `hub-${r.id}`, author_kind: r.author_kind, author: r.author, name: r.name,
+          text: r.text, created_at: r.created_at,
+          ...(messageAttachments(r).length ? { attachments: messageAttachments(r).map(a => ({ name: a.name })) } : {}),
+        }));
+        return { ok: true, messages };
       }
       if (d.op === 'create') {
         // A's createWorkspace numbers 工作区n+1 itself; the bridge takes the name it gets back.
@@ -723,7 +771,10 @@ export class CloudWebGateway {
   }
 
   closeAll() {
-    for (const { ws } of this.bots.values()) ws.close(1001, 'server shutdown');
+    // #1798: a plugin reload (self-update) closed only registered bots; a socket still registering then
+    // reached the closed store ("statement has been finalized") and the uncaught error took DSH down.
+    this.closed = true;
+    for (const ws of this.sockets) ws.close(1001, 'server shutdown');
   }
 }
 
