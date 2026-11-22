@@ -244,7 +244,7 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## PlatformOwner
 
-任务由机器人或定时任务布置时，交回结果和拍板提问开头 @ 这台机器的主人：admin_from 第一个，没有就取平台 allow_from 第一个用户 ID（core/team_task_assigner.go，#988）。
+任务由机器人或定时任务布置时，交回结果和拍板提问开头 @ 这台机器的主人：admin_from 第一个，没有就取平台 allow_from 第一个用户 ID（core/team_task_assigner.go，#988）。整条 @ 布置人的链路由主角色项目的 `mention_assigner` 开关控制，默认关（#2089）。
 
 - discord: 已接
 - feishu: 已接
