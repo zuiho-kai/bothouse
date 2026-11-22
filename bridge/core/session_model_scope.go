@@ -327,13 +327,23 @@ func (e *Engine) restoreHandoffModels(chat string) ([]restoredHandoff, error) {
 	return out, nil
 }
 
-// undoHandoffRestore gives the sessions of r their task's model back, as before the restore.
+// undoHandoffRestore gives the sessions of r their task's model back, as before the restore. A
+// session whose model was changed after the restore (a `model set`, a new handoff pick, a queued
+// switch applied) is left alone: the undo only takes back what the restore wrote, compared under
+// the same lock every model change takes (editHandoffModels, modelSwitchMu), so a newer pick C is
+// never overwritten by the older task model B (review #2076 round 4).
 func (e *Engine) undoHandoffRestore(r []restoredHandoff) error {
 	if len(r) == 0 {
 		return nil
 	}
+	undone, kept := 0, 0
 	err := e.editHandoffModels(func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool {
+		undone, kept = 0, 0
 		for _, x := range r {
+			if !restoredStillCurrent(x, bases, selections, pending) {
+				kept++
+				continue
+			}
 			bases[x.Key] = x.Base
 			if x.HadTask {
 				selections[x.Key] = x.Task
@@ -343,14 +353,31 @@ func (e *Engine) undoHandoffRestore(r []restoredHandoff) error {
 			if x.HadPending {
 				pending[x.Key] = x.Pending
 			}
+			undone++
 		}
-		return true
+		return undone > 0
 	})
 	if err != nil {
 		return fmt.Errorf("give the task its model back: %w", err)
 	}
-	slog.Info("handoff model: release not saved; the task keeps its model", "sessions", len(r))
+	slog.Info("handoff model: release not saved; the task keeps its model", "sessions", undone, "changed_since", kept)
 	return nil
+}
+
+// restoredStillCurrent: session x still holds exactly what restoreHandoffModels wrote for it (its
+// own selection back, nothing remembered, nothing queued).
+func restoredStillCurrent(x restoredHandoff, bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool {
+	if _, ok := bases[x.Key]; ok {
+		return false
+	}
+	if _, ok := pending[x.Key]; ok {
+		return false
+	}
+	cur, ok := selections[x.Key]
+	if x.Base == (sessionModelSelection{}) {
+		return !ok
+	}
+	return ok && cur == x.Base
 }
 
 // editHandoffModels applies edit to copies of the remembered selections, the session selections
