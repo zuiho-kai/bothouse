@@ -749,6 +749,11 @@ type ProjectConfig struct {
 	TeamBoard *bool `toml:"team_board,omitempty"`
 	// TaskForum mirrors team tasks in the server forum. Unset preserves the enabled default.
 	TaskForum *bool `toml:"task_forum,omitempty"`
+	// MentionAssigner (lead only): the report post and the question passed to the owner open with
+	// an @ of whoever set the task — a task set by a bot or a timer @ the owner
+	// (core/team_task_assigner.go, #988). Default off (user 11-23 「做个开关默认关闭 有的人可能
+	// 不喜欢被打扰」); the assigner is still recorded on the board row either way.
+	MentionAssigner *bool `toml:"mention_assigner,omitempty"`
 	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
 	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
@@ -861,6 +866,12 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
 // TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
 func (p ProjectConfig) TaskForumEnabled() bool { return p.TaskForum == nil || *p.TaskForum }
+
+// MentionAssignerEnabled: default off (user 11-23 「做个开关默认关闭」); mention_assigner = true
+// restores the #988 mentions.
+func (p ProjectConfig) MentionAssignerEnabled() bool {
+	return p.MentionAssigner != nil && *p.MentionAssigner
+}
 
 func (p ProjectConfig) TeamBoardEnabled() bool {
 	return p.TeamBoard == nil || *p.TeamBoard

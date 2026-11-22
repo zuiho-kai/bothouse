@@ -30,6 +30,7 @@ func TestReportMentionsAssigner(t *testing.T) {
 			t.Run(tc.name+map[bool]string{false: "/pass", true: "/timeout"}[timeout], func(t *testing.T) {
 				e, p, _, item := heldFixture(t)
 				e.SetAdminFrom("777")
+				e.SetMentionAssigner(true)
 				item.Assigner = tc.assigner
 				writeReviewBoard(t, e, *item)
 				holdForTest(t, e, p, item, "")
@@ -65,6 +66,7 @@ func TestAskCallsAssigner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e, p, dir := forumRoutingEngine(t)
 			e.SetAdminFrom("123")
+			e.SetMentionAssigner(true)
 			row := func(extra string) {
 				writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":195,"what":"升 vLLM","status":"在做","chat":"discord:111","ws":"discord:222","dispatcher":"lead"`+tc.assigner+extra+"}\n")
 			}
@@ -93,6 +95,10 @@ func TestAssignerOwnerFallback(t *testing.T) {
 	p := ownerTestPlatform{rp, "1498"}
 	timer := &teamTaskBoardItem{Assigner: &teamTaskAssigner{ID: "timer", Kind: CallerScheduled}}
 	person := &teamTaskBoardItem{Assigner: &teamTaskAssigner{ID: "42", Kind: CallerHuman}}
+	if got := e.assignerUser(p, person); got != "" {
+		t.Fatalf("mention_assigner off: %q, want no one to notify", got)
+	}
+	e.SetMentionAssigner(true)
 	if got := e.assignerUser(p, timer); got != "1498" {
 		t.Fatalf("no admin_from: %q, want the allow_from owner", got)
 	}
@@ -127,6 +133,7 @@ func TestSendMentionAssigner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e, p, _, item := heldFixture(t)
 			e.SetAdminFrom("777")
+			e.SetMentionAssigner(true)
 			item.Assigner = tc.assigner
 			writeReviewBoard(t, e, *item)
 			s := &APIServer{engines: map[string]*Engine{e.name: e}}
@@ -143,4 +150,55 @@ func TestSendMentionAssigner(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mention_assigner is off by default (#2089, user 11-23 「做个开关默认关闭 有的人可能不喜欢被打扰」):
+// every #988 path posts as before — the report carries no mention, send --mention-assigner is a
+// no-op, and the question call falls back to the dispatcher/owner mention it had before #988.
+func TestMentionAssignerSwitchOff(t *testing.T) {
+	t.Run("report", func(t *testing.T) {
+		e, p, _, item := heldFixture(t)
+		e.SetAdminFrom("777")
+		item.Assigner = &teamTaskAssigner{ID: "1498", Name: "zz", Kind: CallerHuman}
+		writeReviewBoard(t, e, *item)
+		holdForTest(t, e, p, item, "")
+		if w := verdictCall(t, e, 46, "pass", "逐条：做到了"); w.Code != 200 {
+			t.Fatalf("pass = %d %s", w.Code, w.Body)
+		}
+		got := p.sentTo("discord:chat1")
+		if len(got) != 1 || !strings.HasPrefix(got[0], "📬") || strings.Contains(got[0], "<@") {
+			t.Fatalf("post = %q, want the report without any mention", got)
+		}
+	})
+	t.Run("send", func(t *testing.T) {
+		e, p, _, item := heldFixture(t)
+		item.Assigner = &teamTaskAssigner{ID: "1498", Kind: CallerHuman}
+		writeReviewBoard(t, e, *item)
+		s := &APIServer{engines: map[string]*Engine{e.name: e}}
+		b, _ := json.Marshal(SendRequest{Project: e.name, SessionKey: "discord:chat1", Message: "成片给你看",
+			MentionAssigner: 46})
+		w := httptest.NewRecorder()
+		s.handleSend(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(b)))
+		if w.Code != http.StatusOK {
+			t.Fatalf("send = %d %s", w.Code, w.Body)
+		}
+		got := p.sentTo("discord:chat1")
+		if len(got) != 1 || got[0] != "成片给你看" {
+			t.Fatalf("post = %q, want the text unchanged", got)
+		}
+	})
+	t.Run("ask falls back", func(t *testing.T) {
+		e, p, dir := forumRoutingEngine(t)
+		e.SetAdminFrom("123")
+		row := func(extra string) {
+			writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":195,"what":"升 vLLM","status":"在做","chat":"discord:111","ws":"discord:222","dispatcher":"lead","assigner":{"id":"999","name":"zz","kind":"human"}`+extra+"}\n")
+		}
+		row("")
+		e.syncTaskForum()
+		row(`,"wait_kind":"user","paused":"11-19 09:55","pause_why":"等待用户答复：要不要推 PR","ask":{"title":"要不要推 PR","to":"user","kind":"权限"}`)
+		e.syncTaskForum()
+		if len(p.mentions) != 1 || p.mentions[0] != "123" {
+			t.Fatalf("mentions=%v, want the pre-#988 fallback [123]", p.mentions)
+		}
+	})
 }
