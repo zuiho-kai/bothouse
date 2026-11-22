@@ -259,6 +259,29 @@ class Addressee(Base):
         routed = self.all_route("没有点名的消息")
         self.assertEqual(self.replied(routed), [""], routed)
 
+    def test_switched_lead_judged_by_jev_replies(self):  # #827：主角色切到 sub 键后，没 @、jev 判给她 → 她回、原主角色只收上下文
+        self.history([(30, "longniang", [], "简历改好了，你看看")])
+        state = gate._test_data_dir / "lead.json"
+        state.write_text(json.dumps({"lead": "longniang"}), encoding="utf-8")
+        try:
+            self.clear()
+            req = {"content": "在这个基础上再改短一点", "mentioned": False, "busy": False, "session_key": CHAT}
+            action, why, _ = gate.route(dict(req), "longniang")
+            self.assertEqual(action, "reply", why)
+            self.assertIn(": 判给我；", why)
+            self.assertEqual(gate.route(dict(req), "")[0], "context")
+        finally:
+            state.unlink()
+
+    def test_new_topic_busy_sub_only_listens(self):  # #827：jev 看不出（新话题），龙娘正忙、按任务模型像「补充」→ 只有主角色回，龙娘只收
+        self.history([(30, None, [], "写一下周报")])
+        gate.sub_task = types.SimpleNamespace(score=lambda *a, **k: SC(1, 3))
+        gate.current_task[("longniang", CHAT)] = "跑一下回归脚本"
+        r = self.all_route("顺便看看明天的天气", busy=False)
+        self.clear()
+        r["longniang"] = gate.route({"content": "顺便看看明天的天气", "mentioned": False, "busy": True, "session_key": CHAT}, "longniang")[0]
+        self.assertEqual(self.replied(r), [gate.lead.current()], r)
+
     def test_legacy_lead_file_migrates_once_and_new_file_wins(self):
         self.history([])
         state = gate._test_data_dir / "lead.json"

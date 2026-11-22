@@ -163,6 +163,9 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	if event.Error == nil && !turn.state.isStopped() {
 		if _, exhausted := QuotaExhaustedReset(event); !exhausted {
 			e.confirmLeadHandoff(turn.session)
+			if model := replyFooterModel(turn.agentSession, nil); model != "" {
+				turn.session.SetLastModel(model)
+			}
 		}
 	}
 	if fullResponse == "" {
@@ -626,11 +629,22 @@ func (e *Engine) finishTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	}
 	turn.watchTurnFinished = true
 	turn.state.mu.Lock()
-	jobID, retrying := turn.state.currentJobID, turn.state.capacityFailed
+	jobID, wakeID, retrying := turn.state.currentJobID, turn.state.currentWakeID, turn.state.capacityFailed
 	if !retrying {
 		turn.state.currentJobID = ""
+		turn.state.currentWakeID = ""
 	}
 	turn.state.mu.Unlock()
+	if wakeID != "" && !retrying {
+		// #2024: the woken turn's answer (or its failure) goes back to the conversation that woke it.
+		var wakeErr error
+		if event.Error != nil {
+			wakeErr = event.Error
+		} else if _, exhausted := QuotaExhaustedReset(event); exhausted {
+			wakeErr = fmt.Errorf("provider quota exhausted")
+		}
+		settleWakeReturn(wakeID, baseResponse, wakeErr)
+	}
 	if jobID != "" && !retrying {
 		text := ""
 		if event.Error == nil {
@@ -795,12 +809,17 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		// (the backfill already marked those posts seen).
 		*turn.chainedQueued = queued
 		queued.content = turn.session.renderReference(queued.content, queued.reference)
-		queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
-		queuedPrompt := e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
-		queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
-		queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		queuedPrompt := queued.content // #2041: a native command is the whole prompt, as typed
+		if !queued.nativeCommand {
+			queued.content = e.withTurnBlocksRef(turn.session, queued.msgSessionKey, queued.turnCtxQuery, queued.turnCtxSender, queued.content, queued.turnCtx, queued.reference)
+			queuedPrompt = e.buildSenderPrompt(withVoiceNote(queued.content, queued.fromVoice && !queued.voiceMarked), queued.userID, queued.userName, queued.msgPlatform, queued.msgSessionKey, queued.channelKey)
+			queuedPrompt = e.withSharedMemoryHint(queuedPrompt, turn.replyAgent, &Message{SessionKey: queued.msgSessionKey, ChannelKey: queued.channelKey}, turn.workspaceDir)
+			queuedPrompt = e.withChannelAgentInstructions(queuedPrompt, queued.userID, queued.fromBot, queued.platform, queued.msgSessionKey, turn.session, turn.replyAgent)
+		}
 		e.noteCallerTurn(queued.msgSessionKey, queued.msgPlatform, queued.userID, queued.userName, queued.channelKey, queued.fromBot, queued.timerJobID != "" || queued.cronJobID != "", false)
-		queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		if !queued.nativeCommand {
+			queuedPrompt = e.withPublicProgress(queuedPrompt, turn.state, queued.msgSessionKey, queued.fromBot, queued.fromVoice)
+		}
 
 		turn.state.mu.Lock()
 		as := turn.agentSession // capture under lock to avoid race with cleanup
@@ -875,9 +894,13 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		queuedRenderer := func(content string) string {
 			return e.renderOutgoingContentForWorkspace(queued.platform, content, turn.workspaceDir)
 		}
-		turn.sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
+		turn.quietNarration = scheduledTurnUser(queued.userID) && !e.isTeamWorkspaceChat(turn.sessionKey)
+		turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
 		turn.cp = newCompactProgressWriter(turn.outputCtx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 		turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, queued.platform, turn.sessionKey, queuedRenderer)
+		if turn.quietNarration {
+			turn.cp.hideForScheduled()
+		}
 		turn.board = e.boardBegin(turn.state, turn.sessionKey) // maomao fork: the queued turn's board row
 		turn.cp.onStep = turn.board.step
 
@@ -887,8 +910,9 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.cardThinkingText = ""
 		turn.cardAnswerText.Reset()
 
-		// Try to create a new streaming card for the queued turn
-		if scp, ok := queued.platform.(StreamingCardPlatform); ok {
+		// Try to create a new streaming card for the queued turn; a quiet
+		// scheduled turn opens none, same as the first turn (#953).
+		if scp, ok := queued.platform.(StreamingCardPlatform); ok && !turn.quietNarration {
 			if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, queued.replyCtx) }); err != nil {
 				slog.Warn("streaming card creation failed for queued turn", "error", err)
 			} else {
@@ -897,7 +921,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		}
 
 		// Send instant reply for queued turn if no streaming card is active.
-		if e.instantReply.Enabled && turn.streamCard == nil {
+		if e.instantReply.Enabled && turn.streamCard == nil && !turn.quietNarration {
 			replyContent := e.instantReply.Content
 			if replyContent == "" {
 				replyContent = e.i18n.T(MsgStarting)

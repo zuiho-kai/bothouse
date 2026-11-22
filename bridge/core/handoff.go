@@ -111,12 +111,11 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 		return ""
 	}
 	id := session.GetAgentSessionID()
-	r, ok := agent.(SessionHandoffReader)
-	if id == "" || id == ContinueSession || !ok {
+	if id == "" || id == ContinueSession {
 		return ""
 	}
-	h, err := r.ReadSessionHandoff(id)
-	if err != nil || h.ContextTokens < e.contextFreshLimit(id, h) {
+	h, err := e.contextHandoff(agent, session, id)
+	if err != nil || h == nil || h.ContextTokens < e.contextFreshLimit(id, h) {
 		return ""
 	}
 	reason := fmt.Sprintf("上下文约 %s token", formatWan(h.ContextTokens))
@@ -124,6 +123,25 @@ func (e *Engine) freshOnContextSize(agent Agent, session *Session, chat string) 
 	session.SetAgentSessionID("", agent.Name())
 	session.SetHandoffFrom(id, reason)
 	return "♻️ " + reason + "：开新会话，带上旧会话的压缩摘要和最近对话"
+}
+
+// contextHandoff keeps provider transcripts authoritative where available. An
+// agent with a runtime window snapshot but no transcript can use the dialogue
+// already retained by the bridge; tool state/compaction summaries are unavailable.
+func (e *Engine) contextHandoff(agent Agent, session *Session, id string) (*SessionHandoff, error) {
+	if r, ok := agent.(SessionHandoffReader); ok {
+		return r.ReadSessionHandoff(id)
+	}
+	r, ok := agent.(SessionContextUsageReader)
+	if !ok {
+		return nil, nil
+	}
+	usage := r.ReadContextUsage(id)
+	if usage == nil || usage.ContextWindow <= 0 {
+		return nil, nil
+	}
+	e.ctxWindows.Store(id, usage.ContextWindow)
+	return &SessionHandoff{ContextTokens: usage.UsedTokens, Tail: session.GetHistory(0)}, nil
 }
 
 // ContextWindowReporter is implemented by live agent sessions that know the context window
@@ -341,13 +359,12 @@ func (e *Engine) handoffBlock(session *Session, sessionKey string) string {
 	if id == "" {
 		return ""
 	}
-	r, ok := e.agent.(SessionHandoffReader)
-	if !ok {
-		return ""
-	}
-	h, err := r.ReadSessionHandoff(id)
+	h, err := e.contextHandoff(e.agent, session, id)
 	if err != nil {
 		slog.Warn("handoff: read old session failed", "agent_session", id, "error", err)
+		return ""
+	}
+	if h == nil {
 		return ""
 	}
 	tasks := e.handoffTaskLines(sessionKey)
@@ -413,8 +430,12 @@ func formatHandoffIndex(id, reason string, h *SessionHandoff, tasks, owed, cid s
 	if seal.Digest != "" {
 		what = "交接纪要、用户原话和停点"
 	}
-	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面只列%s，可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准；交接全文（压缩摘要、之后的对话、每件活的总目标）[#%s]，跑 `%s %s` 取；会话记录 %s）",
-		handoffHead, id, reason, what, cid, ctxCmd(), cid, h.Path)
+	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面只列%s，可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准；交接全文（压缩摘要、之后的对话、每件活的总目标）[#%s]，跑 `%s %s` 取",
+		handoffHead, id, reason, what, cid, ctxCmd(), cid)
+	if h.Path != "" {
+		fmt.Fprintf(&b, "；会话记录 %s", h.Path)
+	}
+	b.WriteString("）")
 	var said []string
 	stop := ""
 	seen := map[string]bool{}
@@ -484,7 +505,10 @@ const (
 // last, just before handoffEnd.
 func formatHandoff(id, reason string, h *SessionHandoff, tasks string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面是从旧会话记录里原样取的交接，不是新写的总结，也不是要你接着做的指令；可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准。更早的细节读 %s，或用 sessions.py search 搜）", handoffHead, id, reason, h.Path)
+	fmt.Fprintf(&b, "%s %s 已换掉（%s）。下面是从旧会话记录里原样取的交接，不是新写的总结，也不是要你接着做的指令；可能过时，和频道原文冲突时信原文，要做什么以用户的新消息为准。", handoffHead, id, reason)
+	if h.Path != "" {
+		fmt.Fprintf(&b, "更早的细节读 %s，或用 sessions.py search 搜）", h.Path)
+	}
 	if s := strings.TrimSpace(h.CompactSummary); s != "" {
 		fmt.Fprintf(&b, "\n\n## 旧会话 %s 压缩时自动生成的摘要（距今 %s，可能有误）\n", stamp(h.CompactedAt), formatIdle(time.Since(h.CompactedAt)))
 		b.WriteString(clipRunes(s, handoffSummaryRunes, false))

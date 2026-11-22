@@ -2,10 +2,11 @@ package core
 
 // maomao fork: the channel task board ("频道任务看板").
 //
-// One pinned message per Discord channel shows what every bot of this process
-// is doing there: the turns running now (with the progress card's current step
-// and the Claude Code bot's sub-agents under it), what is waiting (messages
-// queued behind a busy turn, the channel's cron/timer jobs), and the last few
+// One pinned message per channel (a Discord channel, a Feishu/Lark chat) shows
+// what every bot of this process is doing there: the turns running now (with
+// the progress card's current step and the Claude Code bot's sub-agents under
+// it), what is waiting (messages queued behind a busy turn, the channel's
+// cron/timer jobs), and the last few
 // turns finished today. All bots of the process share the one message; the
 // project with channel_board = true (橘) posts, pins and edits it. Changes in a
 // channel within a short window are merged into one edit. The message ID is kept
@@ -22,8 +23,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,7 +48,7 @@ const channelBoardFile = "channel_board.json"
 var ErrChannelBoardGone = errors.New("channel board message gone")
 
 // ChannelBoardPoster is implemented by platforms that can host the board
-// (Discord). Content is a ChannelBoardPayload string.
+// (Discord, Feishu). Content is a ChannelBoardPayload string.
 type ChannelBoardPoster interface {
 	PostChannelBoard(ctx context.Context, channelID, content string) (messageID string, err error)
 	EditChannelBoard(ctx context.Context, channelID, messageID, content string) error
@@ -121,19 +124,40 @@ func ParseChannelBoardPayload(content string) (*ChannelBoardPayload, bool) {
 	return &p, true
 }
 
-// boardChannelOf returns the Discord channel ID of a session or interactive
-// key ("discord:<channel>[:<user>]", maybe with a workspace prefix or a
-// "#cron:<id>" suffix); "" for other platforms.
+// boardPlatforms are the platforms that host the board (their Platform
+// implements ChannelBoardPoster).
+var boardPlatforms = []string{"discord", "feishu", "lark"}
+
+// boardChannelOf returns the board channel of a session or interactive key
+// ("<platform>:<channel>[:<user>]", maybe with a workspace prefix or a
+// "#cron:<id>" suffix): the bare channel ID on Discord (what the state file has
+// always held), "<platform>:<chat>" on Feishu/Lark; "" for other platforms.
 func boardChannelOf(key string) string {
-	i := strings.Index(key, "discord:")
-	if i < 0 || (i > 0 && key[i-1] != ':') {
-		return ""
+	for _, plat := range boardPlatforms {
+		i := strings.Index(key, plat+":")
+		if i < 0 || (i > 0 && key[i-1] != ':') {
+			continue
+		}
+		k := key[i:]
+		if j := strings.Index(k, "#"); j >= 0 {
+			k = k[:j]
+		}
+		id := extractChannelID(k)
+		if id == "" || plat == "discord" {
+			return id
+		}
+		return plat + ":" + id
 	}
-	key = key[i:]
-	if j := strings.Index(key, "#"); j >= 0 {
-		key = key[:j]
+	return ""
+}
+
+// boardPlatformOf splits a board channel (boardChannelOf) into its platform
+// and the platform's own channel ID.
+func boardPlatformOf(ch string) (platform, id string) {
+	if plat, id, ok := strings.Cut(ch, ":"); ok {
+		return plat, id
 	}
-	return extractChannelID(key)
+	return "discord", ch
 }
 
 // boardDescOf is the board's short text for the turn msg starts: the cron/timer
@@ -187,9 +211,8 @@ type channelBoardHub struct {
 	mu       sync.Mutex
 	sources  []*Engine
 	writer   *Engine
-	poster   ChannelBoardPoster
+	hosts    map[string]boardHost // platform name → the writer's platform that posts there
 	path     string
-	window   time.Duration
 	ctx      context.Context // cancelled = workers stop waiting (disable, shutdown)
 	cancel   context.CancelFunc
 	workers  sync.WaitGroup // running channel workers (shutdown waits for them)
@@ -200,6 +223,26 @@ type channelBoardHub struct {
 	turns           map[string]*boardTurn // engine name + "\x00" + interactive key
 	channels        map[string]*boardChannel
 	now             func() time.Time
+}
+
+// boardHost is one platform of the writer project: it posts the board in that
+// platform's channels, changes merged over window.
+type boardHost struct {
+	poster ChannelBoardPoster
+	window time.Duration
+}
+
+// channelBoardWindow is the merge window on a platform with no progress edit
+// interval of its own (Feishu). 沿用 Discord's 2s (platform/discord
+// ProgressUpdateInterval), so the board moves at the same pace on both; Feishu
+// allows 5 edits a second on one message (「更新已发送的消息卡片」使用限制,
+// https://open.feishu.cn/document/server-docs/im-v1/message-card/patch).
+const channelBoardWindow = 2 * time.Second
+
+// hostLocked is the writer's platform for board channel ch (zero = none).
+func (h *channelBoardHub) hostLocked(ch string) boardHost {
+	plat, _ := boardPlatformOf(ch)
+	return h.hosts[plat]
 }
 
 func newChannelBoardHub() *channelBoardHub {
@@ -252,7 +295,7 @@ func (h *channelBoardHub) removeSource(e *Engine) {
 
 // SetChannelBoard (maomao fork) makes this project post the channel board
 // (config channel_board = true). Only one project of the process should; the
-// last one enabled wins. Only its Discord platform is used.
+// last one enabled wins. Its Discord and Feishu/Lark platforms post.
 func (e *Engine) SetChannelBoard(enabled bool) {
 	h := e.board
 	if h == nil {
@@ -266,24 +309,25 @@ func (e *Engine) SetChannelBoard(enabled bool) {
 		h.mu.Unlock()
 		return
 	}
-	var poster ChannelBoardPoster
-	var window time.Duration
+	hosts := map[string]boardHost{}
 	for _, p := range e.platforms {
-		if bp, ok := p.(ChannelBoardPoster); ok && p.Name() == "discord" {
-			poster = bp
-			// Merge window: 沿用 the progress card's edit interval on this platform
-			// (platform/discord ProgressUpdateInterval, 2s). Discord publishes no
-			// fixed number for message edits — "rate limits should not be hard
-			// coded into your app" (docs.discord.com/developers/topics/rate-limits);
-			// discordgo waits on the per-route bucket headers and 429s itself.
-			if th, ok := p.(ProgressUpdateThrottler); ok {
-				window = th.ProgressUpdateInterval()
-			}
-			break
+		bp, ok := p.(ChannelBoardPoster)
+		if _, dup := hosts[p.Name()]; !ok || dup || !slices.Contains(boardPlatforms, p.Name()) {
+			continue
 		}
+		// Merge window: 沿用 the progress card's edit interval on this platform
+		// (platform/discord ProgressUpdateInterval, 2s). Discord publishes no
+		// fixed number for message edits — "rate limits should not be hard
+		// coded into your app" (docs.discord.com/developers/topics/rate-limits);
+		// discordgo waits on the per-route bucket headers and 429s itself.
+		host := boardHost{poster: bp, window: channelBoardWindow}
+		if th, ok := p.(ProgressUpdateThrottler); ok {
+			host.window = th.ProgressUpdateInterval()
+		}
+		hosts[p.Name()] = host
 	}
-	if poster == nil {
-		slog.Warn("channel board: project has no Discord platform; board stays off", "project", e.name)
+	if len(hosts) == 0 {
+		slog.Warn("channel board: project has no Discord or Feishu platform; board stays off", "project", e.name)
 		return
 	}
 	path := ""
@@ -292,11 +336,11 @@ func (e *Engine) SetChannelBoard(enabled bool) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.writer == e && h.poster == poster && h.path == path {
+	if h.writer == e && maps.Equal(h.hosts, hosts) && h.path == path {
 		return // config reload, unchanged
 	}
 	h.disableLocked()
-	h.writer, h.poster, h.path, h.window = e, poster, path, window
+	h.writer, h.hosts, h.path = e, hosts, path
 	h.ctx, h.cancel = context.WithCancel(context.Background())
 	h.loadLocked()
 	slog.Info("channel board enabled", "project", e.name, "state", path)
@@ -306,7 +350,7 @@ func (h *channelBoardHub) disableLocked() {
 	if h.cancel != nil {
 		h.cancel()
 	}
-	h.writer, h.poster, h.cancel, h.ctx, h.stopping = nil, nil, nil, nil, false
+	h.writer, h.hosts, h.cancel, h.ctx, h.stopping = nil, nil, nil, nil, false
 	h.turns = map[string]*boardTurn{}
 	h.channels = map[string]*boardChannel{}
 }
@@ -365,14 +409,14 @@ func (h *channelBoardHub) channelLocked(id string) *boardChannel {
 
 // beginTurn records that engine e started a turn on interactive key key.
 // Returns the turn's sequence number (0 when the board is off or the key is
-// not a Discord channel).
+// not a channel of a platform the writer posts on).
 func (h *channelBoardHub) beginTurn(e *Engine, key, desc string) uint64 {
 	ch := boardChannelOf(key)
 	if ch == "" {
 		return 0
 	}
 	h.mu.Lock()
-	if h.writer == nil {
+	if h.writer == nil || h.hostLocked(ch).poster == nil {
 		h.mu.Unlock()
 		return 0
 	}
@@ -482,7 +526,7 @@ func (h *channelBoardHub) work(ctx context.Context, ch string) {
 	}
 	for {
 		h.mu.Lock()
-		wait := h.window
+		wait := h.hostLocked(ch).window
 		if c := h.channels[ch]; c != nil && c.backoff > 0 {
 			wait = c.backoff
 		}
@@ -512,7 +556,7 @@ func (h *channelBoardHub) work(ctx context.Context, ch string) {
 			return
 		}
 		c.dirty = false
-		window := h.window
+		window := h.hostLocked(ch).window
 		h.mu.Unlock()
 		// The call is not tied to ctx: a send already under way finishes (a
 		// cancelled POST could have been delivered without us learning its ID);
@@ -557,7 +601,8 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	}
 	content := BuildChannelBoardPayload(payload)
 	h.mu.Lock()
-	poster, writer := h.poster, h.writer
+	poster, writer := h.hostLocked(ch).poster, h.writer
+	_, chat := boardPlatformOf(ch) // the platform's own channel ID
 	c := h.channels[ch]
 	if poster == nil || c == nil || content == "" || content == c.lastSent {
 		h.mu.Unlock()
@@ -572,7 +617,7 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	}
 
 	if id == "" {
-		found, foundPinned, err := poster.FindChannelBoard(ctx, ch)
+		found, foundPinned, err := poster.FindChannelBoard(ctx, chat)
 		if errors.Is(err, ErrDeliveryUnrecoverable) {
 			return h.giveUp(ch, err)
 		}
@@ -582,7 +627,7 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 		id, pinned = found, foundPinned
 	}
 	if id != "" {
-		err := poster.EditChannelBoard(ctx, ch, id, content)
+		err := poster.EditChannelBoard(ctx, chat, id, content)
 		if errors.Is(err, ErrChannelBoardGone) {
 			slog.Info("channel board: message gone, posting a new one", "channel", ch, "message", id)
 			id, pinned, pinRetried = "", false, false
@@ -595,7 +640,7 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 	}
 	posted := false
 	if id == "" {
-		newID, err := poster.PostChannelBoard(ctx, ch, content)
+		newID, err := poster.PostChannelBoard(ctx, chat, content)
 		if errors.Is(err, ErrDeliveryUnrecoverable) {
 			return h.giveUp(ch, err)
 		}
@@ -610,7 +655,7 @@ func (h *channelBoardHub) sync(ctx context.Context, ch string, override func(*Ch
 		// board: it is still posted and edited, just not pinned. An unpinned
 		// board found at start is tried once more per process (so after the
 		// permission is given, a restart pins it).
-		if err := poster.PinChannelBoard(ctx, ch, id); err != nil {
+		if err := poster.PinChannelBoard(ctx, chat, id); err != nil {
 			slog.Warn("channel board: pin failed (bot needs Manage Messages / Pin Messages); board stays unpinned", "channel", ch, "message", id, "error", err)
 		} else {
 			pinned = true
@@ -981,7 +1026,7 @@ func (e *Engine) boardBegin(state *interactiveState, key string) *boardTurnRef {
 	desc := state.turnDesc
 	p := state.platform
 	state.mu.Unlock()
-	if p == nil || p.Name() != "discord" {
+	if plat, _ := boardPlatformOf(boardChannelOf(key)); p == nil || p.Name() != plat {
 		return nil
 	}
 	seq := h.beginTurn(e, key, desc)

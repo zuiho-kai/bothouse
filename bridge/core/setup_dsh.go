@@ -37,8 +37,9 @@ const DSHKeyEnv = "DSH_WIZARD_API_KEY"
 // DSHInstallHint is the one line shown when DSH is not installed (the bridge is its own package, see above).
 const DSHInstallHint = "npm i -g @deepseek-ai/dsh@latest @deepseek-ai/dsh-hooks-claude-code"
 
-// dshLogin: the official key variable (dsh-llm-deepseek-api-key), an account login ($DSH_HOME/.credentials.yaml,
-// dsh-credentials-local), or the user's own model setup (llm-deepseek in the home layer or the acp profile).
+// dshLogin: the official key variable (dsh-llm-deepseek-api-key) in the environment or $DSH_HOME/.env, an account
+// login ($DSH_HOME/.credentials.yaml, dsh-credentials-local), or the user's own model setup (llm-deepseek in any
+// layer a role copies its model from, dshHomeLayers).
 func dshLogin(h string) string {
 	dir := os.Getenv("DSH_HOME")
 	if strings.TrimSpace(dir) == "" {
@@ -46,11 +47,14 @@ func dshLogin(h string) string {
 	}
 	// a credentials file alone is no login: the web UI's own browser session is stored there too
 	refs, account := dshCredentials(dir)
-	return loginIf(os.Getenv(dshDefaultKeyEnv) != "" || refs[dshDefaultKeyEnv] != "" || account || dshHasOwnModel(dir))
+	return loginIf(os.Getenv(dshDefaultKeyEnv) != "" || refs[dshDefaultKeyEnv] != "" || account || dshDotenvHas(dir, dshDefaultKeyEnv) || dshHasOwnModel(dir))
 }
 
+// dshHasOwnModel reads the same layers dshOwnModelPatch copies into a role (#1798: a model set up in the web
+// profile, where the channels plugin runs, was copied into the DSH role and answered, while this check read only
+// the home layer and the acp profile and the install self-check said「DSH 还没登录」).
 func dshHasOwnModel(dshHome string) bool {
-	for _, p := range []string{filepath.Join(dshHome, "cordis.patch.yml"), filepath.Join(dshHome, "profiles", "acp", "cordis.patch.yml")} {
+	for _, p := range dshHomeLayers(dshHome) {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue

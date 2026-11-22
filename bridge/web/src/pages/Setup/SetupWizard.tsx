@@ -1235,9 +1235,19 @@ export default function SetupWizard() {
                     {(result.hot_load.restart_keys || []).length > 0 && <p className="text-amber-600" data-testid="hot-load-restart-why">{zh ? '这些设置要重启才生效：' : 'These settings take effect after a restart: '}{(result.hot_load.restart_keys || []).join('; ')}</p>}
                   </div>
                 )}
-                <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
-                  {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {stepLabel(T, s.step)}{s.detail ? ` — ${s.detail}` : ''}</li>)}
-                </ul>
+                {/* #1798: the per-step list (with paths) folds into one line; it opens by itself when a step failed */}
+                {result.steps.length > 0 && (() => {
+                  const bad = result.steps.filter((s) => !s.ok).length;
+                  const n = String(result.steps.length);
+                  return (
+                    <details className="text-xs text-gray-600 dark:text-gray-400" open={bad > 0} data-testid="save-steps">
+                      <summary className="cursor-pointer select-none">{bad > 0 ? T.stepsSomeFailed.replace('{n}', n).replace('{bad}', String(bad)) : T.stepsAllOk.replace('{n}', n)}</summary>
+                      <ul className="space-y-0.5 mt-1">
+                        {result.steps.map((s, i) => <li key={i}>{s.ok ? '✓' : '✗'} {stepLabel(T, s.step)}{s.detail ? ` — ${s.detail}` : ''}</li>)}
+                      </ul>
+                    </details>
+                  );
+                })()}
                 {result.roles.filter((r) => r.reply_language || r.reply_language_from === 'existing').map((r) => (
                   <p key={`l${r.project}`} className="text-xs text-gray-600 dark:text-gray-400" data-testid="reply-lang-saved">{T.replyLangSaved}{r.name} → {r.reply_language ? langLabel(r.reply_language) : T.replyLangNone}{r.reply_language_from === 'existing' ? T.replyLangKept : ''}</p>
                 ))}

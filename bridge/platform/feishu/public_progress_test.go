@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,22 +17,37 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
 
-// fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies and
-// pins, and de-duplicates sends by uuid like the real API.
+// fakeFeishuIM is a fake Feishu IM API: it records sends, patches, replies,
+// pins, unpins and recalls, and de-duplicates sends by uuid like the real API.
 type fakeFeishuIM struct {
-	mu         sync.Mutex
-	nextID     int
-	byUUID     map[string]string
-	content    map[string]string // message ID -> card JSON
-	gone       map[string]bool   // deleted message IDs
-	expired    map[string]bool   // message IDs older than the 14-day edit window
-	creates    []map[string]any
-	patches    []string
-	replies    []map[string]any
-	pins       []string
-	pinFail    bool
-	createFail int          // fail this many creates with HTTP 500 before succeeding
-	refuse     *fakeRefusal // when set, every create/patch/reply answers with it
+	mu      sync.Mutex
+	nextID  int
+	byUUID  map[string]string
+	content map[string]string // message ID -> card JSON
+	gone    map[string]bool   // deleted message IDs
+	expired map[string]bool   // message IDs older than the 14-day edit window
+	creates []map[string]any
+	patches []string
+	replies []map[string]any
+	pins    []string
+	pinFail bool
+	deletes []string // recalled message IDs
+	unpins  []string
+	// recallExpired: recalls answer 230009 (past the recall time limit).
+	recallExpired bool
+	createFail    int          // fail this many creates with HTTP 500 before succeeding
+	refuse        *fakeRefusal // when set, every create/patch/reply answers with it
+	// dm_test.go: receive_id_type of each create, the p2p chat of an open_id, chat member pages.
+	createIDTypes []string
+	p2pChats      map[string]string
+	members       map[string][][]string // chat ID -> pages of member open_ids
+	// history_test.go: chat ID -> its messages oldest first, and the query of each list request.
+	history     map[string][]map[string]any
+	listQueries []url.Values
+	// channel_names_test.go: the groups the bot is in (chat_id, name, chat_mode), in pages.
+	chatPages [][]map[string]any
+	// channel_board_test.go: chat ID -> pinned message IDs (what「获取群内 Pin 消息」lists).
+	pinList map[string][]string
 }
 
 type fakeRefusal struct {
@@ -67,6 +84,14 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 				return
 			}
 			f.creates = append(f.creates, body)
+			idType := r.URL.Query().Get("receive_id_type")
+			f.createIDTypes = append(f.createIDTypes, idType)
+			if idType == "open_id" {
+				receiver, _ := body["receive_id"].(string)
+				f.nextID++
+				ok(map[string]any{"message_id": "om_" + string(rune('a'+f.nextID)), "chat_id": f.p2pChats[receiver]})
+				return
+			}
 			uuid, _ := body["uuid"].(string)
 			if id, seen := f.byUUID[uuid]; seen && uuid != "" {
 				ok(map[string]any{"message_id": id})
@@ -97,6 +122,12 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 			body["root"] = strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/"), "/reply")
 			f.replies = append(f.replies, body)
 			ok(map[string]any{"message_id": "om_reply"})
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/pins":
+			items := []map[string]any{}
+			for _, id := range f.pinList[r.URL.Query().Get("chat_id")] {
+				items = append(items, map[string]any{"message_id": id})
+			}
+			ok(map[string]any{"items": items, "has_more": false})
 		case r.Method == http.MethodPost && r.URL.Path == "/open-apis/im/v1/pins":
 			if f.pinFail {
 				writeJSON(t, w, map[string]any{"code": 99991672, "msg": "no permission"})
@@ -105,6 +136,76 @@ func (f *fakeFeishuIM) handler(t *testing.T) http.HandlerFunc {
 			id, _ := body["message_id"].(string)
 			f.pins = append(f.pins, id)
 			ok(map[string]any{})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/"):
+			id := strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/")
+			if f.gone[id] {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(t, w, map[string]any{"code": feishuMessageDeletedCode, "msg": "Action unavailable as the message has been deleted."})
+				return
+			}
+			if f.recallExpired {
+				w.WriteHeader(http.StatusBadRequest)
+				writeJSON(t, w, map[string]any{"code": 230009, "msg": "The message has exceeded the recall time limit."})
+				return
+			}
+			f.deletes = append(f.deletes, id)
+			f.gone[id] = true
+			ok(map[string]any{})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/pins/"):
+			f.unpins = append(f.unpins, strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/pins/"))
+			ok(map[string]any{})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/") && strings.HasSuffix(r.URL.Path, "/members"):
+			chat := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/chats/"), "/members")
+			pages, page := f.members[chat], 0
+			if tok := r.URL.Query().Get("page_token"); tok != "" {
+				page, _ = strconv.Atoi(tok)
+			}
+			items := []map[string]any{}
+			if page < len(pages) {
+				for _, id := range pages[page] {
+					items = append(items, map[string]any{"member_id": id})
+				}
+			}
+			data := map[string]any{"items": items, "has_more": page+1 < len(pages)}
+			if page+1 < len(pages) {
+				data["page_token"] = strconv.Itoa(page + 1)
+			}
+			ok(data)
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/messages":
+			ok(f.listHistory(r.URL.Query()))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/"):
+			items := []map[string]any{}
+			for _, msgs := range f.history {
+				for _, m := range msgs {
+					if m["message_id"] == strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/messages/") {
+						items = append(items, m)
+					}
+				}
+			}
+			ok(map[string]any{"items": items})
+		case r.Method == http.MethodGet && r.URL.Path == "/open-apis/im/v1/chats":
+			page := 0
+			if tok := r.URL.Query().Get("page_token"); tok != "" {
+				page, _ = strconv.Atoi(tok)
+			}
+			data := map[string]any{"items": []map[string]any{}, "has_more": page+1 < len(f.chatPages)}
+			if page < len(f.chatPages) {
+				data["items"] = f.chatPages[page]
+			}
+			if page+1 < len(f.chatPages) {
+				data["page_token"] = strconv.Itoa(page + 1)
+			}
+			ok(data)
+		case r.Method == http.MethodGet && (strings.HasPrefix(r.URL.Path, "/open-apis/contact/v3/users/") || strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/chats/")):
+			for _, chats := range f.chatPages {
+				for _, c := range chats {
+					if c["chat_id"] == strings.TrimPrefix(r.URL.Path, "/open-apis/im/v1/chats/") {
+						ok(c)
+						return
+					}
+				}
+			}
+			ok(map[string]any{}) // sender name and chat name lookups of an inbound message
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -288,6 +389,67 @@ func TestFeishuBoardPostPinThenEdit(t *testing.T) {
 	again, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", id, "**团队任务板**\n空", false)
 	if err != nil || again == "" || again == id || len(f.pins) != 2 {
 		t.Fatalf("deleted board not reposted: %q, %v, pins=%v", again, err, f.pins)
+	}
+}
+
+// Lead changed: the old lead recalls its board and takes it off the pin list.
+func TestFeishuRemoveBoardUnpinsAndRecalls(t *testing.T) {
+	f := newFakeFeishuIM()
+	p := newFakeFeishuPlatform(t, f)
+	ctx := context.Background()
+	id, err := p.UpsertBoard(ctx, "feishu:oc_chat:ou_u", "", "**团队任务板**\n龙娘 进行中", false)
+	if err != nil || id == "" {
+		t.Fatalf("UpsertBoard post: %q, %v", id, err)
+	}
+	if _, pinned := p.boardPinned.Load(id); !pinned {
+		t.Fatalf("board %s not recorded as pinned", id)
+	}
+	if err := p.RemoveBoard(ctx, "feishu:oc_chat:ou_u", id); err != nil {
+		t.Fatalf("RemoveBoard: %v", err)
+	}
+	if len(f.deletes) != 1 || f.deletes[0] != id {
+		t.Fatalf("recalled %v, want [%s]", f.deletes, id)
+	}
+	if len(f.unpins) != 1 || f.unpins[0] != id {
+		t.Fatalf("unpinned %v, want [%s]", f.unpins, id)
+	}
+	if _, pinned := p.boardPinned.Load(id); pinned {
+		t.Fatalf("board %s still recorded as pinned after removal", id)
+	}
+}
+
+// A board somebody already deleted counts as removed.
+func TestFeishuRemoveBoardAlreadyDeleted(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.gone["om_old"] = true
+	p := newFakeFeishuPlatform(t, f)
+	p.boardPinned.Store("om_old", struct{}{})
+	if err := p.RemoveBoard(context.Background(), "feishu:oc_chat:ou_u", "om_old"); err != nil {
+		t.Fatalf("RemoveBoard on a deleted board: %v", err)
+	}
+	if len(f.deletes) != 0 {
+		t.Fatalf("fake recorded a recall of a deleted message: %v", f.deletes)
+	}
+	if _, pinned := p.boardPinned.Load("om_old"); pinned {
+		t.Fatal("deleted board still recorded as pinned")
+	}
+}
+
+// Past the recall time limit no retry can delete the board: core is told to
+// give up, and the board has still been taken off the pin list.
+func TestFeishuRemoveBoardPastRecallLimitIsUnrecoverable(t *testing.T) {
+	f := newFakeFeishuIM()
+	f.recallExpired = true
+	p := newFakeFeishuPlatform(t, f)
+	err := p.RemoveBoard(context.Background(), "feishu:oc_chat:ou_u", "om_old")
+	if !errors.Is(err, core.ErrDeliveryUnrecoverable) {
+		t.Fatalf("RemoveBoard past the recall limit = %v, want ErrDeliveryUnrecoverable", err)
+	}
+	if len(f.unpins) != 1 || f.unpins[0] != "om_old" {
+		t.Fatalf("unpinned %v, want [om_old]", f.unpins)
+	}
+	if len(f.deletes) != 0 {
+		t.Fatalf("recall recorded despite refusal: %v", f.deletes)
 	}
 }
 

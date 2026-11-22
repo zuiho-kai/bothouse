@@ -5,7 +5,7 @@
 // fragment names — including panels of the upstream packages this repo does not patch.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { followPanelHash, panelIdFromHash, restorePanelFromHash, type PanelSlots } from '../src/client/panel-hash.ts'
+import { followPanelHash, openOnce, panelIdFromHash, restorePanelFromHash, type PanelSlots } from '../src/client/panel-hash.ts'
 import { fakePanelInfo, type FakePanelInfo } from './helpers/fake-panel-info.ts'
 
 const PANEL_ID = 'channels' as MainPanelId
@@ -159,4 +159,27 @@ it('does not fight a restore another package already finished', () => {
     expect(layout.calls).toEqual([])
     expect(panel.listeners).toBe(0)
   } finally { stop() }
+})
+it('#1798 opens the channel page once, on the first load right after 立即启用 on the Plugins page', () => {
+  at('#plugins')
+  const marks = new Map<string, string>()
+  const store = { getItem: (k: string) => marks.get(k) ?? null, setItem: (k: string, v: string) => { marks.set(k, v) } }
+  const panel = fakePanelInfo()
+  panel.select(PLUGINS)
+  const layout = fakeLayout(panel)
+  const slots = fakeSlots([PLUGINS])
+  const stop = openOnce(layout, slots, PANEL_ID, store, 'k', location.hash)
+  try {
+    expect(layout.calls).toEqual([])
+    slots.register(PANEL_ID)
+    expect(layout.calls).toEqual([PANEL_ID])
+  } finally { stop() }
+  // Later loads leave the reader where they were.
+  const again = fakeLayout(fakePanelInfo())
+  openOnce(again, fakeSlots([PANEL_ID]), PANEL_ID, store, 'k', '#plugins')()
+  expect(again.calls).toEqual([])
+  // A deep link to another panel wins on the first load too.
+  const deep = fakeLayout(fakePanelInfo())
+  openOnce(deep, fakeSlots([PANEL_ID, SCHEDULES]), PANEL_ID, { getItem: () => null, setItem: () => {} }, 'k', '#schedules')()
+  expect(deep.calls).toEqual([])
 })

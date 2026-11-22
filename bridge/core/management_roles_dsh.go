@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -64,9 +62,10 @@ type dshStatus struct {
 	Error  string `json:"error,omitempty"`
 }
 type dshStateRoom struct {
-	ID   json.Number `json:"id"`
-	Name string      `json:"name"`
-	Kind string      `json:"kind"`
+	ID       json.Number `json:"id"`
+	Name     string      `json:"name"`
+	Kind     string      `json:"kind"`
+	DMMember string      `json:"dm_member"`
 }
 
 type dshState struct {
@@ -93,47 +92,6 @@ func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus)
 		return nil, dshStatus{Status: "error", Error: dshStateReadError(context.WithoutCancel(ctx), c.target, err)}
 	}
 	return dshStateRoles(&st), status
-}
-
-// dshAPI calls the running `dsh web` signed in as its owner (the /dsh/ proxy's cookie).
-type dshAPI struct {
-	rt     http.RoundTripper
-	target string
-}
-
-func (m *ManagementServer) dshClient() (dshAPI, dshStatus) {
-	target, launchToken, err := runningDSHWeb()
-	if errors.Is(err, errDSHWebNotRunning) {
-		// Discovery may heal a missing or malformed file from its log first. If it
-		// could not, an existing unreadable file is an error, not a stopped host.
-		if _, _, valid := readDSHWebState(); !valid {
-			if _, statErr := os.Stat(dshWebStatePath()); statErr == nil || !os.IsNotExist(statErr) {
-				return dshAPI{}, dshStatus{Status: "error", Error: dshHostStateReadable}
-			}
-		}
-		return dshAPI{}, dshStatus{Status: "stopped"}
-	}
-	if err != nil {
-		return dshAPI{}, dshStatus{Status: "error", Error: dshHostStateReadable}
-	}
-	return dshAPI{rt: &dshProxyTransport{p: m.dshProxyHandler(), target: target, launchToken: launchToken}, target: target}, dshStatus{Status: "running"}
-}
-
-func (c dshAPI) get(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+c.target+path, nil)
-	if err != nil {
-		return err
-	}
-	req.Host = c.target // DSH's Host fence admits loopback only
-	res, err := c.rt.RoundTrip(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return &dshHTTPError{Path: path, Code: res.StatusCode}
-	}
-	return json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(out)
 }
 
 // dshStateRoles turns DSH's members into roles: every member that is an agent, i.e. kind "dsh"

@@ -83,6 +83,7 @@ type Platform struct {
 	turnSent                   turnSentLog                       // maomao fork: see turn_sent.go
 	acks                       *ackReactions                     // ack_reaction: nil = off (ack_reaction.go)
 	silentChannel              atomic.Pointer[func(string) bool] // maomao fork: see silent.go
+	humanMentionGate           atomic.Pointer[func() bool]       // maomao fork: see silent.go (#2091)
 	leadReturned               sync.Map                          // maomao fork: trigger message ID → time the reply was routed back to the lead
 	cardViews                  cardViews                         // maomao fork: 细节/简略 view per card message (card_view.go)
 	token                      string
@@ -98,6 +99,12 @@ type Platform struct {
 	guildID                    string            // optional: instant guild registration, plus DM-only global commands
 	allowGuilds                map[string]bool   // allow_guilds: only these servers (and "dm") are served; see allow_guilds.go
 	dmDenyFrom                 map[string]bool   // dm_deny_from: DMs from these users are dropped; see dm_deny_from.go
+	meetingOn                  bool              // meeting_assistant: join voice on "@bot 开会" and write minutes; see meeting.go
+	meetingASRPython           string            // meeting_asr_python: the python with mlx_whisper that transcribes
+	meetingScreenToken         string            // meeting_screen_token: user token of the account that watches screen shares; "" = off
+	meetingDataDir             string            // the voice listener is installed under it (meeting_listener.go)
+	meetingMu                  sync.Mutex
+	meetings                   map[string]*meeting // guild ID → the meeting being recorded there
 	progressStyle              string
 	cardEntries                int
 	cardLineLen                int
@@ -251,7 +258,13 @@ func New(opts map[string]any) (core.Platform, error) {
 	if on, _ := opts["ack_reaction"].(bool); on {
 		base.acks = newAckReactions(opts)
 	}
+	base.meetingOn, _ = opts["meeting_assistant"].(bool)
+	if base.meetingASRPython, _ = opts["meeting_asr_python"].(string); base.meetingASRPython == "" {
+		base.meetingASRPython = defaultMeetingASRPython
+	}
+	base.meetingScreenToken, _ = opts["meeting_screen_token"].(string)
 	if dir, _ := opts["cc_data_dir"].(string); dir != "" {
+		base.meetingDataDir = dir
 		base.workspaceShelves = workspaceShelfStoreFor(dir)
 		project, _ := opts["cc_project"].(string)
 		base.turnSent.load(filepath.Join(dir, "discord_turn_sent_"+project+".json"))
@@ -746,6 +759,9 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 	p.cancel = cancel
 	p.mu.Unlock()
 
+	if p.meetingOn {
+		go p.prepareVoiceListener()
+	}
 	go p.connectLoop(ctx)
 	return nil
 }
@@ -816,6 +832,13 @@ func (p *Platform) buildSession() (*discordgo.Session, error) {
 
 // handleMessageCreate is the gateway message entrypoint.
 func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	p.handleIncoming(s, m, nil)
+}
+
+// handleIncoming runs a message through the gateway filters. With cu set (restart catch-up,
+// missed_catchup.go) the message is posted before this process started: it is collected
+// instead of dispatched, bot posts and side commands (meetings, task forum, /stop all) skip.
+func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCreate, cu *missedCollector) {
 	// Deduplicate: Discord gateway may deliver the same event twice
 	if !rememberDedupID(&p.seenMsgs, m.ID) {
 		slog.Debug("discord: ignoring duplicate message", "msg_id", m.ID)
@@ -828,6 +851,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if !p.guildAllowed(m.GuildID) {
 		return
 	}
+	p.noteMeetingImages(m) // meeting.go: pictures posted during a meeting go into its minutes
 	if p.dmDenied(m.GuildID, m.Author.ID) {
 		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
 		return
@@ -839,7 +863,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	if fromBot && !p.botAllowed(m.Author.ID) && !p.CanApprovePermission(m.Author.ID) {
 		return
 	}
-	if core.IsOldMessage(m.Timestamp) {
+	if cu != nil && fromBot {
+		return
+	}
+	if cu == nil && core.IsOldMessage(m.Timestamp) {
 		slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
 		return
 	}
@@ -861,7 +888,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	// In guild channels, only respond when the bot is @mentioned (unless group_reply_all).
-	if p.handleTaskForumReply(s, m, botRoleID) {
+	if cu != nil && p.isTaskForumThread(s, m.GuildID, m.ChannelID) {
+		return
+	}
+	if cu == nil && p.handleTaskForumReply(s, m, botRoleID) {
 		return
 	}
 
@@ -885,6 +915,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 			return
 		}
 		m.ReferencedMessage = nil // its quote is already in the channel history
+	}
+	if mentioned && cu == nil && p.handleMeetingCommand(s, m, botRoleID) {
+		return
 	}
 	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.selfID()))
 	// bodySelf: the text itself @-s this bot (user, nickname or managed-role mention), as opposed to
@@ -911,6 +944,9 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
 	bareStop := !fromBot && isBareStop(m, mentioned, p.selfID())
 	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || bareStop)
+	if cu != nil && stopAll {
+		return // a stop sent while down has nothing to stop now
+	}
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
@@ -1023,6 +1059,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		msg.Mentioned = msg.Mentioned || nameCalled(text, p.botName, teamBotNames(p.selfID())...)
 		msg.Content = "【" + discordDisplayName(m) + "】" + text
 		p.holdBotMessage(s, m, msg, downloadURL)
+		return
+	}
+	if cu != nil {
+		cu.msgs = append(cu.msgs, msg)
 		return
 	}
 	p.dispatchMessage(msg)
@@ -1325,9 +1365,9 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		return p.sendInteraction(rc, content)
+		return p.sendInteraction(ctx, rc, content)
 	case replyContext:
-		return p.sendChannelReply(rc, content)
+		return p.sendChannelReply(ctx, rc, content)
 	default:
 		return fmt.Errorf("discord: invalid reply context type %T", rctx)
 	}
@@ -1345,9 +1385,9 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		return p.sendInteraction(rc, content)
+		return p.sendInteraction(ctx, rc, content)
 	case replyContext:
-		return p.sendChannel(rc, content)
+		return p.sendChannel(ctx, rc, content)
 	default:
 		return fmt.Errorf("discord: invalid reply context type %T", rctx)
 	}
@@ -1356,24 +1396,29 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 // sendInteraction delivers a message through the Discord interaction response
 // mechanism. The first call edits the deferred "thinking" response; subsequent
 // calls create followup messages.
-func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) error {
+func (p *Platform) sendInteraction(ctx context.Context, ictx *interactionReplyCtx, content string) error {
 	content = linkTeamMentions(content, p.selfID())
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
+	opts := discordReqOptions(ctx)
+	for i, chunk := range chunks {
 		first := ictx.takeFirst()
+		mentions := p.interactionAllowedMentions(ctx, ictx.channelID, i == 0)
 
 		var sent *discordgo.Message
 		var err error
 		if first {
 			c := chunk
-			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
+			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c, AllowedMentions: mentions}, opts...)
 		} else {
-			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
+			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk, AllowedMentions: mentions}, opts...)
 		}
 
 		if err != nil {
 			slog.Warn("discord: interaction response failed, falling back to channel message", "error", err)
-			sent, err = p.session.ChannelMessageSend(ictx.channelID, chunk)
+			sent, err = p.session.ChannelMessageSendComplex(ictx.channelID, &discordgo.MessageSend{
+				Content:         chunk,
+				AllowedMentions: mentions,
+			}, opts...)
 			if err != nil {
 				return fmt.Errorf("discord: send fallback: %w", err)
 			}
@@ -1383,19 +1428,33 @@ func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) er
 	return nil
 }
 
-func (p *Platform) sendChannelReply(rc replyContext, content string) error {
+// OwnerUserID is the first user ID in allow_from (the setup wizard writes the owner's ID into an
+// empty one).
+// The bridge mentions them for a task a bot or a timer set (core.PlatformOwner, #988).
+func (p *Platform) OwnerUserID() string { return core.FirstAllowFrom(p.allowFrom) }
+
+func (p *Platform) sendChannelReply(ctx context.Context, rc replyContext, content string) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
 	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
+	opts := discordReqOptions(ctx)
+	for i, chunk := range chunks {
 		var sent *discordgo.Message
 		var err error
 		if rc.useThreadChannel() || rc.messageID == "" {
-			sent, err = p.session.ChannelMessageSend(rc.targetChannelID(), chunk)
+			ch := rc.targetChannelID()
+			sent, err = p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+				Content:         chunk,
+				AllowedMentions: p.outboundAllowedMentions(ctx, ch, i == 0),
+			}, opts...)
 		} else {
 			ref := &discordgo.MessageReference{MessageID: rc.messageID}
-			sent, err = p.session.ChannelMessageSendReply(rc.channelID, chunk, ref)
+			sent, err = p.session.ChannelMessageSendComplex(rc.channelID, &discordgo.MessageSend{
+				Content:         chunk,
+				Reference:       ref,
+				AllowedMentions: p.outboundAllowedMentions(ctx, rc.channelID, i == 0),
+			}, opts...)
 		}
 		if err != nil {
 			return fmt.Errorf("discord: send: %w", err)
@@ -1405,13 +1464,22 @@ func (p *Platform) sendChannelReply(rc replyContext, content string) error {
 	return nil
 }
 
-func (p *Platform) sendChannel(rc replyContext, content string) error {
+func (p *Platform) sendChannel(ctx context.Context, rc replyContext, content string) error {
+	return p.sendChannelWithMentions(ctx, rc, content, true)
+}
+
+func (p *Platform) sendChannelWithMentions(ctx context.Context, rc replyContext, content string, allowHuman bool) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
 	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
-		sent, err := p.session.ChannelMessageSend(rc.targetChannelID(), chunk)
+	opts := discordReqOptions(ctx)
+	ch := rc.targetChannelID()
+	for i, chunk := range chunks {
+		sent, err := p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+			Content:         chunk,
+			AllowedMentions: p.outboundAllowedMentions(ctx, ch, allowHuman && i == 0),
+		}, opts...)
 		if err != nil {
 			return fmt.Errorf("discord: send: %w", err)
 		}
@@ -1570,24 +1638,26 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		if err := p.sendInteraction(rc, content); err != nil {
+		if err := p.sendInteraction(ctx, rc, content); err != nil {
 			return err
 		}
 		sent, err := p.session.FollowupMessageCreate(rc.interaction, true, &discordgo.WebhookParams{
 			Content:         content,
 			Components:      components,
-			AllowedMentions: p.interactionAllowedMentions(rc.channelID),
-		})
+			AllowedMentions: p.interactionAllowedMentions(ctx, rc.channelID, false),
+		}, discordReqOptions(ctx)...)
 		if err != nil {
 			return fmt.Errorf("discord: send button followup: %w", err)
 		}
 		p.noteInteractionSent(rc, sent)
 		return nil
 	case replyContext:
-		sent, err := p.session.ChannelMessageSendComplex(rc.targetChannelID(), &discordgo.MessageSend{
-			Content:    content,
-			Components: components,
-		})
+		ch := rc.targetChannelID()
+		sent, err := p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+			Content:         content,
+			Components:      components,
+			AllowedMentions: p.outboundAllowedMentions(ctx, ch, true),
+		}, discordReqOptions(ctx)...)
 		if err != nil {
 			return fmt.Errorf("discord: send channel buttons: %w", err)
 		}
@@ -1807,6 +1877,9 @@ func (p *Platform) SendPreviewStart(ctx context.Context, rctx any, content strin
 		view = p.cardViews.turnMode(origin)
 	}
 	msg := buildDiscordPreviewMessageView(content, view)
+	if p.humanMentionGateEnabled() {
+		msg.AllowedMentions = noMentions()
+	}
 	sent, err := p.session.ChannelMessageSendComplex(channelID, msg)
 	if err != nil {
 		return nil, fmt.Errorf("discord: send preview: %w", err)
@@ -1828,7 +1901,11 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 		return fmt.Errorf("discord: invalid preview handle type %T", previewHandle)
 	}
 	p.rememberPreview(h.origin, h.channelID, h.messageID, content)
-	_, err := p.session.ChannelMessageEditComplex(buildDiscordPreviewEditViewPage(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID), p.cardViews.page(h.messageID)))
+	edit := buildDiscordPreviewEditViewPage(h.channelID, h.messageID, content, p.cardViews.mode(h.messageID), p.cardViews.page(h.messageID))
+	if p.humanMentionGateEnabled() {
+		edit.AllowedMentions = noMentions()
+	}
+	_, err := p.session.ChannelMessageEditComplex(edit)
 	if err != nil {
 		return fmt.Errorf("discord: edit message: %w", err)
 	}
@@ -2009,6 +2086,7 @@ func (p *Platform) Stop() error {
 	p.session = nil
 	p.mu.Unlock()
 
+	p.stopMeetings()
 	if cancel != nil {
 		cancel()
 	}

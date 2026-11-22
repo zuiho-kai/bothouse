@@ -3,6 +3,8 @@
 提问原文只存一份（任务板目录 asks/<任务编号>.md，board.ask_save），任务板行只留短标题和去向；
 任务帖、团队板、给主角色的提示、转给用户的话都读这一份，不各自截字。
 ws-up 用 parse 检查并排成固定顺序，ws-forward --ask-user 用 to_user 拼转给用户的那条。
+转给用户的是主角色改写的大白话（plain_problems 检查），不是工作区原文；桥内部问题（internal）不转用户。
+用户 11-20「怎么你们两个傻逼都不说人话，根本看不懂」「以后规避这种问题」（#1827）。
 """
 import re
 
@@ -57,7 +59,51 @@ def title(sec):
     return " ".join(((sec.get("问题") or "").splitlines() or [""])[0].split())
 
 
+# 桥内部问题：任务状态转不过去、交回被桥拒。这类主角色自己处理（恢复任务状态再让工作区交回），不问用户。
+_INTERNAL = re.compile(r"transition not allowed|workspace exit|team task|被桥拒|交回状态|任务状态|可交回")
+
+
+def internal(text):
+    """提问是桥内部问题时返回命中的那句，否则空串。"""
+    m = _INTERNAL.search(str(text))
+    return m.group(0) if m else ""
+
+
+PLAIN_MAX = 300  # 转给用户的话最多这么多字
+# 内部状态词：用户看不懂，出现一个就拒
+_STATE_WORDS = ("paused", "failed", "transition", "session", "acp", "workspace", "handoff", "board", "timer", "cron",
+                "report", "exit", "token", "hook", "stderr", "stdout", "error", "json", "pid", "allowed", "dispatched",
+                "returned", "status", "commit", "merge", "branch", "log")
+_PLAIN_CHECKS = (
+    (re.compile(r"`"), "代码"),
+    (re.compile(r"(?:~|\.{0,2})/[\w.\-]+|[\w\-]+\.(?:md|py|go|json|toml|log|sh|txt|jsonl|yml|yaml|js|mjs|ts)\b"), "路径或文件名"),
+    (re.compile(r"\b[A-Za-z]+(?:[_\-][A-Za-z0-9]+)+\b|\b[a-z]+[A-Z]\w*\b"), "代码里的名字"),
+    (re.compile(r"[A-Za-z]{2,}\s+[A-Za-z]{2,}"), "英文句子或报错"),
+    (re.compile(r"→|->"), "状态箭头"),
+)
+
+
+def plain_problems(text):
+    """主角色转给用户的大白话有哪些不合格：带代码、路径、英文报错、内部状态词，超字数，或没写推荐。合格返回空列表。"""
+    t = str(text).strip()
+    out = []
+    if not t:
+        return ["没写要转给用户的话"]
+    if len(t) > PLAIN_MAX:
+        out.append(f"太长（{len(t)} 字，最多 {PLAIN_MAX} 字）")
+    for rx, what in _PLAIN_CHECKS:
+        m = rx.search(t)
+        if m:
+            out.append(f"带{what}「{m.group(0).strip()}」")
+    words = [w for w in re.findall(r"[A-Za-z]+", t) if w.lower() in _STATE_WORDS]
+    if words:
+        out.append(f"带内部状态词「{'、'.join(dict.fromkeys(words))}」")
+    if "推荐" not in t:
+        out.append("没写推荐哪个")
+    return out
+
+
 def to_user(short, kind, text, post=""):
-    """主角色转给用户的那条：整份原文原样带上，不摘要。"""
+    """主角色转给用户的那条：她改写、过了 plain_problems 的大白话。"""
     foot = "-# 直接回这条就行，我转回工作区" + (f"；任务帖 {post}" if post else "")
     return f"❓ 要你定（{kind}）· {short}\n{text.strip()}\n{foot}"

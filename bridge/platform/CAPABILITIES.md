@@ -83,10 +83,10 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## GuildChannelLister
 
-`bothouse send --channel <名字>`：在当前对话所在的服务器里按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。
+`bothouse send --channel <名字>`：按名字找频道再发，找不到或重名就报错并列候选、不发（core/send_channel.go，用户 11-11「我说转给jiuwen，怎么转到这来了」）。查找范围：Discord 是当前对话所在的服务器；飞书没有服务器，是 bot 所在的全部群（[获取用户或机器人所在的群列表](https://open.feishu.cn/document/server-docs/group/chat/list)）。
 
 - discord: 已接
-- feishu: 不支持：飞书没有服务器和频道列表，群之间没有「同一服务器按名字找」的关系
+- feishu: 已接
 - cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色列房间的接口
 - dsh: 不支持：同 cloud-web
 
@@ -103,9 +103,18 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 删除空闲工作区：只删除平台上的频道，不删除桥的工作区记录；支持的平台由 `core/team_workspace_delete.go` 调用。
 
 - cloud-web: 已接
-- discord: 不支持：按 #1904 的设计，在 Discord 上删除频道；桥不提供删除实现
+- discord: 已接
 - feishu: 不支持：按 #1904 的设计，在飞书上删除频道；桥不提供删除实现
 - dsh: 不支持：DSH 工作区由 cloud-web 提供，此能力目前未接
+
+## TeamChannelArchiver
+
+删除空闲工作区前，先把工作区频道整段消息读出来，和桥的记录、会话、交接文件一起写进一个压缩归档（core/team_workspace_cleanup.go archiveTeamWorkspace，#1788）。没接的平台也能删工作区，只是归档里没有频道消息这一段。
+
+- discord: 已接
+- feishu: 不支持：飞书的工作区是一个群，读整段群消息要先开通读群消息的权限，再按时间段翻页拉全量；桥现在只按消息 id 取单条，本机没有真实飞书环境验证，这次不发
+- cloud-web: 已接
+- dsh: 已接
 
 ## TeamChannelGoneChecker
 
@@ -117,18 +126,18 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 
 ## DMMemberChecker
 
-`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查。
+`bothouse send --dm --to <id>` 用它核对收件人在不在当前对话所在的服务器（#1352），核不了的平台 --to 只能写主人。Discord 用 GuildMember 逐个查；飞书列当前群的成员（platform/feishu/dm.go IsDMMember），当前对话不是飞书会话就报错。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener（platform/capability_baseline.txt 里的旧缺口），--dm 本身就开不了私聊，核成员没有用处
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊（同样没接 DirectMessageOpener），--dm 在这里直接报错
 
 ## DMRefusalDetector
 
-`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007。
+`send --dm` 被平台拒收（对方不接收服务器成员私信）时，用它认出这种错误，改走私密子区（#1352）。Discord 认 50007；飞书认 230013（对方不在应用可用范围）和 230053（对方不让机器人发消息）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，--dm 开不了私聊，不会出现被拒收
+- feishu: 已接
 - cloud-web: 不支持：网页聊天没有私聊，--dm 直接报错
 
 ## PrivateThreadOpener
@@ -136,7 +145,7 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 私信被拒收时的兜底：在当前频道开一个只有本人（和管理员）能看的私密子区发过去（#1352）。
 
 - discord: 已接
-- feishu: 不支持：飞书没接 DirectMessageOpener，用不到这个兜底
+- feishu: 不支持：飞书群没有只有一个人能看的私密话题
 - cloud-web: 不支持：网页聊天没有私聊，用不到这个兜底
 
 ## TaskForumPoster
@@ -180,3 +189,73 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书已有 reaction_emoji（收到时贴、结束撤）和 done_emoji，再接一套会重复
 - cloud-web: 不支持：网页聊天没有消息反应
 - dsh: 不支持：同 cloud-web
+
+## ConfiguredTeamLead
+
+配了 `team_lead_bot`（这个角色属于一个队）：没配 gate 时，群里没点名的消息 sub 不接（core/addressee.go teamRole）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## ConfiguredTeamLeadSelf
+
+`team_lead_bot` 写的就是自己：没有 gate、没有队伍状态板时，core 靠它分出主和 sub（core/addressee.go teamRole）。cloud-web 的缺口还在 platform/capability_baseline.txt 里。
+
+- discord: 已接
+- feishu: 已接
+
+## FinalReplyMarker
+
+一轮的最终答复和中途发的消息分开标：主派的活，sub 的最终答复开头自动 @ 主（core/backfill.go markFinalReply）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## InjectedReplyMerger
+
+主的 @ 插进正在跑的一轮时，这一轮记成「主派的活」，最终答复照样交回主（core/backfill.go mergeInjectedReplies）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 已接
+- dsh: 已接
+
+## MessageOrderer
+
+回看频道历史时由平台判断两条消息的先后（core/backfill.go messageAfter）。飞书消息 id 是散列形式，不保证按时间排，按 create_time 比。
+
+- feishu: 已接
+- discord: 不支持：不需要，消息 id 是雪花数，按数值比就是按时间比（core 默认比法）
+- cloud-web: 不支持：不需要，hub 的 id 是递增整数，core 默认比法就对
+- dsh: 不支持：不需要，走 cloud-web 帧，id 递增，core 默认比法就对
+
+## MissedMessageReader
+
+桥停机时发来的消息，重启后读频道历史补回一轮（core/missed_catchup.go，#1856）。
+
+- discord: 已接
+- feishu: 不支持：这次只做 Discord；飞书有历史接口（history.go ChannelHistory），但进站走 dispatchMessage 另一套过滤，补拉要单独接，下一件再做
+- cloud-web: 不支持：这次只做 Discord；cloud-web 有历史接口（history.go ChannelHistory），补拉要单独接，下一件再做
+- dsh: 不支持：走 cloud-web 帧，同 cloud-web
+
+## PlatformOwner
+
+任务由机器人或定时任务布置时，交回结果和拍板提问开头 @ 这台机器的主人：admin_from 第一个，没有就取平台 allow_from 第一个用户 ID（core/team_task_assigner.go，#988）。整条 @ 布置人的链路由主角色项目的 `mention_assigner` 开关控制，默认关（#2089）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 不支持：网页频道的 @ 按成员名字认，allow_from 里是 hub 用户 id，写成 @id 不会提醒到人；DSH 房间里布置人多是真人，直接 @ 布置人
+- dsh: 不支持：同 cloud-web
+
+## HumanMentionGateAware
+
+项目级开关 `mention_human_gate` 控制「收口真 @ 真人」（默认关，支持热加载；团队里主角色打开后全队生效，core/mention_gate.go，#2091）。开关关着时桥不拦，正文里的 `<@真人>` 按角色规矩照常提醒；开关开着时普通回复里的 `<@真人>` 只留文字不响提醒（保留队友机器人互 @），只在「放行交回」（`ws-pass` / 超时交回，由 `mention_assigner` 控制是否带 @ 布置人）和「要拍板」（`ws-forward --ask-user` / `bothouse send --ask-user`）两个出口响铃并做短窗去重。注意：`mention_human_gate` 开着时，角色规矩里写的 `@` 也只在这两个出口响，与 `mention_assigner` 各自独立、不冲突。
+
+- discord: 已接
+- feishu: 不支持：飞书没有类似 Discord `allowed_mentions` 的「正文留 `<@id>` 但不响提醒」发送字段，这次只接 Discord（#2091）
+- cloud-web: 不支持：网页频道没有类似 Discord `allowed_mentions` 的静音 @ 发送字段，这次只接 Discord（#2091）
+- dsh: 不支持：走 cloud-web 帧，同 cloud-web

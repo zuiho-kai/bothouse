@@ -28,6 +28,12 @@ func TestWaitExternalOf(t *testing.T) {
 	if _, after, _ := team.WaitExternalOf("等外部：等对方回\n再看：1h30m"); after != 90*time.Minute {
 		t.Fatalf("1h30m: %v", after)
 	}
+	if _, after, _ := team.WaitExternalOf("等外部：卡在今晚那份判断还没写。再看：7h（16:20 JST 复查仍未出）"); after != 7*time.Hour {
+		t.Fatalf("再看 on the 等外部 line: after = %v, want 7h", after)
+	}
+	if _, after, _ := team.WaitExternalOf("等外部：等对方回"); after != team.WaitExternalDefault {
+		t.Fatalf("no 再看: after = %v, want default", after)
+	}
 	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：1 分钟"); after != team.WaitExternalMin {
 		t.Fatalf("min clamp: %v", after)
 	}
@@ -86,5 +92,37 @@ func TestRetryWaitingExternalDue(t *testing.T) {
 	w.retryWaitingExternal(now.Add(time.Minute)) // within the gap: not again
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("handed back %v, want [1]", got)
+	}
+}
+
+// #1786: 11-18 项目额度冷却时 #1778 每 10 分钟重试，每次新建一个工作区（12–37）。冷却中不重试，冷却完再试。
+func TestRetryWaitingExternalSkipsWhileCooling(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	now := time.Now()
+	writeReviewBoard(t, e,
+		teamTaskBoardItem{ID: 1, What: "due", Chat: "room:main", Paused: "11-09 08:00", PauseWhy: team.WaitExternalWhy + "GPU 全占", WaitUntil: now.Add(-time.Minute).Unix()},
+	)
+	var got []int
+	orig := resumeWaitingExternalFn
+	resumeWaitingExternalFn = func(_ *Engine, it teamTaskBoardItem) { got = append(got, it.ID) }
+	t.Cleanup(func() { resumeWaitingExternalFn = orig })
+	e.capMu.Lock()
+	e.quotaUntil = time.Now().Add(2 * time.Hour)
+	e.capMu.Unlock()
+	w := newHandoffWatch(e)
+	w.engines = func() []*Engine { return []*Engine{e} }
+	w.retryWaitingExternal(now)
+	if len(got) != 0 {
+		t.Fatalf("retried during cooldown: %v", got)
+	}
+	e.capMu.Lock()
+	e.quotaUntil = time.Time{}
+	e.capMu.Unlock()
+	w.retryWaitingExternal(now.Add(time.Minute))
+	if len(got) != 1 || got[0] != 1 {
+		t.Fatalf("after cooldown handed back %v, want [1]", got)
 	}
 }

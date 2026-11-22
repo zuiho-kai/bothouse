@@ -53,6 +53,13 @@ func withLatestMark(content string) string {
 // (both times the gate said reply and the model answered NO_REPLY).
 const mentionedNote = "（用户这条明确 @ 了你或回复了你，必须回复，不要只回 NO_REPLY。）"
 
+// gateReplyNote goes before a person's message the gate gave this bot to answer without an @ (a
+// conversation carrying on with it): the gate decides who speaks, the lead only has priority.
+// 2026-11-22 20:04/20:05 the gate gave 大豆包 reply and everyone else context, 大豆包 answered
+// NO_REPLY because its duty layer said a member speaks only when @-ed, and nobody spoke. User:
+// 「这规矩有问题啊 和门闸冲突了 不是说门闸判断谁接话吗 只是优先主角是」
+const gateReplyNote = "（门闸把这一轮判给你回：没 @ 你也由你接，必须回复，不要只回 NO_REPLY。）"
+
 // gateState is one published gate configuration plus a pointer to the running state. The
 // configuration fields are never written after the value is stored in Engine.gate: a setter
 // copies it, changes the copy and swaps the pointer (Engine.updateGate), so a message goroutine
@@ -439,6 +446,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
+	if msg.nativeCommand {
+		// #2041: handleCommand marked it on a message that calls this role. The agent runs it only
+		// as typed, so nothing below may hold, merge, route or annotate it.
+		return false
+	}
 	// A private chat with the owner (an explicit admin_from ID) has no third party: whatever
 	// the owner says there is addressed to this bot, so it is never filed as overheard context.
 	// While idle it skips the gate (nothing to judge). While a turn is running it goes through
@@ -459,6 +471,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 				return true
 			}
 			e.teamNoteTurn(msg, session)
+			// #1856: no gate still records what was seen, so restart catch-up knows where
+			// the posts made while the bridge was down begin (missed_catchup.go).
+			if g == nil && msg.MessageID != "" {
+				markSeen(p, session, msg)
+			}
 			// #1375: no gate (agentm's claude role) also means no backfill and no @ note, so the
 			// person's words came bare after the memory and member blocks and read as their tail.
 			keepUserText(msg)
@@ -500,6 +517,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
+		h.msg.AddressedOther = h.msg.AddressedOther || msg.AddressedOther
 		h.msg.SeenUpToID = msg.MessageID
 		if h.silence && !g.silenceApplies(msg, busy) {
 			// An @, an attachment or a command joined the silent burst: answer it on the normal
@@ -638,8 +656,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		}
 	}
 	content := msg.Content
-	if dec.Action == "reply" && msg.Mentioned && !msg.FromBot {
-		content = mentionedNote + "\n" + content
+	if dec.Action == "reply" && !msg.FromBot {
+		if msg.Mentioned {
+			content = mentionedNote + "\n" + content
+		} else {
+			content = gateReplyNote + "\n" + content
+		}
 	}
 	// #215: mark this message's own words here, before any buffered or backfilled history is
 	// put above them: the mark is about this message only, and withVoiceNote on the assembled
@@ -665,7 +687,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	} else {
 		content = withLatestMark(content)
 	}
-	markSeen(session, msg)
+	markSeen(p, session, msg)
 	session.backfillMu.Unlock()
 
 	inject := content

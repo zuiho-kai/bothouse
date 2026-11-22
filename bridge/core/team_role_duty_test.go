@@ -22,7 +22,7 @@ func TestRoleDutyLayerFollowsConfiguredPosition(t *testing.T) {
 	if d := lead.teamLayer().RoleDutyLayer(""); !isLead(d) || !strings.Contains(d, "照团队模式规矩") || !strings.Contains(d, "两者冲突时照这一层做") {
 		t.Fatalf("configured lead duty:\n%s", d)
 	}
-	if d := sub.teamLayer().RoleDutyLayer(""); !isSub(d) || isLead(d) {
+	if d := sub.teamLayer().RoleDutyLayer(""); !isSub(d) || isLead(d) || !strings.Contains(d, "判给你的这一轮由你回") || strings.Contains(d, "不开口") {
 		t.Fatalf("member duty:\n%s", d)
 	}
 

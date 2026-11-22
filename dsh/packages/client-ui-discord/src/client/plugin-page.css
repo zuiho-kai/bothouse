@@ -1,0 +1,14 @@
+/*
+ * #1798 (user 11-19「那个乱七八糟的插件，你可以在配置页给他关掉」): hide four of DSH's own
+ * experimental bundles on the DSH Plugins page so a new user only sees what bothouse uses.
+ * The plugin manager has no setting to hide a bundle (its main/More lists are fixed arrays,
+ * EXTENSION_BUNDLES / MORE_BUNDLES in @deepseek-ai/dsh-client-ui-plugin-manager), so this
+ * matches the card by the package name the page puts on it (data-plugin-package), not by text.
+ * The bundles stay installed and keep whatever on/off state the profile gives them.
+ */
+[data-plugin-package='@deepseek-ai/dsh-experimental-voice-input-bundle'],
+[data-plugin-package='@deepseek-ai/dsh-experimental-plugin-market-bundle'],
+[data-plugin-package='@deepseek-ai/dsh-experimental-auto-review'],
+[data-plugin-package='@deepseek-ai/dsh-experimental-tool-worktree'] {
+  display: none !important;
+}

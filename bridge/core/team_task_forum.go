@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,6 +160,12 @@ type taskForumPostState struct {
 	// Result: the passed report as the chat channel got it (taskForumExitText); the card shows
 	// its 【做了什么】 and 【要你做的】 so the first floor answers what came of it (#1732).
 	Result string `json:"result,omitempty"`
+	// Pause / Said: the pause (board paused_at, else paused) and the lines already posted during
+	// it. A paused item posts each line once per pause, so a reading that flips back and forth
+	// while nothing happened (two board.py copies writing wait_kind differently, #1791) does not
+	// post 「❓ 等你」+「⏸️ 暂停」 again on every flip.
+	Pause string   `json:"pause,omitempty"`
+	Said  []string `json:"said,omitempty"`
 }
 
 type taskForumState struct {
@@ -241,6 +248,11 @@ func (e *Engine) taskForumSaveLocked() {
 // taskForumTagOf maps the board's own state (teamTaskBoardStateOf, the same reading the pinned
 // team board shows) to the post's one tag, with the sentence the 现状卡 says.
 func taskForumTagOf(it teamTaskBoardItem, now time.Time) (string, string) {
+	if it.Paused == "" && it.Backlog == "" && it.waitsOn(teamWaitLead) {
+		// A status that waits on someone (「等用户 GitHub 授权…」) the dispatcher has not passed on
+		// to the user: it waits on the dispatcher, not 等你 (user 11-19 「谁给你发任务，你给谁说去啊」).
+		return TaskForumTagPaused, "等派活人定" + taskForumWhy(it.Status)
+	}
 	state, why := teamTaskBoardStateOf(it, now)
 	switch state {
 	case teamTaskWaiting:
@@ -357,6 +369,9 @@ func taskForumCard(it teamTaskBoardItem, tag, sentence string, limit int) string
 	if tag == TaskForumTagReview && it.Reviewer != "" {
 		head += " · 等 " + firstNonEmpty(it.reviewerName, it.Reviewer) + " 核对"
 	}
+	if tag == TaskForumTagPaused && it.waitsOn(teamWaitLead) {
+		head += " · 等 " + taskForumDispatcherName(it) + " 定"
+	}
 	head += "\n"
 	// 方案甲 (user 11-16 「让帖子显示的更精华一些」): 「现在」 shows only progress a person wrote,
 	// never the state sentence again or the bridge's auto-filled tool step.
@@ -444,9 +459,22 @@ func (e *Engine) taskForumDisplayItem(it teamTaskBoardItem) teamTaskBoardItem {
 		it.Who = strings.TrimSuffix(it.Who, who) + name
 	}
 	it.reviewerName = e.projectDisplayName(it.Reviewer)
+	it.dispatcherName = e.projectDisplayName(it.Dispatcher)
 	it.speakerNames = e.taskForumSpeakerNames()
 	it.quoteWho = e.taskForumQuoteWho(taskForumChat(it))
 	return it
+}
+
+// taskForumDispatcherName: who a waiting post waits on — the dispatcher (a role's name, or a
+// person as <@id>), "派活人" when the row does not say.
+func taskForumDispatcherName(it teamTaskBoardItem) string {
+	if it.dispatcherName != "" {
+		return it.dispatcherName
+	}
+	if id := watchOwnerID(it.Dispatcher); id != "" && strings.Trim(id, "0123456789") == "" {
+		return "<@" + id + ">"
+	}
+	return firstNonEmpty(it.Dispatcher, "派活人")
 }
 
 func runeLen(s string) int { return len([]rune(s)) }
@@ -549,7 +577,7 @@ func taskForumTagNode(prev *taskForumPostState, it teamTaskBoardItem, tag, sente
 		if it.askText != "" && it.waitsOn(teamWaitLead) {
 			// The lead decides first: the whole question is shown, nobody is mentioned and the
 			// post is not 等你 (team rule: only 方向/花钱/成品/权限 wait on the user).
-			return "⏸️ 工作区提了个问题，主角色先定（没叫你，不用回）：\n" + it.askText
+			return "⏸️ 工作区提了个问题，等派活的 " + taskForumDispatcherName(it) + " 先定（没叫你，不用回）：\n" + it.askText
 		}
 		return "⏸️ " + sentence
 	case TaskForumTagRelease:
@@ -875,6 +903,8 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			// Initial waiting is a question, not a new transition mentioning a user.
 			if err := poster.PostTaskNode(ctx, id, node); err != nil {
 				slog.Warn("task forum: initial question not posted", "board_item", it.ID, "error", err)
+			} else if pause := firstNonEmpty(it.PausedAt, it.Paused); pause != "" {
+				s.Posts[key].Pause, s.Posts[key].Said = pause, []string{node}
 			}
 		}
 		slog.Info("task forum: post opened", "board_item", it.ID, "thread", id, "tag", tag, "owner", e.name)
@@ -893,10 +923,20 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			return adopted, false
 		}
 	}
+	pause := firstNonEmpty(it.PausedAt, it.Paused)
+	if pause != ps.Pause {
+		ps.Pause, ps.Said = pause, nil
+	}
+	if pause != "" && node != "" && slices.Contains(ps.Said, node) {
+		node = "" // said already during this pause: the card and tag still follow the board
+	}
 	if node != "" {
 		var err error
 		notifier, canMention := poster.(TaskForumUserNotifier)
-		user := e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		user := e.assignerUser(p, &it) // the person who set the task is the one asked (#988)
+		if user == "" {
+			user = e.taskForumWaitingUser(plat, chat, it.Dispatcher)
+		}
 		// Only a question the item itself carries mentions the user; a waiting move without one
 		// (an old ws-up --ask wrote no question) posts its line unmentioned.
 		waitingNow := tag != ps.Tag && tag == TaskForumTagWaiting && user != "" && taskForumQuestion(it, "") != ""
@@ -907,11 +947,18 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
 		} else if waitingNow && canMention {
 			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, user)
+		} else if lead := watchOwnerID(it.Dispatcher); canMention && tag != ps.Tag && tag == TaskForumTagPaused &&
+			it.waitsOn(teamWaitLead) && e.watchOwnerIsPerson(plat, chat, lead) {
+			// Waits on the dispatcher: a person who dispatched is called here; a role dispatcher
+			// already has the question in its chat channel (ws-up --ask, #1728) and is only named.
+			err = notifier.PostTaskUserNode(ctx, ps.Thread, node, lead)
 		} else {
 			err = poster.PostTaskNode(ctx, ps.Thread, node)
 		}
 		if err != nil {
 			slog.Warn("task forum: key move not posted", "board_item", it.ID, "thread", ps.Thread, "error", err)
+		} else if pause != "" {
+			ps.Said = append(ps.Said, node)
 		}
 	}
 	if tag == TaskForumTagDone && ps.Tag != TaskForumTagDone {
@@ -931,12 +978,21 @@ func (e *Engine) taskForumCallInChat(ctx context.Context, p Platform, chat, user
 		return false
 	}
 	rc, err := rcr.ReconstructReplyCtx(chat)
+	allowed := false
 	if err == nil {
-		err = p.Send(ctx, rc, fmt.Sprintf("<@%s> 「%s」有件事要你定，问题就是上面那条，直接回它就行。", user, teamTaskBoardShort(it)))
+		sendCtx := ctx
+		if !e.isHumanMentionDeduped(chat, user, it.ID) {
+			sendCtx = WithAllowHumanMentions(ctx, user)
+			allowed = true
+		}
+		err = p.Send(sendCtx, rc, fmt.Sprintf("<@%s> 「%s」有件事要你定，问题就是上面那条，直接回它就行。", user, teamTaskBoardShort(it)))
 	}
 	if err != nil {
 		slog.Warn("task forum: user not called in the chat channel", "chat", chat, "board_item", it.ID, "error", err)
 		return false
+	}
+	if allowed {
+		e.recordHumanMention(chat, user, it.ID)
 	}
 	return true
 }

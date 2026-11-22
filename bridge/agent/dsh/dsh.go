@@ -41,6 +41,14 @@ func (a *Agent) Name() string { return "dsh" }
 func New(opts map[string]any) (core.Agent, error) {
 	opts = applyDSHDefaults(opts)
 	opts = withNoAutoCompact(opts)
+	cmd, _ := opts["cmd"].(string)
+	if strings.TrimSpace(cmd) == "" {
+		cmd, _ = opts["command"].(string)
+	}
+	args := argStrings(opts["args"])
+	home := defaultDSHHome(opts)
+	args = prepareSteer(cmd, args, home)
+	opts["args"] = args
 	a, err := acp.New(opts)
 	if err != nil {
 		return nil, err
@@ -49,13 +57,7 @@ func New(opts map[string]any) (core.Agent, error) {
 	if !ok {
 		return a, nil
 	}
-	cmd, _ := opts["cmd"].(string)
-	if strings.TrimSpace(cmd) == "" {
-		cmd, _ = opts["command"].(string)
-	}
-	args := argStrings(opts["args"])
-	healSteer(cmd, args)
-	return &Agent{Agent: base, home: defaultDSHHome(opts), cmd: cmd, args: args}, nil
+	return &Agent{Agent: base, home: home, cmd: cmd, args: args}, nil
 }
 
 // applyDSHDefaults fills cmd "dsh", args ["--profile", "acp"] (dsh --help: the profile under

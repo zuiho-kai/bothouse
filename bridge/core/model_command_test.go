@@ -153,8 +153,18 @@ func TestQueuedModelSwitchPersistsModelAndEffort(t *testing.T) {
 	if savedModel != "" || savedEffort != "" {
 		t.Fatal("persisted before the switch was applied")
 	}
-	e.applyPendingSwitch("discord:1")
-	persisted := NewProjectStateStore(statePath).state.SessionModelOverrides["discord:1"]
+	reloaded := NewEngine("test", agent, nil, "", LangEnglish)
+	t.Cleanup(func() { reloaded.Stop() })
+	reloaded.SetProjectStateStore(NewProjectStateStore(statePath))
+	if status := reloaded.ModelStatus(context.Background(), "discord:1"); status.Pending != "xiao/gpt-6.1-sol high" {
+		t.Fatalf("queued choice after restart = %q", status.Pending)
+	}
+	reloaded.applyPendingSwitch("discord:1")
+	state := NewProjectStateStore(statePath).state
+	if len(state.PendingModelSwitches) != 0 {
+		t.Fatalf("applied choice remained in queue: %v", state.PendingModelSwitches)
+	}
+	persisted := state.SessionModelOverrides["discord:1"]
 	if persisted.Model != "xiao/gpt-6.1-sol" || persisted.Effort != "high" || savedModel != "" || savedEffort != "" {
 		t.Fatalf("persisted model=%q effort=%q", savedModel, savedEffort)
 	}

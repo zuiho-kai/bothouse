@@ -14,7 +14,8 @@ import (
 
 // runWake: `bothouse wake [-p project] [-s session] (-m text | --stdin)` runs one turn in the
 // session with the text as its input (POST /wake); the role's reply goes to the channel,
-// the text itself is not posted (#1130). Defaults: CC_PROJECT / CC_SESSION_KEY.
+// the text itself is not posted (#1130). Defaults: CC_PROJECT / CC_SESSION_KEY. From inside
+// a session the result comes back to that session (#2024, core/wake_return.go).
 func runWake(args []string) {
 	project, session, text, dataDir := os.Getenv("CC_PROJECT"), os.Getenv("CC_SESSION_KEY"), "", ""
 	stdin := false
@@ -61,7 +62,12 @@ func runWake(args []string) {
 		os.Exit(1)
 	}
 	sockPath := resolveSocketPath(dataDir)
-	payload, _ := json.Marshal(map[string]string{"project": project, "session_key": session, "text": text})
+	req := map[string]string{"project": project, "session_key": session, "text": text}
+	// #2024: called from inside a session, the result comes back to that session as its own turn.
+	if origin := os.Getenv("CC_SESSION_KEY"); origin != "" {
+		req["origin_project"], req["origin_session_key"] = os.Getenv("CC_PROJECT"), origin
+	}
+	payload, _ := json.Marshal(req)
 	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return dialBridge(ctx, sockPath)
 	}}}
@@ -82,5 +88,7 @@ func runWake(args []string) {
 func printWakeUsage() {
 	fmt.Fprintln(os.Stderr, `Usage: bothouse wake [-p <project>] [-s <session_key>] (-m <text> | --stdin) [--data-dir <dir>]
 Runs one turn in the session with the text as its input; the reply goes to the channel,
-the text itself is not posted. Defaults: CC_PROJECT / CC_SESSION_KEY.`)
+the text itself is not posted. Defaults: CC_PROJECT / CC_SESSION_KEY.
+Run from inside another session (CC_SESSION_KEY set), the woken turn's result or failure
+comes back to that session as a new turn; the printed wake_id ties the two together.`)
 }

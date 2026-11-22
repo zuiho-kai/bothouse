@@ -1,9 +1,11 @@
 #!/usr/bin/env -S python3 -I
 # 把本频道收到的结果摘要转给工作区里的主角色：插进最近一次 ws-handoff 的交接文件「## 转交结果」节末尾，再叫醒她（提示里直接带原文）。
-# 用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"
-#       ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限>
-#   --ask-user 工作区的提问主角色定不了、属于四类之一：把存着的整份原文（问题、背景、选项与推荐、自验）原样发到
-#     交活的聊天频道，任务板改成等用户（任务帖这时才标「等你」并 @ 用户）。不带摘要，原文不经主角色转述。
+# 用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] [--model <id> [--effort <级别>]] "<摘要>"
+#   --model / --effort 这件活换个模型接着做（#2075）；不写就沿用交活时指定的（任务板记着，接回时照它再切）。
+#       ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限> "<大白话>"
+#   --ask-user 工作区的提问主角色定不了、属于四类之一：主角色改写成大白话（_ask.plain_problems 拦代码、路径、英文报错、
+#     内部状态词、超字数），程序发到交活的聊天频道，任务板改成等用户（任务帖这时才标「等你」并 @ 用户）。
+#     工作区原文不发给用户；桥内部问题（_ask.internal）不转用户（用户 11-20「根本看不懂」，#1827）。
 #   --id 按任务板编号认这件活（验收提示给的就是它）；--notes 也认路径栏里的 PR/分支/提交链接（#1371）。
 #   --notes 转给那份交接对应的工作区（ws-up 给聊天频道的提示里会带上）；不给就转给最近一次交接。
 #   --interrupt 用户改了要求：工作区正在跑就插进当前这一轮（timer --inject-if-busy），提示让它先停下按旧要求做的部分。
@@ -18,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 import _ask  # noqa: E402
+import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
 import board  # noqa: E402  转交结果节的插入和暂停状态都以任务板为准（../gate/board.py）
@@ -208,9 +211,10 @@ def forward_forbid(summary: str):
     return None
 
 
-def ask_user(last: dict, nid: int, kind: str):
-    """主角色把工作区的提问转给用户：整份原文从 board.ask_text 读（只此一份），程序发到交活的聊天频道，
-    任务板转「等待用户答复」。主角色不转述（11-17 #1727：转述只剩「去帖子回它」，背景、选项全没带）。"""
+def ask_user(last: dict, nid: int, kind: str, plain: str = ""):
+    """主角色把工作区的提问转给用户：她先改写成大白话（_ask.plain_problems 拦代码、路径、英文报错、内部状态词、超字数、
+    没写推荐），程序发到交活的聊天频道，任务板转「等待用户答复」。工作区原文不发给用户（用户 11-20「根本看不懂」，#1827）；
+    桥内部问题（任务状态转不过去、交回被拒）不转用户，主角色自己处理。"""
     if kind not in _ask.KINDS:
         sys.exit(f"ws-forward: --ask-user 后面只能是 {'、'.join(_ask.KINDS)} 之一；不属于这四类的你直接定，"
                  "用 ws-forward \"<定案>\" 转回工作区")
@@ -221,6 +225,16 @@ def ask_user(last: dict, nid: int, kind: str):
     text = board.ask_text(it["id"])
     if not text:
         sys.exit(f"ws-forward: #{it['id']} 的提问原文没存下来（{board.ask_file(it['id'])}），没转给用户；让工作区用 ws-up --ask 重提")
+    hit = _ask.internal(text)
+    if hit:
+        sys.exit(f"ws-forward: 没转给用户。#{it['id']} 问的是桥内部问题（「{hit}」），不是用户该定的事：你自己处理"
+                 f"（比如 ws-handoff --resume 这份交接，让工作区接着交回），再用 ws-forward --id {it['id']} \"<定案>\" 转回")
+    bad = _ask.plain_problems(plain)
+    if bad:
+        sys.exit(f"ws-forward: 没转给用户。转给用户的话要你改写成大白话：{'；'.join(bad)}。"
+                 f"写成用户看得懂的几句：哪件事、卡在哪、有哪几个做法、你推荐哪个，最多 {_ask.PLAIN_MAX} 字，"
+                 f"不带代码、路径、英文报错和内部状态词；再跑 ws-forward --id {it['id']} --ask-user {kind} \"<大白话>\"")
+    text = plain.strip()
     chat = it.get("chat") or last.get("chat") or ""
     if not chat:
         sys.exit(f"ws-forward: #{it['id']} 没记交活的聊天频道，没转给用户")
@@ -229,13 +243,34 @@ def ask_user(last: dict, nid: int, kind: str):
                         "--message", msg], capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
         sys.exit(f"ws-forward: 提问没发到聊天频道 {chat}：{(r.stderr or r.stdout).strip()[:300]}；任务板没改")
-    board.ask_to_user(it["id"], kind)
-    print(f"ws-forward: #{it['id']} 的提问已整份发到聊天频道 {chat}，任务帖会标「等你」，桥在聊天频道叫用户；"
+    board.ask_to_user(it["id"], kind, text)
+    print(f"ws-forward: #{it['id']} 的提问已用你改写的话发到聊天频道 {chat}，任务帖会标「等你」，桥在聊天频道叫用户；"
           f"用户答了用 ws-forward --id {it['id']} \"<用户的答复，附原话>\" 转回", file=sys.stderr)
+
+
+def early_check(last: dict, model, effort):
+    """活还在原工作区做着：按接活项目（recipient_project）和那个工作区会话的模型列表核，不对就不转。
+    已交回、暂停让出工作区的活由 ws-handoff --resume 新认领，接活项目那时才定，桥切模型时按它核。"""
+    live = find_live(last)
+    if live is not None and (live.get("returned_at") or not live.get("ws")):
+        return
+    if live is None and board.paused_item(last["file"]):
+        return
+    ws = str(live["ws"] if live is not None else last["channel"])
+    try:
+        project = recipient_project(last, live)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    err = _model.check(model, effort, project, ws if ":" in ws else f"discord:{ws}")
+    if err:
+        sys.exit(f"ws-forward: 没转。{err}")
 
 
 def main(argv):
     notes, interrupt, nid, to_user = None, False, 0, ""
+    argv, model, effort = _model.parse(argv)
+    if effort and not model:  # 只核写法；模型 id 等认出接活项目后按它的列表核（审稿 #2076 第 2 条：不拿发话方的列表核）
+        sys.exit(f"ws-forward: 没转。{_model.check(None, effort)}")
     while argv[:1] and argv[0] in ("--interrupt", "--notes", "--id", "--ask-user") and len(argv) > 1:
         if argv[0] == "--interrupt":
             interrupt, argv = True, argv[1:]
@@ -249,13 +284,15 @@ def main(argv):
                 sys.exit("ws-forward: --id 后面要跟任务板编号")
             nid, argv = int(v), argv[2:]
     # 摘要以「-」开头多半是想看用法（11-05 两次把 --help 当摘要转进了工作区），不转。
+    plain = ""
     if to_user:
-        if argv:
-            sys.exit("ws-forward: --ask-user 不带摘要：转给用户的是存着的整份原文，不另写一版")
-        argv = [""]  # 下面认任务的几步照走，不转话
+        if len(argv) != 1:
+            sys.exit(f'ws-forward: --ask-user <类别> 后面要跟一句你改写的大白话（用户只看这句，不看工作区原文），'
+                     f'最多 {_ask.PLAIN_MAX} 字，写明推荐哪个')
+        plain, argv = argv[0], [""]  # 下面认任务的几步照走，不转话
     elif len(argv) != 1 or not argv[0].strip() or argv[0].lstrip().startswith("-"):
-        sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] "<摘要>"  |  '
-                 'ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限>')
+        sys.exit('用法：ws-forward [--interrupt] [--id <任务号> | --notes <交接文件>] [--model <id> [--effort <级别>]] "<摘要>"  |  '
+                 'ws-forward [--id <任务号> | --notes <交接文件>] --ask-user <方向|花钱|成品|权限> "<大白话>"')
     bad = forward_forbid(argv[0])
     if bad:
         sys.exit(f"ws-forward: 没转。{bad}")
@@ -287,7 +324,9 @@ def main(argv):
                 "project": rec.get("project") or "", "board": rec.get("board") or []}
     board.refuse_foreign([nid] if nid else last.get("board") or [], "ws-forward")  # 别的频道派的活不在这里转、不打回（#836）
     if to_user:
-        return ask_user(last, nid, to_user)
+        return ask_user(last, nid, to_user, plain)
+    if model:  # 先核模型再动任何东西（打回扣着的汇报、记任务板）：按接活项目和它的工作区会话核（审稿 #2076 第 2 条）
+        early_check(last, model, effort)
     for i in reject_first(nid, last.get("file"), [last]):
         reject_held_report(last.get("file") or "", argv[0], i)
     done = find_done(last)
@@ -303,9 +342,13 @@ def main(argv):
         # 扣着的中间进度 10 分钟后照贴成「主角色未验收」）
         if reject_on_board(hit, argv[0]):
             sys.exit(0)
+        if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
+            board.set_model(hit["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], hit.get("id"))
+        elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
+            board.set_model(hit["id"], hit.get("model"), hit.get("effort"))
         sys.exit(r.returncode)
     live = find_live(last)
     if live is not None and (live.get("returned_at") or not live.get("ws")):
@@ -313,9 +356,13 @@ def main(argv):
         # names the old workspace. Its terminal state cannot run another report.
         if reject_on_board(live, argv[0]):
             sys.exit(0)
+        if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
+            board.set_model(live["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], live.get("id"))
+        elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
+            board.set_model(live["id"], live.get("model"), live.get("effort"))
         sys.exit(r.returncode)
     if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
         last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
@@ -335,6 +382,13 @@ def main(argv):
         sys.exit(str(exc))
     if nid and not last["file"]:  # 路径栏只有链接、也没有 ws-handoff 记录：转交结果没处写，工作区读不到（#1371）
         sys.exit(f"ws-forward: #{nid} 在任务板上没有交接文件（路径栏只有链接），转不了话；用 board update {nid} <状态> <交接文件> 补上再转")
+    if model:  # 换模型接着做：按接活项目的列表核，排到工作区下一轮（就是下面叫醒的这一轮），没切成不转
+        ws_key = last["channel"] if ":" in str(last["channel"]) else f"discord:{last['channel']}"
+        why = _model.apply(ws_key, model, effort, project)  # 桥按工作区会话再核一次，工作区正忙时拒绝
+        if why:
+            sys.exit(f"ws-forward: 没转。模型 {_model.label(model, effort)} 没切成：{why}")
+        if live:
+            board.set_model(live["id"], model, effort)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     append_result(last["file"], argv[0], now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt, project), capture_output=True, text=True)

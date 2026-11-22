@@ -161,12 +161,30 @@ const (
 	backfillMaxTotalRune = 8000
 )
 
+// SnowflakeAfter is snowflakeAfter for platforms.
+func SnowflakeAfter(a, b string) bool { return snowflakeAfter(a, b) }
+
 // snowflakeAfter reports whether message ID a was posted after b (numeric IDs as strings).
 func snowflakeAfter(a, b string) bool {
 	if len(a) != len(b) {
 		return len(a) > len(b)
 	}
 	return a > b
+}
+
+// MessageOrderer is implemented by platforms whose message IDs do not sort by time (Feishu's
+// om_ IDs are opaque): MessageAfter reports whether message a was posted after b.
+type MessageOrderer interface {
+	MessageAfter(a, b string) bool
+}
+
+// messageAfter reports whether message a was posted after b on p: the platform's own order when
+// it has one, else the IDs compared as numbers (Discord snowflakes, the hub's "hub-<n>").
+func messageAfter(p Platform, a, b string) bool {
+	if o, ok := p.(MessageOrderer); ok {
+		return o.MessageAfter(a, b)
+	}
+	return snowflakeAfter(a, b)
 }
 
 // channelBackfill returns the formatted messages the session has not seen yet
@@ -201,7 +219,7 @@ func (e *Engine) cronChannelBackfill(p Platform, sessionKey string, session *Ses
 	}
 	msg.BackfillFrom, msg.BackfillRan = from, true
 	if newest != "" {
-		markSeen(session, &Message{MessageID: newest})
+		markSeen(p, session, &Message{MessageID: newest})
 	}
 	if back != "" {
 		msg.Content = back + "\n\n" + withScheduledMark(msg.Content)
@@ -253,7 +271,7 @@ func (e *Engine) channelBackfillBefore(p Platform, channelID, beforeID string, s
 	truncated := len(msgs) == backfillFetchLimit
 	for _, m := range msgs {
 		if lastSeen != "" {
-			if !snowflakeAfter(m.ID, lastSeen) {
+			if !messageAfter(p, m.ID, lastSeen) {
 				truncated = false
 				continue
 			}
@@ -488,16 +506,17 @@ func (e *Engine) attachmentWorkDir() string {
 	return dir
 }
 
-// markSeen records msg as the newest message this session has seen.
-func markSeen(session *Session, msg *Message) {
+// markSeen records msg as the newest message this session has seen; p is the platform the
+// message IDs belong to (messageAfter).
+func markSeen(p Platform, session *Session, msg *Message) {
 	id := msg.MessageID
-	if msg.SeenUpToID != "" && snowflakeAfter(msg.SeenUpToID, id) {
+	if msg.SeenUpToID != "" && messageAfter(p, msg.SeenUpToID, id) {
 		id = msg.SeenUpToID
 	}
 	if id == "" {
 		return
 	}
-	if cur := session.GetLastSeenMsgID(); cur == "" || snowflakeAfter(id, cur) {
+	if cur := session.GetLastSeenMsgID(); cur == "" || messageAfter(p, id, cur) {
 		session.SetLastSeenMsgID(id)
 	}
 }
@@ -551,10 +570,10 @@ func (e *Engine) freshContextImages(p Platform, session *Session, msg *Message, 
 	doneUpTo := session.freshImagesDoneUpTo(msg.BackfillFrom)
 	var cand []ChannelHistoryMessage // oldest first
 	for _, m := range msgs {
-		if time.Since(m.Time) > backfillFirstWindow || snowflakeAfter(m.ID, msg.BackfillFrom) {
+		if time.Since(m.Time) > backfillFirstWindow || messageAfter(p, m.ID, msg.BackfillFrom) {
 			continue // too old, or this turn's backfill already brought it
 		}
-		if doneUpTo != "" && !snowflakeAfter(m.ID, doneUpTo) {
+		if doneUpTo != "" && !messageAfter(p, m.ID, doneUpTo) {
 			continue // an earlier fresh context already got it back
 		}
 		cand = append(cand, m)

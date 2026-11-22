@@ -167,6 +167,9 @@ type wireInboundMessage struct {
 	// ReplyToGone: the replied-to message is deleted or not in this room, so the reply names nobody.
 	ReplyToRoleID string `json:"reply_to_role_id,omitempty"`
 	ReplyToGone   bool   `json:"reply_to_gone,omitempty"`
+	// DefaultReply (#1798): the member that answers this room's messages calling no one (the
+	// collab hub's defaultReplyIn: the room's primary role, or its only agent). Empty: none.
+	DefaultReply string `json:"default_reply,omitempty"`
 }
 
 type wireCardAction struct {
@@ -365,13 +368,28 @@ type wireTeamWorkspaceRoom struct {
 }
 
 type wireTeamWorkspaceAck struct {
-	DispatchMode     string                  `json:"dispatch_mode"`
-	DispatchExplicit bool                    `json:"dispatch_explicit"`
-	Type             string                  `json:"type"`
-	RefID            string                  `json:"ref_id"`
-	OK               bool                    `json:"ok"`
-	Error            string                  `json:"error,omitempty"`
-	Self             *wireTeamWorkspaceRoom  `json:"self,omitempty"`
-	Rooms            []wireTeamWorkspaceRoom `json:"rooms,omitempty"`
-	Room             *wireTeamWorkspaceRoom  `json:"room,omitempty"`
+	DispatchMode     string                     `json:"dispatch_mode"`
+	DispatchExplicit bool                       `json:"dispatch_explicit"`
+	Type             string                     `json:"type"`
+	RefID            string                     `json:"ref_id"`
+	OK               bool                       `json:"ok"`
+	Error            string                     `json:"error,omitempty"`
+	Self             *wireTeamWorkspaceRoom     `json:"self,omitempty"`
+	Rooms            []wireTeamWorkspaceRoom    `json:"rooms,omitempty"`
+	Room             *wireTeamWorkspaceRoom     `json:"room,omitempty"`
+	Messages         []wireTeamWorkspaceMessage `json:"messages,omitempty"` // messages: one page, oldest first
+}
+
+// wireTeamWorkspaceMessage is one room message in a team_workspace "messages" ack (#1788): the
+// bridge reads a workspace's whole history this way before it archives and deletes the workspace.
+type wireTeamWorkspaceMessage struct {
+	ID          string  `json:"id"`
+	AuthorKind  string  `json:"author_kind"` // user / role / system
+	Author      string  `json:"author"`
+	Name        string  `json:"name"`
+	Text        string  `json:"text"`
+	CreatedAt   float64 `json:"created_at"` // unix seconds
+	Attachments []struct {
+		Name string `json:"name"`
+	} `json:"attachments,omitempty"`
 }

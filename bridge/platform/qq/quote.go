@@ -90,11 +90,11 @@ func (p *Platform) resolveQuote(ctx context.Context, id, chat string, inbound bo
 	if name == "" && authorID != 0 {
 		name = strconv.FormatInt(authorID, 10)
 	}
-	entry := quoteEntry{content: quoteText(result), name: name, self: authorID == p.selfID, at: time.Now(), chat: chat}
+	entry := quoteEntry{content: quoteText(result), name: name, self: authorID == p.selfID, user: authorID, at: time.Now(), chat: chat}
 	if entry.content == "" {
 		return quoteEntry{}, fmt.Errorf("qq: quoted message is empty")
 	}
-	p.storeQuote(id, entry.content, entry.name, entry.self, chat)
+	p.storeQuote(id, entry.content, entry.name, entry.self, entry.user, chat)
 	return entry, nil
 }
 

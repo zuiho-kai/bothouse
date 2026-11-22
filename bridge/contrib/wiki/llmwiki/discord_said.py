@@ -354,7 +354,7 @@ def _hub_get(url, tok):
         return json.loads(r.read())
 
 
-def cloud_said(lo, hi, assistant, main, get=None):
+def cloud_said(lo, hi, assistant, main, get=None, strict=False):
     """[Msg] the user's own messages (author_kind "user") on the cloud_web hub(s) in [lo, hi), every room including
     archived ones. `get(url, tok)` is injectable (tests). Any failure is Unavailable, as for Discord."""
     get = get or _hub_get
@@ -368,6 +368,8 @@ def cloud_said(lo, hi, assistant, main, get=None):
                     try:
                         page = get(f"{base}/api/rooms/{room['id']}/messages?limit={HUB_PAGE}{before}", bot)
                     except Exception as e:  # noqa: BLE001
+                        if strict and getattr(e, "code", None) == 403:
+                            raise Unavailable(f"cloud room {room['id']}: history forbidden") from None
                         if _skippable(e):
                             GONE.add(f"cloud:{room['id']}")
                             break
@@ -392,11 +394,12 @@ def cloud_said(lo, hi, assistant, main, get=None):
     return out
 
 
-def said(lo, hi, assistant, main, list_channels=None, fetch=None, cloud=None):
+def said(lo, hi, assistant, main, list_channels=None, fetch=None, cloud=None, strict=False):
     """The user's own messages in [lo, hi) across every Discord channel (DMs included) and every cloud_web room,
     oldest first. `list_channels(tok, uid, lo)`, `fetch(channel, lo, hi, tok)` and `cloud(lo, hi, assistant, main)`
     are injectable (tests)."""
-    uid, out = user_id(), (cloud or cloud_said)(lo, hi, assistant, main)
+    uid = user_id()
+    out = cloud(lo, hi, assistant, main) if cloud else cloud_said(lo, hi, assistant, main, strict=strict)
     toks = tokens(assistant, main)
     listing = list_channels or (lambda tok, uid_, lo_: _listed(tok, uid_, lo_, hi))
     found = {}  # channel → (label, the bots that list it first, then the rest): a channel every bot sees is read once
@@ -412,6 +415,8 @@ def said(lo, hi, assistant, main, list_channels=None, fetch=None, cloud=None):
             except Forbidden:
                 continue  # this bot may not read it: try the next one (one bot's 403 is not the channel's)
         if msgs is None:
+            if strict:
+                raise Unavailable(f"Discord channel {ch}: history forbidden for every credential")
             GONE.add(ch)  # every bot got 403: logged by the caller
             continue
         for m in msgs:
