@@ -1364,9 +1364,9 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		return p.sendInteraction(rc, content)
+		return p.sendInteraction(ctx, rc, content)
 	case replyContext:
-		return p.sendChannelReply(rc, content)
+		return p.sendChannelReply(ctx, rc, content)
 	default:
 		return fmt.Errorf("discord: invalid reply context type %T", rctx)
 	}
@@ -1384,9 +1384,9 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		return p.sendInteraction(rc, content)
+		return p.sendInteraction(ctx, rc, content)
 	case replyContext:
-		return p.sendChannel(rc, content)
+		return p.sendChannel(ctx, rc, content)
 	default:
 		return fmt.Errorf("discord: invalid reply context type %T", rctx)
 	}
@@ -1395,24 +1395,29 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 // sendInteraction delivers a message through the Discord interaction response
 // mechanism. The first call edits the deferred "thinking" response; subsequent
 // calls create followup messages.
-func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) error {
+func (p *Platform) sendInteraction(ctx context.Context, ictx *interactionReplyCtx, content string) error {
 	content = linkTeamMentions(content, p.selfID())
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
+	opts := discordReqOptions(ctx)
+	for i, chunk := range chunks {
 		first := ictx.takeFirst()
+		mentions := p.interactionAllowedMentions(ctx, ictx.channelID, i == 0)
 
 		var sent *discordgo.Message
 		var err error
 		if first {
 			c := chunk
-			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
+			sent, err = p.session.InteractionResponseEdit(ictx.interaction, &discordgo.WebhookEdit{Content: &c, AllowedMentions: mentions}, opts...)
 		} else {
-			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk, AllowedMentions: p.interactionAllowedMentions(ictx.channelID)})
+			sent, err = p.session.FollowupMessageCreate(ictx.interaction, true, &discordgo.WebhookParams{Content: chunk, AllowedMentions: mentions}, opts...)
 		}
 
 		if err != nil {
 			slog.Warn("discord: interaction response failed, falling back to channel message", "error", err)
-			sent, err = p.session.ChannelMessageSend(ictx.channelID, chunk)
+			sent, err = p.session.ChannelMessageSendComplex(ictx.channelID, &discordgo.MessageSend{
+				Content:         chunk,
+				AllowedMentions: mentions,
+			}, opts...)
 			if err != nil {
 				return fmt.Errorf("discord: send fallback: %w", err)
 			}
@@ -1427,19 +1432,28 @@ func (p *Platform) sendInteraction(ictx *interactionReplyCtx, content string) er
 // The bridge mentions them for a task a bot or a timer set (core.PlatformOwner, #988).
 func (p *Platform) OwnerUserID() string { return core.FirstAllowFrom(p.allowFrom) }
 
-func (p *Platform) sendChannelReply(rc replyContext, content string) error {
+func (p *Platform) sendChannelReply(ctx context.Context, rc replyContext, content string) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
 	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
+	opts := discordReqOptions(ctx)
+	for i, chunk := range chunks {
 		var sent *discordgo.Message
 		var err error
 		if rc.useThreadChannel() || rc.messageID == "" {
-			sent, err = p.session.ChannelMessageSend(rc.targetChannelID(), chunk)
+			ch := rc.targetChannelID()
+			sent, err = p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+				Content:         chunk,
+				AllowedMentions: p.outboundAllowedMentions(ctx, ch, i == 0),
+			}, opts...)
 		} else {
 			ref := &discordgo.MessageReference{MessageID: rc.messageID}
-			sent, err = p.session.ChannelMessageSendReply(rc.channelID, chunk, ref)
+			sent, err = p.session.ChannelMessageSendComplex(rc.channelID, &discordgo.MessageSend{
+				Content:         chunk,
+				Reference:       ref,
+				AllowedMentions: p.outboundAllowedMentions(ctx, rc.channelID, i == 0),
+			}, opts...)
 		}
 		if err != nil {
 			return fmt.Errorf("discord: send: %w", err)
@@ -1449,13 +1463,22 @@ func (p *Platform) sendChannelReply(rc replyContext, content string) error {
 	return nil
 }
 
-func (p *Platform) sendChannel(rc replyContext, content string) error {
+func (p *Platform) sendChannel(ctx context.Context, rc replyContext, content string) error {
+	return p.sendChannelWithMentions(ctx, rc, content, true)
+}
+
+func (p *Platform) sendChannelWithMentions(ctx context.Context, rc replyContext, content string, allowHuman bool) error {
 	rc = p.redirectNotice(rc) // maomao fork: cc-connect notices go to the log channel when there is one
 	content = linkTeamMentions(content, p.selfID())
 	content = p.returnToLead(rc, content)
 	chunks := core.SplitMessageCodeFenceAware(wrapTablesInCodeBlocks(content), maxDiscordLen)
-	for _, chunk := range chunks {
-		sent, err := p.session.ChannelMessageSend(rc.targetChannelID(), chunk)
+	opts := discordReqOptions(ctx)
+	ch := rc.targetChannelID()
+	for i, chunk := range chunks {
+		sent, err := p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+			Content:         chunk,
+			AllowedMentions: p.outboundAllowedMentions(ctx, ch, allowHuman && i == 0),
+		}, opts...)
 		if err != nil {
 			return fmt.Errorf("discord: send: %w", err)
 		}
@@ -1614,24 +1637,26 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
-		if err := p.sendInteraction(rc, content); err != nil {
+		if err := p.sendInteraction(ctx, rc, content); err != nil {
 			return err
 		}
 		sent, err := p.session.FollowupMessageCreate(rc.interaction, true, &discordgo.WebhookParams{
 			Content:         content,
 			Components:      components,
-			AllowedMentions: p.interactionAllowedMentions(rc.channelID),
-		})
+			AllowedMentions: p.interactionAllowedMentions(ctx, rc.channelID, false),
+		}, discordReqOptions(ctx)...)
 		if err != nil {
 			return fmt.Errorf("discord: send button followup: %w", err)
 		}
 		p.noteInteractionSent(rc, sent)
 		return nil
 	case replyContext:
-		sent, err := p.session.ChannelMessageSendComplex(rc.targetChannelID(), &discordgo.MessageSend{
-			Content:    content,
-			Components: components,
-		})
+		ch := rc.targetChannelID()
+		sent, err := p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+			Content:         content,
+			Components:      components,
+			AllowedMentions: p.outboundAllowedMentions(ctx, ch, true),
+		}, discordReqOptions(ctx)...)
 		if err != nil {
 			return fmt.Errorf("discord: send channel buttons: %w", err)
 		}

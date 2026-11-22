@@ -2,6 +2,7 @@ package discord
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // maomao fork: messages the bot posts in a team workspace channel are sent with
@@ -186,11 +188,45 @@ func (p *Platform) workspaceMentionUsers() []string {
 	return users
 }
 
-// Interaction webhook URLs do not contain their channel ID. Apply the same
-// channel policy where the interaction still carries its structured channel.
-func (p *Platform) interactionAllowedMentions(channelID string) *discordgo.MessageAllowedMentions {
-	if !p.isSilentChannel(channelID) {
+// outboundAllowedMentions returns Discord's allowed_mentions for a bot text message (#2091).
+// By default human mentions, @everyone/@here and role mentions are suppressed while registered
+// teammate bots may still mention each other. Only an explicit core.WithAllowHumanMentions
+// context (release posts and decision asks) lets named human user IDs notify, and never in a
+// silent workspace channel (#1951).
+func (p *Platform) outboundAllowedMentions(ctx context.Context, channelID string, allowHuman bool) *discordgo.MessageAllowedMentions {
+	allowed := &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+	seen := make(map[string]struct{})
+	for _, id := range p.workspaceMentionUsers() {
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+		allowed.Users = append(allowed.Users, id)
+	}
+	if allowHuman && !p.isSilentChannel(channelID) {
+		for _, id := range core.AllowedHumanMentions(ctx) {
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			allowed.Users = append(allowed.Users, id)
+		}
+	}
+	return allowed
+}
+
+func discordReqOptions(ctx context.Context) []discordgo.RequestOption {
+	if ctx == nil {
 		return nil
 	}
-	return workspaceAllowedMentions(p.workspaceMentionUsers(), nil)
+	return []discordgo.RequestOption{discordgo.WithContext(ctx)}
+}
+
+// Interaction webhook URLs do not contain their channel ID. Apply the same
+// outbound mention policy where the interaction still carries its structured channel.
+func (p *Platform) interactionAllowedMentions(ctx context.Context, channelID string, allowHuman bool) *discordgo.MessageAllowedMentions {
+	return p.outboundAllowedMentions(ctx, channelID, allowHuman)
 }
