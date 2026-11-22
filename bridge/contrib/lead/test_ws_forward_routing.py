@@ -45,7 +45,7 @@ class ForwardRecipientTest(unittest.TestCase):
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
-                                                "task_ids", "find_live", "find_done", "reject_first", "reject_on_board", "main"}, dict(
+                                                "task_ids", "find_live", "find_done", "reject_first", "reject_on_board", "early_check", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
             sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),

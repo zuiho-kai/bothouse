@@ -154,34 +154,69 @@ func (e *Engine) selectSessionModel(key, model string) (string, error) {
 // starts on the workspace's usual model again. A later pick for the same task (ws-forward
 // --model) keeps the first remembered selection.
 
-// QueueHandoffModelSwitch is QueueModelSwitch for a handed-off task on workspace session key.
+// QueueHandoffModelSwitch is QueueModelSwitch for a handed-off task on workspace session key. The
+// queued switch and the selection to restore are saved in one write (review #2076 item 1): a failed
+// write leaves neither, so a give-back never finds a switch without the selection it replaces.
 func (e *Engine) QueueHandoffModelSwitch(ctx context.Context, key, model, effort string) ModelSwitchResult {
-	before := e.sessionSelection(key)
-	res := e.QueueModelSwitch(ctx, key, model, effort, false)
+	agent, _ := e.sessionContextForKey(key)
+	p, res := e.resolveModelSwitch(ctx, key, agent, model, effort)
 	if !res.OK {
 		return res
 	}
-	if err := e.rememberHandoffModelBase(key, before); err != nil {
+	// Review #2076 item 3: a switch applies when a turn starts (processInteractiveMessageWith →
+	// applyPendingSwitchOnAgent). While a turn runs, a forward is injected into it or queued and
+	// drained into the same process, so it would reach the old model. Refuse instead of pretending.
+	if e.sessionTurnRunning(key) {
+		return ModelSwitchResult{Message: "the workspace is in the middle of a turn: a model picked now would only start with its next fresh turn, and this message would reach the model running now. Not switched: forward without --model, or pick the model after this turn ends"}
+	}
+	if err := e.queueHandoffSwitch(key, p); err != nil {
 		return ModelSwitchResult{Message: err.Error()}
 	}
 	res.Message = "queued for this task: takes effect from the workspace's next turn; the workspace's own model comes back when it is given back"
 	return res
 }
 
-func (e *Engine) rememberHandoffModelBase(key string, before sessionModelSelection) error {
-	before.ChangedAt = time.Time{}
+// sessionTurnRunning: the active session of key holds its turn lock (the lock a timer-started turn
+// takes with TryLock in ExecuteTimerJob).
+func (e *Engine) sessionTurnRunning(key string) bool {
+	_, sessions := e.sessionContextForKey(key)
+	if sessions == nil {
+		return false
+	}
+	s := sessions.FindByID(sessions.ActiveSessionID(key))
+	return s != nil && s.Busy()
+}
+
+// queueHandoffSwitch queues p on key and, unless an earlier pick for the same task already did,
+// remembers the selection key has now; both or neither are published.
+func (e *Engine) queueHandoffSwitch(key string, p pendingModelSwitch) error {
+	e.modelSwitchMu.Lock()
+	defer e.modelSwitchMu.Unlock()
+	pending := maps.Clone(e.pendingSwitch)
+	if pending == nil {
+		pending = make(map[string]pendingModelSwitch)
+	}
+	p.QueuedAt = time.Now()
+	pending[key] = p
+	remember := func(bases, selections map[string]sessionModelSelection) map[string]sessionModelSelection {
+		if _, ok := bases[key]; ok {
+			return bases
+		}
+		bases = maps.Clone(bases)
+		if bases == nil {
+			bases = make(map[string]sessionModelSelection)
+		}
+		before := selections[key]
+		before.ChangedAt = time.Time{}
+		bases[key] = before
+		return bases
+	}
 	if ps := e.projectState; ps != nil {
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
-		if _, ok := ps.state.HandoffModelBases[key]; ok {
-			return nil
-		}
 		next := ps.state
-		next.HandoffModelBases = maps.Clone(next.HandoffModelBases)
-		if next.HandoffModelBases == nil {
-			next.HandoffModelBases = make(map[string]sessionModelSelection)
-		}
-		next.HandoffModelBases[key] = before
+		next.PendingModelSwitches = pending
+		next.HandoffModelBases = remember(next.HandoffModelBases, next.SessionModelOverrides)
 		if ps.storePath != "" {
 			data, err := json.MarshalIndent(next, "", "  ")
 			if err != nil {
@@ -192,17 +227,13 @@ func (e *Engine) rememberHandoffModelBase(key string, before sessionModelSelecti
 			}
 		}
 		ps.state = next
-		return nil
+	} else {
+		e.sessionModelsMu.Lock()
+		e.handoffModelBases = remember(e.handoffModelBases, e.sessionSelections)
+		e.sessionModelsMu.Unlock()
 	}
-	e.sessionModelsMu.Lock()
-	defer e.sessionModelsMu.Unlock()
-	if _, ok := e.handoffModelBases[key]; ok {
-		return nil
-	}
-	if e.handoffModelBases == nil {
-		e.handoffModelBases = make(map[string]sessionModelSelection)
-	}
-	e.handoffModelBases[key] = before
+	e.pendingSwitch = pending
+	slog.Info("handoff model switch queued", "session", key, "model", p.Model, "effort", p.Effort)
 	return nil
 }
 

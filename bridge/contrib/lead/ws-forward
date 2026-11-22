@@ -248,12 +248,29 @@ def ask_user(last: dict, nid: int, kind: str, plain: str = ""):
           f"用户答了用 ws-forward --id {it['id']} \"<用户的答复，附原话>\" 转回", file=sys.stderr)
 
 
+def early_check(last: dict, model, effort):
+    """活还在原工作区做着：按接活项目（recipient_project）和那个工作区会话的模型列表核，不对就不转。
+    已交回、暂停让出工作区的活由 ws-handoff --resume 新认领，接活项目那时才定，桥切模型时按它核。"""
+    live = find_live(last)
+    if live is not None and (live.get("returned_at") or not live.get("ws")):
+        return
+    if live is None and board.paused_item(last["file"]):
+        return
+    ws = str(live["ws"] if live is not None else last["channel"])
+    try:
+        project = recipient_project(last, live)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    err = _model.check(model, effort, project, ws if ":" in ws else f"discord:{ws}")
+    if err:
+        sys.exit(f"ws-forward: 没转。{err}")
+
+
 def main(argv):
     notes, interrupt, nid, to_user = None, False, 0, ""
     argv, model, effort = _model.parse(argv)
-    err = _model.check(model, effort)
-    if err:
-        sys.exit(f"ws-forward: 没转。{err}")
+    if effort and not model:  # 只核写法；模型 id 等认出接活项目后按它的列表核（审稿 #2076 第 2 条：不拿发话方的列表核）
+        sys.exit(f"ws-forward: 没转。{_model.check(None, effort)}")
     while argv[:1] and argv[0] in ("--interrupt", "--notes", "--id", "--ask-user") and len(argv) > 1:
         if argv[0] == "--interrupt":
             interrupt, argv = True, argv[1:]
@@ -308,6 +325,8 @@ def main(argv):
     board.refuse_foreign([nid] if nid else last.get("board") or [], "ws-forward")  # 别的频道派的活不在这里转、不打回（#836）
     if to_user:
         return ask_user(last, nid, to_user, plain)
+    if model:  # 先核模型再动任何东西（打回扣着的汇报、记任务板）：按接活项目和它的工作区会话核（审稿 #2076 第 2 条）
+        early_check(last, model, effort)
     for i in reject_first(nid, last.get("file"), [last]):
         reject_held_report(last.get("file") or "", argv[0], i)
     done = find_done(last)
@@ -323,11 +342,13 @@ def main(argv):
         # 扣着的中间进度 10 分钟后照贴成「主角色未验收」）
         if reject_on_board(hit, argv[0]):
             sys.exit(0)
-        if model:  # 换的模型记上任务板，接回时照它切（ws-handoff start）
+        if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
             board.set_model(hit["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], hit.get("id"))
+        elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
+            board.set_model(hit["id"], hit.get("model"), hit.get("effort"))
         sys.exit(r.returncode)
     live = find_live(last)
     if live is not None and (live.get("returned_at") or not live.get("ws")):
@@ -335,11 +356,13 @@ def main(argv):
         # names the old workspace. Its terminal state cannot run another report.
         if reject_on_board(live, argv[0]):
             sys.exit(0)
-        if model:  # 换的模型记上任务板，接回时照它切（ws-handoff start）
+        if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
             board.set_model(live["id"], model, effort)
         r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], live.get("id"))
+        elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
+            board.set_model(live["id"], live.get("model"), live.get("effort"))
         sys.exit(r.returncode)
     if live is not None and str(live.get("ws") or "").split(":")[-1] != str(last["channel"]).split(":")[-1]:
         last["channel"] = live["ws"]  # 这件活换了工作区：转到它现在所在的那个
@@ -359,8 +382,9 @@ def main(argv):
         sys.exit(str(exc))
     if nid and not last["file"]:  # 路径栏只有链接、也没有 ws-handoff 记录：转交结果没处写，工作区读不到（#1371）
         sys.exit(f"ws-forward: #{nid} 在任务板上没有交接文件（路径栏只有链接），转不了话；用 board update {nid} <状态> <交接文件> 补上再转")
-    if model:  # 换模型接着做：排到工作区下一轮（就是下面叫醒的这一轮），没切成不转
-        why = _model.apply(last["channel"] if ":" in str(last["channel"]) else f"discord:{last['channel']}", model, effort, project)
+    if model:  # 换模型接着做：按接活项目的列表核，排到工作区下一轮（就是下面叫醒的这一轮），没切成不转
+        ws_key = last["channel"] if ":" in str(last["channel"]) else f"discord:{last['channel']}"
+        why = _model.apply(ws_key, model, effort, project)  # 桥按工作区会话再核一次，工作区正忙时拒绝
         if why:
             sys.exit(f"ws-forward: 没转。模型 {_model.label(model, effort)} 没切成：{why}")
         if live:

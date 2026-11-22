@@ -1430,8 +1430,11 @@ def set_model(nid, model, effort=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
-        hit["model"] = model
-        if effort:
+        if model:
+            hit["model"] = model
+        else:  # 没有模型（撤回一次没接回的换模型）：清掉，回到按工作区自己的模型跑
+            hit.pop("model", None)
+        if model and effort:
             hit["effort"] = effort
         else:
             hit.pop("effort", None)

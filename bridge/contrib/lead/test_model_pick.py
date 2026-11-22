@@ -3,6 +3,15 @@ import contextlib, io, json, os, stat, sys, tempfile, types, unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+# 先隔离再导入（审稿 #2076 第 4 条）：_team / board / datadir 一载就按环境解析并缓存数据目录、任务板目录，
+# 会话里带着的 CC_DATA_DIR、BOARD_DIR 指着线上。导入任何被测模块前全指到临时目录。
+_ISO = tempfile.mkdtemp(prefix="model-pick-")
+for _k in ("BOTHOUSE_DATA_DIR", "GATE_SETUP_DIR", "CC_DATA_DIR"):
+    os.environ[_k] = _ISO
+os.environ["BOARD_DIR"] = os.path.join(_ISO, "team")
+os.environ["BOTHOUSE_TEST"] = "1"
+os.environ.pop("GATE_TEAM", None)
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "gate"))
@@ -22,7 +31,7 @@ class ModelHelperTest(unittest.TestCase):
         fake.write_text("#!/usr/bin/env python3\nimport json,sys\n"
                         f"open({str(self.log)!r},'a').write(json.dumps(sys.argv[1:])+'\\n')\n"
                         f"print(json.dumps({json.dumps(LIST)!r} and {LIST!r} if sys.argv[2]=='list' else "
-                        "{'ok': sys.argv[3]!='bad', 'message': 'no unique model'}))\n"
+                        "{'ok': sys.argv[3]!='bad', 'message': 'no unique model', 'candidates': [{'Name': 'opus'}, {'Name': 'claude-fable-5-2'}]}))\n"
                         "sys.exit(0 if sys.argv[2]=='list' or sys.argv[3]!='bad' else 2)\n")
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         self.env = {"CC_BIN": str(fake), "CC_PROJECT": "cjiang", "CC_SESSION_KEY": "discord:main"}
@@ -57,7 +66,7 @@ class ModelHelperTest(unittest.TestCase):
         self.assertIsNone(_model.apply("discord:ws3", "opus", "high", "deep"))
         self.assertEqual(self.calls()[-1], ["model", "set", "opus", "--handoff", "--project", "deep",
                                             "--session-key", "discord:ws3", "--json", "--effort", "high"])
-        self.assertEqual(_model.apply("discord:ws3", "bad", None), "no unique model")
+        self.assertEqual(_model.apply("discord:ws3", "bad", None), "no unique model；可选：opus、claude-fable-5-2")
         self.assertIsNone(_model.apply("discord:ws3", None, None))  # 没指定：不调桥
         self.assertEqual(len(self.calls()), 2)
 
@@ -70,7 +79,7 @@ class ForwardModelTest(unittest.TestCase):
         self.applied, self.checked = [], []
         self.ns["_model"] = types.SimpleNamespace(
             parse=_model.parse, label=_model.label,
-            check=lambda m, e: self.checked.append((m, e)) or (None if m in (None, "opus") else f"模型 {m} 不在列表里"),
+            check=lambda m, e, p=None, sk=None: self.checked.append((m, e, p, sk)) or (None if m in (None, "opus") else f"模型 {m} 不在列表里"),
             apply=lambda ws, m, e, p=None: self.applied.append((ws, m, e, p)) or None)
         self.board.set_model = Mock()
 
@@ -84,6 +93,17 @@ class ForwardModelTest(unittest.TestCase):
         self.forward()
         self.assertEqual(self.applied, [])
         self.board.set_model.assert_not_called()
+
+    def test_model_checked_against_recipient_project(self):
+        # 跨项目续做（审稿 #2076 第 2 条）：发话方 gge 转给肥鱼（deep）的工作区，按 deep 的列表和工作区会话核，不按 gge
+        self.forward("--model", "opus")
+        self.assertEqual(self.checked, [("opus", None, "deep", "discord:ws3")])
+
+    def test_effort_without_model_refused_before_lookup(self):
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["--effort", "high", "continue"])
+        self.assertIn("没转", str(cm.exception))
+        self.run.assert_not_called()
 
     def test_unknown_model_not_forwarded(self):
         with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
@@ -125,6 +145,18 @@ class ResumeModelTest(unittest.TestCase):
         self.run.assert_not_called()
         self.board._park_once.assert_called_once()
         self.board.restore.assert_called_once_with(self.item)
+
+
+class IsolationTest(unittest.TestCase):
+    def test_model_import_does_not_resolve_data_dir(self):
+        import subprocess as sp
+        code = "import sys; sys.path.insert(0, sys.argv[1]); import _model; print('_team' in sys.modules)"
+        out = sp.run([sys.executable, "-I", "-c", code, str(HERE)], capture_output=True, text=True, env=dict(os.environ))
+        self.assertEqual(out.stdout.strip(), "False", out.stderr)
+
+    def test_board_dir_isolated(self):
+        import board
+        self.assertTrue(str(board.DIR).startswith(_ISO), board.DIR)
 
 
 class BoardShowsModelTest(unittest.TestCase):

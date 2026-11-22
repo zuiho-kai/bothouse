@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,5 +86,94 @@ func TestTaskTableShowsHandoffModel(t *testing.T) {
 	}
 	if strings.Contains(got, "没指定模型 · gemini") {
 		t.Fatalf("a task without a pick shows a model:\n%s", got)
+	}
+}
+
+// Review #2076 item 1: the queued switch and the selection to restore are one write. A failed
+// write keeps neither; a failed give-back write keeps both, and the next give-back restores.
+func TestHandoffModelWriteFailureKeepsStateConsistent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	statePath := filepath.Join(dir, "state.json")
+	agent := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: "gemini-3.8-flash-high"},
+		models: []ModelOption{{Name: "gemini-3.8-flash-high"}, {Name: "gemini-4-neon-high"}}}
+	e := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.SetProjectStateStore(NewProjectStateStore(statePath))
+	if err := e.saveSessionSelection("discord:ws1", "gemini-3.8-flash-high", ""); err != nil {
+		t.Fatal(err)
+	}
+	readOnly := func() {
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writable := func() {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(writable)
+
+	readOnly()
+	if r := e.QueueHandoffModelSwitch(context.Background(), "discord:ws1", "gemini-4-neon-high", ""); r.OK {
+		t.Fatalf("handoff with an unwritable state file reported OK: %+v", r)
+	}
+	if st := e.ModelStatus(context.Background(), "discord:ws1"); st.Pending != "" {
+		t.Fatalf("failed write left a queued switch: %q", st.Pending)
+	}
+	if len(e.projectState.state.HandoffModelBases) != 0 {
+		t.Fatalf("failed write left a remembered selection: %v", e.projectState.state.HandoffModelBases)
+	}
+
+	writable()
+	if r := e.QueueHandoffModelSwitch(context.Background(), "discord:ws1", "gemini-4-neon-high", ""); !r.OK {
+		t.Fatalf("handoff = %+v", r)
+	}
+	disk := NewProjectStateStore(statePath).state
+	if disk.PendingModelSwitches["discord:ws1"].Model != "gemini-4-neon-high" || disk.HandoffModelBases["discord:ws1"].Model != "gemini-3.8-flash-high" {
+		t.Fatalf("switch and base not saved together: pending=%v bases=%v", disk.PendingModelSwitches, disk.HandoffModelBases)
+	}
+	e.applyPendingSwitch("discord:ws1")
+
+	readOnly()
+	e.ResetTeamWorkspaceSessions("discord:ws1") // give-back write fails: the task's model stays, base kept
+	if got := e.sessionModelFor("discord:ws1"); got != "gemini-4-neon-high" {
+		t.Fatalf("failed give-back changed the model in memory: %q", got)
+	}
+	if _, ok := e.projectState.state.HandoffModelBases["discord:ws1"]; !ok {
+		t.Fatal("failed give-back dropped the selection to restore")
+	}
+	writable()
+	e.ResetTeamWorkspaceSessions("discord:ws1")
+	if got := e.sessionModelFor("discord:ws1"); got != "gemini-3.8-flash-high" {
+		t.Fatalf("retried give-back = %q, want the workspace's own model", got)
+	}
+}
+
+// Review #2076 item 3: while the workspace runs a turn, a handoff model is refused: the forward
+// would reach the model running now. Nothing is queued or remembered.
+func TestHandoffModelRefusedWhileTurnRuns(t *testing.T) {
+	agent := &stubStrictModelAgent{stubModelModeAgent: stubModelModeAgent{model: "gemini-3.8-flash-high"},
+		models: []ModelOption{{Name: "gemini-3.8-flash-high"}, {Name: "gemini-4-neon-high"}}}
+	e := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
+	t.Cleanup(func() { e.Stop() })
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(t.TempDir(), "state.json")))
+	session := e.sessions.GetOrCreateActive("discord:ws1")
+	if !session.TryLock() {
+		t.Fatal("lock")
+	}
+	r := e.QueueHandoffModelSwitch(context.Background(), "discord:ws1", "gemini-4-neon-high", "")
+	if r.OK || !strings.Contains(r.Message, "middle of a turn") {
+		t.Fatalf("busy workspace: %+v", r)
+	}
+	if st := e.ModelStatus(context.Background(), "discord:ws1"); st.Pending != "" {
+		t.Fatalf("refused pick still queued: %q", st.Pending)
+	}
+	if len(e.projectState.state.HandoffModelBases) != 0 {
+		t.Fatal("refused pick remembered a selection")
+	}
+	session.Unlock()
+	if r := e.QueueHandoffModelSwitch(context.Background(), "discord:ws1", "gemini-4-neon-high", ""); !r.OK {
+		t.Fatalf("idle workspace = %+v", r)
 	}
 }

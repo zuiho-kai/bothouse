@@ -4,7 +4,11 @@
 # 模型（core/session_model_scope.go QueueHandoffModelSwitch / restoreHandoffModels）。
 import json, os, subprocess
 
-import _team
+
+def _team():
+    """用到时才载 _team：它一载就按环境解析数据目录并缓存（_team.py SETUP），只导入 _model 不该碰数据目录（审稿 #2076 第 4 条）。"""
+    import _team as t
+    return t
 
 
 def parse(argv):
@@ -29,16 +33,16 @@ def label(model, effort):
 
 
 def check(model, effort, project=None, session=None):
-    """模型 id 要在本项目 `model list` 里（工作区跑的就是本项目的 agent），强度要在它支持的级别里；
-    不对返回一句带可选项的报错，对了返回 None。"""
+    """模型 id 要在接活项目（project，不写是本项目）`model list` 里，强度要在它支持的级别里；
+    不对返回一句带可选项的报错，对了返回 None。session 是接活的工作区会话，不写用调用者的。"""
     if not model and not effort:
         return None
     if not model:
         return "--effort 要和 --model 一起写（交活用法：--model <id> [--effort <级别>]）"
-    cc = _team.cc_bin()
+    cc = _team().cc_bin()
     if not cc:
         return "找不到桥程序（CC_BIN / bothouse / cc-connect），没法核对模型"
-    cmd = [cc, "model", "list", "--json", "--project", project or _team.project()]
+    cmd = [cc, "model", "list", "--json", "--project", project or _team().project()]
     sk = session or os.environ.get("CC_SESSION_KEY") or ""
     if sk:
         cmd += ["--session-key", sk]
@@ -63,8 +67,8 @@ def apply(ws_key, model, effort, project=None):
     """给工作区会话排上这件活的模型（下一轮生效，工作区放回时桥换回原来的）。成功返回 None，失败返回原因。"""
     if not model:
         return None
-    cmd = [_team.cc_bin() or "cc-connect", "model", "set", model, "--handoff",
-           "--project", project or _team.project(), "--session-key", ws_key, "--json"]
+    cmd = [_team().cc_bin() or "cc-connect", "model", "set", model, "--handoff",
+           "--project", project or _team().project(), "--session-key", ws_key, "--json"]
     if effort:
         cmd += ["--effort", effort]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -73,5 +77,8 @@ def apply(ws_key, model, effort, project=None):
     except ValueError:
         res = {}
     if r.returncode != 0 or not res.get("ok"):
+        cands = [c.get("Name", "") for c in res.get("candidates") or [] if c.get("Name")]
+        if res.get("message") and cands:  # 桥按接活项目核出的可选项一并给出，不让主角色猜
+            return f"{res['message']}；可选：{'、'.join(cands)}"
         return res.get("message") or (r.stderr or r.stdout).strip() or f"model set 退出码 {r.returncode}"
     return None
