@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"time"
 )
@@ -143,4 +145,290 @@ func (e *Engine) selectSessionModel(key, model string) (string, error) {
 		return "", err
 	}
 	return model, nil
+}
+
+// ---- #2075: a model picked for one handed-off task ----
+//
+// ws-handoff --model queues an ordinary switch on the workspace session (applied before its next
+// turn, like `model set`) and remembers the selection the session had before. When the workspace
+// is given back (ResetTeamWorkspaceSessions) that selection comes back, so the next task there
+// starts on the workspace's usual model again. A later pick for the same task (ws-forward
+// --model) keeps the first remembered selection.
+
+// QueueHandoffModelSwitch is QueueModelSwitch for a handed-off task on workspace session key. The
+// queued switch and the selection to restore are saved in one write (review #2076 item 1): a failed
+// write leaves neither, so a give-back never finds a switch without the selection it replaces.
+func (e *Engine) QueueHandoffModelSwitch(ctx context.Context, key, model, effort string) ModelSwitchResult {
+	agent, _ := e.sessionContextForKey(key)
+	p, res := e.resolveModelSwitch(ctx, key, agent, model, effort)
+	if !res.OK {
+		return res
+	}
+	// Review #2076 item 3: a switch applies when a turn starts (processInteractiveMessageWith →
+	// applyPendingSwitchOnAgent). While a turn runs, a forward is injected into it or queued and
+	// drained into the same process, so it would reach the old model. Refuse instead of pretending.
+	if e.sessionTurnRunning(key) {
+		return ModelSwitchResult{Message: "the workspace is in the middle of a turn: a model picked now would only start with its next fresh turn, and this message would reach the model running now. Not switched: forward without --model, or pick the model after this turn ends"}
+	}
+	if err := e.queueHandoffSwitch(key, p); err != nil {
+		return ModelSwitchResult{Message: err.Error()}
+	}
+	res.Message = "queued for this task: takes effect from the workspace's next turn; the workspace's own model comes back when it is given back"
+	return res
+}
+
+// sessionTurnRunning: the active session of key holds its turn lock (the lock a timer-started turn
+// takes with TryLock in ExecuteTimerJob).
+func (e *Engine) sessionTurnRunning(key string) bool {
+	_, sessions := e.sessionContextForKey(key)
+	if sessions == nil {
+		return false
+	}
+	s := sessions.FindByID(sessions.ActiveSessionID(key))
+	return s != nil && s.Busy()
+}
+
+// queueHandoffSwitch queues p on key and, unless an earlier pick for the same task already did,
+// remembers the selection key has now; both or neither are published.
+func (e *Engine) queueHandoffSwitch(key string, p pendingModelSwitch) error {
+	e.modelSwitchMu.Lock()
+	defer e.modelSwitchMu.Unlock()
+	pending := maps.Clone(e.pendingSwitch)
+	if pending == nil {
+		pending = make(map[string]pendingModelSwitch)
+	}
+	p.QueuedAt = time.Now()
+	pending[key] = p
+	remember := func(bases, selections map[string]sessionModelSelection) map[string]sessionModelSelection {
+		if _, ok := bases[key]; ok {
+			return bases
+		}
+		bases = maps.Clone(bases)
+		if bases == nil {
+			bases = make(map[string]sessionModelSelection)
+		}
+		before := selections[key]
+		before.ChangedAt = time.Time{}
+		bases[key] = before
+		return bases
+	}
+	if ps := e.projectState; ps != nil {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		next := ps.state
+		next.PendingModelSwitches = pending
+		next.HandoffModelBases = remember(next.HandoffModelBases, next.SessionModelOverrides)
+		if ps.storePath != "" {
+			data, err := json.MarshalIndent(next, "", "  ")
+			if err != nil {
+				return fmt.Errorf("encode handoff model: %w", err)
+			}
+			if err := ps.write(data); err != nil {
+				return fmt.Errorf("save handoff model: %w", err)
+			}
+		}
+		ps.state = next
+	} else {
+		e.sessionModelsMu.Lock()
+		e.handoffModelBases = remember(e.handoffModelBases, e.sessionSelections)
+		e.sessionModelsMu.Unlock()
+	}
+	e.pendingSwitch = pending
+	slog.Info("handoff model switch queued", "session", key, "model", p.Model, "effort", p.Effort)
+	return nil
+}
+
+// restoreWorkspaceHandoffModels puts every role's sessions in workspace key back on the model they
+// had before a handed-off task picked one (restoreHandoffModels on each engine). Every give-back
+// (park, handback, idle free, delete) runs it before it commits the release (review #2076 round 2:
+// a give-back committed first and restored after could only log a failed restore, so the
+// workspace went back to the pool still on the task's model). An error means the release must not
+// happen: nothing was restored, the workspace stays with its task and the next give-back tries
+// again. On success the caller gets undo: when its own save of the release then fails, undo puts
+// the task's model back, so the task kept by its workspace keeps its model too (review #2076 round
+// 3). The two are separate files, so this is the rollback of the first write, not one write.
+func (e *Engine) restoreWorkspaceHandoffModels(key string) (undo func() error, err error) {
+	type done struct {
+		e *Engine
+		r []restoredHandoff
+	}
+	var all []done
+	undo = func() error {
+		var errs []error
+		for _, d := range all {
+			if err := d.e.undoHandoffRestore(d.r); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", d.e.name, err))
+			}
+		}
+		return errors.Join(errs...)
+	}
+	for _, x := range e.watchEngines() {
+		r, err := x.restoreHandoffModels(key)
+		if err != nil {
+			if uerr := undo(); uerr != nil {
+				err = errors.Join(err, fmt.Errorf("undo the other roles' restore: %w", uerr))
+			}
+			return nil, fmt.Errorf("%s: put the task's model back: %w", x.name, err)
+		}
+		if len(r) > 0 {
+			all = append(all, done{x, r})
+		}
+	}
+	return undo, nil
+}
+
+// restoredHandoff is one session restoreHandoffModels put back: what it had before, so a release
+// that then fails can undo it (undoHandoffRestore).
+type restoredHandoff struct {
+	Key        string
+	Base       sessionModelSelection // the remembered selection, put back by the restore
+	Task       sessionModelSelection // the selection the task had (zero: none)
+	HadTask    bool
+	Pending    pendingModelSwitch // the task's switch still queued (HadPending)
+	HadPending bool
+}
+
+// restoreHandoffModels puts back the selection of every session in workspace chat that a
+// handed-off task changed, and drops a switch for that task still queued there. Returns the
+// sessions restored; on a failed write nothing changes and the error is returned.
+func (e *Engine) restoreHandoffModels(chat string) ([]restoredHandoff, error) {
+	chat = chatOf(chat)
+	restore := func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) []restoredHandoff {
+		var out []restoredHandoff
+		for k, base := range bases {
+			if chatOf(k) != chat {
+				continue
+			}
+			r := restoredHandoff{Key: k, Base: base}
+			r.Task, r.HadTask = selections[k]
+			r.Pending, r.HadPending = pending[k]
+			delete(bases, k)
+			delete(pending, k)
+			if base == (sessionModelSelection{}) {
+				delete(selections, k)
+			} else {
+				selections[k] = base
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	var out []restoredHandoff
+	err := e.editHandoffModels(func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool {
+		out = restore(bases, selections, pending)
+		return len(out) > 0
+	})
+	if err != nil {
+		return nil, fmt.Errorf("save restored model of %s: %w", chat, err)
+	}
+	if len(out) > 0 {
+		slog.Info("handoff model: workspace back on its own model", "workspace", chat, "sessions", len(out))
+	}
+	return out, nil
+}
+
+// undoHandoffRestore gives the sessions of r their task's model back, as before the restore. A
+// session whose model was changed after the restore (a `model set`, a new handoff pick, a queued
+// switch applied) is left alone: the undo only takes back what the restore wrote, compared under
+// the same lock every model change takes (editHandoffModels, modelSwitchMu), so a newer pick C is
+// never overwritten by the older task model B (review #2076 round 4).
+func (e *Engine) undoHandoffRestore(r []restoredHandoff) error {
+	if len(r) == 0 {
+		return nil
+	}
+	undone, kept := 0, 0
+	err := e.editHandoffModels(func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool {
+		undone, kept = 0, 0
+		for _, x := range r {
+			if !restoredStillCurrent(x, bases, selections, pending) {
+				kept++
+				continue
+			}
+			bases[x.Key] = x.Base
+			if x.HadTask {
+				selections[x.Key] = x.Task
+			} else {
+				delete(selections, x.Key)
+			}
+			if x.HadPending {
+				pending[x.Key] = x.Pending
+			}
+			undone++
+		}
+		return undone > 0
+	})
+	if err != nil {
+		return fmt.Errorf("give the task its model back: %w", err)
+	}
+	slog.Info("handoff model: release not saved; the task keeps its model", "sessions", undone, "changed_since", kept)
+	return nil
+}
+
+// restoredStillCurrent: session x still holds exactly what restoreHandoffModels wrote for it (its
+// own selection back, nothing remembered, nothing queued).
+func restoredStillCurrent(x restoredHandoff, bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool {
+	if _, ok := bases[x.Key]; ok {
+		return false
+	}
+	if _, ok := pending[x.Key]; ok {
+		return false
+	}
+	cur, ok := selections[x.Key]
+	if x.Base == (sessionModelSelection{}) {
+		return !ok
+	}
+	return ok && cur == x.Base
+}
+
+// editHandoffModels applies edit to copies of the remembered selections, the session selections
+// and the queued switches, and publishes them (one write of the project state) when edit reports a
+// change; a failed write publishes nothing.
+func (e *Engine) editHandoffModels(edit func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) bool) error {
+	e.modelSwitchMu.Lock()
+	defer e.modelSwitchMu.Unlock()
+	pending := maps.Clone(e.pendingSwitch)
+	if pending == nil {
+		pending = make(map[string]pendingModelSwitch)
+	}
+	if ps := e.projectState; ps != nil {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		next := ps.state
+		next.HandoffModelBases = maps.Clone(next.HandoffModelBases)
+		if next.HandoffModelBases == nil {
+			next.HandoffModelBases = make(map[string]sessionModelSelection)
+		}
+		next.SessionModelOverrides = maps.Clone(next.SessionModelOverrides)
+		if next.SessionModelOverrides == nil {
+			next.SessionModelOverrides = make(map[string]sessionModelSelection)
+		}
+		if !edit(next.HandoffModelBases, next.SessionModelOverrides, pending) {
+			return nil
+		}
+		next.PendingModelSwitches = pending
+		if ps.storePath != "" {
+			data, err := json.MarshalIndent(next, "", "  ")
+			if err == nil {
+				err = ps.write(data)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		ps.state = next
+		e.pendingSwitch = pending
+		return nil
+	}
+	e.sessionModelsMu.Lock()
+	defer e.sessionModelsMu.Unlock()
+	if e.sessionSelections == nil {
+		e.sessionSelections = make(map[string]sessionModelSelection)
+	}
+	if e.handoffModelBases == nil {
+		e.handoffModelBases = make(map[string]sessionModelSelection)
+	}
+	if edit(e.handoffModelBases, e.sessionSelections, pending) {
+		e.pendingSwitch = pending
+	}
+	return nil
 }

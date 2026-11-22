@@ -95,7 +95,7 @@ def _board_dir():
     return (SETUP / "team").expanduser()
 
 
-DIR = _board_dir()
+DIR = datadir.guard(_board_dir())  # BOARD_DIR / team_status_dir 也过测试守卫（11-22 测试经 BOARD_DIR 写进了线上板）
 
 
 def _path(name):
@@ -211,7 +211,12 @@ def fmt(i):
     card = f"｜卡 {i['card']}" if i.get("card") else ""
     card += f"｜帖 {i['post']}" if i.get("post") else ""
     hd = "｜为发布暂停" if i.get("release_hold") else ""
-    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{nxt}{pz}{bl}{hd}{card}"
+    md = f"｜模型 {model_label(i)}" if i.get("model") else ""  # 交活指定的模型（ws-handoff --model，#2075）
+    return f"#{i['id']} {i['what']}｜{i.get('where') or '-'}{' ' + i['where_link'] if i.get('where_link') else ''}｜{i.get('status') or '-'}｜{i.get('who') or '-'}｜{i.get('at', '')}{md}{nxt}{pz}{bl}{hd}{card}"
+
+
+def model_label(i):
+    return " ".join(x for x in (i.get("model"), i.get("effort")) if x)
 
 
 def lines(all_chats=False):
@@ -460,9 +465,11 @@ def _back_to_chat(it):
         it["ch"] = chat.split(":", 1)[1]
 
 
-def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None, probe=False):
+def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None, probe=False, assigner=None):
     """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
-    chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
+    chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。
+    assigner：布置这件活的人 {"id", "name", "kind"}（kind 是桥的 human/bot/scheduled/local，ws-handoff 取自
+    bothouse identity show）；桥贴最终汇报、叫人拍板时 @ 他，不是真人就 @ 主人（#988 用户 11-22「谁布置的任务 需要拍板或者做完了要@他」）。"""
     with _locked():
         cur = _read_locked()
         nid = max([i["id"] for i in cur + _read_locked("board-done.jsonl")] + [0]) + 1
@@ -470,6 +477,8 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None,
               "where": where, "status": status, "who": who, "at": _now(), "dispatcher": os.environ.get("CC_PROJECT", "")}
         if probe:
             it["probe"] = True
+        if assigner:
+            it["assigner"] = assigner
         if nxt:
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
@@ -1416,6 +1425,25 @@ def mark_deployed(commit, nids=None):
 
 
 REVIEW_TIERS = {"simple": "simple", "简单": "simple", "complex": "complex", "复杂": "complex"}
+
+
+def set_model(nid, model, effort=None):
+    """这件活交活时指定的模型和推理强度（ws-handoff / ws-forward --model，#2075）：任务板显示，接回、续做时照它再切。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        if model:
+            hit["model"] = model
+        else:  # 没有模型（撤回一次没接回的换模型）：清掉，回到按工作区自己的模型跑
+            hit.pop("model", None)
+        if model and effort:
+            hit["effort"] = effort
+        else:
+            hit.pop("effort", None)
+        _write(cur)
+    return True
 
 
 def set_tier(nid, tier):

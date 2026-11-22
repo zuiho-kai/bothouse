@@ -17,13 +17,19 @@ import (
 //
 //   - Frequent jobs for the same chat that fire together (within mergeWindow) run as one turn, so
 //     two reminders due at the same minute become one message. Daily reports are never merged.
+//
 //   - Frequent jobs (due at least once an hour) share a per-chat
 //     budget. A run with no budget left is skipped; a `bothouse send` from such a run is refused.
 //     Daily reports are not frequent and are never held back.
+//
 //   - Each frequent job remembers whether its last message got an answer (a message or a
 //     reaction by a person in that chat before the job's next run, at most 30 minutes). After a few unanswered
 //     messages in a row the job's gap doubles (it skips 1, then 3, then 7 runs), and after that
 //     it pauses until someone answers. Any answer in the chat resets it.
+//
+//   - With min gap on ([proactive] min_gap, default on), a chat that already got a proactive message
+//     that is still unanswered gets no second one for two hours — the 11-20 rhythm 「他没回也没关系，
+//     过一阵再找他」, kept here instead of in each role's own script.
 //
 // The existing OutgoingRateLimiter is a per-platform, per-second guard against API bans that also
 // slows replies to the user, so it is left as it is; its token bucket is reused here per chat.
@@ -38,6 +44,9 @@ type proactiveOutbox struct {
 	caps    map[string]*tokenBucket       // chat -> budget for frequent jobs
 	jobs    map[string]*proactiveJobState // job id -> answer tracking
 	freq    map[string]bool               // job id -> frequent (set at admission)
+	// minGap: while on, one frequent proactive message per chat every proactiveMinGap until answered.
+	minGap  bool
+	waiting map[string]time.Time // chat -> last frequent proactive message still unanswered
 }
 
 type proactiveJobState struct {
@@ -66,6 +75,9 @@ const (
 	proactiveIgnoreLimit  = 3                // 来源: handoff, the workspace sets N
 	proactivePauseAfter   = 6                // 来源: handoff 「间隔翻倍或暂停」, pause once the gap has doubled three times (N + 3)
 	proactiveFrequentGap  = time.Hour        // 来源: handoff example 想想瑞凤 is hourly; daily reports must not be held back
+	// proactiveMinGap: 用户 11-20 「他没回也没关系，过一阵再找他」, the rhythm jingyu's say kept in
+	// its own script until #1866; now a switch here ([proactive] min_gap, default on).
+	proactiveMinGap = 2 * time.Hour
 )
 
 // sharedProactiveOutbox: every role in this bridge shares one door, so the budget of a chat several
@@ -81,6 +93,7 @@ func newProactiveOutbox() *proactiveOutbox {
 		caps:        map[string]*tokenBucket{},
 		jobs:        map[string]*proactiveJobState{},
 		freq:        map[string]bool{},
+		waiting:     map[string]time.Time{},
 	}
 }
 
@@ -202,6 +215,11 @@ func (o *proactiveOutbox) admit(job *CronJob, chat string) (bool, string) {
 		st.skipLeft--
 		return false, fmt.Sprintf("backoff: %d messages in a row got no answer, %d more runs to skip", st.ignored, st.skipLeft)
 	}
+	if o.minGap {
+		if sent, ok := o.waiting[chat]; ok && o.now().Sub(sent) < proactiveMinGap {
+			return false, fmt.Sprintf("min gap: the last message in this chat got no answer, %s to go", (proactiveMinGap - o.now().Sub(sent)).Round(time.Minute))
+		}
+	}
 	if o.bucket(chat).tokens < 1 {
 		return false, fmt.Sprintf("cap: this chat's budget is spent (%d at once, %d an hour)", proactiveCapBurst, proactiveCapPerHour)
 	}
@@ -310,7 +328,13 @@ func (o *proactiveOutbox) checkSend(fromSession, target string) string {
 	if len(ids) == 0 || !o.anyFrequent(ids) {
 		return ""
 	}
-	if o.bucket(proactiveChat(target)).tokens < 1 {
+	chat := proactiveChat(target)
+	if o.minGap {
+		if sent, ok := o.waiting[chat]; ok && o.now().Sub(sent) < proactiveMinGap {
+			return fmt.Sprintf("他没回，这个聊天两小时内已经主动发过一条了，这条先不发（过一阵再找他）。")
+		}
+	}
+	if o.bucket(chat).tokens < 1 {
 		return fmt.Sprintf("主动消息已到上限：这个聊天里定时任务连着最多发 %d 条、一小时最多 %d 条，这条没发。", proactiveCapBurst, proactiveCapPerHour)
 	}
 	return ""
@@ -327,6 +351,7 @@ func (o *proactiveOutbox) delivered(ids []string, chat string) {
 	if b := o.bucket(chat); b.tokens >= 1 {
 		b.tokens--
 	}
+	o.waiting[chat] = o.now()
 	for _, id := range ids {
 		if !o.freq[id] {
 			continue
@@ -361,6 +386,7 @@ func (o *proactiveOutbox) answered(chat string) {
 		}
 		st.sentAt, st.ignored, st.skipLeft, st.paused = time.Time{}, 0, 0, false
 	}
+	delete(o.waiting, chat)
 	if len(reset) > 0 {
 		sort.Strings(reset)
 		slog.Info("proactive: answered, back to normal", "chat", chat, "jobs", strings.Join(reset, ","))
@@ -397,11 +423,17 @@ func (e *Engine) proactiveDelivered(ids []string, sessionKey string) {
 	}
 }
 
-// SetProactiveOutbox turns the outbox on or off ([proactive] enabled, #1860, user 「这个默认关一下」).
+// SetProactiveOutbox turns the outbox on or off ([proactive] enabled, #1860, user 「这个默认关一下」)
+// and sets its two-hour min gap ([proactive] min_gap, #1866).
 // Off (the default) means every scheduled job, `bothouse send`, message and reaction goes straight
 // through as before #1857. Applied at startup and on every config reload.
-func (e *Engine) SetProactiveOutbox(on bool) {
+func (e *Engine) SetProactiveOutbox(on, minGap bool) {
 	e.proactiveOn.Store(on)
+	if e.proactive != nil {
+		e.proactive.mu.Lock()
+		e.proactive.minGap = minGap
+		e.proactive.mu.Unlock()
+	}
 }
 
 // outbox returns the proactive outbox, or nil when it is off.

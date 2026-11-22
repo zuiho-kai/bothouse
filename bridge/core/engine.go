@@ -381,6 +381,7 @@ type RateLimitCfg struct {
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
 	taskForumOff           atomic.Bool
+	mentionAssignerOn      atomic.Bool
 	proactiveMu            sync.Mutex
 	proactiveAuthorization *ProactiveAuthorization
 	// #618 K1: running-turn journal (turn_journal.go), opened on first use.
@@ -548,6 +549,7 @@ type Engine struct {
 	turnModels        map[string]string // interactive key → model one scheduled side turn starts on
 	workspaceExec     workspaceExec     // team workspaces start on this provider/model (session_models.go)
 	sessionSelections map[string]sessionModelSelection
+	handoffModelBases map[string]sessionModelSelection // projectState nil: see projectStateData.HandoffModelBases
 	// Per-session base-instruction files (maomao fork, see session_models.go)
 	sessionInstructions map[string]sessionInstructions
 

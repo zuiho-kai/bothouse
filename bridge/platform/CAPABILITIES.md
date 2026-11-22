@@ -241,3 +241,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：这次只做 Discord；飞书有历史接口（history.go ChannelHistory），但进站走 dispatchMessage 另一套过滤，补拉要单独接，下一件再做
 - cloud-web: 不支持：这次只做 Discord；cloud-web 有历史接口（history.go ChannelHistory），补拉要单独接，下一件再做
 - dsh: 不支持：走 cloud-web 帧，同 cloud-web
+
+## PlatformOwner
+
+任务由机器人或定时任务布置时，交回结果和拍板提问开头 @ 这台机器的主人：admin_from 第一个，没有就取平台 allow_from 第一个用户 ID（core/team_task_assigner.go，#988）。整条 @ 布置人的链路由主角色项目的 `mention_assigner` 开关控制，默认关（#2089）。
+
+- discord: 已接
+- feishu: 已接
+- cloud-web: 不支持：网页频道的 @ 按成员名字认，allow_from 里是 hub 用户 id，写成 @id 不会提醒到人；DSH 房间里布置人多是真人，直接 @ 布置人
+- dsh: 不支持：同 cloud-web

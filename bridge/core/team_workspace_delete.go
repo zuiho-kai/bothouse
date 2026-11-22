@@ -86,13 +86,24 @@ func (e *Engine) deleteTeamWorkspace(workspace string, staleOwner bool, why stri
 	if staleOwner && teamTurnRunning(key) {
 		return "", &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " has a turn running"}
 	}
+	undo, err := e.restoreWorkspaceHandoffModels(key)
+	if err != nil {
+		return "", fmt.Errorf("team workspace delete: %s not deleted: %w", key, err)
+	}
+	keepModel := func() { // not deleted: the sessions there keep the model they had (review #2076 round 3)
+		if uerr := undo(); uerr != nil {
+			slog.Error("team workspace: not deleted and the task's model not given back", "workspace", key, "error", uerr)
+		}
+	}
 	ctx, cancel := context.WithTimeout(e.ctx, leadScriptTimeout) // 沿用 lead 脚本上限：存档要翻完频道历史
 	defer cancel()
 	archive, err := e.archiveTeamWorkspace(ctx, key, rec, why)
 	if err != nil {
+		keepModel()
 		return "", fmt.Errorf("team workspace delete: archive %s failed, not deleted: %w", key, err)
 	}
 	if err := d.DeleteTeamWorkspaceChannel(ctx, id); err != nil {
+		keepModel()
 		_ = os.Remove(archive)
 		if errors.Is(err, ErrTeamWorkspaceInUse) {
 			return "", &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " is owned on the platform (a task is in work there)"}

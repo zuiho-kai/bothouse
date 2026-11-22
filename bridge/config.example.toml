@@ -884,6 +884,9 @@ name = "my-backend"
 # team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # task_forum = false             # Discord task forum: unset = on; false keeps the original task threads.
 #                                # 任务帖子区整体开关；不写即开，关闭后沿用原任务线程。
+# mention_assigner = true        # Lead bot: report posts and questions passed to you open with an @ of who
+#                                # set the task (bot/timer-set tasks @ the owner). Unset = off.
+#                                # 主 bot：交回结果、转你拍板的问题开头 @ 布置这件活的人；不写即关，写 true 打开。
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:
