@@ -754,6 +754,12 @@ type ProjectConfig struct {
 	// (core/team_task_assigner.go, #988). Default off (user 11-23 「做个开关默认关闭 有的人可能
 	// 不喜欢被打扰」); the assigner is still recorded on the board row either way.
 	MentionAssigner *bool `toml:"mention_assigner,omitempty"`
+	// MentionHumanGate: gate human @ notifications so ordinary bot replies keep <@human> as text
+	// without pinging; only release posts (ws-pass, controlled by mention_assigner) and decision
+	// asks (ws-forward --ask-user / bothouse send --ask-user) ping, with short-window dedup
+	// (core/mention_gate.go, #2091). Default off (user 11-23 「依旧是开关默认关的形式 就是关了
+	// 用户也能通过添加规则让角色做完了或者啥时侯at它 就是不要影响或者导致冲突」).
+	MentionHumanGate *bool `toml:"mention_human_gate,omitempty"`
 	// Source: #797. Nonpositive values follow the existing one-hour stuck threshold.
 	TeamReviewAfterSeconds int `toml:"team_review_after_seconds,omitempty"`
 	// TeamWorkspaces (lead only, Discord): give each of the lead's channels a 「工作区1」 channel in
@@ -871,6 +877,12 @@ func (p ProjectConfig) TaskForumEnabled() bool { return p.TaskForum == nil || *p
 // restores the #988 mentions.
 func (p ProjectConfig) MentionAssignerEnabled() bool {
 	return p.MentionAssigner != nil && *p.MentionAssigner
+}
+
+// MentionHumanGateEnabled: default off (user 11-23 「依旧是开关默认关的形式 就是关了用户也能通过
+// 添加规则让角色做完了或者啥时侯at它」); mention_human_gate = true enables #2091 human mention gating.
+func (p ProjectConfig) MentionHumanGateEnabled() bool {
+	return p.MentionHumanGate != nil && *p.MentionHumanGate
 }
 
 func (p ProjectConfig) TeamBoardEnabled() bool {

@@ -59,10 +59,48 @@ func (e *Engine) assignerUser(p Platform, item *teamTaskBoardItem) string {
 // withAssignerMention puts the platform mention of item's assigner (assignerUser) at the start of
 // text; text unchanged when there is no one to notify.
 func (e *Engine) withAssignerMention(p Platform, item *teamTaskBoardItem, text string) string {
+	if p == nil {
+		return text
+	}
 	if m := watchMention(p.Name(), e.assignerUser(p, item)); m != "" {
 		return m + " " + text
 	}
 	return text
+}
+
+// prepareAssignerMention resolves item's assigner mention for a release post in sessionKey,
+// suppressing a duplicate ping when the same bot already notified that user for this task within
+// humanMentionDedupWindow (#2091). Returns the rendered text and the user ID allowed to notify
+// ("" when mention_assigner is off, no assigner exists, or dedup suppressed it).
+func (e *Engine) prepareAssignerMention(p Platform, sessionKey string, item *teamTaskBoardItem, text string) (string, string) {
+	if p == nil {
+		return text, ""
+	}
+	user := e.assignerUser(p, item)
+	if user == "" {
+		return text, ""
+	}
+	taskID := 0
+	if item != nil {
+		taskID = item.ID
+	}
+	if e.isHumanMentionDeduped(sessionKey, user, taskID) {
+		return text, ""
+	}
+	if m := watchMention(p.Name(), user); m != "" {
+		return m + " " + text, user
+	}
+	return text, ""
+}
+
+// prepareAssignerMentionFor is prepareAssignerMention for a message sent to sessionKey that
+// delivers the result of board item id (ws-pass posting the finished files, #988 / #2091).
+func (e *Engine) prepareAssignerMentionFor(sessionKey string, id int, text string) (string, string) {
+	name, _, err := parseSessionKeyParts(sessionKey)
+	if err != nil {
+		return text, ""
+	}
+	return e.prepareAssignerMention(e.platformForName(name), sessionKey, e.boardItemByID(id), text)
 }
 
 // withAssignerMentionFor is withAssignerMention for a message sent to sessionKey that delivers the
