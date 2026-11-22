@@ -152,3 +152,48 @@ func TestHandshakeTimeoutReturnsErrorWhenServerSilent(t *testing.T) {
 		t.Fatal("newACPSession did not time out when server was silent")
 	}
 }
+
+func TestTransportClosedMarksSessionNotAliveBeforeMonitorExits(t *testing.T) {
+	rResp, wMockResp := io.Pipe()
+	rReq, wTrOut := io.Pipe()
+	defer rReq.Close()
+	defer wTrOut.Close()
+
+	go func() {
+		_, _ = io.Copy(io.Discard, rReq)
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := &acpSession{
+		ctx:    ctx,
+		cancel: cancel,
+		tr:     newTransport(rResp, wTrOut, nil, nil),
+	}
+	s.alive.Store(true)
+	s.setACPSessionID("sess-drop")
+
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		s.tr.readLoop(ctx)
+	}()
+
+	// Simulate an abrupt disconnect (EOF) while the monitor goroutine has not
+	// finished tearing down the child process yet (e.g. taskkill on Windows).
+	_ = wMockResp.Close()
+	select {
+	case <-readDone:
+	case <-time.After(time.Second):
+		t.Fatal("readLoop did not exit on EOF")
+	}
+
+	if s.Alive() {
+		t.Fatal("Alive() returned true after transport closed; engine would reuse a dead session")
+	}
+	err := s.Send("after-failure", "msg-2", nil, nil)
+	if err == nil || err.Error() != "acp: session closed" {
+		t.Fatalf("Send after transport EOF = %v, want acp: session closed", err)
+	}
+}

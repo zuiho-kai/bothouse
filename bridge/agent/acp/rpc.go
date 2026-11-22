@@ -168,6 +168,13 @@ func (t *transport) completePending(id json.RawMessage, result json.RawMessage, 
 	}
 }
 
+func (t *transport) isClosed() bool {
+	t.pendingMu.Lock()
+	closed := t.closed
+	t.pendingMu.Unlock()
+	return closed
+}
+
 func (t *transport) cancelAll(err error) {
 	if err == nil {
 		err = io.EOF

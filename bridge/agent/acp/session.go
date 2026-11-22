@@ -159,16 +159,18 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		cancel()
 		return nil, fmt.Errorf("acp: stdin pipe: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		cancel()
+		_ = stdin.Close()
 		return nil, fmt.Errorf("acp: stdout pipe: %w", err)
 	}
+	cmd.Stdout = stdoutW
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stderr)
 
 	s.cmd = cmd
-	s.tr = newTransport(stdout, stdin, s.onNotification, s.onServerRequest)
+	s.tr = newTransport(stdoutR, stdin, s.onNotification, s.onServerRequest)
 
 	prepareCmdForKill(cmd)
 	cmd.Cancel = func() error {
@@ -179,7 +181,18 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		_ = stdin.Close()
+		_ = stdoutW.Close()
+		_ = stdoutR.Close()
 		return nil, fmt.Errorf("acp: start %s: %w", cfg.command, err)
+	}
+	_ = stdoutW.Close()
+
+	exitErr := func(err error) error {
+		if err != nil {
+			return fmt.Errorf("acp: process exited: %w", err)
+		}
+		return fmt.Errorf("acp: process exited: %w", io.EOF)
 	}
 
 	s.wg.Add(1)
@@ -200,20 +213,45 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		var waitErr error
 		select {
 		case waitErr = <-waitDone:
-			_ = forceKillCmd(cmd)
-			_ = stdin.Close()
-			_ = stdout.Close()
-			s.tr.cancelAll(fmt.Errorf("acp: process exited: %w", waitErr))
+			s.alive.Store(false)
+			// Let readLoop drain any buffered output written just before exit
+			// (e.g. a tool_call frame before disconnect); if a grandchild still
+			// holds stdout open, cancel pending calls and reap the process tree.
 			select {
 			case <-readDone:
-			case <-time.After(500 * time.Millisecond):
+			case <-sessionCtx.Done():
+				s.tr.cancelAll(exitErr(waitErr))
+				_ = forceKillCmd(cmd)
+				_ = stdin.Close()
+				_ = stdoutR.Close()
+				select {
+				case <-readDone:
+				case <-time.After(cmd.WaitDelay):
+				}
+			case <-time.After(cmd.WaitDelay):
+				s.tr.cancelAll(exitErr(waitErr))
+				_ = forceKillCmd(cmd)
+				_ = stdin.Close()
+				_ = stdoutR.Close()
+				select {
+				case <-readDone:
+				case <-time.After(cmd.WaitDelay):
+				}
 			}
-		case <-readDone:
-			_ = forceKillCmd(cmd)
 			_ = stdin.Close()
-			_ = stdout.Close()
-			waitErr = <-waitDone
-			s.tr.cancelAll(fmt.Errorf("acp: process exited: %w", waitErr))
+			_ = stdoutR.Close()
+			s.tr.cancelAll(exitErr(waitErr))
+		case <-readDone:
+			s.alive.Store(false)
+			_ = stdin.Close()
+			_ = stdoutR.Close()
+			select {
+			case waitErr = <-waitDone:
+			case <-time.After(cmd.WaitDelay):
+				_ = forceKillCmd(cmd)
+				waitErr = <-waitDone
+			}
+			s.tr.cancelAll(exitErr(waitErr))
 		}
 
 		if waitErr != nil {
@@ -452,7 +490,7 @@ func (s *acpSession) CurrentMode() string {
 // (devin acp in 2026.4.9) silently accepts unknown modeIds without
 // any error, so a server-only check would let typos go undetected.
 func (s *acpSession) SetLiveMode(mode string) bool {
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return false
 	}
 	sid := s.currentACPSessionID()
@@ -885,7 +923,7 @@ func (s *acpSession) emit(ev core.Event) {
 func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return fmt.Errorf("acp: session closed")
 	}
 	s.inputMu.Lock()
@@ -1093,7 +1131,7 @@ func (s *acpSession) appendImageRefs(prompt string, images []core.ImageAttachmen
 }
 
 func (s *acpSession) RespondPermission(requestID string, result core.PermissionResult) error {
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return fmt.Errorf("acp: session closed")
 	}
 
@@ -1152,13 +1190,13 @@ func (s *acpSession) CanResume() bool {
 }
 
 func (s *acpSession) Alive() bool {
-	return s.alive.Load()
+	return s.alive.Load() && (s.tr == nil || !s.tr.isClosed())
 }
 
 func (s *acpSession) Close() error {
 	s.CloseSubTasks()
 	s.closeOnce.Do(func() {
-		s.alive.Store(false)
+		wasAlive := s.alive.Swap(false)
 		// The prompt response can precede durable storage. Let capable servers
 		// drain and flush the session before CommandContext kills the process.
 		if sid := s.currentACPSessionID(); s.closeSupported && sid != "" && s.ctx.Err() == nil {
@@ -1171,7 +1209,7 @@ func (s *acpSession) Close() error {
 			}
 		}
 		s.cancel()
-		if s.cmd != nil {
+		if wasAlive && s.cmd != nil && s.cmd.Cancel == nil {
 			_ = forceKillCmd(s.cmd)
 		}
 		done := make(chan struct{})
