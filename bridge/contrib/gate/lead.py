@@ -242,7 +242,7 @@ def identity(bot):
                 f"如果用户这句是在切换主角色，用一句话确认：现在主角色是{NAME[L]}。")
     else:
         extra = "人设里写的「你是主」那段暂时不适用，" if me == "" else f"人设里写「{NAME['']}是主」的地方按这条换成{NAME[L]}，"
-        text = f"现在主角色是{lead}，你是次：{extra}没被 @ 或点名不开口，要拍板、交接、升级找{NAME[L]}。"
+        text = f"现在主角色是{lead}，你是次：{extra}门闸判给你的这一轮由你回（没被 @ 也算），没判给你的不插嘴；要拍板、交接、升级找{NAME[L]}。"
     return {"path": f"【主角色：{NAME[L]}，{s['at']} 用户切换】", "desc": text}
 
 

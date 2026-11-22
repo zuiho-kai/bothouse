@@ -416,6 +416,25 @@ case "$2" in park) echo '{{"freed":true}}' ;; claim) echo ok ;; esac
         finally:
             os.environ["CC_BIN"] = NOBRIDGE
 
+    def test_pause_park_timeout_aborts_pause(self):
+        """#2086: board pause 放回工作区超时或失败时不得吞错，必须阻断退出，board 条目不落盘 paused。"""
+        fake = Path(TMP) / "fakepark_timeout"
+        fake.write_text("#!/bin/sh\n[ \"$2\" = transition ] && { echo '{\"known\":false}'; exit 0; }\necho 'timeout after 15 seconds' >&2; exit 1\n")
+        fake.chmod(0o755)
+        os.environ["CC_BIN"] = str(fake)
+        board.set_prune_conf(on=False)
+        try:
+            board.add("交来的活", "n.md", "已交接", "工作区1主角色", ws="discord:ws1", chat="discord:ch1")
+            with self.assertRaises(SystemExit) as cm:
+                board.main(["pause", "1"])
+            self.assertIn("工作区放回失败", str(cm.exception))
+            it = board.items()[0]
+            self.assertFalse(it.get("paused"))
+            self.assertEqual(it.get("status"), "已交接")
+            self.assertEqual(it.get("ws"), "discord:ws1")
+        finally:
+            os.environ["CC_BIN"] = NOBRIDGE
+
     def test_self_pause_in_own_workspace_records_request(self):
         """agentm #26（11-09）：工作区在自己那一轮 board pause 自己的活：不暂停、不 park（park 会清会话、掐掉这一轮，
         暂停又会让桥扣下交回），只记 pause_req，叫它交 [report]；别处 pause 照旧停、照旧 park --stop。"""
