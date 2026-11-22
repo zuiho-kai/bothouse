@@ -53,6 +53,13 @@ func withLatestMark(content string) string {
 // (both times the gate said reply and the model answered NO_REPLY).
 const mentionedNote = "（用户这条明确 @ 了你或回复了你，必须回复，不要只回 NO_REPLY。）"
 
+// gateReplyNote goes before a person's message the gate gave this bot to answer without an @ (a
+// conversation carrying on with it): the gate decides who speaks, the lead only has priority.
+// 2026-11-22 20:04/20:05 the gate gave 大豆包 reply and everyone else context, 大豆包 answered
+// NO_REPLY because its duty layer said a member speaks only when @-ed, and nobody spoke. User:
+// 「这规矩有问题啊 和门闸冲突了 不是说门闸判断谁接话吗 只是优先主角是」
+const gateReplyNote = "（门闸把这一轮判给你回：没 @ 你也由你接，必须回复，不要只回 NO_REPLY。）"
+
 // gateState is one published gate configuration plus a pointer to the running state. The
 // configuration fields are never written after the value is stored in Engine.gate: a setter
 // copies it, changes the copy and swaps the pointer (Engine.updateGate), so a message goroutine
@@ -649,8 +656,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		}
 	}
 	content := msg.Content
-	if dec.Action == "reply" && msg.Mentioned && !msg.FromBot {
-		content = mentionedNote + "\n" + content
+	if dec.Action == "reply" && !msg.FromBot {
+		if msg.Mentioned {
+			content = mentionedNote + "\n" + content
+		} else {
+			content = gateReplyNote + "\n" + content
+		}
 	}
 	// #215: mark this message's own words here, before any buffered or backfilled history is
 	// put above them: the mark is about this message only, and withVoiceNote on the assembled

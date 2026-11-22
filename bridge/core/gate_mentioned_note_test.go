@@ -15,11 +15,14 @@ func TestApplyGate_MentionedReplyForbidsSilence(t *testing.T) {
 		mentioned bool
 		fromBot   bool
 		want      bool
+		wantGate  bool
 	}{
 		{name: "bare_at_reply", action: "reply", mentioned: true, want: true},
-		{name: "not_mentioned", action: "reply"},
+		// 2026-11-22 #972: the gate gave this bot an un-@ed message (a conversation carrying on with it).
+		{name: "not_mentioned", action: "reply", wantGate: true},
 		{name: "teammate_at", action: "reply", mentioned: true, fromBot: true},
 		{name: "insert_not_reply", action: "insert", mentioned: true},
+		{name: "insert_not_mentioned", action: "insert"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -34,6 +37,9 @@ func TestApplyGate_MentionedReplyForbidsSilence(t *testing.T) {
 			}
 			if got := strings.Contains(m.Content, mentionedNote); got != c.want {
 				t.Fatalf("note present=%v, want %v; content=%q", got, c.want, m.Content)
+			}
+			if got := strings.Contains(m.Content, gateReplyNote); got != c.wantGate {
+				t.Fatalf("gate reply note present=%v, want %v; content=%q", got, c.wantGate, m.Content)
 			}
 			if !strings.Contains(m.Content, content) {
 				t.Fatalf("original text lost: %q", m.Content)
