@@ -66,7 +66,7 @@ func TestNativeQuoteSendWithMentionsAndFetchedOriginal(t *testing.T) {
 func TestNativeQuoteSendRejectsCrossChatWithoutSending(t *testing.T) {
 	f := newFakeOneBot(t)
 	p, _ := startTestPlatform(t, f)
-	p.storeQuote("103", "别群的原文", "他人", false, "g:222")
+	p.storeQuote("103", "别群的原文", "他人", false, 2002, "g:222")
 	if err := p.ReplyToMessage(context.Background(), &replyContext{messageType: "group", groupID: 111}, "引用这条", "103", nil, false); err == nil {
 		t.Fatal("accepted cross-chat reply")
 	}
