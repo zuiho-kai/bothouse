@@ -30,7 +30,11 @@ func (p *Platform) SendTaskTextPart(ctx context.Context, target, key, text strin
 	}
 	// No interaction fallback, routing rewrite or SDK rate-limit retry: this
 	// part belongs to its persisted target and has exactly one sending owner.
-	msg, err := p.session.ChannelMessageSend(rc.targetChannelID(), text, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false), discordgo.WithRestRetries(0))
+	ch := rc.targetChannelID()
+	msg, err := p.session.ChannelMessageSendComplex(ch, &discordgo.MessageSend{
+		Content:         text,
+		AllowedMentions: p.outboundAllowedMentions(ctx, ch, true),
+	}, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false), discordgo.WithRestRetries(0))
 	if err != nil {
 		var rate *discordgo.RateLimitError
 		if errors.As(err, &rate) {

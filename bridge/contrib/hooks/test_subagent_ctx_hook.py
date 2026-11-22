@@ -110,6 +110,42 @@ def mk_timed(age_s, agent_type=None, tool="Read", path=""):
     return d
 
 
+def mk_ws(ctxs, ws=True):
+    root = tempfile.mkdtemp()
+    p = os.path.join(root, "main.jsonl")
+    with open(p, "w") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content":
+                            ("[工作区规矩 — 工作区会话适用]\n" if ws else "") + "go"}}, ensure_ascii=False) + "\n")
+        for i, c in enumerate(ctxs):
+            f.write(json.dumps({"type": "assistant", "message": {"id": f"m{i}", "role": "assistant", "usage": {
+                "input_tokens": 1, "cache_read_input_tokens": c - 1, "cache_creation_input_tokens": 0}}}) + "\n")
+    return {"hook_event_name": "PreToolUse", "transcript_path": p, "tool_name": "Bash", "tool_input": {}}
+
+
+class Workspace(unittest.TestCase):
+    def test_under_250k_quiet(self):
+        self.assertIsNone(h.check(mk_ws([200000, 249000])))
+
+    def test_crossing_250k_hints_not_denies(self):
+        out = h.check(mk_ws([249000, 251000]))["hookSpecificOutput"]
+        self.assertIn("251000", out["additionalContext"])
+        self.assertNotIn("permissionDecision", out)
+
+    def test_once_per_50k(self):
+        self.assertIsNone(h.check(mk_ws([251000, 260000])))
+        self.assertIsNotNone(h.check(mk_ws([299000, 301000])))
+
+    def test_second_call_of_same_message_quiet(self):
+        d = mk_ws([249000, 251000])
+        with open(d["transcript_path"], "a") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}) + "\n")
+        self.assertIsNone(h.check(d))
+
+    def test_non_workspace_main_untouched(self):
+        self.assertIsNone(h.check(mk_ws([249000, 251000], ws=False)))
+
+
 class TimeLimit(unittest.TestCase):
     def test_under_30_minutes_passes(self):
         self.assertIsNone(h.check(mk_timed(29 * 60)))

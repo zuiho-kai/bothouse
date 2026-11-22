@@ -45,6 +45,7 @@ func runModel(args []string) {
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	effort := fs.String("effort", "", "reasoning effort to set together with the model")
 	jsonOut := fs.Bool("json", false, "print raw JSON")
+	handoff := fs.Bool("handoff", false, "set: for the task handed to this workspace session; undone when the workspace is given back (ws-handoff --model)")
 	// Allow flags after the positional model name: `model set sol --effort high`.
 	var pos []string
 	for len(rest) > 0 {
@@ -84,6 +85,7 @@ func runModel(args []string) {
 			}
 			req["model"] = strings.Join(pos, " ")
 			req["effort"] = *effort
+			req["handoff"] = *handoff
 		case "effort":
 			if len(pos) == 0 {
 				modelFail(fmt.Errorf("usage: bothouse model effort <level>"))

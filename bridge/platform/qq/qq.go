@@ -132,6 +132,7 @@ type quoteEntry struct {
 	content string
 	name    string // who wrote it; the quote must not read as the quoting person's words
 	self    bool   // this bot sent it, so a reply to it calls the bot
+	user    int64  // author's QQ id, 0 when unknown; a reply to the sender's own message is not a call to someone else
 	at      time.Time
 	chat    string // g:<group> or u:<private peer>, independent of engine session keys
 }
@@ -643,6 +644,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	// (core/gate_local.go: "an @, a reply to it"). Everyone else's message is
 	// context only.
 	mentioned := parsed.mentioned
+	repliedOther := false
 	var quoted []string
 	var reference *core.MessageReference
 	if id := parsed.replyTo; id != "" {
@@ -657,6 +659,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 			}
 			quoted = append(quoted, line)
 			mentioned = mentioned || entry.self
+			// A reply to another member's message calls that member, the same
+			// as an @ of them (discord callsOther); replying to one's own
+			// message is a continuation, not a call to someone else.
+			repliedOther = !entry.self && entry.user != 0 && entry.user != userID
 			reference.Author, reference.Text = entry.name, entry.content
 		} else {
 			slog.Warn("qq: quoted message unavailable", "message_id", id, "error", err)
@@ -693,7 +699,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Store the person's own words, not the bare-@ placeholder: a later reply to
 	// a poke should not quote the placeholder back as if they had said it.
-	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, userName, false, chatKey)
+	p.storeQuote(strconv.FormatInt(messageID, 10), parsed.text, userName, false, userID, chatKey)
 
 	var sessionKey string
 	if msgType == "group" {
@@ -727,11 +733,12 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		channelKey = strconv.FormatInt(userID, 10)
 	}
 
-	// AddressedOther: an @ or a name at a line start pointed at a teammate bot,
-	// so a no-gate lead leaves the message to that teammate (core/team.go
-	// suppressUnaddressedGroup). Never true for a message that also calls this
-	// bot: Mentioned already decides that case.
-	addressedOther := !mentioned && (parsed.other || p.addressedOther(content))
+	// AddressedOther: an @, a reply or a name at a line start pointed at a
+	// teammate bot or at another group member, so the message is context for
+	// this bot, not a call (core addresseeOf). Mentioned wins: a message that
+	// also calls this bot is still answered.
+	addressedOther := !mentioned && (parsed.other || p.addressedOther(content) ||
+		(msgType == "group" && (parsed.atPerson || repliedOther)))
 
 	msg := &core.Message{
 		SessionKey:     sessionKey,
@@ -793,6 +800,7 @@ type parsedMessage struct {
 	audio     *core.AudioAttachment
 	mentioned bool             // an "at" segment addressed this bot
 	other     bool             // an "at" segment named a teammate bot, not this one
+	atPerson  bool             // an "at" segment named another group member, not a bot
 	replyTo   string           // message ID of the "reply" segment, empty when not a reply
 	forwards  []map[string]any // "forward" segments (merged chat logs), expanded in handleMessage
 }
@@ -800,6 +808,7 @@ type parsedMessage struct {
 func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID int64) parsedMessage {
 	var out parsedMessage
 	var textParts, missed []string
+	userID := jsonInt64(payload, "user_id")
 
 	// Normalize both OneBot wire formats before interpreting media or mentions.
 	msg, ok := payload["message"].([]any)
@@ -965,6 +974,11 @@ func (p *Platform) parseMessage(payload map[string]any, msgType string, groupID 
 			}
 			if p.isTeammate(qq) {
 				out.other = true
+			} else if qq != "" && qq != "all" && qq != strconv.FormatInt(userID, 10) {
+				// An @ of another group member: the message calls that person
+				// (core addresseeOf), the way discord treats an @ of someone
+				// else. @-ing oneself or @all calls nobody in particular.
+				out.atPerson = true
 			}
 			// OneBot puts the separating space in the following text
 			// segment ("[CQ:at,qq=2] 你看一下"), so none is added here.
@@ -1303,7 +1317,7 @@ var _ core.AtMentionSender = (*Platform)(nil)
 func (p *Platform) recordSent(result map[string]any, text string, rctx *replyContext) {
 	if id := jsonInt64(result, "message_id"); id != 0 {
 		// "你" matches how groupContext labels this bot's own lines.
-		p.storeQuote(strconv.FormatInt(id, 10), text, "你", true, rctx.quoteChat())
+		p.storeQuote(strconv.FormatInt(id, 10), text, "你", true, p.selfID, rctx.quoteChat())
 	}
 }
 
@@ -1540,12 +1554,12 @@ func (p *Platform) warmGroupName(groupID int64) {
 
 // storeQuote remembers a message for reply quoting, dropping entries that are
 // too old or when the cache is full.
-func (p *Platform) storeQuote(messageID, content, name string, self bool, chat ...string) {
+func (p *Platform) storeQuote(messageID, content, name string, self bool, userID int64, chat ...string) {
 	content = strings.TrimSpace(content)
 	if messageID == "" || content == "" {
 		return
 	}
-	entry := quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), name: strings.TrimSpace(name), self: self, at: time.Now()}
+	entry := quoteEntry{content: truncateRunes(content, quotedTextMaxRunes), name: strings.TrimSpace(name), self: self, user: userID, at: time.Now()}
 	if len(chat) > 0 {
 		entry.chat = chat[0]
 	}

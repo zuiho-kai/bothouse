@@ -1,6 +1,7 @@
 """Root-cause evidence is required only for repair titles/scopes; no model or bridge calls."""
 import importlib.machinery
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,7 +10,13 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parent
 loader = importlib.machinery.SourceFileLoader('ws_root_cause', str(HERE / 'ws-handoff'))
 ws = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-loader.exec_module(ws)
+# ws-handoff 一加载就 import board，board 的目录当场定死：加载前先把数据目录都指到临时目录，
+# 不然会话带着的 BOARD_DIR/CC_DATA_DIR（线上目录）被缓存进 board，后面的测试就写进线上任务板（11-22）；
+# 跑用例时也一样（pick_pool 会写数据目录下的 ws-new-recent.json），所以 setUp 里再指一次
+_TMP = tempfile.mkdtemp()
+_ENV = {k: _TMP for k in ("BOTHOUSE_DATA_DIR", "GATE_SETUP_DIR", "CC_DATA_DIR", "BOARD_DIR")}
+with patch.dict(os.environ, _ENV):
+    loader.exec_module(ws)
 
 GOOD = '''## 根因
 工作留在频道→派活只发 @→规则曾改成频道派活
@@ -25,6 +32,11 @@ $ git log -S 'mention' --oneline -- path
 
 
 class RootCauseTest(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, _ENV)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_title_scope_and_task_trigger(self):
         for text, task in [('# 修派活\n', ''), ('# Fix routing\n', ''), ('# BUG routing\n', ''),
                            ('## 范围\n- 改：修派活\n', ''), ('# 新任务\n', 'fix routing')]:

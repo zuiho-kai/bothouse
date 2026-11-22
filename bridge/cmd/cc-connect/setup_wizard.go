@@ -185,6 +185,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	// without these two it answered 503 to every load and save on a fresh install (#1370).
 	// Same wiring as normal mode, so the two cannot drift apart.
 	wireGlobalSettings(srv)
+	wireFeatures(srv)
 	wireAutostart(srv)
 	srv.Start()
 	// A machine with only DSH-native members stays in setup mode; their per-turn wiki pages and

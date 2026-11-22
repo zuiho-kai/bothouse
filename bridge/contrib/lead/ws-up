@@ -241,6 +241,11 @@ def hand_back(draft, notes, failed: bool, text=None, files=(), batch=False):
     if c.returncode != 0:
         sys.exit(f"ws-up: 草稿没过检查，没有交回（草稿在 {draft}，改它后跑 ws-up --notes {path} --report {draft}）：\n"
                  f"{(c.stdout + c.stderr).strip()}")
+    if not failed:
+        # #1855：写「等外部」又带合并请求链接的交回，当前提交的检查一项没出结论或有失败没提的不收（board.wait_report_pr_problem）
+        why = board.wait_report_pr_problem(Path(draft).read_text(encoding="utf-8"))
+        if why:
+            sys.exit(f"ws-up: 没有交回（草稿在 {draft}，处理后跑 ws-up --notes {path} --report {draft}）：\n{why}")
     try:
         files = without_linked_docs(list(files), Path(draft).read_text(encoding="utf-8"))
     except (OSError, ValueError):

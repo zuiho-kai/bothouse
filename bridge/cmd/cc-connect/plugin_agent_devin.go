@@ -2,4 +2,6 @@
 
 package main
 
-import _ "github.com/chenhg5/cc-connect/agent/devin"
+import "github.com/chenhg5/cc-connect/agent/devin"
+
+func init() { pluginUsageLogSources = append(pluginUsageLogSources, devin.NewUsageLogSource()) }

@@ -4,11 +4,17 @@ import re
 
 
 class Failure(str):
-    def __new__(cls, text, reason, retryable=False, started=True):
+    def __new__(cls, text, reason, retryable=False, started=True, provider_down=False):
         value = super().__new__(cls, text)
         value.reason, value.retryable, value.started = reason, retryable, started
         value.resumable = retryable
+        value.provider_down = provider_down
         return value
+
+
+def provider_unavailable(status):
+    """Source: api_json's existing outage policy; a malformed request only fails its own batch."""
+    return status in (0, 401, 403, 429) or status >= 500
 
 
 def events(stdout, resume=None):
@@ -43,15 +49,60 @@ def events(stdout, resume=None):
     return usage, turns, errors, tid, terminal, active, progress
 
 
+def response_statuses(errors, stderr):
+    """Read response metadata first; bare numbers inside a message are not HTTP evidence."""
+    statuses, messages = [], []
+    for error in errors:
+        if isinstance(error, dict):
+            error = error.get("error", error)
+        if isinstance(error, dict):
+            for key in ("status", "http_status", "status_code", "http_status_code"):
+                status = error.get(key)
+                if isinstance(status, (int, str)) and str(status).strip().isdecimal():
+                    statuses.append(int(status))
+                    break
+            messages.append(str(error.get("message", "")))
+        else:
+            messages.append(str(error))
+    if statuses:
+        return statuses
+    # Source: #906 r6: bare zero can be a tool count; status zero requires HTTP/status context.
+    for message in messages:
+        match = re.search(r'^[ \t]*(?:error:[ \t]*)?([45]\d\d)\b|'
+                          r'\b(?:HTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?|status(?:[ \t]+code)?)[ \t]*[:=]?[ \t]*'
+                          r'(0|[45]\d\d)\b', message, re.I)
+        if match:
+            statuses.append(int(match.group(1) or match.group(2)))
+    if statuses:
+        return statuses
+    # stderr holds every diagnostic of the process (plugins, tools, start-up), not the response. Only its last
+    # line counts, where the CLI says why it gave up (ingest log 2026-11-20: 「Failed to refresh token status=401
+    # Unauthorized」 after an unrelated websocket line), and only a status written as one: 「exit status 0」 and a
+    # leading number are not HTTP statuses.
+    last = next((line for line in reversed(stderr.splitlines()) if line.strip()), "")
+    match = re.search(r'\bHTTP(?:/\d(?:\.\d)?)?(?:[ \t]+status)?[ \t]*[:=]?[ \t]*(0|[45]\d\d)\b|'
+                      r'\bstatus(?:[ \t]+code)?[ \t]*[:=]?[ \t]*([45]\d\d)\b', last, re.I)
+    return [int(match.group(1) or match.group(2))] if match else []
+
+
 def failure(errors, tid, terminal, active, progress=False, result="", stderr="", usage=None):
     text = json.dumps(errors, ensure_ascii=False) + "\n" + stderr
     lower = text.lower()
+    statuses = response_statuses(errors, stderr)
+    # Source: #906 r5: response status decides classification; only missing status admits text evidence.
+    request_local = (any(status in (400, 404, 422) for status in statuses) if statuses else
+                     "invalid_request_error" in lower)
+    # Source: #906 r6: match complete refusal phrases; relay diagnostics can continue with details.
+    text_refused = any(word in lower for word in ("usage limit", "hit your session limit",
+                        "authentication_error", "permission_denied")) or bool(re.search(
+        r'\b(?:insufficient_quota|quota_exceeded|quota_exhausted|rate_limit_exceeded)\b|'
+        r'\b(?:rate limit (?:exceeded|reached)|quota (?:exceeded|exhausted)|'
+        r'too many requests|exceeded your current quota)\b', lower))
     # Source: #848 returned production diagnostics and Codex thread/turn/item events. A failed
     # connection plus no output, item or usage proves this invocation did no local work.
     # Empty usage alone proves nothing; diagnostic reason codes alone prove no tool outcome.
-    rejected = any(word in lower for word in ("usage limit", "quota", "rate limit",
-                   "hit your session limit", "invalid_request_error", "authentication_error",
-                   "permission_denied")) or bool(re.search(r'\b(400|401|403|404|422)\b', text))
+    rejected = (request_local or any(status in (401, 403) for status in statuses) if statuses else
+                request_local or text_refused)
     connection_failed = "failed to connect to responses websocket" in lower
     empty = not (progress or result or active or any((usage or {}).values()))
     settled = bool(tid) and terminal == "turn.failed" and not active
@@ -66,11 +117,14 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
         reason, retryable = ("empty_connection" if connection_failed else "capacity"), True
     elif settled and (transport or capacity):
         reason, retryable = "interrupted", True
-    elif transport or capacity or re.search(r'\b429\b', text):
+    elif transport or capacity or 429 in statuses:
         reason, retryable = "ambiguous_transport", False
     else:
         reason, retryable = "failure", False
-    value = Failure(text, reason, retryable)
+    # Source: #906 review distinguishes request-local 400/404/422 from global auth/quota/rate failures.
+    down = (any(provider_unavailable(status) for status in statuses) if statuses else
+            not request_local and (transport or capacity or text_refused))
+    value = Failure(text, reason, retryable, provider_down=down)
     value.resumable = retryable and bool(tid)
     return value
 

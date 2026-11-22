@@ -744,7 +744,7 @@ func (e *Engine) sendMemberPrivately(t callerTurn, session, text string) (string
 	if terr != nil {
 		return "", fmt.Errorf("他不收服务器成员的私信，私密子话题也开不了（%v），什么也没发", terr)
 	}
-	if err := e.SendToSessionWithOptions(tkey, "<@"+t.userID+"> "+text, nil, nil, SendOptions{}); err != nil {
+	if err := e.SendToSessionWithOptions(tkey, "<@"+t.userID+"> "+text, nil, nil, SendOptions{AllowHumanMentions: []string{t.userID}}); err != nil {
 		return "", fmt.Errorf("私密子话题发送失败（%v）", err)
 	}
 	return "发到只有他（和服务器管理员）看得到的私密子话题（他不收服务器成员的私信）", nil

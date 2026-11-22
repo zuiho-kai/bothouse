@@ -241,6 +241,7 @@ func (w *handoffWatch) run(ctx context.Context) {
 	go w.idleDeleteLoop(ctx)
 	go w.stallLoop(ctx)
 	go w.autostartLoop(ctx)
+	go w.prEventLoop(ctx)
 	var recovered, reviewHour time.Time
 	for {
 		w.beat.Store(w.now().UnixNano())
