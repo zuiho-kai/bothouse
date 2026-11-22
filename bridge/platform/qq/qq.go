@@ -34,9 +34,10 @@ func init() {
 // via forward WebSocket. It receives message events and sends messages back
 // through the same WS connection.
 type Platform struct {
-	wsURL     string // e.g. "ws://127.0.0.1:3001"
-	token     string // optional access_token
-	allowFrom string // comma-separated user IDs or "*"
+	wsURL      string      // e.g. "ws://127.0.0.1:3001"
+	token      string      // optional access_token
+	groupWatch *groupWatch // optional collection before any conversational routing
+	allowFrom  string      // comma-separated user IDs or "*"
 	// allowGroupsWith: comma-separated user IDs; a group message from anyone
 	// passes when one of them is in that group (option allow_groups_with).
 	// Private chats still follow allowFrom only.
@@ -209,7 +210,12 @@ func New(opts map[string]any) (core.Platform, error) {
 		watermarkPath = filepath.Join(dataDir, "qq", watermarkPathSegment(project), "recv-watermark.json")
 	}
 
+	watch, err := newGroupWatch(opts)
+	if err != nil {
+		return nil, fmt.Errorf("qq: group watch: %w", err)
+	}
 	return &Platform{
+		groupWatch:            watch,
 		watermark:             newRecvWatermark(watermarkPath),
 		wsURL:                 wsURL,
 		token:                 token,
@@ -271,6 +277,9 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 		slog.Warn("qq: get_login_info failed; self-message filter disabled until next reconnect", "error", err)
 	}
 
+	if p.groupWatch != nil {
+		p.groupWatch.start(ctx, p)
+	}
 	return nil
 }
 
@@ -538,6 +547,14 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	messageID := jsonInt64(payload, "message_id")
 
 	if userID == p.selfID {
+		return
+	}
+	// A watched group never reaches permission checks, attachment downloads,
+	// group history, commands, the gate, or the conversational agent.
+	if msgType == "group" && p.groupWatch != nil && p.groupWatch.groups[groupID] {
+		if err := p.groupWatch.collect(payload, p.clock()); err != nil {
+			slog.Error("qq: group watch collect failed", "group_id", groupID, "error", err)
+		}
 		return
 	}
 
@@ -1468,6 +1485,11 @@ var _ core.AudioSender = (*Platform)(nil)
 func (p *Platform) Stop() error {
 	if p.cancel != nil {
 		p.cancel()
+	}
+	if p.groupWatch != nil {
+		if err := p.groupWatch.close(); err != nil {
+			slog.Error("qq: group watch close failed", "error", err)
+		}
 	}
 	p.mu.Lock()
 	conn := p.conn
