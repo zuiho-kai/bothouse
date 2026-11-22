@@ -269,13 +269,19 @@ bothouse feishu setup --project <你的 project 名>
 写回配置。不想扫码、已有应用时：`bothouse feishu setup --project <名> --app cli_xxx:sec_xxx`。
 手动建应用的完整步骤见 [bridge/docs/feishu.md](../bridge/docs/feishu.md)。飞书用长连接，不需要公网 IP。
 
-### 2. 飞书上目前没有的
+### 2. 飞书上多个 bot 组队
 
-这些只在 Discord 上实现了，飞书上一个 bot 照常对话，但：
+飞书入站消息和 Discord 一样会标出「这句 @ 了我」和「是 bot 发的」。组队的两个选项键名和含义也和 Discord 相同（见附录 A），写在每个 bot 的 `[projects.platforms.options]` 里：
 
-- gate 拿不到「这句 @ 了谁」（`mentioned` 只有 Discord 填），只能靠消息里叫的名字判断。
-- 没有 `allow_bots`、`team_lead_bot`：bot 之间不会互相接话、交接。
-  所以飞书上先只放一个 bot，不要把一主多 sub 原样搬过去。
+- `allow_bots`：队友 bot 的 ID，逗号分隔。队友 @ 我才开一轮；不列的 bot 的消息全忽略，列了但没 @ 我的也忽略。
+- `team_lead_bot`：主 bot 的 ID，用来分出主和 sub。主 bot @ 队员派的活（或用户同时 @ 队员和主 bot），队员的最终回复自动带上 @主 bot。
+
+和 Discord 不同的地方：
+
+- 每个应用要先申请权限 `im:message.group_at_msg.include_bot:readonly`（获取群组中其他机器人和用户@当前机器人的消息），否则飞书不把别的 bot 的群消息推过来。
+- ID 填的是飞书事件里的 open_id（`ou_` 开头），即本应用收到那个 bot 的消息时看到的发送者 ID；bot 要 @ 到队友，还要在 `mention_map` 里写「名字 → open_id」（见 [bridge/docs/feishu.md](../bridge/docs/feishu.md)）。
+- 这条链路只有单元测试，没有在真实飞书上验证过（同一个 bot 在不同应用眼里的 open_id 是否相同也没核）。先在测试群里用两个 bot 互相 @ 一次，看日志里对方的发送者 ID，再照着填。
+- 没有 `allow_bots_file`，也不支持运行中热更新这两项，改完要重启。
 
 ### 3. 怎么验证
 

@@ -464,6 +464,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 				return true
 			}
 			e.teamNoteTurn(msg, session)
+			// #1856: no gate still records what was seen, so restart catch-up knows where
+			// the posts made while the bridge was down begin (missed_catchup.go).
+			if g == nil && msg.MessageID != "" {
+				markSeen(p, session, msg)
+			}
 			// #1375: no gate (agentm's claude role) also means no backfill and no @ note, so the
 			// person's words came bare after the memory and member blocks and read as their tail.
 			keepUserText(msg)
@@ -505,6 +510,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
+		h.msg.AddressedOther = h.msg.AddressedOther || msg.AddressedOther
 		h.msg.SeenUpToID = msg.MessageID
 		if h.silence && !g.silenceApplies(msg, busy) {
 			// An @, an attachment or a command joined the silent burst: answer it on the normal
@@ -670,7 +676,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	} else {
 		content = withLatestMark(content)
 	}
-	markSeen(session, msg)
+	markSeen(p, session, msg)
 	session.backfillMu.Unlock()
 
 	inject := content

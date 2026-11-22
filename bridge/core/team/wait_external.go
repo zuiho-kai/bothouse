@@ -30,6 +30,23 @@ var (
 	waitClock = regexp.MustCompile(`(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?\s*(\d{1,2})[:：](\d{2})\s*(ET|EST|EDT|美东|美东时间)?`)
 )
 
+// pullRequestLink: a GitHub pull request link in a [report] (board.py PR_URL reads the same form).
+var pullRequestLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[1-9]\d*`)
+
+// PullRequestLinks lists the GitHub pull requests a [report] body links, each once, in order. A report
+// that waits outside is parked with them, and they are watched while it waits (core/team_pr_events.go).
+func PullRequestLinks(body string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, u := range pullRequestLink.FindAllString(body, -1) {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 // WaitExternalOf finds the 「等外部：」 line of a [report] body: what blocks it, and when to look again.
 func WaitExternalOf(body string) (why string, after time.Duration, ok bool) {
 	why, after, _, ok = waitExternal(body, time.Now())

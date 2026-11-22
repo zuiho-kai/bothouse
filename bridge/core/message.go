@@ -92,6 +92,17 @@ func AllowList(allowFrom, userID string) bool {
 	return false
 }
 
+// FirstAllowFrom is the first user ID in allow_from, skipping "*" — the owner, since the setup
+// wizard writes the owner's ID into an empty allow_from (PlatformOwner, #988). "" when none.
+func FirstAllowFrom(allowFrom string) string {
+	for _, id := range strings.Split(allowFrom, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "*" {
+			return id
+		}
+	}
+	return ""
+}
+
 // ImageAttachment represents an image sent by the user.
 type ImageAttachment struct {
 	MimeType string // e.g. "image/png", "image/jpeg"
@@ -488,6 +499,7 @@ type Message struct {
 	// a resumed turn, the no-progress count it carries on and the prompt to
 	// re-run on a fresh session if the resumed session errors at once (S1).
 	timerJobID       string
+	wakeID           string // #2024: the wake whose result goes back to the waking conversation (wake_return.go)
 	cronJobID        string // the cron job a cron turn runs (its time limit when it starts queued)
 	resumeNoProgress int
 	resumeFallback   string

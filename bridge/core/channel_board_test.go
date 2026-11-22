@@ -657,3 +657,63 @@ func TestChannelBoard_ShutdownWaitsForWorker(t *testing.T) {
 		t.Fatalf("last edit = %+v", b)
 	}
 }
+
+// A writer with Discord and Feishu posts each channel's board on its own
+// platform: the Feishu chat gets it under its bare chat ID, Discord is unchanged,
+// and a Feishu turn is not tracked when the writer has no Feishu platform.
+func TestChannelBoard_FeishuChatGetsItsOwnBoard(t *testing.T) {
+	if got := boardChannelOf("feishu:oc_x:ou_u"); got != "feishu:oc_x" {
+		t.Fatalf("feishu key channel = %q", got)
+	}
+	if got := boardChannelOf("/ws/proj:lark:oc_y#cron:abc"); got != "lark:oc_y" {
+		t.Fatalf("lark workspace cron key channel = %q", got)
+	}
+	if plat, id := boardPlatformOf("feishu:oc_x"); plat != "feishu" || id != "oc_x" {
+		t.Fatalf("boardPlatformOf(feishu) = %q %q", plat, id)
+	}
+	if plat, id := boardPlatformOf("c1"); plat != "discord" || id != "c1" {
+		t.Fatalf("boardPlatformOf(discord) = %q %q", plat, id)
+	}
+
+	h := newChannelBoardHub()
+	dp := newBoardPlatform()
+	fp := newBoardPlatform()
+	fp.n = "feishu"
+	e := NewEngine("maomao", &stubAgent{}, []Platform{dp, fp}, "", LangChinese)
+	allChatsAreWorkspaces(e)
+	defaultChannelBoard.removeSource(e)
+	e.board = h
+	h.addSource(e)
+	t.Cleanup(func() { e.Stop() })
+	e.SetChannelBoard(true)
+
+	h.beginTurn(e, "feishu:oc_x:ou_u", "飞书上的活")
+	h.beginTurn(e, "discord:c1", "Discord 上的活")
+	waitBoard(t, "a board on each platform", func() bool {
+		fp.bmu.Lock()
+		dp.bmu.Lock()
+		defer fp.bmu.Unlock()
+		defer dp.bmu.Unlock()
+		return len(fp.posts) == 1 && len(dp.posts) == 1
+	})
+	fp.bmu.Lock()
+	if fp.postCh[0] != "oc_x" || len(fp.pins) != 1 {
+		t.Fatalf("feishu post channel %q pins %v", fp.postCh[0], fp.pins)
+	}
+	b, _ := ParseChannelBoardPayload(fp.posts[0])
+	fp.bmu.Unlock()
+	if b == nil || len(b.Running) != 1 || b.Running[0].Desc != "飞书上的活" {
+		t.Fatalf("feishu board = %+v", b)
+	}
+	if dp.postCh[0] != "c1" {
+		t.Fatalf("discord post channel %q", dp.postCh[0])
+	}
+
+	// Writer without Feishu: Feishu turns are not tracked.
+	h2 := newChannelBoardHub()
+	only := newBoardEngine(t, h2, "maomao2", newBoardPlatform())
+	only.SetChannelBoard(true)
+	if seq := h2.beginTurn(only, "feishu:oc_x:ou_u", "x"); seq != 0 {
+		t.Fatal("feishu turn tracked by a Discord-only writer")
+	}
+}

@@ -108,6 +108,10 @@ type TurnJournalEntry struct {
 	// QueuedMessages are the messages waiting behind this turn (in memory
 	// only otherwise); a resume folds them into its turn.
 	QueuedMessages []string `json:"queued_messages,omitempty"`
+	// MessageID / QueuedMessageIDs: platform ids of the turn's message and of the queued
+	// ones, so restart catch-up (missed_catchup.go) does not answer them a second time.
+	MessageID        string   `json:"message_id,omitempty"`
+	QueuedMessageIDs []string `json:"queued_message_ids,omitempty"`
 	// ResumedAt is set when a resume of this entry was handed off; an entry
 	// still on disk with it set at the next start was not resumed to the end.
 	ResumedAt time.Time `json:"resumed_at,omitempty"`
@@ -317,15 +321,21 @@ func (j *TurnJournal) Progress(turnID, step, text string, clearCount bool) error
 
 // SetQueued replaces the queued messages recorded on turnID.
 func (j *TurnJournal) SetQueued(turnID string, msgs []string) error {
+	return j.SetQueuedWithIDs(turnID, msgs, nil)
+}
+
+// SetQueuedWithIDs is SetQueued that also records the platform ids of the queued messages.
+func (j *TurnJournal) SetQueuedWithIDs(turnID string, msgs, ids []string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	en, ok := j.entries[turnID]
 	if !ok {
 		return nil
 	}
-	if len(msgs) == 0 && len(en.QueuedMessages) == 0 {
+	if len(msgs) == 0 && len(en.QueuedMessages) == 0 && len(ids) == 0 && len(en.QueuedMessageIDs) == 0 {
 		return nil
 	}
+	en.QueuedMessageIDs = ids
 	out := make([]string, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, truncateKeepEnds(m, turnJournalMaxQueuedMessage))
@@ -459,6 +469,7 @@ func (e *Engine) journalTurnBegin(msg *Message, interactiveKey, workspaceDir str
 		Platform:        msg.Platform,
 		Trigger:         turnTriggerOf(msg),
 		LastUserMessage: withVoiceNote(msg.Content, msg.FromVoice && !msg.voiceMarked),
+		MessageID:       msg.MessageID,
 		ResumedFrom:     msg.resumedFrom,
 		Supersedes:      msg.journalSupersedes,
 		AgentType:       e.agentTypeName(),
@@ -655,16 +666,23 @@ func (e *Engine) journalSyncQueued(state *interactiveState, interactiveKey strin
 	}
 	state.mu.Lock()
 	msgs := make([]string, 0, len(state.pendingMessages))
+	var ids []string
 	for _, q := range state.pendingMessages {
 		if q.resumedFrom == "" {
+			if q.messageID != "" {
+				ids = append(ids, q.messageID)
+			}
 			for _, c := range q.contextBefore { // folded context goes right before its holder
+				if c.messageID != "" {
+					ids = append(ids, c.messageID)
+				}
 				msgs = append(msgs, withVoiceNote(c.content, c.fromVoice && !c.voiceMarked))
 			}
 			msgs = append(msgs, withVoiceNote(q.content, q.fromVoice && !q.voiceMarked))
 		}
 	}
 	state.mu.Unlock()
-	if err := j.SetQueued(id, msgs); err != nil {
+	if err := j.SetQueuedWithIDs(id, msgs, ids); err != nil {
 		slog.Warn("turn journal: queued update failed", "turn", id, "error", err)
 	}
 }

@@ -1,31 +1,20 @@
 # 平台能力缺口旧账（platform_parity_test.go）。格式「<能力> <平台>」。只许删行：
 # 接上一个就删一行；新缺口不许加在这里，接上或在 CAPABILITIES.md 写不支持原因。
-AgentReplyMarker feishu
 AsyncRecoverablePlatform feishu
-BoardRemover feishu
 CardNavigable discord
 CardRefresher discord
 CardSender discord
 ChannelBoardPoster cloud-web
-ChannelBoardPoster feishu
 ChannelDispatchModeProvider discord
 ChannelDispatchModeProvider feishu
-ChannelHistoryReader feishu
 ChannelNameResolver cloud-web
-ChannelNameResolver feishu
 ChatPoster cloud-web
 ChatPoster feishu
 CommandRegistrar cloud-web
 CommandRegistrar feishu
-ConfiguredTeamLead feishu
 ConfiguredTeamLeadSelf cloud-web
-ConfiguredTeamLeadSelf feishu
 CronReplyTargetResolver cloud-web
-CronReplyTargetResolver feishu
 DirectMessageOpener cloud-web
-DirectMessageOpener feishu
-FinalReplyMarker feishu
-InjectedReplyMerger feishu
 InlineButtonSender feishu
 LatestMessageChecker cloud-web
 LatestMessageChecker feishu
@@ -42,8 +31,6 @@ PreviewReplier discord
 PreviewReplier feishu
 PreviewStatusUpdater cloud-web
 PreviewStatusUpdater discord
-ProgressCardSizer feishu
-ProgressUpdateThrottler feishu
 RelayGroupVisibilityTarget cloud-web
 RelayGroupVisibilityTarget discord
 RichCardMarkdownResolver cloud-web
@@ -53,7 +40,6 @@ RichCardSupporter discord
 RichCardTextStreamer cloud-web
 RichCardTextStreamer discord
 SessionAgentReplyMarker cloud-web
-SessionAgentReplyMarker feishu
 SilentChannelAware cloud-web
 SilentChannelAware feishu
 StatusFooterSender cloud-web

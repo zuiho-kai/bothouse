@@ -133,10 +133,19 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 		return
 	}
 	rc = e.recordReplyTask(p, rc, rec.Board)
+	chatKey := rec.Platform + ":" + rec.Chat
 	text := spaceExitLines(heldHeadlineText(teamTaskBoardShort(*item), rec.Headline, true))
-	if err := e.sendRenderedWithContext(ctx, p, rc, text); err != nil {
+	text, mentionUser := e.prepareAssignerMention(p, chatKey, item, text)
+	sendCtx := ctx
+	if mentionUser != "" {
+		sendCtx = WithAllowHumanMentions(ctx, mentionUser)
+	}
+	if err := e.sendRenderedWithContext(sendCtx, p, rc, text); err != nil {
 		slog.Error("report accept: unchecked post failed", "board_item", rec.Board, "error", err)
 		return
+	}
+	if mentionUser != "" {
+		e.recordHumanMention(chatKey, mentionUser, rec.Board)
 	}
 	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
 	if !rec.Batch {
@@ -422,13 +431,24 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	_, detail := team.ExitSplit(cp.Body)
 	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail, false)
 	inForum := forumRC != nil
-	if err := e.sendRenderedWithContext(ctx, p, rc, chatText); err != nil {
+	// The result reaches the person who set the task: the chat post opens with their mention (#988);
+	// the task thread and forum keep the text without it.
+	chatKey := cp.Platform + ":" + cp.Chat
+	chatText, mentionUser := e.prepareAssignerMention(p, chatKey, item, chatText)
+	sendCtx := ctx
+	if mentionUser != "" {
+		sendCtx = WithAllowHumanMentions(ctx, mentionUser)
+	}
+	if err := e.sendRenderedWithContext(sendCtx, p, rc, chatText); err != nil {
 		e.teamExit.mu.Lock()
 		rec.Attempts++
 		rec.LastError = err.Error()
 		e.saveReportsLocked()
 		e.teamExit.mu.Unlock()
 		return err
+	}
+	if mentionUser != "" {
+		e.recordHumanMention(chatKey, mentionUser, cp.Board)
 	}
 	heldReportImages.mu.Lock()
 	imgs, files := heldReportImages.m[key], heldReportImages.files[key]

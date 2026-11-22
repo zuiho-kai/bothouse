@@ -39,6 +39,8 @@ type APIServer struct {
 	maxAttachmentBytes int64
 	mu                 sync.RWMutex
 	inputs             inputStore
+	// featureList: `bothouse features list` (management_features.go)
+	featureList func() (FeatureList, error)
 	// watch: the handoff watch on the team workspace engine (team_watch.go startHandoffWatch).
 	watch handoffWatchRun
 	// followStop ends runLeadFollow (team_workspace_api.go) at Stop.
@@ -96,6 +98,12 @@ type SendRequest struct {
 	// Channel: send to the channel with this name in the server of FromSession instead of
 	// SessionKey (send_channel.go). Not found or ambiguous is an error; nothing is sent.
 	Channel string `json:"channel,omitempty"`
+	// MentionAssigner: the board item this message delivers the result of (ws-pass with
+	// attachments). The text opens with the mention of whoever set that task (#988).
+	MentionAssigner int `json:"mention_assigner,omitempty"`
+	// AskUser: explicit human decision/answer prompt from the lead in the chat channel (#2091).
+	// Allows human mentions in this message (auto-mentioning the owner if none is written).
+	AskUser bool `json:"ask_user,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -166,6 +174,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/report/verdict", s.handleTeamReportVerdict) // ws-pass / ws-forward on a held [report] (team_report_accept.go)
 	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
 	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
+	// `bothouse features list` (management_features.go)
+	s.mux.HandleFunc("/features", s.handleFeatures)
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
 	s.mux.HandleFunc("/cron/list", s.handleCronList)
 	s.mux.HandleFunc("/cron/info", s.handleCronInfo)
@@ -391,9 +401,49 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Message = msg
 	}
+	// #1857: the caller's own session, before the target is moved below; a running scheduled
+	// turn there sends through the proactive outbox.
+	proactiveFrom := req.FromSession
+	if proactiveFrom == "" && req.SessionFromEnv {
+		proactiveFrom = req.SessionKey
+	}
 	keptNote := "" // the attachments stayed in the workspace: tell the sender (SendTargetForAttachments)
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
+	}
+	var allowHumans []string
+	var recordMentionUsers []string
+	if req.MentionAssigner > 0 && req.Message != "" {
+		msg, mentionUser := engine.prepareAssignerMentionFor(req.SessionKey, req.MentionAssigner, req.Message)
+		req.Message = msg
+		if mentionUser != "" {
+			allowHumans = append(allowHumans, mentionUser)
+			recordMentionUsers = append(recordMentionUsers, mentionUser)
+		}
+	}
+	if req.AskUser {
+		msg, askUsers := engine.prepareAskUserMention(req.SessionKey, req.Message, req.AtUsers, req.MentionAssigner)
+		req.Message = msg
+		if len(askUsers) > 0 {
+			allowHumans = append(allowHumans, askUsers...)
+			recordMentionUsers = append(recordMentionUsers, askUsers...)
+		}
+	}
+	// #1866: one door for every way a scheduled turn can post — text, images/files, audio, video
+	// and TTS. Before this, a voice message sent with `--audio` slipped past the outbox.
+	if ob := engine.outbox(); ob != nil && proactiveFrom != "" && req.TaskText == nil {
+		if why := ob.checkSend(proactiveFrom, req.SessionKey); why != "" {
+			slog.Info("proactive: send refused", "from", proactiveFrom, "to", req.SessionKey, "why", why)
+			http.Error(w, why, http.StatusTooManyRequests)
+			return
+		}
+	}
+	// proactiveSent records a delivery from a running scheduled turn (the outbox counts it and,
+	// while min gap is on, holds the chat's next proactive message for two hours).
+	proactiveSent := func() {
+		if ob := engine.outbox(); ob != nil && proactiveFrom != "" {
+			ob.deliveredFrom(proactiveFrom, req.SessionKey)
+		}
 	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
@@ -410,27 +460,31 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
-			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID})
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID, AllowHumanMentions: allowHumans})
 		}
 		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
 			// #1352: the person does not accept DMs from server members. Same person, no settings change:
 			// a private thread in the conversation's channel that only they (and moderators) can see.
 			key, _, terr := engine.dmFallbackThread(req.FromSession, dmUserID)
 			if terr != nil {
-				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (Discord refused the DM), "+
+				http.Error(w, fmt.Sprintf("--dm: %s does not accept direct messages from server members (the platform refused the DM), "+
 					"and a private thread could not be opened either (%v). Nothing was sent. Do not ask them to change their privacy settings; "+
 					"tell them in the chat that the private message could not be delivered, without the private content, "+
 					"and let them do the private step themselves (for example run the login in their own terminal).", dmUserID, terr), http.StatusBadRequest)
 				return
 			}
 			req.SessionKey = key
-			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{})
+			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{AllowHumanMentions: []string{dmUserID}})
 			dmNote = "The DM was refused (this person does not accept DMs from server members), so it was sent in a private thread only they and server moderators can see."
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		for _, u := range recordMentionUsers {
+			engine.recordHumanMention(req.SessionKey, u, req.MentionAssigner)
+		}
+		proactiveSent()
 	}
 
 	if len(req.Audios) > 0 {
@@ -438,6 +492,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if len(req.Videos) > 0 {
@@ -445,6 +500,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if strings.TrimSpace(req.TTSText) != "" {
@@ -452,6 +508,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		proactiveSent()
 	}
 
 	if dmNote != "" {
@@ -1160,6 +1217,7 @@ func (s *APIServer) handleModelSet(w http.ResponseWriter, r *http.Request) {
 		Model      string `json:"model"`
 		Effort     string `json:"effort"`
 		Auto       bool   `json:"auto"`
+		Handoff    bool   `json:"handoff"` // #2075: for one handed-off task, undone when the workspace is given back
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -1176,6 +1234,10 @@ func (s *APIServer) handleModelSet(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
+	if req.Handoff && !req.Auto {
+		apiJSON(w, http.StatusOK, e.QueueHandoffModelSwitch(ctx, req.SessionKey, req.Model, req.Effort))
+		return
+	}
 	apiJSON(w, http.StatusOK, e.QueueModelSwitch(ctx, req.SessionKey, req.Model, req.Effort, req.Auto))
 }
 

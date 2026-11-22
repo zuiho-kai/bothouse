@@ -29,7 +29,7 @@ func (p *interactivePlatform) ReplyCard(ctx context.Context, rctx any, card *cor
 		if rc.chatID == "" {
 			return fmt.Errorf("%s: chatID is empty, cannot send card", p.tag())
 		}
-		return p.createMessageRec(ctx, rc.chatID, larkim.MsgTypeInteractive, cardJSON, "send card", rc.recordSent)
+		return p.createMessageRec(ctx, rc.chatID, larkim.MsgTypeInteractive, cardJSON, "send card", p.sentRecorder(rc))
 	}
 	return p.replyMessage(ctx, rc, larkim.MsgTypeInteractive, cardJSON)
 }
@@ -49,7 +49,7 @@ func (p *interactivePlatform) SendCard(ctx context.Context, rctx any, card *core
 	}
 
 	cardJSON := renderCard(card, rc.sessionKey)
-	return p.createMessageRec(ctx, rc.chatID, larkim.MsgTypeInteractive, cardJSON, "send card", rc.recordSent)
+	return p.createMessageRec(ctx, rc.chatID, larkim.MsgTypeInteractive, cardJSON, "send card", p.sentRecorder(rc))
 }
 
 // RefreshCard updates a previously rendered card in-place using the Patch API.

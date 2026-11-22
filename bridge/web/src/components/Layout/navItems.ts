@@ -16,6 +16,7 @@ import {
   Network,
   Boxes,
   ShieldCheck,
+  ToggleRight,
   Award,
   Sparkles,
 } from 'lucide-react';
@@ -81,6 +82,8 @@ export const navGroups: NavGroup[] = [
     items: [
       // 闸门设置 (#217): 装好以后改谁在什么时候接话、判断用的模型，不用重装
       { key: 'gate', path: '/gate', icon: ShieldCheck },
+      // 功能开关 (#1861): every on/off switch of config.toml on one page
+      { key: 'features', path: '/features', icon: ToggleRight },
       { key: 'system', path: '/system', icon: Settings },
     ],
   },
