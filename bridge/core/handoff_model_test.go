@@ -45,8 +45,11 @@ func TestHandoffModelRestoredOnGiveBack(t *testing.T) {
 	e2 := NewEngine("test", agent, []Platform{&stubPlatformEngine{n: "test"}}, "", LangEnglish)
 	t.Cleanup(func() { e2.Stop() })
 	e2.SetProjectStateStore(NewProjectStateStore(statePath))
-	e2.ResetTeamWorkspaceSessions("discord:ws1")
-	e2.ResetTeamWorkspaceSessions("discord:ws2") // its switch was never applied: dropped from the queue
+	for _, ws := range []string{"discord:ws1", "discord:ws2"} { // ws2's switch was never applied: dropped from the queue
+		if err := e2.restoreWorkspaceHandoffModels(ws); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if got := e2.sessionModelFor("discord:ws1"); got != "gemini-3.8-flash-high" {
 		t.Fatalf("ws1 after give-back = %q, want its own model back", got)
 	}
@@ -65,7 +68,9 @@ func TestHandoffModelRestoredOnGiveBack(t *testing.T) {
 		t.Fatal(r.Message)
 	}
 	e2.applyPendingSwitch("discord:ws1")
-	e2.ResetTeamWorkspaceSessions("discord:ws1")
+	if err := e2.restoreWorkspaceHandoffModels("discord:ws1"); err != nil {
+		t.Fatal(err)
+	}
 	if got := e2.sessionModelFor("discord:ws1"); got != "gemini-4-neon-high" {
 		t.Fatalf("plain pick undone by give-back: %q", got)
 	}
@@ -136,17 +141,62 @@ func TestHandoffModelWriteFailureKeepsStateConsistent(t *testing.T) {
 	e.applyPendingSwitch("discord:ws1")
 
 	readOnly()
-	e.ResetTeamWorkspaceSessions("discord:ws1") // give-back write fails: the task's model stays, base kept
+	if _, err := e.restoreHandoffModels("discord:ws1"); err == nil { // review #2076 round 2: the failure reaches the caller
+		t.Fatal("restore with an unwritable state file reported success")
+	}
 	if got := e.sessionModelFor("discord:ws1"); got != "gemini-4-neon-high" {
-		t.Fatalf("failed give-back changed the model in memory: %q", got)
+		t.Fatalf("failed restore changed the model in memory: %q", got)
 	}
 	if _, ok := e.projectState.state.HandoffModelBases["discord:ws1"]; !ok {
-		t.Fatal("failed give-back dropped the selection to restore")
+		t.Fatal("failed restore dropped the selection to restore")
 	}
-	writable()
-	e.ResetTeamWorkspaceSessions("discord:ws1")
-	if got := e.sessionModelFor("discord:ws1"); got != "gemini-3.8-flash-high" {
-		t.Fatalf("retried give-back = %q, want the workspace's own model", got)
+}
+
+// Review #2076 round 2: a park whose model restore cannot be saved is refused: the workspace stays
+// with its task (not given back on the task's model) and the task stays in work; once the state
+// file is writable again the park frees it and the workspace is back on its own model.
+func TestParkRefusedWhenHandoffModelRestoreFails(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", true)
+	dir := filepath.Join(t.TempDir(), "state")
+	e.SetProjectStateStore(NewProjectStateStore(filepath.Join(dir, "state.json")))
+	if err := e.ClaimTeamWorkspace("discord:chatA", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.saveSessionSelection(exitWSKey, "own-model", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.queueHandoffSwitch(exitWSKey, pendingModelSwitch{Model: "task-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	freed, err := e.ParkTeamWorkspace("discord:ws1")
+	if err == nil || freed || !strings.Contains(err.Error(), "not given back") {
+		t.Fatalf("park with an unsaved model restore = %v, %v; want refused", freed, err)
+	}
+	if p, ok := e.WorkspaceParent("ws1"); !ok || p != "chatA" {
+		t.Fatalf("workspace given back although its model was not restored: parent %q,%v", p, ok)
+	}
+	if hs := handoffsOf(e, "discord:ws1"); len(hs) != 1 || !hs[0].Parked.IsZero() {
+		t.Fatalf("refused park still parked the handoff: %+v", hs)
+	}
+	if e.projectState.state.PendingModelSwitches[exitWSKey].Model != "task-model" {
+		t.Fatalf("refused park dropped the task's switch: %v", e.projectState.state.PendingModelSwitches)
+	}
+
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if freed, err := e.ParkTeamWorkspace("discord:ws1"); err != nil || !freed {
+		t.Fatalf("park after the state file is writable = %v, %v; want freed", freed, err)
+	}
+	st := e.projectState.state
+	if got := st.SessionModelOverrides[exitWSKey].Model; got != "own-model" || len(st.PendingModelSwitches) != 0 || len(st.HandoffModelBases) != 0 {
+		t.Fatalf("after give-back: own=%q pending=%v bases=%v", got, st.PendingModelSwitches, st.HandoffModelBases)
 	}
 }
 

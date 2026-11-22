@@ -1224,9 +1224,6 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
-    err = _model.check(model, effort)  # 模型 id 不在列表里：不交，列出可选项（#2075）
-    if err:
-        sys.exit(f"ws-handoff: {err}")
     # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
     print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
           "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
@@ -1250,6 +1247,11 @@ def main(argv):
     hits = [] if force else live_overlap(path, given_short, notes)
     if hits:
         sys.exit(f"ws-handoff: {overlap_error(hits)}")
+    # 新开的活才按本项目核模型（#2075：模型 id 不在列表里不交，列出可选项）。并进已有任务的两条（上面 join）不在这核：
+    # 接手的可能是别的项目，由 ws-forward 按接手方项目和工作区会话核（early_check），按发起方核会误拒（审稿 #2076 第二轮）
+    err = _model.check(model, effort)
+    if err:
+        sys.exit(f"ws-handoff: {err}")
     if own:  # 几道检查都过了才记，退回重交不留半截
         append_own(path, own)
         print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)

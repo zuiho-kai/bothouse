@@ -237,10 +237,25 @@ func (e *Engine) queueHandoffSwitch(key string, p pendingModelSwitch) error {
 	return nil
 }
 
+// restoreWorkspaceHandoffModels puts every role's sessions in workspace key back on the model they
+// had before a handed-off task picked one (restoreHandoffModels on each engine). Every give-back
+// (park, handback, idle free, delete) runs it before it commits the release (review #2076 round 2:
+// a give-back committed first and restored after could only log a failed restore, so the
+// workspace went back to the pool still on the task's model). An error means the release must not
+// happen: the workspace stays with its task and the next give-back tries again.
+func (e *Engine) restoreWorkspaceHandoffModels(key string) error {
+	for _, x := range e.watchEngines() {
+		if _, err := x.restoreHandoffModels(key); err != nil {
+			return fmt.Errorf("%s: put the task's model back: %w", x.name, err)
+		}
+	}
+	return nil
+}
+
 // restoreHandoffModels puts back the selection of every session in workspace chat that a
 // handed-off task changed, and drops a switch for that task still queued there. Returns how many
-// sessions were restored. The caller recycles the live process (ResetTeamWorkspaceSessions).
-func (e *Engine) restoreHandoffModels(chat string) int {
+// sessions were restored; on a failed write nothing changes and the error is returned.
+func (e *Engine) restoreHandoffModels(chat string) (int, error) {
 	chat = chatOf(chat)
 	restore := func(bases, selections map[string]sessionModelSelection, pending map[string]pendingModelSwitch) int {
 		n := 0
@@ -273,7 +288,7 @@ func (e *Engine) restoreHandoffModels(chat string) int {
 		}
 		n := restore(next.HandoffModelBases, next.SessionModelOverrides, pending)
 		if n == 0 {
-			return 0
+			return 0, nil
 		}
 		next.PendingModelSwitches = pending
 		if ps.storePath != "" {
@@ -282,14 +297,13 @@ func (e *Engine) restoreHandoffModels(chat string) int {
 				err = ps.write(data)
 			}
 			if err != nil {
-				slog.Error("handoff model: restore not saved; the task's model stays", "workspace", chat, "error", err)
-				return 0
+				return 0, fmt.Errorf("save restored model of %s: %w", chat, err)
 			}
 		}
 		ps.state = next
 		e.pendingSwitch = pending
 		slog.Info("handoff model: workspace back on its own model", "workspace", chat, "sessions", n)
-		return n
+		return n, nil
 	}
 	e.sessionModelsMu.Lock()
 	defer e.sessionModelsMu.Unlock()
@@ -300,5 +314,5 @@ func (e *Engine) restoreHandoffModels(chat string) int {
 	if n > 0 {
 		e.pendingSwitch = pending
 	}
-	return n
+	return n, nil
 }

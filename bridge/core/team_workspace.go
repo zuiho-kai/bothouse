@@ -1830,13 +1830,22 @@ func (e *Engine) releaseTeamWorkspace(sessionKey string, lastActive time.Time, k
 		teamWorkspaceStore.mu.Unlock()
 		return false
 	}
+	for _, h := range st.Handoffs[key] {
+		keep = keep || teamHandoffOpen(h) && h.At.After(lastActive)
+	}
+	// Review #2076 round 2: the task's model goes back before anything of the release is marked
+	// (st is the store's cached copy): an unsaved restore leaves the workspace and its handoffs as
+	// they were, and the next handback tries again.
+	if !keep {
+		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			slog.Error("team workspace: not released", "workspace", key, "error", err)
+			return false
+		}
+	}
 	now := time.Now()
 	for i, h := range st.Handoffs[key] {
-		if !teamHandoffOpen(h) { // closed, or paused (stays paused, does not keep the workspace)
-			continue
-		}
-		if h.At.After(lastActive) {
-			keep = true
+		if !teamHandoffOpen(h) || h.At.After(lastActive) { // closed or paused; or newer, keeps the workspace
 			continue
 		}
 		st.Handoffs[key][i].Closed = now
@@ -2040,14 +2049,23 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 			}
 		}
 	}
-	now := time.Now()
-	st.Handoffs[key][pick].Parked = now
-	open := 0
-	for _, h := range st.Handoffs[key] {
-		if teamHandoffOpen(h) {
+	open := 0 // the other tasks still open there once this one is parked
+	for i, h := range st.Handoffs[key] {
+		if i != pick && teamHandoffOpen(h) {
 			open++
 		}
 	}
+	later := open == 0 && !stop && teamTurnRunning(key)
+	// Review #2076 round 2: the task's model goes back before anything of the give-back is marked
+	// (st is the store's cached copy): an unsaved restore refuses the whole park.
+	if open == 0 && !later {
+		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			return false, fmt.Errorf("team workspace park: %s: not given back: %w", key, err)
+		}
+	}
+	now := time.Now()
+	st.Handoffs[key][pick].Parked = now
 	// #1729: a park that does not stop the turn (ws-up --ask run by the workspace's own turn) while
 	// a turn still runs there only pauses the task now; the workspace is given back when that turn
 	// ends (freeParkedWorkspace, the same moment a handback frees it). Freeing it here reset the
@@ -2056,7 +2074,6 @@ func (e *Engine) ParkTeamWorkspaceWhy(workspace, chat string, before time.Time, 
 	// (11-17 00:40 and 00:52: 「slow agent session close elapsed=2m0s」, ws-forward and ws-handoff
 	// failed with 「workspace list … context deadline exceeded」), the work the turn went on doing
 	// was cut off, and the workspace was in the pool with a turn still running in it.
-	later := open == 0 && !stop && teamTurnRunning(key)
 	if later {
 		for i, x := range st.Parents[owner] {
 			if x.ID == wsID {
@@ -2143,6 +2160,11 @@ func (e *Engine) freeParkedWorkspace(key string) bool {
 			}
 		}
 	} else {
+		if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+			teamWorkspaceStore.mu.Unlock()
+			slog.Error("team workspace: paused workspace not given back", "workspace", key, "error", err)
+			return false
+		}
 		teamWorkspaceGiveBackLocked(st, owner, wsID, platformReleases, true)
 	}
 	err = saveTeamWorkspacesLocked(path, st)
@@ -2363,7 +2385,6 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 	if e == nil || e.sessions == nil {
 		return 0
 	}
-	e.restoreHandoffModels(key) // #2075: the task's own model ends with the task
 	n := 0
 	for _, k := range e.sessions.UserKeys() {
 		if chatOf(k) != key {

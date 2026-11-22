@@ -86,6 +86,9 @@ func (e *Engine) deleteTeamWorkspace(workspace string, staleOwner bool, why stri
 	if staleOwner && teamTurnRunning(key) {
 		return "", &TeamWorkspaceInUseError{Reason: TeamWorkspaceInUseWorking, Detail: key + " has a turn running"}
 	}
+	if err := e.restoreWorkspaceHandoffModels(key); err != nil {
+		return "", fmt.Errorf("team workspace delete: %s not deleted: %w", key, err)
+	}
 	ctx, cancel := context.WithTimeout(e.ctx, leadScriptTimeout) // 沿用 lead 脚本上限：存档要翻完频道历史
 	defer cancel()
 	archive, err := e.archiveTeamWorkspace(ctx, key, rec, why)

@@ -147,6 +147,51 @@ class ResumeModelTest(unittest.TestCase):
         self.board.restore.assert_called_once_with(self.item)
 
 
+class HandoffJoinModelTest(unittest.TestCase):
+    """审稿 #2076 第二轮：ws-handoff 并进已有任务（可能是别的项目在做）时不按发起方核模型，交给 ws-forward 按接手方核；
+    新开的活照旧按本项目核，不对不交。"""
+
+    def setUp(self):
+        import re
+        fd, self.path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        self.addCleanup(os.unlink, self.path)
+        self.checked, self.joined = [], []
+        self.ref = {"id": 362, "who": "工作区3肥鱼"}
+        self.live = True
+        self.ns = functions("ws-handoff", {"main"}, dict(
+            re=re, os=os, sys=sys, GUARD=None, USAGE="usage", SHORT_HOW="",
+            board=types.SimpleNamespace(SHORT_RUNES=20, short_problem=lambda s: None, short_of=lambda t: t,
+                                        add=Mock(side_effect=AssertionError("must not put a new task on the board"))),
+            _handoff_rules=types.SimpleNamespace(load=lambda: {"flags": {}}),
+            check_notes=lambda n, t: None, intent_gate=lambda n: (None, None), added_gate=lambda n: None,
+            own_gate=lambda n, c: None, resume_ref=lambda t, n: self.ref, in_progress=lambda x: bool(x) and self.live,
+            live_dup=lambda p: None, live_overlap=lambda *a: [],
+            append_own=Mock(side_effect=AssertionError("must not get past the model check")),
+            join=lambda old, path, task, m, e: self.joined.append((old["id"], m, e)) or 0,
+            _model=types.SimpleNamespace(parse=_model.parse,
+                                         check=lambda m, e, *a: self.checked.append((m, e)) or (None if m in (None, "opus") else f"模型 {m} 不在本项目的模型列表里"))))
+
+    def main(self, *args):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return self.ns["main"]([self.path, "续做", "--short", "续做", *args])
+
+    def test_join_not_checked_against_caller(self):
+        # 只在接手方（肥鱼 deep）可用的模型：发起方列表里没有，也照样转给 ws-forward，由它按接手方核
+        self.assertEqual(self.main("--model", "deepseek-v5", "--effort", "high"), 0)
+        self.assertEqual(self.joined, [(362, "deepseek-v5", "high")])
+        self.assertEqual(self.checked, [])
+
+    def test_new_task_checked_against_own_project(self):
+        self.live = False
+        self.ref = None
+        with self.assertRaises(SystemExit) as cm:
+            self.main("--model", "deepseek-v5")
+        self.assertIn("不在本项目的模型列表里", str(cm.exception))
+        self.assertEqual(self.checked, [("deepseek-v5", None)])
+        self.assertEqual(self.joined, [])
+
+
 class IsolationTest(unittest.TestCase):
     def test_model_import_does_not_resolve_data_dir(self):
         import subprocess as sp
