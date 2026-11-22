@@ -89,6 +89,11 @@ type interactiveTurn struct {
 	freezePreview     func() bool
 	cp                *compactProgressWriter
 	board             *boardTurnRef
+	// scheduledHidden: a cron/timer turn in a plain chat channel (a team
+	// workspace keeps its live view) delivers only its final reply — no live
+	// preview, streaming card or narration segment at a tool/thinking/
+	// permission boundary (#2068).
+	scheduledHidden bool
 
 	// Event loop plumbing.
 	idleTimer      *time.Timer

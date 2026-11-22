@@ -762,6 +762,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.state.turnScheduled = scheduledTurnUser(queued.userID)
 		turn.state.currentJobID = queued.timerJobID
 		turn.state.mu.Unlock()
+		turn.scheduledHidden = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
 		e.armScheduledTurnTimeout(turn.state, turn.sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.userID, true)
 		e.armTurnSpendCap(turn.state, turn.session, turn.sessionKey, queued.turnTrigger, queued.timerJobID, queued.cronJobID, queued.msgSessionKey)
 		turn.unwatch()
@@ -894,9 +895,18 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		queuedRenderer := func(content string) string {
 			return e.renderOutgoingContentForWorkspace(queued.platform, content, turn.workspaceDir)
 		}
-		turn.sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
+		// A queued scheduled turn gets the same quiet output as a direct one:
+		// no live preview, no streaming card, no interim segment (#2068).
+		queuedPreviewCfg := e.streamPreview
+		if turn.scheduledHidden {
+			queuedPreviewCfg.Enabled = false
+		}
+		turn.sp = newStreamPreview(queuedPreviewCfg, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
 		turn.cp = newCompactProgressWriter(turn.outputCtx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 		turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, queued.platform, turn.sessionKey, queuedRenderer)
+		if turn.scheduledHidden {
+			turn.cp.hideForScheduled()
+		}
 		turn.board = e.boardBegin(turn.state, turn.sessionKey) // maomao fork: the queued turn's board row
 		turn.cp.onStep = turn.board.step
 
@@ -907,7 +917,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.cardAnswerText.Reset()
 
 		// Try to create a new streaming card for the queued turn
-		if scp, ok := queued.platform.(StreamingCardPlatform); ok {
+		if scp, ok := queued.platform.(StreamingCardPlatform); ok && !turn.scheduledHidden {
 			if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, queued.replyCtx) }); err != nil {
 				slog.Warn("streaming card creation failed for queued turn", "error", err)
 			} else {
@@ -916,7 +926,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		}
 
 		// Send instant reply for queued turn if no streaming card is active.
-		if e.instantReply.Enabled && turn.streamCard == nil {
+		if e.instantReply.Enabled && turn.streamCard == nil && !turn.scheduledHidden {
 			replyContent := e.instantReply.Content
 			if replyContent == "" {
 				replyContent = e.i18n.T(MsgStarting)

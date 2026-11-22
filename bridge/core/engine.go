@@ -6900,6 +6900,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 
 	turn.sendReplySegment = func(p Platform, replyCtx any, segment string) {
+		// A scheduled turn in a chat channel keeps narration between tool
+		// calls internal; only the final reply reaches the channel (#2068).
+		if turn.scheduledHidden {
+			return
+		}
 		// A live streaming card already shows every word of this turn; a
 		// segment sent beside it repeats the same text as a second message
 		// (#703: DingTalk AI card, thinking/tool/permission flushes).
@@ -6933,8 +6938,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		turn.sentReplySegments = append(turn.sentReplySegments, segment)
 	}
 
+	// A scheduled turn in a chat channel has nobody watching its progress
+	// live (#1188 hid its card); the same goes for its text — no streaming
+	// card, no live preview, no interim segment, only the final reply (#2068).
+	turn.scheduledHidden = turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey)
+
 	// Streaming card: aggregate entire turn into a single updatable card.
-	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok {
+	if scp, ok := inputOutputPlatform(turn.state.platform, turn.input).(StreamingCardPlatform); ok && !turn.scheduledHidden {
 		if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, turn.state.replyCtx) }); err != nil {
 			slog.Warn("streaming card creation failed, falling back to normal messages", "error", err)
 		} else {
@@ -6943,7 +6953,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 	}
 	// maomao fork: previews and the progress card carry agent output (AgentReplyMarker).
-	turn.sp = newStreamPreview(e.streamPreview, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
+	previewCfg := e.streamPreview
+	if turn.scheduledHidden {
+		previewCfg.Enabled = false
+	}
+	turn.sp = newStreamPreview(previewCfg, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), turn.outputCtx, workspaceRenderer)
 	// A failed freeze has not delivered the segment. Stop this output turn
 	// before detaching its preview or recording the segment as sent.
 	turn.freezePreview = func() bool {
@@ -6959,7 +6973,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	}
 	turn.cp = newCompactProgressWriter(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), markAgentReply(turn.state.platform, turn.state.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), workspaceRenderer)
 	turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, inputOutputPlatform(turn.state.platform, turn.input), turn.sessionKey, workspaceRenderer)
-	if turn.state.turnScheduled && !e.isTeamWorkspaceChat(turn.sessionKey) {
+	if turn.scheduledHidden {
 		turn.cp.hideForScheduled()
 	}
 	turn.state.mu.Unlock()
@@ -6973,7 +6987,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// Send instant confirmation reply if enabled and no streaming card is active.
 	// Streaming cards provide their own "processing" indicator, so instant reply
 	// is only needed when the platform doesn't support cards or card creation failed.
-	if e.instantReply.Enabled && turn.streamCard == nil {
+	if e.instantReply.Enabled && turn.streamCard == nil && !turn.scheduledHidden {
 		replyContent := e.instantReply.Content
 		if replyContent == "" {
 			replyContent = e.i18n.T(MsgStarting)
@@ -7167,8 +7181,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		// ToolMessages handle user-level quiet in the fallback branches.
 		richCardSupporter, hasRichCard := p.(RichCardSupporter)
 		// Card 2.0 rich-card path is opt-in via [display] mode = "rich".
-		// Default "legacy" keeps upstream behavior for all platforms.
-		if e.display.CardMode != "rich" {
+		// Default "legacy" keeps upstream behavior for all platforms. A
+		// scheduled turn in a chat channel shows no live card either (#2068).
+		if e.display.CardMode != "rich" || turn.scheduledHidden {
 			hasRichCard = false
 		}
 		richMarkdownResolver, hasRichMarkdownResolver := p.(RichCardMarkdownResolver)
