@@ -140,11 +140,13 @@ func (s *acpSession) applyModel(model string) {
 	sid := s.currentACPSessionID()
 	var err error
 	var res json.RawMessage
+	callCtx, cancel := context.WithTimeout(s.ctx, handshakeTimeout)
+	defer cancel()
 	switch {
 	case s.modelInfo.viaSetModel:
-		res, err = s.tr.call(s.ctx, "session/set_model", map[string]any{"sessionId": sid, "modelId": model})
+		res, err = s.tr.call(callCtx, "session/set_model", map[string]any{"sessionId": sid, "modelId": model})
 	case s.modelInfo.viaConfig:
-		res, err = s.tr.call(s.ctx, "session/set_config_option", map[string]any{"sessionId": sid, "configId": "model", "value": model})
+		res, err = s.tr.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sid, "configId": "model", "value": model})
 	default:
 		slog.Warn("acp: model configured but this agent advertises no way to select one", "model", model)
 		return
@@ -240,7 +242,9 @@ func (s *acpSession) applyEffort(effort string) {
 		return
 	}
 	sid := s.currentACPSessionID()
-	res, err := s.tr.call(s.ctx, "session/set_config_option", map[string]any{
+	callCtx, cancel := context.WithTimeout(s.ctx, handshakeTimeout)
+	defer cancel()
+	res, err := s.tr.call(callCtx, "session/set_config_option", map[string]any{
 		"sessionId": sid, "configId": s.modelInfo.effortConfig, "value": effort,
 	})
 	if err != nil {

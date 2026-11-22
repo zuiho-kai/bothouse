@@ -48,6 +48,8 @@ type transport struct {
 
 	pendingMu sync.Mutex
 	pending   map[string]pendingCall
+	closed    bool
+	closeErr  error
 
 	onNotif rpcNotifyHandler
 	onReq   rpcRequestHandler
@@ -68,6 +70,7 @@ func (t *transport) readLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			t.cancelAll(ctx.Err())
 			return
 		default:
 		}
@@ -166,9 +169,16 @@ func (t *transport) completePending(id json.RawMessage, result json.RawMessage, 
 }
 
 func (t *transport) cancelAll(err error) {
+	if err == nil {
+		err = io.EOF
+	}
 	t.pendingMu.Lock()
 	defer t.pendingMu.Unlock()
-	msg := err.Error()
+	if !t.closed {
+		t.closed = true
+		t.closeErr = err
+	}
+	msg := t.closeErr.Error()
 	for k, p := range t.pending {
 		if p.complete != nil {
 			p.complete()
@@ -191,6 +201,11 @@ func (t *transport) callCompleted(ctx context.Context, method string, params any
 	key := fmt.Sprintf("%d", id)
 	ch := make(chan rpcOutcome, 1)
 	t.pendingMu.Lock()
+	if t.closed {
+		closeErr := t.closeErr
+		t.pendingMu.Unlock()
+		return nil, closeErr
+	}
 	t.pending[key] = pendingCall{ch: ch, complete: complete}
 	t.pendingMu.Unlock()
 

@@ -741,6 +741,7 @@ type interactiveState struct {
 	resetHandoff             bool            // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	abortCloseDone           <-chan struct{} // gate abort: actual Close completion before resuming the same session; guarded by mu
 	agentCloseDone           <-chan struct{} // turn/idle close: wait for durable close before resume; guarded by interactiveMu
+	agentStartDone           <-chan struct{} // startup: placeholder while StartSession runs outside interactiveMu; guarded by interactiveMu
 	agentSession             AgentSession
 	processClaimed           bool           // foreground owns the process until the final queue check and session unlock; guarded by mu
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
@@ -5623,28 +5624,42 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		slog.Info("workspace exec: session starts on workspace provider", "session", ccKey, "provider", settings.Provider, "model", settings.Model)
 	}
 	e.interactiveMu.Lock()
-	defer e.interactiveMu.Unlock()
 	var input *inputTurn
 	if len(inputs) > 0 {
 		input = inputs[0]
 	}
 	if input != nil && (input.expectedID == "" || session.GetAgentSessionID() != input.expectedID || sessions.ActiveSessionID(ccSessionKey) != session.ID) {
+		e.interactiveMu.Unlock()
 		return &interactiveState{startErr: "original session binding changed"}
 	}
 
 	state, ok := e.interactiveStates[sessionKey]
-	for ok && state.agentCloseDone != nil {
+	for ok && (state.agentCloseDone != nil || state.agentStartDone != nil) {
 		closed := state.agentCloseDone
+		started := state.agentStartDone
 		e.interactiveMu.Unlock()
-		select {
-		case <-closed:
-		case <-e.ctx.Done():
-			e.interactiveMu.Lock()
-			return &interactiveState{startErr: "engine stopped while closing the previous process"}
+		if closed != nil {
+			select {
+			case <-closed:
+			case <-e.ctx.Done():
+				e.interactiveMu.Lock()
+				defer e.interactiveMu.Unlock()
+				return &interactiveState{startErr: "engine stopped while closing the previous process"}
+			}
+		} else if started != nil {
+			select {
+			case <-started:
+			case <-e.ctx.Done():
+				e.interactiveMu.Lock()
+				defer e.interactiveMu.Unlock()
+				return &interactiveState{startErr: "engine stopped while starting the process"}
+			}
 		}
 		e.interactiveMu.Lock()
 		if e.interactiveStates[sessionKey] == state {
-			state.agentCloseDone = nil
+			if state.agentCloseDone == closed {
+				state.agentCloseDone = nil
+			}
 		}
 		state, ok = e.interactiveStates[sessionKey]
 	}
@@ -5667,6 +5682,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		if input != nil {
 			_, supported := state.agentSession.(StrictResumeSession)
 			if !supported || currentID != input.expectedID {
+				e.interactiveMu.Unlock()
 				return &interactiveState{startErr: "live session cannot strictly resume the original binding"}
 			}
 		}
@@ -5700,6 +5716,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			state.mu.Lock()
 			state.processClaimed = true
 			state.mu.Unlock()
+			e.interactiveMu.Unlock()
 			return state
 		}
 		// Tear down the stale agent so we start one that matches the Session below.
@@ -5759,9 +5776,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		slog.Debug("skipping session start: context canceled", "session_key", sessionKey)
 		newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true}
 		adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-		state = newState
-		e.interactiveStates[sessionKey] = state
-		return state
+		e.interactiveStates[sessionKey] = newState
+		e.interactiveMu.Unlock()
+		return newState
 	}
 
 	// Restore the agent's active provider from the session before starting a
@@ -5800,6 +5817,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if startSessionID != "" {
 		if validator, ok := agent.(SessionIDValidator); ok && !validator.ValidateSessionID(e.ctx, startSessionID) {
 			if input != nil {
+				e.interactiveMu.Unlock()
 				return &interactiveState{startErr: "original agent session failed validation"}
 			}
 			slog.Warn("session ID does not belong to this project, clearing it",
@@ -5811,15 +5829,32 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	isResume := startSessionID != ""
 	startedFresh := !isResume // maomao fork: see MarkFreshContext below
+
+	startDone := make(chan struct{})
+	placeholder := &interactiveState{
+		modelSettings:    settings,
+		handoffID:        handoffID,
+		agentStartDone:   startDone,
+		platform:         p,
+		replyCtx:         replyCtx,
+		agent:            agent,
+		eventsNeedResync: true,
+		approveAll:       isYoloMode(agent),
+	}
+	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], placeholder)
+	e.interactiveStates[sessionKey] = placeholder
+	e.interactiveMu.Unlock()
+
 	startAt := time.Now()
 	var agentSession AgentSession
 	var err error
 	if input != nil {
 		strict, ok := agent.(StrictResumeAgent)
 		if !ok || !strict.SupportsStrictResume() {
-			return &interactiveState{startErr: "strict resume unsupported"}
+			err = errors.New("strict resume unsupported")
+		} else {
+			agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 		}
-		agentSession, err = strict.StartSessionStrict(WithSessionSettings(e.ctx, settings), startSessionID)
 	} else {
 		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
 	}
@@ -5853,21 +5888,37 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 				go e.send(p, replyCtx, notice)
 			}
 		}
-		if err != nil {
-			slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-			e.hooks.Emit(HookEvent{
-				Event:      HookEventError,
-				SessionKey: sessionKey,
-				Platform:   p.Name(),
-				Error:      fmt.Sprintf("failed to start session: %v", err),
-			})
-			newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true, startErr: err.Error()}
-			adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-			state = newState
-			e.interactiveStates[sessionKey] = state
-			return state
-		}
 	}
+
+	e.interactiveMu.Lock()
+	defer e.interactiveMu.Unlock()
+	defer close(startDone)
+	placeholder.agentStartDone = nil
+
+	if placeholder.stopped || e.interactiveStates[sessionKey] != placeholder {
+		if agentSession != nil {
+			go e.closeAgentSessionWithTimeout(sessionKey, agentSession)
+		}
+		if placeholder.startErr == "" {
+			placeholder.startErr = "session cleaned up during startup"
+		}
+		return placeholder
+	}
+
+	if err != nil {
+		slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
+		e.hooks.Emit(HookEvent{
+			Event:      HookEventError,
+			SessionKey: sessionKey,
+			Platform:   p.Name(),
+			Error:      fmt.Sprintf("failed to start session: %v", err),
+		})
+		newState := &interactiveState{platform: p, replyCtx: replyCtx, agent: agent, eventsNeedResync: true, startErr: err.Error()}
+		adoptPendingFromPlaceholder(placeholder, newState)
+		e.interactiveStates[sessionKey] = newState
+		return newState
+	}
+
 	if startElapsed >= slowAgentStart {
 		slog.Warn("slow agent session start", "elapsed", startElapsed, "agent", agent.Name(), "session_id", startSessionID)
 	}
@@ -5878,7 +5929,8 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			if agentSession != nil {
 				_ = agentSession.Close()
 			}
-			return &interactiveState{startErr: "strict resume returned a different or unsupported session"}
+			placeholder.startErr = "strict resume returned a different or unsupported session"
+			return placeholder
 		}
 	}
 
@@ -5925,9 +5977,8 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		eventsNeedResync: true,
 		approveAll:       isYoloMode(agent),
 	}
-	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
-	state = newState
-	e.interactiveStates[sessionKey] = state
+	adoptPendingFromPlaceholder(placeholder, newState)
+	e.interactiveStates[sessionKey] = newState
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 
@@ -5941,7 +5992,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		},
 	})
 
-	return state
+	return newState
 }
 
 // cleanupInteractiveState removes the interactive state for the given session key

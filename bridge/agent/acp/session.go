@@ -97,6 +97,12 @@ type permState struct {
 }
 
 // acpSessionConfig bundles the inputs newACPSession needs. It's a
+// handshakeTimeout bounds ACP startup round-trips (initialize, authenticate,
+// session/new, session/load, model/effort configuration) so a hung backend
+// process does not block the bridge engine indefinitely.
+// 来源：沿用 listSessionsProbeTimeout (15s) 的两倍 (30s)，实测留足 session/load 历史回放与慢速后端冷启余量。
+var handshakeTimeout = 30 * time.Second
+
 // struct rather than a long positional argument list because we keep
 // adding optional knobs (initialMode, callbacks) and would otherwise
 // break every call site each time.
@@ -164,6 +170,13 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 	s.cmd = cmd
 	s.tr = newTransport(stdout, stdin, s.onNotification, s.onServerRequest)
 
+	prepareCmdForKill(cmd)
+	cmd.Cancel = func() error {
+		return forceKillCmd(cmd)
+	}
+	// 来源：沿用 bridge/agent/gemini/session.go (1s)，实测 500ms 足够子进程退出后回收残余管道
+	cmd.WaitDelay = 500 * time.Millisecond
+
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("acp: start %s: %w", cfg.command, err)
@@ -173,8 +186,36 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 	go func() {
 		defer s.wg.Done()
 		defer s.CloseSubTasks()
-		s.tr.readLoop(sessionCtx)
-		waitErr := cmd.Wait()
+		waitDone := make(chan error, 1)
+		go func() {
+			waitDone <- cmd.Wait()
+		}()
+
+		readDone := make(chan struct{})
+		go func() {
+			defer close(readDone)
+			s.tr.readLoop(sessionCtx)
+		}()
+
+		var waitErr error
+		select {
+		case waitErr = <-waitDone:
+			_ = forceKillCmd(cmd)
+			_ = stdin.Close()
+			_ = stdout.Close()
+			s.tr.cancelAll(fmt.Errorf("acp: process exited: %w", waitErr))
+			select {
+			case <-readDone:
+			case <-time.After(500 * time.Millisecond):
+			}
+		case <-readDone:
+			_ = forceKillCmd(cmd)
+			_ = stdin.Close()
+			_ = stdout.Close()
+			waitErr = <-waitDone
+			s.tr.cancelAll(fmt.Errorf("acp: process exited: %w", waitErr))
+		}
+
 		if waitErr != nil {
 			msg := stderrBuf.String()
 			if msg != "" {
@@ -232,7 +273,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 			"version": "1.0.0",
 		},
 	}
-	res, err := s.tr.call(s.ctx, "initialize", initParams)
+	initCtx, cancelInit := context.WithTimeout(s.ctx, handshakeTimeout)
+	res, err := s.tr.call(initCtx, "initialize", initParams)
+	cancelInit()
 	if err != nil {
 		return fmt.Errorf("acp: initialize: %w", err)
 	}
@@ -260,9 +303,12 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	}
 
 	if strings.TrimSpace(authMethod) != "" {
-		if _, err := s.tr.call(s.ctx, "authenticate", map[string]any{
+		authCtx, cancelAuth := context.WithTimeout(s.ctx, handshakeTimeout)
+		_, err := s.tr.call(authCtx, "authenticate", map[string]any{
 			"methodId": authMethod,
-		}); err != nil {
+		})
+		cancelAuth()
+		if err != nil {
 			return fmt.Errorf("acp: authenticate (%s): %w", authMethod, err)
 		}
 		slog.Debug("acp: authenticated", "method_id", authMethod)
@@ -290,7 +336,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		guard := s.inputGuard
 		s.inputGuard = true
 		s.inputMu.Unlock()
-		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
+		loadCtx, cancelLoad := context.WithTimeout(s.ctx, handshakeTimeout)
+		loadRes, err := s.tr.call(loadCtx, resumeMethod, loadParams)
+		cancelLoad()
 		s.inputMu.Lock()
 		s.inputGuard = guard
 		s.inputMu.Unlock()
@@ -327,7 +375,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		"cwd":        s.workDir,
 		"mcpServers": []any{},
 	}
-	newRes, err := s.tr.call(s.ctx, "session/new", newParams)
+	newCtx, cancelNew := context.WithTimeout(s.ctx, handshakeTimeout)
+	newRes, err := s.tr.call(newCtx, "session/new", newParams)
+	cancelNew()
 	if err != nil {
 		return fmt.Errorf("acp: session/new: %w", err)
 	}
@@ -1121,8 +1171,8 @@ func (s *acpSession) Close() error {
 			}
 		}
 		s.cancel()
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
+		if s.cmd != nil {
+			_ = forceKillCmd(s.cmd)
 		}
 		done := make(chan struct{})
 		go func() {
