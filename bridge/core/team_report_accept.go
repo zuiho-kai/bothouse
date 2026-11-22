@@ -134,7 +134,7 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 	}
 	rc = e.recordReplyTask(p, rc, rec.Board)
 	text := spaceExitLines(heldHeadlineText(teamTaskBoardShort(*item), rec.Headline, true))
-	if err := e.sendRenderedWithContext(ctx, p, rc, text); err != nil {
+	if err := e.sendRenderedWithContext(ctx, p, rc, e.withAssignerMention(p, item, text)); err != nil {
 		slog.Error("report accept: unchecked post failed", "board_item", rec.Board, "error", err)
 		return
 	}
@@ -422,6 +422,9 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	_, detail := team.ExitSplit(cp.Body)
 	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail, false)
 	inForum := forumRC != nil
+	// The result reaches the person who set the task: the chat post opens with their mention (#988);
+	// the task thread and forum keep the text without it.
+	chatText = e.withAssignerMention(p, item, chatText)
 	if err := e.sendRenderedWithContext(ctx, p, rc, chatText); err != nil {
 		e.teamExit.mu.Lock()
 		rec.Attempts++

@@ -92,6 +92,17 @@ func AllowList(allowFrom, userID string) bool {
 	return false
 }
 
+// FirstAllowFrom is the first user ID in allow_from, skipping "*" — the owner, since the setup
+// wizard writes the owner's ID into an empty allow_from (PlatformOwner, #988). "" when none.
+func FirstAllowFrom(allowFrom string) string {
+	for _, id := range strings.Split(allowFrom, ",") {
+		if id = strings.TrimSpace(id); id != "" && id != "*" {
+			return id
+		}
+	}
+	return ""
+}
+
 // ImageAttachment represents an image sent by the user.
 type ImageAttachment struct {
 	MimeType string // e.g. "image/png", "image/jpeg"
