@@ -517,6 +517,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
+		h.msg.AddressedOther = h.msg.AddressedOther || msg.AddressedOther
 		h.msg.SeenUpToID = msg.MessageID
 		if h.silence && !g.silenceApplies(msg, busy) {
 			// An @, an attachment or a command joined the silent burst: answer it on the normal

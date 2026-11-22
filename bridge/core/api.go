@@ -98,6 +98,12 @@ type SendRequest struct {
 	// Channel: send to the channel with this name in the server of FromSession instead of
 	// SessionKey (send_channel.go). Not found or ambiguous is an error; nothing is sent.
 	Channel string `json:"channel,omitempty"`
+	// MentionAssigner: the board item this message delivers the result of (ws-pass with
+	// attachments). The text opens with the mention of whoever set that task (#988).
+	MentionAssigner int `json:"mention_assigner,omitempty"`
+	// AskUser: explicit human decision/answer prompt from the lead in the chat channel (#2091).
+	// Allows human mentions in this message (auto-mentioning the owner if none is written).
+	AskUser bool `json:"ask_user,omitempty"`
 }
 
 // NewAPIServer creates an API server on a Unix socket.
@@ -405,6 +411,24 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
 	}
+	var allowHumans []string
+	var recordMentionUsers []string
+	if req.MentionAssigner > 0 && req.Message != "" {
+		msg, mentionUser := engine.prepareAssignerMentionFor(req.SessionKey, req.MentionAssigner, req.Message)
+		req.Message = msg
+		if mentionUser != "" {
+			allowHumans = append(allowHumans, mentionUser)
+			recordMentionUsers = append(recordMentionUsers, mentionUser)
+		}
+	}
+	if req.AskUser {
+		msg, askUsers := engine.prepareAskUserMention(req.SessionKey, req.Message, req.AtUsers, req.MentionAssigner)
+		req.Message = msg
+		if len(askUsers) > 0 {
+			allowHumans = append(allowHumans, askUsers...)
+			recordMentionUsers = append(recordMentionUsers, askUsers...)
+		}
+	}
 	// #1866: one door for every way a scheduled turn can post — text, images/files, audio, video
 	// and TTS. Before this, a voice message sent with `--audio` slipped past the outbox.
 	if ob := engine.outbox(); ob != nil && proactiveFrom != "" && req.TaskText == nil {
@@ -436,7 +460,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
-			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID})
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID, AllowHumanMentions: allowHumans})
 		}
 		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
 			// #1352: the person does not accept DMs from server members. Same person, no settings change:
@@ -450,12 +474,15 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			req.SessionKey = key
-			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{})
+			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{AllowHumanMentions: []string{dmUserID}})
 			dmNote = "The DM was refused (this person does not accept DMs from server members), so it was sent in a private thread only they and server moderators can see."
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		for _, u := range recordMentionUsers {
+			engine.recordHumanMention(req.SessionKey, u, req.MentionAssigner)
 		}
 		proactiveSent()
 	}

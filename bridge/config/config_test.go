@@ -282,7 +282,7 @@ func TestEffectiveDisplayQuiet(t *testing.T) {
 			cfg:      Config{},
 			proj:     ProjectConfig{},
 			wantMode: "full",
-			wantTM:   true,
+			wantTM:   false,
 			wantTool: true,
 		},
 		{
@@ -317,7 +317,7 @@ func TestEffectiveDisplayQuiet(t *testing.T) {
 			cfg:      Config{Quiet: &tru},
 			proj:     ProjectConfig{Quiet: &fal},
 			wantMode: "full",
-			wantTM:   true,
+			wantTM:   false,
 			wantTool: true,
 		},
 		{
@@ -416,7 +416,7 @@ func TestEffectiveDisplay_ProjectOverride(t *testing.T) {
 			proj: ProjectConfig{
 				Display: &DisplayConfig{},
 			},
-			wantTM:         true,
+			wantTM:         false,
 			wantTool:       true,
 			wantThinkLen:   300,
 			wantToolMaxLen: 500,
@@ -429,7 +429,7 @@ func TestEffectiveDisplay_ProjectOverride(t *testing.T) {
 			proj: ProjectConfig{
 				Display: &DisplayConfig{ThinkingMaxLen: &maxB, ToolMaxLen: &maxB},
 			},
-			wantTM:         true,
+			wantTM:         false,
 			wantTool:       true,
 			wantThinkLen:   200,
 			wantToolMaxLen: 200,

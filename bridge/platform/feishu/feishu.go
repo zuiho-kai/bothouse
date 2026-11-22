@@ -6942,3 +6942,8 @@ func isStopAllEvent(sender *larkim.EventSender, msgType string, content *string)
 	}
 	return core.IsStopAllCommand(body.Text)
 }
+
+// OwnerUserID is the first user ID in allow_from (the setup wizard writes the owner's ID into an
+// empty one). The bridge mentions them (<at user_id>) for a task a bot or a timer set
+// (core.PlatformOwner, #988).
+func (p *Platform) OwnerUserID() string { return core.FirstAllowFrom(p.allowFrom) }
