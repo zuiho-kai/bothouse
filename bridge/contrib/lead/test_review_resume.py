@@ -113,7 +113,7 @@ class ReviewResume(unittest.TestCase):
         self.assertEqual(seen, [("room:chat", "redo", 46, "room:3")])
 
     def test_resume_reassign_updates_dispatcher_and_skips_old_workspace(self):
-        """#2086: 任务由 devin 派发并被 board pause 暂停后，改由 cjiang 接手续做：
+        """#2086: 任务由 devin 派发并被 board pause 暂停后，显式 --project cjiang 改派接手续做：
         1. dispatcher 改为 cjiang；
         2. start 重新挑干净工作区，不复用 devin 的旧区。"""
         board = self.g["board"]
@@ -136,12 +136,69 @@ class ReviewResume(unittest.TestCase):
             "_recall": types.SimpleNamespace(append_to=lambda *a: None),
         }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \
            patch.dict(os.environ, {"CC_PROJECT": "cjiang", "CC_SESSION_KEY": "room:chat"}):
-            self.mod["resume_answered"](988, "接手")
+            self.mod["resume_answered"](988, "接手", project="cjiang")
             after = board.items()[0]
         self.assertEqual(after["dispatcher"], "cjiang")
         self.assertIn("cjiang", after["who"])
         self.assertEqual(held_called, [])  # 改派不得复用旧区
         self.assertEqual(seen_pick[0][3], "")  # 改派不得偏好原 ws_was
+
+    def test_resume_without_project_retains_dispatcher_and_workspace(self):
+        """#2086: 调用方≠原负责人、无 --project、非提问（如桥到点重试、主角色退回队友派的活）：
+        仍保留原负责人和原工作区，不得误判改派。"""
+        board = self.g["board"]
+        tmp = Path(self.tmp)
+        notes = tmp / "n.md"
+        notes.write_text("# 交接\n")
+        item = {"id": 988, "what": "fix", "where": str(notes), "status": "暂停", "chat": "room:chat",
+                "paused": "11-23 00:07", "pause_why": "等外部：依赖分支合并", "dispatcher": "devin",
+                "ws_was": "room:3", "at": "11-23 00:05"}
+        (tmp / "board.jsonl").write_text(json.dumps(item, ensure_ascii=False) + "\n")
+        seen_pick = []
+        held_called = []
+        with patch.object(board, "DIR", tmp), patch.dict(self.g, {
+            "pick_pool": lambda *a: seen_pick.append(a) or ("room:3", "工作区3", "room:chat"),
+            "held": lambda *a: held_called.append(a) or None,
+            "append_skeleton": lambda *a: None,
+            "timer_cmd": lambda *a: ["true"],
+            "arm_drift": lambda *a: None,
+            "record_last": lambda *a: None,
+            "_recall": types.SimpleNamespace(append_to=lambda *a: None),
+        }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \
+           patch.dict(os.environ, {"CC_PROJECT": "cjiang", "CC_SESSION_KEY": "room:chat"}):
+            self.mod["resume_answered"](988, "到点重试")
+            after = board.items()[0]
+        self.assertEqual(after["dispatcher"], "devin")
+        self.assertIn("devin", after["who"])
+        self.assertEqual(seen_pick[0][3], "room:3")  # 默认无 --project 时保留原工作区偏好
+
+    def test_resume_in_progress_task_retains_held_workspace(self):
+        """#2086: 任务未放回工作区（如等待期间保持工作区占有），续做时继续走 held 复用原工作区。"""
+        board = self.g["board"]
+        tmp = Path(self.tmp)
+        notes = tmp / "n.md"
+        notes.write_text("# 交接\n")
+        item = {"id": 990, "what": "fix", "where": str(notes), "status": "暂停", "chat": "room:chat",
+                "paused": "11-23 00:07", "pause_why": "等外部：pr CI 通过", "dispatcher": "devin",
+                "ws": "room:3", "at": "11-23 00:05"}
+        (tmp / "board.jsonl").write_text(json.dumps(item, ensure_ascii=False) + "\n")
+        held_called = []
+        pick_called = []
+        with patch.object(board, "DIR", tmp), patch.dict(self.g, {
+            "held": lambda *a: held_called.append(a) or ("room:3", "工作区3", "room:chat"),
+            "pick_pool": lambda *a: pick_called.append(a) or ("room:1", "工作区1", "room:chat"),
+            "append_skeleton": lambda *a: None,
+            "timer_cmd": lambda *a: ["true"],
+            "arm_drift": lambda *a: None,
+            "record_last": lambda *a: None,
+            "_recall": types.SimpleNamespace(append_to=lambda *a: None),
+        }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \
+           patch.dict(os.environ, {"CC_PROJECT": "cjiang", "CC_SESSION_KEY": "room:chat"}):
+            self.mod["resume_answered"](990, "重试")
+            after = board.items()[0]
+        self.assertEqual(after["dispatcher"], "devin")
+        self.assertEqual(len(held_called), 1)  # 优先复用已占工作区
+        self.assertEqual(pick_called, [])
 
     def test_resume_ask_retains_original_dispatcher(self):
         """#1727 保持：若是工作区提问（[ask]），主角色转达定案不改变原负责人 dispatcher。"""

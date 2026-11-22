@@ -1083,7 +1083,7 @@ def _ws_key(it):
     return it.get("sk") or (f"discord:{it['ch']}" if it.get("ch") else "")
 
 
-# 来源：988 5 秒超时教训，软停有 10 秒宽限期（max_turn_time_mins），带 --stop 放回工作区需 15 秒
+# 来源：实测 2026-11-23 00:07:29 #988 放回时工作区会话关闭耗时 6.79 秒（main.log「slow agent session close elapsed=6.792772833s」）超出原 WS_TIMEOUT=5 秒；源码 engine.go:79 slowAgentClose=3s、engine.go:6325 closeAgentSessionBy，带 --stop 放回工作区预留 15 秒
 WS_PARK_TIMEOUT = 15
 
 

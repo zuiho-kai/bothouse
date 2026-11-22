@@ -1081,7 +1081,8 @@ def start(path, task, chat, nid, project, answer=None, reassigned=False):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
     reassigned = reassigned or bool(previous.get("dispatcher") and project and project != previous.get("dispatcher"))
-    picked = (None if reassigned else held(previous, chat)) or pick_pool(chat, task, nid, "" if reassigned else (previous.get("ws_was", "") if previous.get("review_rejected") else ""))
+    preferred = "" if reassigned else previous.get("ws_was", "")
+    picked = (None if reassigned else held(previous, chat)) or pick_pool(chat, task, nid, preferred)
     if picked is None:
         return False
     ws, name, parent = picked
@@ -1162,18 +1163,17 @@ def resume_answered(nid, answer, project=None, model=None, effort=None):
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
 
     # 接着做的是谁：
-    # 问答场景（is_ask）：按原负责人（11-17 #1727 龙娘派的活，主角色转定案后仍归龙娘），除非显式指定 --project。
-    # 非问答场景（如 board pause 暂停后改派、接手续做）：若显式指定 --project，或当前调用方不同，判定为改派（#2086）。
+    # 默认保持原负责人（orig_dispatcher）和原工作区，避免桥重试（core/team_wait_external.go:123）、
+    # 提问定案（#1727）或验收退回时，注入聊天频道的 CC_PROJECT 误伤改派；
+    # 只有显式指定 --project 时才发生改派（reassigned），更新 dispatcher 并分配干净新工作区。
     caller = os.environ.get("CC_PROJECT", "")
     orig_dispatcher = it.get("dispatcher", "")
     if project:
         target_project = project
-    elif is_ask or (it.get("review_rejected") and not caller):
-        target_project = orig_dispatcher or caller
     else:
-        target_project = caller or orig_dispatcher
+        target_project = orig_dispatcher or caller
 
-    reassigned = bool(target_project and target_project != orig_dispatcher)
+    reassigned = bool(project and target_project != orig_dispatcher)
     # 若改派，更新任务板条目记录的 dispatcher
     if reassigned:
         board.update(nid, it.get("status", "已交接"), dispatcher=target_project)
@@ -1219,8 +1219,8 @@ SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的
 def main(argv):
     if argv[:1] == ["--drain"]:
         return 0
-    if argv[:1] == ["--resume"]:
-        rem = argv[1:]
+    if "--resume" in argv:
+        rem = [a for a in argv if a != "--resume"]
         rem, model, effort = _model.parse(rem)
         resume_project = None
         if "--project" in rem:
@@ -1233,7 +1233,7 @@ def main(argv):
         if not rem:
             sys.exit("ws-handoff: --resume 后面要跟任务编号，如 ws-handoff --resume 123 [答复]")
         nid = int(rem[0].lstrip("#"))
-        answer = rem[1] if len(rem) > 1 else ""
+        answer = " ".join(rem[1:]) if len(rem) > 1 else ""
         return resume_answered(nid, answer, project=resume_project, model=model, effort=effort)
     global GUARD
     if "--guard" in argv:
