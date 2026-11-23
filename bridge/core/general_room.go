@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -20,6 +21,8 @@ import (
 // it in its own session manager.
 const GeneralSessionKey = "general:general"
 
+var errGeneralEmptyMessage = errors.New("General message must include text")
+
 type GeneralMessage struct {
 	ID        string    `json:"id"`
 	Kind      string    `json:"kind"`
@@ -31,12 +34,18 @@ type GeneralMessage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type GeneralRoomMember struct {
+	Project     string `json:"project"`
+	DisplayName string `json:"display_name"`
+}
+
 // GeneralRoom owns the shared transcript and the running projects that joined it.
 type GeneralRoom struct {
 	mu      sync.Mutex
 	path    string
 	history []GeneralMessage
 	members map[string]generalMember
+	changed chan struct{}
 }
 
 type generalMember struct {
@@ -51,7 +60,9 @@ func NewGeneralRoom(dataDir string) (*GeneralRoom, error) {
 	}
 	room := &GeneralRoom{
 		path:    filepath.Join(dir, "messages.json"),
+		history: []GeneralMessage{},
 		members: make(map[string]generalMember),
+		changed: make(chan struct{}),
 	}
 	data, err := os.ReadFile(room.path)
 	if os.IsNotExist(err) {
@@ -76,15 +87,43 @@ func (r *GeneralRoom) History() []GeneralMessage {
 	return slices.Clone(r.history)
 }
 
+func (r *GeneralRoom) Members() []GeneralRoomMember {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	members := make([]GeneralRoomMember, 0, len(r.members))
+	for _, project := range slices.Sorted(maps.Keys(r.members)) {
+		members = append(members, GeneralRoomMember{
+			Project: project, DisplayName: r.members[project].platform.displayName,
+		})
+	}
+	return members
+}
+
+// messagesAfter takes the replay snapshot and its wake-up signal together so
+// a post between replay and waiting cannot go unnoticed.
+func (r *GeneralRoom) messagesAfter(after int) ([]GeneralMessage, <-chan struct{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if after > len(r.history) {
+		return nil, nil
+	}
+	return slices.Clone(r.history[after:]), r.changed
+}
+
 // PostUserMessage accepts text from an authenticated native room client.
 func (r *GeneralRoom) PostUserMessage(userID, name, text string) error {
+	_, err := r.postUserMessage(userID, name, text)
+	return err
+}
+
+func (r *GeneralRoom) postUserMessage(userID, name, text string) (GeneralMessage, error) {
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("General message must include text")
+		return GeneralMessage{}, errGeneralEmptyMessage
 	}
 	return r.post(GeneralMessage{Kind: "user", AuthorID: userID, Author: name, Text: text})
 }
 
-func (r *GeneralRoom) post(message GeneralMessage) error {
+func (r *GeneralRoom) post(message GeneralMessage) (GeneralMessage, error) {
 	r.mu.Lock()
 	message.ID = strconv.Itoa(len(r.history) + 1)
 	message.CreatedAt = time.Now().UTC()
@@ -99,13 +138,15 @@ func (r *GeneralRoom) post(message GeneralMessage) error {
 	data, err := json.Marshal(next)
 	if err != nil {
 		r.mu.Unlock()
-		return fmt.Errorf("encode General transcript: %w", err)
+		return GeneralMessage{}, fmt.Errorf("encode General transcript: %w", err)
 	}
 	if err := AtomicWriteFile(r.path, data, 0o600); err != nil {
 		r.mu.Unlock()
-		return fmt.Errorf("save General transcript: %w", err)
+		return GeneralMessage{}, fmt.Errorf("save General transcript: %w", err)
 	}
 	r.history = next
+	close(r.changed)
+	r.changed = make(chan struct{})
 	var instructions string
 	if target.handle != nil {
 		members := slices.Sorted(maps.Keys(r.members))
@@ -136,7 +177,7 @@ func (r *GeneralRoom) post(message GeneralMessage) error {
 			GroupChat:    true,
 		})
 	}
-	return nil
+	return message, nil
 }
 
 // addressedMember matches a leading @project name against room membership.
@@ -194,9 +235,10 @@ func (p *generalPlatform) Reply(_ context.Context, replyCtx any, text string) er
 	if rc.draft {
 		return nil
 	}
-	return p.room.post(GeneralMessage{
+	_, err := p.room.post(GeneralMessage{
 		Kind: "notice", AuthorID: p.project, Author: p.displayName, Text: text, ReplyTo: rc.messageID,
 	})
+	return err
 }
 
 func (p *generalPlatform) Send(ctx context.Context, replyCtx any, text string) error {
@@ -211,7 +253,8 @@ func (p *generalPlatform) MarkAgentReply(replyCtx any) any {
 
 func (p *generalPlatform) ReplyFinalText(_ context.Context, replyCtx any, text string) error {
 	rc := replyCtx.(generalReplyContext)
-	return p.room.post(GeneralMessage{
+	_, err := p.room.post(GeneralMessage{
 		Kind: "agent", AuthorID: p.project, Author: p.displayName, Text: text, ReplyTo: rc.messageID,
 	})
+	return err
 }

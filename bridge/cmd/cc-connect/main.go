@@ -687,6 +687,7 @@ func runMain() {
 		mgmtSrv.SetUsageLedger(usageLedger)
 		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageSources...))
 		rt.mgmtSrv = mgmtSrv
+		mgmtSrv.SetGeneralRoom(rt.general)
 		for i, e := range engines {
 			rt.registerManagement(builtProjs[i].Name, e)
 		}

@@ -1815,6 +1815,15 @@ and disabled rows remain listed and configurable; saving config does not enable 
 
 ---
 
+### 5.11 Native General room
+
+General is available when a project opts in with `general = true`. All room endpoints use the standard management authentication and return HTTP 404 when the room is unavailable.
+
+- **`GET /api/v1/general/members`** returns `data.members`, ordered by project name. Each member contains `project` and `display_name`.
+- **`GET /api/v1/general/messages`** returns `data.messages` in transcript order. Messages carry `id`, `kind`, `author_id`, `author`, `text`, and `created_at`, with `target` and `reply_to` when applicable.
+- **`POST /api/v1/general/messages`** accepts `{"text":"@reviewer Check the rollout."}` and returns the saved message as `data` with HTTP 201. The server supplies the panel author. A leading mention can start an addressed project through the normal engine path. The response confirms transcript persistence.
+- **`GET /api/v1/general/events?after=<id>`** streams saved messages as Server-Sent Events. Each `message` event carries the message JSON and its ID. Fetch history first and pass the last ID to receive messages posted since that fetch. Missing `after` replays the transcript. On reconnect, `Last-Event-ID` takes precedence over the query cursor. A cursor beyond the transcript returns HTTP 400.
+
 ## 6. Error Handling Conventions
 
 ### 6.1 Standard Error Response

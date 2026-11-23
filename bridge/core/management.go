@@ -52,6 +52,7 @@ type ManagementServer struct {
 
 	mu      sync.RWMutex
 	engines map[string]*Engine // project name → engine
+	general *GeneralRoom
 
 	cronScheduler      *CronScheduler
 	wikiSubScript      string // sub-wiki.sh of the agent.closed hook, for the wizard (core/setup_wiki.go)
@@ -345,6 +346,10 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
+
+	mux.HandleFunc(prefix+"/general/members", m.wrap(m.handleGeneralMembers))
+	mux.HandleFunc(prefix+"/general/messages", m.wrap(m.handleGeneralMessages))
+	mux.HandleFunc(prefix+"/general/events", m.wrap(m.handleGeneralEvents))
 
 	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off, remove
 	mux.HandleFunc(prefix+"/plugins", m.wrap(m.handlePlugins))

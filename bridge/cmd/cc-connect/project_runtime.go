@@ -241,6 +241,9 @@ func (rt *projectRuntime) buildConfiguredProject(cfg *config.Config, proj config
 			return builtProject{}, err
 		}
 		rt.general = room
+		if rt.mgmtSrv != nil {
+			rt.mgmtSrv.SetGeneralRoom(room)
+		}
 	}
 	built, err := rt.build(cfg, rt.configPath, rt.rootOpts, proj)
 	if err == nil && proj.General {

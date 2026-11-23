@@ -76,7 +76,7 @@ DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补�
 
 ### Native General room
 
-Projects opt in with `general = true` in their `[[projects]]` block. General can be a project's only platform. All participating projects share one transcript in `<data_dir>/general/messages.json` and resolve the room key `general:general` in their own session managers. A saved message beginning with `@project-name` reaches that running project through the normal engine ingress. The engine records final replies as single messages. Draft text, thinking, and tool output cannot address another project. The room is currently available through the in-process backend.
+Projects opt in with `general = true` in their `[[projects]]` block. General can be a project's only platform. All participating projects share one transcript in `<data_dir>/general/messages.json` and resolve the room key `general:general` in their own session managers. A saved message beginning with `@project-name` reaches that running project through the normal engine ingress. The engine records final replies as single messages. Draft text, thinking, and tool output cannot address another project. The management API exposes members, history, posting, and a live message stream. The stream resumes from the saved transcript using the last message ID.
 
 主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。off/observe 不受理推断任务，记录决策后仍将消息交回原聊天路由和门闸，不附加主动授权。自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
 
