@@ -2785,27 +2785,34 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	case <-time.After(quickFinishTimeout):
 	}
 
-	// Long-running command — try in-place updates
+	// Long-running command — try in-place updates. A job marked silent (no start
+	// notice) announces no ⏳ progress either: a quiet success then posts nothing
+	// at all, while failure, timeout and real output still post their result at
+	// the end (#1031 review: the silent daily wiki check lit up ⏳→✅ anyway).
+	silent := e.timerScheduler != nil && e.timerScheduler.IsSilent(job)
+
 	var previewHandle any
 	var useUpdate bool
-	if _, ok := p.(MessageUpdater); ok {
-		if starter, ok := p.(PreviewStarter); ok {
-			mu.Lock()
-			output := buf.String()
-			mu.Unlock()
-			progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
-			if output != "" {
-				progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
-			}
-			handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
-			if err == nil && handle != nil {
-				previewHandle = handle
-				useUpdate = true
+	if !silent {
+		if _, ok := p.(MessageUpdater); ok {
+			if starter, ok := p.(PreviewStarter); ok {
+				mu.Lock()
+				output := buf.String()
+				mu.Unlock()
+				progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
+				if output != "" {
+					progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
+				}
+				handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
+				if err == nil && handle != nil {
+					previewHandle = handle
+					useUpdate = true
+				}
 			}
 		}
-	}
-	if !useUpdate {
-		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		if !useUpdate {
+			e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		}
 	}
 
 	updateDone := make(chan struct{})
@@ -2836,6 +2843,11 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	select {
 	case <-doneCh:
 		close(updateDone)
+		if silent {
+			// Nothing was announced: the no-opts finish only posts a result, so a
+			// quiet success stays quiet end to end.
+			return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
+		}
 		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
@@ -2965,27 +2977,34 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		// Still running — fall through to progress mode
 	}
 
-	// Long-running command. Try in-place updates.
+	// Long-running command. Try in-place updates — a job marked silent (no start
+	// notice) announces no ⏳ progress either: a quiet success then posts nothing
+	// at all, while failure, timeout and real output still post their result at
+	// the end (#1031 review: the silent daily wiki check lit up ⏳→✅ anyway).
+	silent := e.cronScheduler != nil && e.cronScheduler.IsSilent(job)
+
 	var previewHandle any
 	var useUpdate bool
-	if _, ok := p.(MessageUpdater); ok {
-		if starter, ok := p.(PreviewStarter); ok {
-			mu.Lock()
-			output := buf.String()
-			mu.Unlock()
-			progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
-			if output != "" {
-				progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
-			}
-			handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
-			if err == nil && handle != nil {
-				previewHandle = handle
-				useUpdate = true
+	if !silent {
+		if _, ok := p.(MessageUpdater); ok {
+			if starter, ok := p.(PreviewStarter); ok {
+				mu.Lock()
+				output := buf.String()
+				mu.Unlock()
+				progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
+				if output != "" {
+					progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
+				}
+				handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
+				if err == nil && handle != nil {
+					previewHandle = handle
+					useUpdate = true
+				}
 			}
 		}
-	}
-	if !useUpdate {
-		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		if !useUpdate {
+			e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		}
 	}
 
 	updateDone := make(chan struct{})
@@ -3016,6 +3035,11 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	select {
 	case <-doneCh:
 		close(updateDone)
+		if silent {
+			// Nothing was announced: the no-opts finish only posts a result, so a
+			// quiet success stays quiet end to end.
+			return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
+		}
 		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
@@ -3043,13 +3067,32 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 
 	exitOK := cmd.ProcessState.ExitCode() == 0
 
+	if exitOK && strings.TrimSpace(output) == "" {
+		// A silent success posts no result (user 2026-11-23: every healthy 定时
+		// 检查 still dropped a "(no output)" line into the chat, #2104). A run
+		// long enough to have announced ⏳ (callers pass opts only then) still
+		// closes that line with a bare ✅ — it must not keep looking like it is
+		// running. A run that finished inside quickFinishTimeout posts nothing.
+		if len(opts) < 2 {
+			return nil
+		}
+		doneMsg := fmt.Sprintf("⏰ ✅ `%s`", cmdLabel)
+		if useUpdate, ok := opts[0].(bool); ok && useUpdate {
+			if handle := opts[1]; handle != nil {
+				if err := updaterFor(p).UpdateMessage(e.ctx, handle, doneMsg); err != nil {
+					return err
+				}
+				e.recordExternalSend(p, sessionKey, workDir, doneMsg, "定时脚本")
+				return nil
+			}
+		}
+		e.sendSystemNotice(p, replyCtx, doneMsg)
+		return nil
+	}
+
 	var finalMsg string
 	if exitOK {
-		result := strings.TrimSpace(output)
-		if result == "" {
-			result = "(no output)"
-		}
-		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(result, 3000))
+		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(strings.TrimSpace(output), 3000))
 	} else {
 		errMsg := output
 		if errMsg != "" {
