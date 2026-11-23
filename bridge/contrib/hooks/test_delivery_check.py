@@ -21,7 +21,13 @@ class DeliveryCheckTest(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("CC_", "BOTHOUSE_", "CONEST_", "CLAUDE_", "DSH_", "GATE_"))}
         self.board = self.role / "team"  # 任务板目录放进临时目录：对照件那项读 <任务板目录>/deliver/*.json
-        self.env.update(HOME=str(self.role), GATE_WIKI="off", BOARD_DIR=str(self.board))
+        self.env.update(HOME=str(self.role), GATE_WIKI="off", BOARD_DIR=str(self.board),
+                        GATE_TRIALS_LOG=str(self.role / "gate-trials.tsv"),
+                        GATE_TRIALS_REGISTRY=str(self.role / "reg.json"))
+        # 文案检查（copy-gate）按回放已达标来测拦法；没达标只记录见 test_copy_draft_needs_three_verbatim_refs_and_tags
+        reg = json.loads((HERE / "gate-trials.json").read_text(encoding="utf-8"))
+        reg["checks"]["copy-gate"] = {"replays": [{"replayed": 30, "wrong": 0}]}
+        (self.role / "reg.json").write_text(json.dumps(reg), encoding="utf-8")
         self.sheet("add", "cover", "use the required color")
 
     def sheet(self, *args):
@@ -89,6 +95,11 @@ class DeliveryCheckTest(unittest.TestCase):
         cmd = f"bothouse send --file '{draft}'"
         draft.write_text("# GitHub 简介\n\n住在你群聊里的 AI 团队，自己分活。\n", encoding="utf-8")
         self.sheet("skip", draft, "copy gate test")
+        # #1924：文案检查是新检查，回放没达标前只记录不拦
+        self.env["GATE_TRIALS_REGISTRY"] = str(HERE / "gate-trials.json")
+        self.assertNotEqual(self.call(command=cmd), "deny")
+        self.assertIn("copy-gate\tobserve", (self.role / "gate-trials.tsv").read_text(encoding="utf-8"))
+        self.env["GATE_TRIALS_REGISTRY"] = str(self.role / "reg.json")
         self.assertEqual(self.call(command=cmd), "deny")
         draft.write_text(
             "# GitHub 简介\n\n## 对标原文\n"
