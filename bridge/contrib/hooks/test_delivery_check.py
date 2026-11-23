@@ -114,6 +114,12 @@ class DeliveryCheckTest(unittest.TestCase):
         self.assertNotEqual(self.call(command=f"bothouse send --file '{note}'"), "deny")
         self.assertNotEqual(self.call(command="bothouse send -m '今日进度：三个测试跑完'"), "deny")
 
+    def test_send_command_quoted_in_heredoc_is_data(self):
+        # 交回里会原样引用一条 send 命令当例子；按正文解析会把它当成真在发（#1907 交回被自己拦住）
+        report = ("ws-up --notes /tmp/h.md --report - <<'EOF'\n"
+                  "能拦住的是 bothouse send --file '/现在还不存在的稿.md' 这条\nEOF\n")
+        self.assertNotEqual(self.call(command=report), "deny")
+
     def test_codex_original_image_read_survives_normalization(self):
         self.sheet("check", "cover", self.file, "color checked")
         events = [

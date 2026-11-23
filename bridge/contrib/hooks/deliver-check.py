@@ -71,6 +71,22 @@ def sent_files(command, cwd):
     return out
 
 
+def strip_heredocs(command):
+    """去掉 heredoc 正文（`<<'EOF' … EOF`）：那是数据，不是要执行的命令。
+    交回/汇报里会原样引用一条 send 命令当例子，按正文解析会把它当成真在发送。"""
+    out, marker = [], None
+    for line in command.splitlines():
+        if marker is not None:
+            if line.strip() == marker:
+                marker = None
+            continue
+        m = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][\w.-]*)\1", line)
+        if m:
+            marker = m.group(2)
+        out.append(line)
+    return "\n".join(out)
+
+
 def sent_texts(command):
     """`bothouse send -m/--message <正文>` 的正文。解析不了返回 []。"""
     try:
@@ -504,7 +520,7 @@ def main():
     payload = json.loads(sys.stdin.read() or "{}")
     if payload.get("tool_name") != "Bash":
         return
-    cmd = (payload.get("tool_input") or {}).get("command") or ""
+    cmd = strip_heredocs((payload.get("tool_input") or {}).get("command") or "")
     if "ws-pass" in cmd or "board" in cmd:
         accept_gate(payload, cmd, payload.get("cwd") or os.getcwd())
     if "bothouse" not in cmd or "send" not in cmd:
