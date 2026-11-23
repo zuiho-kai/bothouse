@@ -29,23 +29,25 @@ func senderIsBot(sender *larkim.EventSender) bool {
 
 // botAllowed: a message from another bot gets through when its sender id is in allow_bots.
 func (p *Platform) botAllowed(id string) bool {
-	return p.allowBots != "" && core.AllowList(p.allowBots, id)
+	allow := p.allowBotsCSV()
+	return allow != "" && core.AllowList(allow, id)
 }
 
 // dispatchedBy is the primary role whose turn this is to hand back ("" = none): the lead @-ing
 // this sub, or a person's message that @-s this sub and the lead together.
 func (p *Platform) dispatchedBy(fromBot, mentioned bool, senderID string, mentions []*larkim.MentionEvent) string {
-	if !mentioned || p.teamLead == "" || p.teamLead == p.getBotOpenID() {
+	lead := p.lead()
+	if !mentioned || lead == "" || lead == p.getBotOpenID() {
 		return ""
 	}
 	if fromBot {
-		if senderID == p.teamLead {
-			return p.teamLead
+		if senderID == lead {
+			return lead
 		}
 		return ""
 	}
-	if isBotMentioned(mentions, p.teamLead) {
-		return p.teamLead
+	if isBotMentioned(mentions, lead) {
+		return lead
 	}
 	return ""
 }
@@ -96,11 +98,12 @@ func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
 }
 
 // HasConfiguredTeamLead reports whether team_lead_bot is set (core.ConfiguredTeamLead).
-func (p *Platform) HasConfiguredTeamLead() bool { return p.teamLead != "" }
+func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 
 // IsConfiguredTeamLead reports whether team_lead_bot names this bot (core.ConfiguredTeamLeadSelf).
 func (p *Platform) IsConfiguredTeamLead() bool {
-	return p.teamLead != "" && p.teamLead == p.getBotOpenID()
+	lead := p.lead()
+	return lead != "" && lead == p.getBotOpenID()
 }
 
 var (
