@@ -777,8 +777,10 @@ def main():
     draft = last_reply(payload.get("transcript_path")) if stop else ""
     proc = None
     try:
-        if name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse" and "deliver-check" not in off:
-            proc = deliver_check(payload, path)
+        if "deliver-check" not in off and (
+                (name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse") or
+                (name == "choice-ask-guard" and stop)):  # 聊天回复正文的文案检查（#1907）走 Stop，先于 choice-ask-guard
+            proc = deliver_check(payload, None if stop else path)
         if proc is None:
             proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
                                   capture_output=True, text=True)
@@ -844,7 +846,7 @@ def main():
     else:
         sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
         if draft and stop_blocked(proc):
-            note_stop_blocked(draft)
+            note_stop_blocked(draft, withhold="文案检查没过" in (proc.stdout or ""))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
 
@@ -857,7 +859,8 @@ def deliver_check(payload, dsh_log):
     cmd = str((payload.get("tool_input") or {}).get("command") or "")
     sending = "bothouse" in cmd and "send" in cmd
     accepting = "ws-pass" in cmd or ("board" in cmd and "done" in cmd)  # 验收放行前看过截图（#1617）
-    if not os.path.isfile(target) or not (sending or accepting):
+    replying = payload.get("hook_event_name") == "Stop"  # 聊天回复正文（#1907）
+    if not os.path.isfile(target) or not (sending or accepting or replying):
         return None
     p = dict(payload, bothouse_role=role_dir(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or None))
     if p.get("delivery_transcript_path"):
@@ -880,7 +883,14 @@ def deliver_check(payload, dsh_log):
         d = json.loads(proc.stdout or "{}")
     except ValueError:
         return None
-    if isinstance(d, dict) and (d.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny":
+    if isinstance(d, dict) and d.get("bothouse_replace"):
+        # #1907: blocked once and sent back unfixed. The turn ends, but the bridge swaps the draft for this line.
+        note_stop_blocked(str(d.get("draft") or ""), withhold=True, replace=str(d["bothouse_replace"]))
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+        return None
+    if isinstance(d, dict) and ((d.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
+                                or d.get("decision") == "block"):
         return proc
     if proc.stderr:
         sys.stderr.write(proc.stderr)
@@ -920,7 +930,7 @@ def stop_blocked(proc):
     return isinstance(d, dict) and d.get("decision") == "block"
 
 
-def note_stop_blocked(draft):
+def note_stop_blocked(draft, withhold=False, replace=""):
     """The draft was already streamed to the channel: tell the bridge (POST /stop-blocked) to take it back, so
     the user gets the rewrite only, not both (11-08 鲸鱼娘 DM). Best effort: no bridge, no change.
     DSH scrubs every variable whose name holds KEY/TOKEN/SECRET/PASSWORD from a hook's environment, so a DSH
@@ -930,8 +940,8 @@ def note_stop_blocked(draft):
     if not key or not data:
         return
     import socket
-    body = json.dumps({"project": os.environ.get("CC_PROJECT", ""), "session_key": key, "draft": draft},
-                      ensure_ascii=False).encode()
+    body = json.dumps({"project": os.environ.get("CC_PROJECT", ""), "session_key": key, "draft": draft,
+                       "withhold": bool(withhold), "replace": replace}, ensure_ascii=False).encode()
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(3)
@@ -1074,7 +1084,9 @@ def run_agy(target, raw, event):
         payload["stop_hook_active"] = step is not None and st.get(sid) == step
     proc = None
     try:
-        if event == "PreToolUse" and os.path.basename(target) == "bash-guard.py" and "deliver-check" not in load_off(role_dir(payload["cwd"])):
+        if "deliver-check" not in load_off(role_dir(payload["cwd"])) and (
+                (event == "PreToolUse" and os.path.basename(target) == "bash-guard.py") or
+                (event == "Stop" and os.path.basename(target) == "choice-ask-guard.py")):
             proc = deliver_check(payload, None)
         if proc is None:
             proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),

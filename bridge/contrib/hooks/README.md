@@ -177,3 +177,12 @@ Other transcript formats skip the read check and report that limitation on
 stderr; requirement sheets still apply. This is transcript evidence, not visual
 approval. `python3 <data_dir>/hooks/run.py --role /path/to/role off deliver-check`
 disables this check for that role. Helper errors pass through with a diagnostic.
+
+Copy drafts (#1907): a sent `.md`/`.markdown`/`.txt`/`README` file or `-m/--message`
+body whose headings, bold lines or labels read as external copy (简介, README,
+首屏, 宣传语, 标语, 标题, 帖子, 文案, 卖点, bio/tagline/slogan/profile/pitch), or that
+already has a `## 对标原文` section, must carry that section: at least three
+verbatim reference lines, each with a link or local source, and our copy lines
+(`我们：`/`中文：`/`英文：`/`→` lines) tagged `照：第 N 条`. Missing pieces are denied
+with the exact format. The model's ordinary chat reply is not a command, so this
+gate cannot see it.

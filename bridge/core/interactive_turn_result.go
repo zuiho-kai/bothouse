@@ -111,15 +111,17 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	turn.state.mu.Unlock()
 	turn.replyCtx = mergeInjectedReplies(p, turn.replyCtx, injected)
 
-	if turn.blockedDraft != "" {
+	withhold, replace := turn.state.stopHold()
+	if turn.blockedDraft != "" && !withhold {
 		// The rewrite replaces the withdrawn draft; a short addendum (or nothing)
-		// goes after it, so the reply is not lost.
+		// goes after it, so the reply is not lost. A withheld draft (copy gate
+		// #1907) never comes back: the user gets the rewrite or nothing.
 		post := strings.Join(turn.textParts[turn.segmentStart:], "")
 		if merged := MergeStopBlockedReply(turn.blockedDraft, post); merged != post {
 			turn.textParts = append(turn.textParts[:turn.segmentStart], merged)
 		}
-		turn.blockedDraft = ""
 	}
+	turn.blockedDraft = ""
 	turn.state.clearStopDraft()
 
 	// A cumulative adapter identifies the bytes it already streamed. Only
@@ -148,6 +150,13 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	if reset, ok := QuotaExhaustedReset(event); ok {
 		fullResponse = e.quotaExhaustedMessage(reset, turn.agentSession, turn.replyAgent)
 		terminalReply = true
+	}
+	if replace != "" {
+		// #1907: the Stop hook let the turn end on a draft that must not go out
+		// (it was blocked once and came back unfixed): the open draft is replaced.
+		slog.Info("stop hook: final reply withheld and replaced", "session", turn.sessionKey,
+			"draft_runes", len([]rune(fullResponse)))
+		fullResponse, terminalReply = replace, true
 	}
 	if turn.input != nil && strings.TrimSpace(fullResponse) == "" {
 		turn.state.mu.Lock()

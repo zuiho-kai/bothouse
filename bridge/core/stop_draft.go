@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -14,8 +15,11 @@ import (
 // open segment once it matches, and MergeStopBlockedReply decides the final text.
 
 // NoteStopBlocked records the reply a Stop hook just blocked for the turn running
-// in sessionKey. It reports whether such a turn exists.
-func (e *Engine) NoteStopBlocked(sessionKey, draft string) bool {
+// in sessionKey. It reports whether such a turn exists. withhold: the draft must
+// never reach the channel, not even merged in front of a short rewrite (copy gate
+// #1907: a draft without its reference lines). replace: the hook let the turn end
+// on this draft, so the turn sends replace instead of it.
+func (e *Engine) NoteStopBlocked(sessionKey, draft string, withhold bool, replace string) bool {
 	if strings.TrimSpace(draft) == "" || sessionKey == "" {
 		return false
 	}
@@ -28,7 +32,13 @@ func (e *Engine) NoteStopBlocked(sessionKey, draft string) bool {
 	}
 	state.mu.Lock()
 	state.stopDraft = draft
+	state.stopWithhold = state.stopWithhold || withhold || replace != ""
+	if replace != "" {
+		state.stopReplace = replace
+	}
 	state.mu.Unlock()
+	slog.Info("stop hook blocked a reply draft", "session", sessionKey, "draft_runes", utf8.RuneCountInString(draft),
+		"withhold", withhold || replace != "", "replace", replace != "")
 	return true
 }
 
@@ -52,7 +62,17 @@ func (s *interactiveState) takeStopDraft(segment string) (string, bool) {
 func (s *interactiveState) clearStopDraft() {
 	s.mu.Lock()
 	s.stopDraft = ""
+	s.stopWithhold = false
+	s.stopReplace = ""
 	s.mu.Unlock()
+}
+
+// stopHold reports how the turn ending now must treat blocked drafts (#1907):
+// withhold = never merge a blocked draft back; replace = send this instead.
+func (s *interactiveState) stopHold() (withhold bool, replace string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopWithhold, s.stopReplace
 }
 
 func squeezeSpace(t string) string {

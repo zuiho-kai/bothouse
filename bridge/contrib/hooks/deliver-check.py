@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash)：`bothouse send --image/--file/--video <文件>` 发成品前的检查，缺一样就拦。
-三项检查（只看带附件的 send；纯文字、--tts、--audio 不拦）：
+四项检查（只看带附件或 -m/--message 正文的 send；--tts、--audio、--stdin、不带参数的纯文字不拦）：
  (a) 看过成品：本轮（最后一条用户消息之后）用 Read 打开过要发的这个文件本身（同一路径），且打开之后文件没再改过。
      Read 打不开的格式（docx/pptx/xlsx/视频/压缩包…）认本轮 Read 过的、文件名含成品主名、比成品新的渲染图/PDF。
      只在认得出会话记录格式时查：Claude Code / Qoder JSONL、DSH（run.py 转成 Claude Code 格式）、Codex rollout
@@ -13,6 +13,14 @@
      有原件或用户认可过的样 → 要有和现在这份文件指纹一致的对照件（board compare <编号>，干净模型写的三处差别），
      而且三处差别原样带在这条 send 的话里；没有原件也没有认可样 → 话里要有一句问话。没登记的文件不管。
      判断在 gate/deliver.py 的 exit_check（ws-pass 放行也调它）；找不到 deliver.py（旧安装）这项跳过。
+ (d) 文案摆过对标原句（#1907）：要发的文本稿（.md/.markdown/.txt、README）或 -m/--message 正文，只要标题、加粗行、
+     标签行像对外文案（简介、README、首屏、宣传语、标语、标题、帖子、文案、卖点、bio/tagline/slogan/profile/pitch），
+     没有标题/加粗/标签的整段文字里带简介、宣传稿、宣传语、标题、帖子这类词也算；
+     或本身就有一节「## 对标原文」，就必须有那一节：至少三条别人的原句、原样照抄、每条带链接或本地出处，
+     出处写本地文件时该文件里要真有这句原句（链接出处只按形式看，不上网核），
+     我们的每句文案（我们：/中文：/英文：/→ 开头的行）后面标「照：第 N 条」。没摆就拦。
+     聊天回复正文也查：run.py 在 Stop 时先于 choice-ask-guard 调本脚本，回复里有文案稿没摆原句就 block（桥撤回已流出的草稿、
+     不拼回回复里）；同一轮第二次还没补原句就换成一句「文案检查没过，草稿没发出」，原文不出频道。没覆盖：--stdin、位置参数正文。
 另有一项验收门（#1617）：主角色跑 ws-pass（放行，--stitch 预检不算）或 board done <号> 时，桥扣着的那件活的 [report]
 正文里写到的本地图片，本会话都要 Read 打开过（打开后没再改）；内容完全相同的截图也拦下，要打回补拍。
 由 run.py 在 bash-guard 之前调用（共用 bash-guard 在各家 CLI 的注册），可单独 `run.py off deliver-check` 关掉。
@@ -69,6 +77,192 @@ def sent_files(command, cwd):
             i = j
         i += 1
     return out
+
+
+def strip_heredocs(command):
+    """去掉 heredoc 正文（`<<'EOF' … EOF`）：那是数据，不是要执行的命令。
+    交回/汇报里会原样引用一条 send 命令当例子，按正文解析会把它当成真在发送。"""
+    out, marker = [], None
+    for line in command.splitlines():
+        if marker is not None:
+            if line.strip() == marker:
+                marker = None
+            continue
+        m = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][\w.-]*)\1", line)
+        if m:
+            marker = m.group(2)
+        out.append(line)
+    return "\n".join(out)
+
+
+def sent_texts(command):
+    """`bothouse send -m/--message <正文>` 的正文。解析不了返回 []。"""
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        return []
+    out, i = [], 0
+    while i < len(toks):
+        t = toks[i]
+        if os.path.basename(t) == "bothouse" and i + 1 < len(toks) and toks[i + 1] == "send":
+            j = i + 2
+            while j < len(toks) and toks[j] not in SEPS:
+                a = toks[j]
+                if a in ("-m", "--message") and j + 1 < len(toks):
+                    out.append(toks[j + 1])
+                    j += 2
+                    continue
+                if a.startswith("--message="):
+                    out.append(a.split("=", 1)[1])
+                j += 1
+            i = j
+        i += 1
+    return out
+
+
+# ---- 对外文案稿：发之前先摆出对标原句（#1907）----
+# 用户 11-23 15:29 列的修法、15:39 回「2修」定下；11-08、11-22、11-23 第三次。橘写简介时把对标原句抽成「规律」
+# 再自己写，原句丢了，写回自编场景和数字；片子发前有检查，文案没有。
+COPY_EXT = {".md", ".markdown", ".txt"}
+# 认文案稿的词（#1907 ③）：标题、加粗行里含这些词，或「<前缀>词<后缀>：」开头的标签行。
+# 中文词按子串认；英文词按整词认（about、bio 这类短词子串会误中）。
+COPY_WORDS = ("简介", "readme", "首屏", "宣传语", "宣传文案", "标语", "口号", "标题", "副标题", "帖子", "推文", "发帖",
+              "文案", "卖点", "导语", "一句话介绍", "介绍语", "仓库介绍", "项目介绍", "封面字")
+COPY_EN = re.compile(r"(?i)\b(?:readme|bio|tagline|slogan|profile|pitch|headline|description|about|tweet)\b")
+MD_HEADING = re.compile(r"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$")
+BOLD_LINE = re.compile(r"(?m)^\s*\*\*([^*\n]+)\*\*\s*[:：]?\s*$")
+_LABEL_WORDS = "|".join(sorted(COPY_WORDS + ("README", "slogan", "tagline", "bio", "description", "About", "headline", "tweet"),
+                                key=len, reverse=True))
+COPY_LABEL = re.compile(r"(?mi)^\s*(?:[-*>]\s*|\d+[.)]\s*)?\*{0,2}[^\n:：*`]{0,12}?(?:%s)[^\n:：*`]{0,10}\*{0,2}\s*[:：]"
+                        % _LABEL_WORDS)
+REF_HEAD = re.compile(r"(?m)^\s{0,3}(#{1,6})\s*对标原文\s*$")
+REF_ENTRY = re.compile(r"(?m)^\s*(?:[-*>]\s+|\d+[.)]\s*|第\s*\d+\s*条)")
+SOURCE = re.compile(r"https?://\S+|(?:~\s*/|/)[^\s）)」』,，。；;]*|\b[\w.-]+\.(?:md|markdown|txt)\b")
+TAG = re.compile(r"照\s*[:：]\s*第?\s*(\d+)\s*条")
+# 我们的文案行：我们：/中文：/英文：/简介：… 开头，或 → 开头（照原文改的那句）
+OUR_LINE = re.compile(r"(?m)^\s*(?:[-*>]\s*|\d+[.)]\s*)?(?:我们|我们的文案|中文版?|英文版?|简介|标题|正文|帖子|README)\s*[:：]"
+                      r"|^\s*→")
+
+
+def _copy_word(h):
+    return any(w in h.lower() for w in COPY_WORDS) or COPY_EN.search(h)
+
+
+# 散文段（#1907 用户 11-23 16:31 ③）：没有标题、加粗、标签的整段文字里出现这些词也算文案稿。
+PROSE_WORDS = ("简介", "宣传稿", "宣传语", "宣传文案", "标题", "帖子", "推文", "标语", "口号")
+PROSE_EN = re.compile(r"(?i)\b(?:readme|tagline|slogan)\b")
+CODE_SPAN = re.compile(r"(?s)```.*?```|`[^`\n]*`")
+PATHISH = re.compile(r"(?:~|\.{0,2})?/[^\s）)」』,，。；;]*|\b[\w.-]+\.(?:md|markdown|txt|py|go|json)\b")
+
+
+def copy_prose(text):
+    """含文案词的散文段（代码块、反引号、路径和文件名里的词不算）：返回那段开头，否则 None。"""
+    for para in re.split(r"\n\s*\n", CODE_SPAN.sub(" ", text)):
+        bare = PATHISH.sub(" ", para)
+        if any(w in bare for w in PROSE_WORDS) or PROSE_EN.search(bare):
+            return para.strip().splitlines()[0][:40] if para.strip() else None
+    return None
+
+
+def copy_like(text):
+    """像对外文案稿时返回命中的那处标题/标签/段落，否则 None。"""
+    for m in MD_HEADING.finditer(text):
+        if _copy_word(m.group(1)):
+            return m.group(1).strip()
+    for m in BOLD_LINE.finditer(text):
+        if _copy_word(m.group(1)):
+            return m.group(1).strip()
+    m = COPY_LABEL.search(text)
+    return m.group(0).strip() if m else copy_prose(text)
+
+
+def ref_section(text):
+    """「## 对标原文」那一节（到同级或更高级标题为止）；没有返回 None。"""
+    m = REF_HEAD.search(text)
+    if not m:
+        return None
+    level = len(m.group(1))
+    body = text[m.end():]
+    stop = len(body)
+    for h in re.finditer(r"(?m)^\s{0,3}(#{1,6})\s", body):
+        if len(h.group(1)) <= level:
+            stop = h.start()
+            break
+    return body[:stop]
+
+
+def ref_entry_parts(line):
+    """一条「原句 … 出处 …」→ (原句, 出处)；出处是 SOURCE 认出的那截，原句是它前面的文字。"""
+    m = REF_ENTRY.match(line)
+    src = SOURCE.search(line)
+    nxt = src.start() if src else len(line)
+    quote = re.split(r"(?i)\s*(?:出处|来源|链接|source)\s*[:：]", line[m.end() if m else 0:nxt], maxsplit=1)[0]
+    quote = re.sub(r"(?i)^\s*(?:原句|原文|quote)\s*[:：]\s*", "", quote.strip())
+    quote = quote.strip(" \t\"'“”‘’「」『』`*:：-—")
+    return quote, (src.group(0).strip() if src else "")
+
+
+def ref_source_problem(n, quote, src, base=""):
+    """本地文件出处要核对：原句必须能在那个文件里原样找到（#1907 打回②）；链接出处不上网核。"""
+    if not quote:
+        return "第 %d 条没写原句（写成「- 原句：<照抄别人的原话> 出处：<链接或本地文件路径>」）。" % n
+    if src.startswith(("http://", "https://")):
+        return None
+    p = os.path.expanduser(src)
+    if not os.path.isabs(p):
+        p = os.path.join(base or os.getcwd(), p)
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        return "第 %d 条出处的本地文件打不开：%s（路径写对了吗）" % (n, src)
+    if re.sub(r"\s+", "", quote) not in re.sub(r"\s+", "", content):
+        return ("第 %d 条原句在出处文件里找不到原样的一句：%s —— 原句要照抄别人真实写过的话，"
+                "不能自己编一句再配个出处" % (n, src))
+    return None
+
+
+def copy_gate_why(text, what, base=""):
+    """要补什么；None = 可以发。"""
+    hit = copy_like(text)
+    sec = ref_section(text)
+    if sec is None:
+        if hit is None:
+            return None
+        return ("【文案没摆对标原句】%s 是对外文案稿（%s）。发之前先在稿子里加一节：\n"
+                "## 对标原文\n"
+                "1. 原句：<别人的原句，原样照抄> 出处：<链接或本地文件路径>\n"
+                "2. …\n3. …\n"
+                "至少三条；我们的每句文案后面标「照：第 N 条」，指向上面对应的那条。"
+                "出处写本地文件时，原句要能在那个文件里原样找到。" % (what, hit))
+    problems = []
+    entries = [l for l in sec.splitlines() if REF_ENTRY.match(l) and SOURCE.search(l)]
+    if len(entries) < 3:
+        problems.append("「对标原文」里带出处的原句只有 %d 条，至少要 3 条；每条写成一行："
+                        "「- 原句：<照抄别人的原话> 出处：<链接或本地文件路径>」。" % len(entries))
+    for i, line in enumerate(entries, 1):
+        bad = ref_source_problem(i, *ref_entry_parts(line), base=base)
+        if bad:
+            problems.append(bad)
+    tags = [int(m.group(1)) for m in TAG.finditer(text)]
+    if not tags:
+        problems.append("我们的文案一句都没标「照：第 N 条」：每句后面标上它是照第几条原句写的。")
+    bad = sorted({t for t in tags if t < 1 or t > len(entries)})
+    if bad:
+        problems.append("有「照：第 %s 条」指不到上面的原句（现在只有 %d 条）。"
+                        % ("、".join(map(str, bad)), len(entries)))
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not OUR_LINE.search(line) or TAG.search(line):
+            continue
+        if i + 1 < len(lines) and TAG.search(lines[i + 1]):
+            continue
+        problems.append("这句我们的文案没标照哪条原句：%s" % line.strip()[:60])
+    if problems:
+        return "【文案没摆对标原句】%s：\n  %s" % (what, "\n  ".join(problems))
+    return None
 
 
 def ts(s):
@@ -390,6 +584,71 @@ def accept_gate(payload, cmd, cwd):
         deny("验收放行前的检查没过：\n" + "\n".join(problems) + "\n补齐后原样重跑这条命令。")
 
 
+def last_reply(payload):
+    """Stop：这轮要发出去的回复正文（CLI 给了 last_assistant_message 就用它，否则读会话记录最后一条助手文字）。"""
+    t = payload.get("last_assistant_message")
+    if isinstance(t, str) and t.strip():
+        return t
+    text = ""
+    try:
+        with open(transcript_for(payload) or "", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "assistant":
+                    t = text_of((d.get("message") or {}).get("content"))
+                    if t.strip():
+                        text = t
+    except (OSError, TypeError):
+        return ""
+    return text
+
+
+COPY_REPLACE = "文案检查没过，草稿没发出。"
+def _copy_state(sid, value=None):
+    """这个会话的上一次拦是不是文案检查拦的（value=None 只读；True/False 写）。"""
+    COPY_STATE = os.path.join(data_dir(), "hooks-state", "copy-gate.json")
+    try:
+        with open(COPY_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = {}
+    if value is None:
+        return bool(st.get(sid))
+    if value:
+        st[sid] = True
+    else:
+        st.pop(sid, None)
+    try:
+        os.makedirs(os.path.dirname(COPY_STATE), exist_ok=True)
+        with open(COPY_STATE, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+    return bool(value)
+
+
+def reply_gate(payload):
+    """(d) 管到聊天回复（#1907）：回复里有文案稿却没摆对标原句就拦回让它补（桥把草稿从频道撤回、不再拼回去）；
+    拦过一次还没补上，不再拦（免得来回卡死），这条回复由桥换成一句「文案检查没过，草稿没发出」，原文不出去。"""
+    sid = str(payload.get("session_id") or "")
+    text = last_reply(payload)
+    why = copy_gate_why(text, "这条回复", payload.get("cwd") or os.getcwd())
+    again = bool(payload.get("stop_hook_active")) and _copy_state(sid)
+    if not why:
+        _copy_state(sid, False)
+        return
+    if again:
+        _copy_state(sid, False)
+        print(json.dumps({"bothouse_replace": COPY_REPLACE, "draft": text}, ensure_ascii=False))
+        return
+    _copy_state(sid, True)
+    print(json.dumps({"decision": "block", "reason": "发出前的文案检查没过（草稿已从频道撤回）：\n" + why +
+                      "\n把对标原文那节和逐句「照：第 N 条」补进回复，重发一遍完整回复。补不出原句就只回一句「%s」：" 
+                      "再发一次没补的原文，桥会把它换成这句话，原文不会发出去。" % COPY_REPLACE}, ensure_ascii=False))
+
 # ---- 对照件（#1904）----
 def send_message(command):
     """`bothouse send` 跟着附件发的话：-m/--message 的内容；没写 -m（话是位置参数或 --stdin 喂的）就拿整条命令当话看。"""
@@ -432,17 +691,39 @@ def compare_problems(files, msg):
 
 def main():
     payload = json.loads(sys.stdin.read() or "{}")
+    if payload.get("hook_event_name") == "Stop":
+        reply_gate(payload)
+        return
     if payload.get("tool_name") != "Bash":
         return
-    cmd = (payload.get("tool_input") or {}).get("command") or ""
+    cmd = strip_heredocs((payload.get("tool_input") or {}).get("command") or "")
     if "ws-pass" in cmd or "board" in cmd:
         accept_gate(payload, cmd, payload.get("cwd") or os.getcwd())
-    if "bothouse" not in cmd or "send" not in cmd or not any(fl in cmd for fl in FLAGS):
+    if "bothouse" not in cmd or "send" not in cmd:
+        return
+    if not any(fl in cmd for fl in FLAGS) and not re.search(r"(?:^|\s)(?:-m|--message)(?:\s|=|$)", cmd):
         return
     cwd = payload.get("cwd") or os.getcwd()
     allf = sent_files(cmd, cwd)
     files = [f for f in allf if os.path.isfile(f)]
     problems = []
+    # 对外文案稿：稿里没摆对标原句就拦（#1907）
+    for f in files:
+        if os.path.splitext(f)[1].lower() not in COPY_EXT and \
+                not os.path.basename(f).lower().startswith("readme"):
+            continue
+        try:
+            with open(f, encoding="utf-8") as fh:
+                text = fh.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        why = copy_gate_why(text, f, cwd)
+        if why:
+            problems.append(why)
+    for text in sent_texts(cmd):
+        why = copy_gate_why(text, "要发的这段文字", cwd)
+        if why:
+            problems.append(why)
     cli = payload.get("hook_cli") or ""
     known, reads = (False, [])
     if cli not in ("gemini", "grok"):
