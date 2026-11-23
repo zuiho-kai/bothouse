@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -81,35 +83,34 @@ func TestHeldReportTimeoutPostsVideoAndImageInChat(t *testing.T) {
 	}
 }
 
-// #1888: the lead's acceptance turn is still running at leadAcceptTimeout (#1885: 26 minutes of
-// frame-by-frame review); the report waits for it, and goes out unchecked once the turn is over.
-func TestHeldReportWaitsWhileLeadStillAccepting(t *testing.T) {
-	e, p, key := heldMediaFixture(t, "job-1885")
-	state := &interactiveState{currentJobID: "job-1885"}
-	e.interactiveMu.Lock()
-	e.interactiveStates["discord:111"] = state
-	e.interactiveMu.Unlock()
-	store, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+// #1888: the lead gets the video and the picture the workspace sent, saved where it can open
+// them, one command for a contact sheet of the video, and the rule to judge what it saw within
+// 5 minutes (#1885: 26 minutes in the workspace's sprite sheets, posted unchecked at minute 10).
+func TestHeldReportLeadPromptCarriesAttachments(t *testing.T) {
+	e, p, store, item := heldFixture(t)
+	e.dataDir = t.TempDir()
+	e.workspaceChatForTest = func(string) bool { return true }
+	e.noteWorkspaceImages(exitWSKey, []ImageAttachment{{FileName: "compare.jpg", MimeType: "image/jpeg", Data: []byte("jpg")}})
+	e.noteWorkspaceFiles(exitWSKey, []FileAttachment{{FileName: "demo-v3.mp4", MimeType: "video/mp4", Data: []byte("mp4")}})
+	holdForTest(t, e, p, item, "")
+	jobs := store.List()
+	if len(jobs) != 1 {
+		t.Fatalf("lead wakes = %d", len(jobs))
 	}
-	e.timerScheduler = NewTimerScheduler(store)
-	t.Cleanup(e.timerScheduler.Stop)
-	e.recoverPendingReports(true)
-	if n := len(p.sentMedia()); n != 0 || e.loadReportsForTest(key) == nil {
-		t.Fatalf("posted while the lead was still accepting: %d attachments", n)
+	prompt := jobs[0].Prompt
+	dir := filepath.Join(e.dataDir, "team", "held-media", "46")
+	for _, name := range []string{"compare.jpg", "demo-v3.mp4"} {
+		path := filepath.Join(dir, name)
+		if b, err := os.ReadFile(path); err != nil || len(b) == 0 || !strings.Contains(prompt, "- "+path) {
+			t.Fatalf("attachment %s not kept for the lead (%v) or not in the prompt:\n%s", name, err, prompt)
+		}
 	}
-	state.mu.Lock()
-	state.currentJobID = ""
-	state.mu.Unlock()
-	e.recoverPendingReports(true)
-	if n := len(p.sentMedia()); n != 2 {
-		t.Fatalf("after the lead's turn ended: %d attachments posted, want 2", n)
+	for _, want := range []string{"看多少判多少，不必看完，5 分钟内定", "不翻工作区的中间产物", "ffmpeg -v error -i", "tile=4x3"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("lead prompt lacks %q:\n%s", want, prompt)
+		}
 	}
-}
-
-func (e *Engine) loadReportsForTest(key string) *pendingReport {
-	e.teamExit.mu.Lock()
-	defer e.teamExit.mu.Unlock()
-	return e.loadReportsLocked()[key]
+	if rec := e.heldReportFor(46); rec == nil {
+		t.Fatal("report not held")
+	}
 }

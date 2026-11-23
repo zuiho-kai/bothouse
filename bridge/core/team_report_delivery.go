@@ -558,12 +558,6 @@ func (e *Engine) recoverPendingReports(onlyFailed bool) {
 				e.dropHeldReport(k, heldWaitExpired)
 				continue
 			}
-			if time.Since(createdAt) >= leadAcceptTimeout && e.reportWakeLive(jobID) {
-				// #1888: the lead's acceptance turn is still queued or running (#1885: it watched the
-				// video frame by frame for 26 minutes); the report waits for its verdict. The turn's
-				// own time limit ends it; then the report goes out unchecked.
-				continue
-			}
 			if time.Since(createdAt) >= leadAcceptTimeout {
 				// #699 E: the time limit belongs to the returned state. A task the lead already moved
 				// on (closed, sent back, paused) has nothing left waiting for acceptance.
