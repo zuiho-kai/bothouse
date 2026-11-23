@@ -136,7 +136,7 @@ test('#1798 first start: no bridge running → progress steps, then 准备好了
 });
 
 // #1884 (user「后台挂了插件自己拉起来」): a member dropped and the bridge no longer answers → it is started again.
-test('#1884 revive: the bridge is gone → started again; up again → nothing said', async () => {
+test('#1884 revive: the bridge is gone → started again; up again → nothing said', { skip: process.platform === 'win32' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bridge-revive-'));
   writeFileSync(join(dir, 'bothouse'), '#!/bin/sh\n', { mode: 0o755 });
   const configFile = join(dir, 'config.toml');
