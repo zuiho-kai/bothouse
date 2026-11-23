@@ -91,7 +91,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		silent := true
 		job := &TimerJob{
 			ID: GenerateTimerID(), Project: lead.name, SessionKey: p.Name() + ":" + parent,
-			ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent, ReplyBoard: hid,
+			ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent, ReplyBoard: hid, ReportID: rec.Key,
 			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
