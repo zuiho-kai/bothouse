@@ -7,7 +7,7 @@
 // out the roles of removed members (`remove_projects`); and keep the bridge running. With no bothouse
 // on the machine it runs the official installer first (install.sh / install.ps1, the README's one line).
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -28,6 +28,8 @@ const TOKEN_FILE = 'bot-token';
 // 来源：装桥后首次起后台、gate 导入 scorer、各成员拨进频道，隔离 HOME 实测一分钟内（install-walk-1119）；给 90 秒。
 const CHECK_WAIT_MS = 90_000;
 const CHECK_POLL_MS = 3_000;
+/** #1884: after a member's connection drops, wait this long before asking the bridge (a restart we asked for comes back). */
+const REVIVE_WAIT_MS = 5_000;
 /** Why the gate did not start (POST /setup/gate/start reason, bridge core/gate_proc.go), in plain words. */
 const GATE_REASONS = {
   python_missing: '本机缺 Python',
@@ -194,8 +196,8 @@ export class Bridge {
    * @param opts.members - () => the stored members (roster rows as members).
    * @param opts.lead - () => the selected primary role id, if any.
    */
-  constructor({ dataDir, origin, token, members, lead = () => undefined, online = () => false, logger, env = process.env, configFile = defaultBridgeConfig(env), checkWait = CHECK_WAIT_MS, checkPoll = CHECK_POLL_MS }) {
-    Object.assign(this, { dataDir, origin, token, members, lead, online, logger, env, configFile, checkWait, checkPoll });
+  constructor({ dataDir, origin, token, members, lead = () => undefined, online = () => false, logger, env = process.env, configFile = defaultBridgeConfig(env), checkWait = CHECK_WAIT_MS, checkPoll = CHECK_POLL_MS, reviveWait = REVIVE_WAIT_MS }) {
+    Object.assign(this, { dataDir, origin, token, members, lead, online, logger, env, configFile, checkWait, checkPoll, reviveWait });
     /** #1798: called with selfCheck()'s result after each successful apply (the plugin posts it in #general). */
     this.onCheck = undefined;
     /** #1798: called with each first-start progress step ({ stage, … }, prepText) while preparing is true. */
@@ -215,6 +217,8 @@ export class Bridge {
     /** #1797: 'no-key' = the last setup apply was refused because DSH has no model key yet. */
     this.noKey = false;
     this.keyWatch = undefined;
+    this.reviving = undefined;
+    this.closed = false;
   }
 
   /** The bothouse binary, installing it once when the machine has none. */
@@ -259,7 +263,43 @@ export class Bridge {
     this.timer.unref?.();
   }
 
-  close() { clearTimeout(this.timer); this.keyWatch?.close(); }
+  close() { this.closed = true; clearTimeout(this.timer); this.keyWatch?.close(); }
+
+  /**
+   * #1884 (user「后台挂了插件自己拉起来」): a member's connection dropped. When the bridge itself no longer answers
+   * (killed, crashed), start it again and wait for it; the roles dial back in on their own. When it does not come
+   * up, say why in #general (onCheck). Nothing to do while the first start or a missing key is in charge.
+   * Returns the running revive (tests await it).
+   */
+  revive() {
+    if (this.reviving !== undefined || this.preparing || this.noKey || this.first || this.closed) return this.reviving;
+    this.reviving = (async () => {
+      await new Promise(resolve => setTimeout(resolve, this.reviveWait).unref?.());
+      if (this.closed || (await this.api('GET', 'status'))?.ok === true) return;
+      const bin = bridgeBinary(this.env);
+      if (bin === undefined) return;
+      this.logger?.warn?.('conest-collab: bothouse stopped answering; starting it again');
+      const log = join(this.dataDir, 'bothouse.log');
+      let from = 0;
+      try { from = statSync(log).size; } catch { from = 0; }
+      const exited = this.start(bin);
+      const deadline = Date.now() + this.checkWait;
+      let exit;
+      for (;;) {
+        if ((await this.api('GET', 'status'))?.ok === true) return;
+        exit = await Promise.race([exited, new Promise(resolve => setTimeout(resolve, this.checkPoll))]);
+        if (exit !== undefined || Date.now() >= deadline || this.closed) break;
+      }
+      if (this.closed) return;
+      // Only what this start wrote: the lines before are the stopped bridge's own goodbye.
+      let tail = '';
+      try { tail = readFileSync(log).subarray(from).toString('utf8').trim().split('\n').slice(-3).join(' ').slice(-300); } catch { tail = ''; }
+      const how = exit !== undefined ? `重新启动后马上退出了（退出码 ${exit}）` : `重新启动后 ${Math.round(this.checkWait / 1000)} 秒还没响应`;
+      this.onCheck?.({ ok: false, items: [{ key: 'service', ok: false, why: `后台服务停了，自动${how}：${tail || '日志里没有内容'}（日志 ${log}）` }], members: [] });
+    })().catch(error => this.logger?.warn?.('conest-collab: restarting bothouse failed: %s', error?.message ?? error))
+      .finally(() => { this.reviving = undefined; });
+    return this.reviving;
+  }
 
   /**
    * #1797: the key is saved in DSH (Settings → Models writes $DSH_HOME/.credentials.yaml; a key can also be
@@ -446,12 +486,19 @@ export class Bridge {
     }
   }
 
-  /** Start the bridge in the background; it outlives this DSH. A second start while one runs exits on its lock. */
+  /**
+   * Start the bridge in the background; it outlives this DSH. A second start while one runs exits on its lock.
+   * Returns a promise of its exit code (or the spawn error), for revive.
+   */
   start(bin) {
     const log = openSync(join(this.dataDir, 'bothouse.log'), 'a', 0o600);
     const child = spawn(bin, ['--headless'], { detached: true, stdio: ['ignore', log, log], windowsHide: true, env: this.env });
-    child.on('error', error => this.logger?.warn?.('conest-collab: starting bothouse failed: %s', error?.message ?? error));
+    const exited = new Promise(resolve => {
+      child.on('error', error => { this.logger?.warn?.('conest-collab: starting bothouse failed: %s', error?.message ?? error); resolve(String(error?.message ?? error)); });
+      child.on('exit', code => resolve(code));
+    });
     child.unref();
     this.logger?.info?.('conest-collab: started bothouse (pid %d)', child.pid);
+    return exited;
   }
 }

@@ -210,6 +210,8 @@ export async function apply(ctx, rawConfig) {
     hub.post(msg.room_id, { authorKind: 'system', author: 'system', name: '系统', text,
       card: JSON.stringify({ title: '成员出错', state: 'failed', ...(bridge.noKey ? { action: 'configure-model' } : {}), member_id: m.id, trigger_id: msg.id }) });
   };
+  // #1884: a member's connection dropped: when the bridge is gone (killed, crashed), start it again.
+  gateway.onMemberLost = () => { bridge.revive(); };
   const avatarUploads = new AvatarUploads(join(config.dataDir, 'avatars'));
   // A stored member (kind 'dsh': defined in this channel host) is shown at once, offline until its bothouse
   // role connects, and handed to the bridge.
