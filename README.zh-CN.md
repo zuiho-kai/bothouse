@@ -1,30 +1,53 @@
 <div align="center">
-  <a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
-  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
-</picture>
-  </a>
+
+<img src="docs-site/public/img/logo.svg" alt="bothouse" width="88" />
 
 # bothouse
 
-[English](README.md) ｜ **中文**
+**住在你群聊里的 AI 团队：自己分活，记得学过的东西，替你把事干完。**
 
-[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE)
-[![Platforms](https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square)](https://github.com/zuiho-kai/bothouse/releases)
-[![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
+个人/团队可用的组织智能体。
 
-**用别人的 agent 给你干活：朋友的 Claude Code、Codex 拉进你的群，你 @ 一下就开工。**
+<!-- 待做：Star 横幅图（照 Mika star-banner），文字「喜欢 bothouse？点右上角的 Star」 -->
+**⭐ 喜欢 bothouse？点右上角的 Star**
 
-自己的 AI 也一起拉进来：组长 AI 拆活分给大家，大家共用一份记忆。
+<br/>
+
+<a href="#install"><img src="https://img.shields.io/badge/安装-macOS%20·%20Windows%20·%20Linux-e8833a?style=for-the-badge" alt="安装" /></a> <a href="https://github.com/zuiho-kai/bothouse/stargazers"><img src="https://img.shields.io/github/stars/zuiho-kai/bothouse?style=for-the-badge&logo=github&label=Star&color=f2b33d&logoColor=white" alt="Star" /></a>
+
+<br/>
+
+[![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases) [![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB)
+
+<br/>
+
+[English](README.md) · **中文**
+
+<br/>
+
+<!-- 待做：主动图（新录，从人在群里说一句开始）。录好前先放现有截图 -->
+<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
+
+<sub>群里交代一句：组长 AI 把活派进工作区，各自干完交回，聊天照常聊。</sub>
+
+</div>
+
+## 群里说一句，团队把事干完
+
+<!-- 三格动图待新录 -->
+<table>
+<tr>
+<td align="center" width="33%"><b>「这件事你们分一下」</b><br/><sub>组长 AI 拆开，派给合适的角色</sub></td>
+<td align="center" width="33%"><b>「照上次说的来」</b><br/><sub>翻出记下的做法，不用你再讲一遍</sub></td>
+<td align="center" width="33%"><b>「做完再叫我」</b><br/><sub>在单独的工作频道干到做完，带结果回来</sub></td>
+</tr>
+</table>
+
+<div align="center">
 
 [宣传片](#video) · [来由](#why) · [从哪开始](#usage) · [安装](#install) · [怎么运作](#how) · [能力](#features) · [记忆](#memory) · [平台](#platforms) · [对比](#compare) · [路线图](#roadmap) · [社区](#community) · [文档](docs/GETTING_STARTED.md)
 
 </div>
-
-<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
 
 <a id="video"></a>
 
@@ -43,6 +66,10 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 ## 来由
 
 我手上同时开着 Claude Code、Codex、DeepSeek，两个屏幕来回切，几个之间协作很费劲。于是把它们拉进同一个 Discord 群，让其中一个负责派活，再给它们一份共用的记忆。不用另开账号、不用另买订阅，电脑、手机、浏览器上都能指挥。
+
+**用别人的 agent 给你干活：朋友的 Claude Code、Codex 拉进你的群，你 @ 一下就开工。**
+
+自己的 AI 也一起拉进来：组长 AI 拆活分给大家，大家共用一份记忆。
 
 **现在最常见的用法是借别人的 agent**。我们群里的 zzzx0757 就在用作者 zuiho-kai 的 agent：他在 Discord 群里 @ 一下组长「橘」，活就派下去，龙娘（Codex）写代码，鲸鱼娘（DeepSeek）改文案，干完交回给他。作者的电脑开着，朋友的 Claude、Codex 就像外派过来的员工；你不用为了生图再订一个号，也不用几个人挤一个账号登来登去，一台电脑开着，全群都能派活。
 
@@ -243,6 +270,11 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，且不加 `no_web`，见[面板构建](docs/dashboard-source-build.md)。
 
 更多见[上手指南](docs/GETTING_STARTED.md) · [README 细节](docs/readme-details.md) · [在 DSH 里用 bothouse](docs/platforms/dsh.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [模型和推理档位](docs/model-and-reasoning.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
+  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
+</picture></p>
 
 <a id="community"></a>
 
