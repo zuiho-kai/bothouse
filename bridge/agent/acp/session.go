@@ -97,6 +97,12 @@ type permState struct {
 }
 
 // acpSessionConfig bundles the inputs newACPSession needs. It's a
+// handshakeTimeout bounds ACP startup round-trips (initialize, authenticate,
+// session/new, session/load, model/effort configuration) so a hung backend
+// process does not block the bridge engine indefinitely.
+// 来源：沿用 listSessionsProbeTimeout (15s) 的两倍 (30s)，实测留足 session/load 历史回放与慢速后端冷启余量。
+var handshakeTimeout = 30 * time.Second
+
 // struct rather than a long positional argument list because we keep
 // adding optional knobs (initialMode, callbacks) and would otherwise
 // break every call site each time.
@@ -153,28 +159,101 @@ func newACPSession(ctx context.Context, cfg acpSessionConfig) (*acpSession, erro
 		cancel()
 		return nil, fmt.Errorf("acp: stdin pipe: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		cancel()
+		_ = stdin.Close()
 		return nil, fmt.Errorf("acp: stdout pipe: %w", err)
 	}
+	cmd.Stdout = stdoutW
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = io.MultiWriter(&stderrBuf, os.Stderr)
 
 	s.cmd = cmd
-	s.tr = newTransport(stdout, stdin, s.onNotification, s.onServerRequest)
+	s.tr = newTransport(stdoutR, stdin, s.onNotification, s.onServerRequest)
+
+	prepareCmdForKill(cmd)
+	cmd.Cancel = func() error {
+		return forceKillCmd(cmd)
+	}
+	// 来源：沿用 bridge/agent/gemini/session.go (1s)，实测 500ms 足够子进程退出后回收残余管道
+	cmd.WaitDelay = 500 * time.Millisecond
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		_ = stdin.Close()
+		_ = stdoutW.Close()
+		_ = stdoutR.Close()
 		return nil, fmt.Errorf("acp: start %s: %w", cfg.command, err)
+	}
+	_ = stdoutW.Close()
+
+	exitErr := func(err error) error {
+		if err != nil {
+			return fmt.Errorf("acp: process exited: %w", err)
+		}
+		return fmt.Errorf("acp: process exited: %w", io.EOF)
 	}
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		defer s.CloseSubTasks()
-		s.tr.readLoop(sessionCtx)
-		waitErr := cmd.Wait()
+		waitDone := make(chan error, 1)
+		go func() {
+			waitDone <- cmd.Wait()
+		}()
+
+		readDone := make(chan struct{})
+		go func() {
+			defer close(readDone)
+			s.tr.readLoop(sessionCtx)
+		}()
+
+		var waitErr error
+		select {
+		case waitErr = <-waitDone:
+			s.alive.Store(false)
+			// Let readLoop drain any buffered output written just before exit
+			// (e.g. a tool_call frame before disconnect); if a grandchild still
+			// holds stdout open, cancel pending calls and reap the process tree.
+			select {
+			case <-readDone:
+			case <-sessionCtx.Done():
+				s.tr.cancelAll(exitErr(waitErr))
+				_ = forceKillCmd(cmd)
+				_ = stdin.Close()
+				_ = stdoutR.Close()
+				select {
+				case <-readDone:
+				case <-time.After(cmd.WaitDelay):
+				}
+			case <-time.After(cmd.WaitDelay):
+				s.tr.cancelAll(exitErr(waitErr))
+				_ = forceKillCmd(cmd)
+				_ = stdin.Close()
+				_ = stdoutR.Close()
+				select {
+				case <-readDone:
+				case <-time.After(cmd.WaitDelay):
+				}
+			}
+			_ = stdin.Close()
+			_ = stdoutR.Close()
+			s.tr.cancelAll(exitErr(waitErr))
+		case <-readDone:
+			s.alive.Store(false)
+			_ = stdin.Close()
+			_ = stdoutR.Close()
+			select {
+			case waitErr = <-waitDone:
+			case <-time.After(cmd.WaitDelay):
+				_ = forceKillCmd(cmd)
+				waitErr = <-waitDone
+			}
+			s.tr.cancelAll(exitErr(waitErr))
+		}
+
 		if waitErr != nil {
 			msg := stderrBuf.String()
 			if msg != "" {
@@ -232,7 +311,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 			"version": "1.0.0",
 		},
 	}
-	res, err := s.tr.call(s.ctx, "initialize", initParams)
+	initCtx, cancelInit := context.WithTimeout(s.ctx, handshakeTimeout)
+	res, err := s.tr.call(initCtx, "initialize", initParams)
+	cancelInit()
 	if err != nil {
 		return fmt.Errorf("acp: initialize: %w", err)
 	}
@@ -260,9 +341,12 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 	}
 
 	if strings.TrimSpace(authMethod) != "" {
-		if _, err := s.tr.call(s.ctx, "authenticate", map[string]any{
+		authCtx, cancelAuth := context.WithTimeout(s.ctx, handshakeTimeout)
+		_, err := s.tr.call(authCtx, "authenticate", map[string]any{
 			"methodId": authMethod,
-		}); err != nil {
+		})
+		cancelAuth()
+		if err != nil {
 			return fmt.Errorf("acp: authenticate (%s): %w", authMethod, err)
 		}
 		slog.Debug("acp: authenticated", "method_id", authMethod)
@@ -290,7 +374,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		guard := s.inputGuard
 		s.inputGuard = true
 		s.inputMu.Unlock()
-		loadRes, err := s.tr.call(s.ctx, resumeMethod, loadParams)
+		loadCtx, cancelLoad := context.WithTimeout(s.ctx, handshakeTimeout)
+		loadRes, err := s.tr.call(loadCtx, resumeMethod, loadParams)
+		cancelLoad()
 		s.inputMu.Lock()
 		s.inputGuard = guard
 		s.inputMu.Unlock()
@@ -327,7 +413,9 @@ func (s *acpSession) handshake(resumeSessionID string, authMethod string) error 
 		"cwd":        s.workDir,
 		"mcpServers": []any{},
 	}
-	newRes, err := s.tr.call(s.ctx, "session/new", newParams)
+	newCtx, cancelNew := context.WithTimeout(s.ctx, handshakeTimeout)
+	newRes, err := s.tr.call(newCtx, "session/new", newParams)
+	cancelNew()
 	if err != nil {
 		return fmt.Errorf("acp: session/new: %w", err)
 	}
@@ -402,7 +490,7 @@ func (s *acpSession) CurrentMode() string {
 // (devin acp in 2026.4.9) silently accepts unknown modeIds without
 // any error, so a server-only check would let typos go undetected.
 func (s *acpSession) SetLiveMode(mode string) bool {
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return false
 	}
 	sid := s.currentACPSessionID()
@@ -835,7 +923,7 @@ func (s *acpSession) emit(ev core.Event) {
 func (s *acpSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return fmt.Errorf("acp: session closed")
 	}
 	s.inputMu.Lock()
@@ -881,7 +969,8 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	s.promptInFlight.Store(false)
 	complete() // write failure/cancellation may not invoke the reader callback
 	var result struct {
-		StopReason string `json:"stopReason"`
+		StopReason string          `json:"stopReason"`
+		Usage      *acpPromptUsage `json:"usage"`
 	}
 	validResult := json.Unmarshal(res, &result) == nil
 	s.outputMu.Lock()
@@ -953,6 +1042,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	if strings.TrimSpace(output.last) != "" {
 		evt.Metadata = map[string]any{core.MetaLastReply: output.last} // #1270: the [report] check reads this
 	}
+	s.absorbPromptUsage(sid, result.Usage, &evt)
 	s.emit(evt)
 	return nil
 }
@@ -1041,7 +1131,7 @@ func (s *acpSession) appendImageRefs(prompt string, images []core.ImageAttachmen
 }
 
 func (s *acpSession) RespondPermission(requestID string, result core.PermissionResult) error {
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return fmt.Errorf("acp: session closed")
 	}
 
@@ -1100,13 +1190,13 @@ func (s *acpSession) CanResume() bool {
 }
 
 func (s *acpSession) Alive() bool {
-	return s.alive.Load()
+	return s.alive.Load() && (s.tr == nil || !s.tr.isClosed())
 }
 
 func (s *acpSession) Close() error {
 	s.CloseSubTasks()
 	s.closeOnce.Do(func() {
-		s.alive.Store(false)
+		wasAlive := s.alive.Swap(false)
 		// The prompt response can precede durable storage. Let capable servers
 		// drain and flush the session before CommandContext kills the process.
 		if sid := s.currentACPSessionID(); s.closeSupported && sid != "" && s.ctx.Err() == nil {
@@ -1119,8 +1209,8 @@ func (s *acpSession) Close() error {
 			}
 		}
 		s.cancel()
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
+		if wasAlive && s.cmd != nil && s.cmd.Cancel == nil {
+			_ = forceKillCmd(s.cmd)
 		}
 		done := make(chan struct{})
 		go func() {

@@ -404,6 +404,9 @@ func TestGroupReplyToOther_QuotesWithoutMention(t *testing.T) {
 	if m.Mentioned {
 		t.Error("Mentioned = true, want false when replying to another user")
 	}
+	if !m.AddressedOther {
+		t.Error("AddressedOther = false, want true when replying to another member's message")
+	}
 	// Recent group chat may come first (groupContext); the quote ends it and names
 	// the speaker, so the quoting user does not inherit the quoted words.
 	if !strings.HasSuffix(m.ExtraContent, "[引用消息]\n成员：之前的讨论内容") {
@@ -634,16 +637,18 @@ func TestGroupNamesTeammate_SetsAddressedOther(t *testing.T) {
 	}
 }
 
-// @ a person who is not a bot: neither this bot's call nor another bot's.
-func TestGroupAtOutsider_NotAddressedOther(t *testing.T) {
+// @ a person who is not a bot: the message calls that member, so it is only
+// context for this bot (core addresseeOf "@真人"), the same rule platform/discord
+// applies to an @ of another user.
+func TestGroupAtOutsider_SetsAddressedOther(t *testing.T) {
 	f := newFakeOneBot(t)
 	_, msgs := startTestPlatform(t, f)
 
 	f.push(groupMessage(111, 1001, 1, atSegment("3003"), textSegment(" 你看一下")))
 	msg := awaitMessage(t, msgs)
 
-	if msg.AddressedOther {
-		t.Error("AddressedOther = true, want false: an ordinary person is not a team bot")
+	if !msg.AddressedOther {
+		t.Error("AddressedOther = false, want true: the @ named another member")
 	}
 	if msg.Mentioned {
 		t.Error("Mentioned = true, want false")

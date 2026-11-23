@@ -24,7 +24,7 @@ Other machines mirror their transcripts to the Mac after each run (MIRROR_TO); t
 The teammates' wikis (contrib/wiki/setup_wiki.py) run this same file with WIKI_DIR=<their wiki>: their config.json sets
 whose sessions, rules and channel it is (DEFAULTS are 橘's); their bin/ingest.py and bin/lint.py only exec this one.
 """
-import argparse, calendar, collections, fnmatch, hashlib, json, os, posixpath, re, shlex, sqlite3, subprocess, sys, tempfile, threading, time, traceback
+import argparse, calendar, collections, fnmatch, hashlib, json, os, posixpath, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, threading, time, traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -302,7 +302,12 @@ LAST_ENGINE = ""  # engine/model that produced the accepted result of the last m
 LAST_REJECTED = False  # last model_pass: the model finished but its result failed acceptance (vs. a call failure)
 MAX_NET_DELETE = 40  # ingest removing this many more lines than it adds is rejected (lint: 3×)
 MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "gemini-3.1-pro", "agy": "gemini-3.8-flash-high",
-          "codex": os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna")}
+          "codex": os.environ.get("WIKI_CODEX_MODEL", "gpt-6-luna"),
+          # source: #931 handoff names swe-2-flash-high / swe-2-high as the free Devin models to try
+          "devin": os.environ.get("WIKI_DEVIN_MODEL", "swe-2-flash-high")}
+# Source: github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/model.py, checked 2026-11-18.
+# Pin wiki shorthand here: Claude's user settings may map the same shorthand to a different family.
+CLAUDE_MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
@@ -832,14 +837,21 @@ R4 描述一行，说出子域里所有主题族；父 README 里那一行「- [
 
 条目（README 原文）："""
 
-REDO = """上一次的输出没通过脚本验收，问题如下。按原任务重新输出（只输出原任务「交付」要的内容）：
-{errors}"""
+REPAIR_RULES = """Fix only the reported errors under the original task and CLAUDE.md; leave unrelated content unchanged.
+Match each correction to its actual error: restore changed old log bytes for append-only errors, append a new
+session heading for A2, and restore missing still-true facts for preservation errors. Split or compress pages
+only when a reported structural error requires it, never as a default repair. Lint warnings alone are not
+errors and do not justify changing old facts. Preserve code error messages, commands and configuration
+literals verbatim, including brackets and escaping; do not rewrite them as HTML entities to silence warnings.
+"""
 
-FIX = """The structural linter rejected the wiki after your last pass. Fix these violations per CLAUDE.md
-(split or compress — don't drop still-true facts; keep READMEs/MEMORY.md in sync; never merge a subdomain
-<dir>/README.md back into its parent):
+REDO = """上一次的输出没通过脚本验收，问题如下。按原任务重新输出（只输出原任务「交付」要的内容）：
 {errors}
-Finish with one line per change."""
+""" + REPAIR_RULES
+
+FIX = """The wiki failed the script's acceptance checks after your last pass:
+{errors}
+""" + REPAIR_RULES + "Finish with one line per change."
 
 
 # The manuals name program settings as @NAME@; the numbers live only in lint.py and the constants above.
@@ -1694,17 +1706,25 @@ def dsh(instruction, stdin="", label="?", context=None):
     return r["rc"] == 0 and bool(out), out or f"rc={r['rc']} {r['stderr']}", 0
 
 
+class ClaudeModelError(SystemExit):
+    """Stop the run: a model identity violation must bypass ordinary failure/fallback handlers."""
+
+
 def claude(instruction, stdin="", label="?", context=None, model=None, api=False):
     """`context` (the transcript) goes at the end of the system prompt: that is cached and sits before the
     git status and the user message, so the INGEST and VERIFY passes share it. --strict-mcp-config keeps
     claude.ai connectors out, which otherwise make every prefix unique. Keep --tools identical across passes."""
+    requested = model or MODELS["claude"]
+    model = CLAUDE_MODELS.get(requested, requested)
+    if not re.fullmatch(r"claude-[a-z0-9-]+-\d+", model):
+        raise ClaudeModelError(f"{label}: Claude requires an exact model ID, got {requested!r}")
     # autoMemoryDirectory points at this wiki: the memory dir is writable without permission, so with the
     # global ~/wiki setting a trial on a clone would edit the real wiki.
     # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
     # workspace-write) confines writes to the wiki directory.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
-    cmd = ["claude", "-p", instruction, "--model", model or MODELS["claude"], "--no-session-persistence", "--strict-mcp-config",
+    cmd = ["claude", "-p", instruction, "--model", model, "--no-session-persistence", "--strict-mcp-config",
            "--settings", json.dumps(settings), "--tools", "Read,Edit,Write,Glob,Grep,Bash",
            "--permission-mode", "acceptEdits", "--output-format", "json"]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
@@ -1722,14 +1742,29 @@ def claude(instruction, stdin="", label="?", context=None, model=None, api=False
                            env={**os.environ, "WIKI_INGEST": "1"})
     try:
         res = json.loads(r.stdout)
-        out, cost = res.get("result", ""), res.get("total_cost_usd", 0)
-        log(f"{label} tokens: {record_usage(label, res, 'api:' if api else '')}")
     except ValueError:
+        if r.returncode == 0:
+            raise ClaudeModelError(f"{label}: Claude expected {model}, reported no JSON model identity")
+        res = None
+    if res is None and r.returncode == 0:
+        raise ClaudeModelError(f"{label}: Claude expected {model}, reported no model identity")
+    if res is not None:
+        if not isinstance(res, dict) or not isinstance(res.get("modelUsage") or {}, dict):
+            raise ClaudeModelError(f"{label}: Claude expected {model}, reported invalid model usage")
+        out, cost = res.get("result", ""), res.get("total_cost_usd", 0)
+        # Keep every reported model's usage, including failed calls, before rejecting a mismatched result.
+        log(f"{label} tokens: {record_usage(label, res, 'api:' if api else '')}")
+        actual = set(res.get("modelUsage") or {})
+        if (actual or r.returncode == 0) and actual != {model}:
+            error = f"{label}: Claude expected {model}, reported {', '.join(sorted(actual)) or 'no model'}; batch not delivered"
+            log(error)
+            raise ClaudeModelError(error)
+    else:
         out, cost = (r.stdout or r.stderr)[-500:], 0
     if r.returncode and not api and any(q in out.lower() for q in QUOTA_TEXT):
         global quota_hit
         quota_hit = True
-    return r.returncode == 0, out.strip(), cost
+    return r.returncode == 0 and not res.get("is_error"), out.strip(), cost
 
 
 def lint_errors():
@@ -1762,16 +1797,23 @@ def acceptance(sids=(), max_delete=None, kind="ingest"):
     miss = lossless.missing(lossless.corpus(base, WIKI), lossless.corpus(None, WIKI))
     if miss:
         errs.append(lossless.report(miss))
-    log_diff = git("diff", base, "--", "log.md").splitlines()
-    # append-only = the old text is still the file's beginning, word for word. Not "no - line in the diff": a log.md
-    # without a final newline shows its last line as removed and re-added whenever anything is appended (one
-    # session failed 30 runs on this, 2026-11-20), although no byte of it changed.
-    before = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI, capture_output=True, text=True).stdout
-    after = (WIKI / "log.md").read_text() if (WIKI / "log.md").exists() else ""
-    if not after.startswith(before):
+    # append-only = the old bytes are still the file's beginning. Not "no - line in the diff": a log.md without a
+    # final newline shows its last line as removed and re-added whenever anything is appended (one session failed
+    # 30 runs on this, 2026-11-20), although no byte of it changed. A2 entries are counted only in the appended
+    # bytes: that re-added old heading is not this round's record.
+    old_log = subprocess.run(["git", "show", f"{base}:log.md"], cwd=WIKI,
+                             capture_output=True, check=True).stdout
+    log_path = WIKI / "log.md"
+    new_log = log_path.read_bytes() if log_path.exists() else b""
+    appended = b""
+    if not new_log.startswith(old_log):
         errs.append("log.md is append-only: restore the lines you removed or changed")
-    heads = [l for l in log_diff if re.match(rf"\+## \[\d{{4}}-\d\d-\d\d\] {kind} \| ", l)]
-    missing = [s for s in sids if not any(s in h for h in heads)]
+    else:
+        appended = new_log[len(old_log):]
+        if old_log and not old_log.endswith(b"\n"):
+            appended = appended.partition(b"\n")[2]  # skip the continuation of the old final line
+    heads = [l for l in appended.splitlines() if re.match(rf"## \[\d{{4}}-\d\d-\d\d\] {kind} \| ".encode(), l)]
+    missing = [s for s in sids if not any(s.encode() in h for h in heads)]
     if missing:
         errs.append(f"A2: no new log.md entry '## [YYYY-MM-DD] {kind} | <sid8> <title>' for session(s) "
                     f"{', '.join(missing)} — append one per session in exactly that format")
@@ -1838,6 +1880,9 @@ def model_pass(label, *a, **k):
         return False
     try:
         return _model_pass(label, *a, **k)
+    except ClaudeModelError:
+        discard()
+        raise
     except Exception as e:  # noqa: BLE001 — Ctrl-C / SystemExit still end the run
         CRASHED = f"{type(e).__name__}: {e}"[:300]
         log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
@@ -2144,7 +2189,7 @@ def run(a, engines=None):
     items = []
     # A bounded pending run must not consume closure hints for deferred sessions.
     pending = getattr(a, "pending", False) and not a.nightly
-    proposal = family((engines or [ENGINE])[0]) in ("codex", "openai")
+    proposal = family((engines or [ENGINE])[0]) in ("codex", "openai", "devin")
     closed = (set(QUEUE.read_text().split()) if pending and QUEUE.exists() else
               set() if pending else take_queue()) | ({a.session} if a.session else set())
     for p in ready(db, None if closed else a.session, closed):
@@ -2218,7 +2263,7 @@ def batches_of(items):
 
 
 def is_claude(engine):
-    return engine.split(":")[0] not in ("codex", "gemini", "agy", "dsh", "openai")
+    return engine.split(":")[0] not in ("codex", "gemini", "agy", "dsh", "openai", "devin")
 
 
 def page_sha(page):
@@ -2615,6 +2660,7 @@ def remember(db, pages, res):
     db.commit()
 
 
+DEVIN = os.environ.get("WIKI_DEVIN_BIN", shutil.which("devin") or str(Path.home() / ".local/bin/devin"))
 PROPOSE_DIR = REPO / ".ingest-propose"  # empty cwd, JSON schemas and saved facts of the tool-less proposal calls
 # source: a failed session is retried every 30 minutes by day and once a night; two days span a missed night
 CACHE_DAYS = 2
@@ -2704,6 +2750,70 @@ def api_json(prompt, schema, label):
             f.write("\t".join(map(str, row)) + "\n")
     log(f"{label} tokens: in={row[4]} cache_read={row[5]} out={row[7]} think={row[8]} http={status}")
     return ok, out, not ok and codex_retry.provider_unavailable(status)
+
+
+# Devin CLI refusals that hold for every model of the account. Source: #931 measurement 2026-11-21 — eight
+# concurrent free-model sessions got "Reached request rate limit ... reset in N seconds", and while it lasted
+# adaptive, a paid lightning model and claude-opus-5-5-low were refused with the same line (account-wide, ~1 min).
+DEVIN_LIMIT = re.compile(r"Reached (?:request|free model) rate limit.*?reset in (\d+) seconds?", re.S)
+DEVIN_DOWN = ("Quota exhausted", "Usage limit reached", "Organization usage limit reached", "Usage paused",
+              "Authentication required")  # source: the CLI's own refusal titles (strings in devin 3000.14)
+
+
+def devin_reply(stdout):
+    """The JSON object of a `devin -p` reply: print mode has no output schema, so the reply may wrap the object in
+    prose or a code fence; the longest object that parses is the answer."""
+    best = None
+    for m in re.finditer(r"\{", stdout):
+        try:
+            value, end = json.JSONDecoder().raw_decode(stdout, m.start())
+        except ValueError:
+            continue
+        if isinstance(value, dict) and (best is None or end - m.start() > best[0]):
+            best = (end - m.start(), value)
+    return None if best is None else best[1]
+
+
+def devin_json(prompt, schema, label, model):
+    """One tool-less call through the local Devin CLI (`devin -p`, its own process, not the shared daemon), the reply
+    checked against `schema`. Returns (ok, dict or Failure). An account-wide rate limit is waited out once when the
+    run has room for the wait plus one call, else it stops the round uncounted (provider_down) like an outage."""
+    ask = (prompt + "\n\n不要调用任何工具，也不要读写文件。只输出一个 JSON 对象，必须符合下面的 JSON Schema，"
+           "不要代码块、不要解释：\n" + json.dumps(schema, ensure_ascii=False))
+    for attempt in (1, 2):
+        with tempfile.TemporaryDirectory(prefix="wiki-devin-") as cwd:
+            (Path(cwd) / "prompt.txt").write_text(ask)
+            start = time.monotonic()
+            r = engine_run([DEVIN, "--process-model", "in-process", "--respect-workspace-trust", "false",
+                            "--permission-mode", "auto", "--model", model, "--prompt-file", "prompt.txt", "-p"],
+                           cwd=cwd, capture_output=True, text=True, timeout=3600,
+                           env={**os.environ, "WIKI_INGEST": "1"})
+        out = (r.stdout or "") + (r.stderr or "")
+        with USAGE_LOCK:
+            with open(USAGE, "a") as f:  # free models: no token counts in print mode, the row records the call
+                f.write("\t".join(map(str, [time.strftime("%F %T"), label, f"devin:{model}", 1, 0, 0, 0, 0, 0, 0])) + "\n")
+        log(f"{label} devin:{model} rc={r.returncode} {time.monotonic() - start:.0f}s")
+        limit = DEVIN_LIMIT.search(out)
+        if limit:
+            wait = int(limit[1]) + 5  # source: the refusal's own reset time, plus a few seconds of clock skew
+            # source: 97 s, the longest measured proposal call (propose_pass's codex comment), must still fit after it
+            if attempt == 1 and (budget.remaining() is None or budget.remaining() > wait + 97):
+                log(f"{label}: devin rate limit, waiting {wait}s as the refusal says")
+                time.sleep(wait)
+                continue
+            return False, codex_retry.Failure(f"devin rate limit: {limit[0][:200]}", "rate_limited", provider_down=True)
+        if any(word in out for word in DEVIN_DOWN):
+            return False, codex_retry.Failure(f"devin refused: {out.strip()[-300:]}", "provider", provider_down=True)
+        if r.returncode == 124 and budget.exhausted():
+            return False, codex_retry.Failure(out.strip()[-300:], "budget_exhausted", started=True)
+        value = devin_reply(r.stdout or "")
+        if r.returncode != 0 or value is None:
+            return False, codex_retry.Failure(f"devin rc={r.returncode}: {out.strip()[-300:]}", "model")
+        try:
+            return True, propose.validate(value, schema)
+        except ValueError as e:
+            return False, codex_retry.Failure(f"devin reply does not match the schema: {e}", "model")
+    return False, codex_retry.Failure("devin rate limit", "rate_limited", provider_down=True)
 
 
 def role_rules(sources, text=""):
@@ -2831,6 +2941,15 @@ def propose_pass(label, it, text, sids, sources, engine):
             ROUTE_DOWN, OUT_OF_TIME = ROUTE_DOWN or down, OUT_OF_TIME or out_of_time(out)
             failed.append(out)
             return None
+        if name == "devin":
+            model = engine.partition(":")[2] or MODELS["devin"]
+            ok, out = devin_json(prompt, schema, sub, model)
+            if ok:
+                LAST_ENGINE = f"devin:{model}"
+                return out
+            ROUTE_DOWN, OUT_OF_TIME = ROUTE_DOWN or out.provider_down, OUT_OF_TIME or out_of_time(out)
+            failed.append(out)
+            return None
         # Source: measured 2026-11-20 over 110 tool-less proposal calls: median 29 s, longest 97 s. The session itself
         # is bounded by the run's deadline; each call only needs room for one such call.
         ok, out, _, _, model = codex_retry.run(lambda m, _tid: codex_json(prompt, schema, sub, m, effort), CODEX_CHAIN,
@@ -2903,7 +3022,7 @@ def openai_route(engines):
 def ingest_batches(db, items, engines, pending=False):
     global PREFETCH
     batches = batches_of(items)  # reuse the existing input budget: small sessions share both tool-less calls
-    if family((engines or [ENGINE])[0]) in ("codex", "openai"):
+    if family((engines or [ENGINE])[0]) in ("codex", "openai", "devin"):
         batches = [[(it, re.sub(r"\A=== SESSION [^\n]*\n", "", piece)) for it, piece in b] for b in batches]
         batches = [[(it, f"=== SESSION {it['id'][:8]} | {it['date']} ===\n{piece}") for it, piece in b] for b in batches]
     if openai_route(engines):  # batches' calls run ahead; writes stay one at a time
@@ -2938,7 +3057,7 @@ def _ingest_batches(db, batches, engines, pending):
             if quota_hit and is_claude(engine):
                 continue  # every Claude model shares the quota that just refused
             log(f"{label}: {len(text)} chars → {engine}")
-            if family(engine) in ("codex", "openai"):
+            if family(engine) in ("codex", "openai", "devin"):
                 item = {**batch[0][0], "_sessions": list(dict.fromkeys(
                     (it["id"][:8], it["date"]) for it, _ in batch))}
                 try:

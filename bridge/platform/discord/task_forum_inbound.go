@@ -73,3 +73,22 @@ func (p *Platform) handleTaskForumReply(s *discordgo.Session, m *discordgo.Messa
 	})
 	return true
 }
+
+// isTaskForumThread reports whether channelID is a task-forum post (restart catch-up leaves
+// those to the task route; handleTaskForumReply dispatches by itself).
+func (p *Platform) isTaskForumThread(s *discordgo.Session, guildID, channelID string) bool {
+	if guildID == "" {
+		return false
+	}
+	p.mu.RLock()
+	h, ok := p.eventHandler.(core.TaskForumInboundHandler)
+	if !ok {
+		h, ok = p.lifecycleHandler.(core.TaskForumInboundHandler)
+	}
+	p.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	_, known := h.ResolveTaskForumReply(p.Name(), guildID, channelParent(s, channelID), channelID)
+	return known
+}

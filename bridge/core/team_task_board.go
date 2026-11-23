@@ -31,6 +31,8 @@ type teamTaskBoardItem struct {
 	Short    string `json:"short"` // board.py add --short / short_of: the name the board shows
 	Status   string `json:"status"`
 	Who      string `json:"who"`
+	Model    string `json:"model"`  // the model ws-handoff --model picked for this task (#2075)
+	Effort   string `json:"effort"` // and its reasoning effort, when given
 	Where    string `json:"where"`
 	At       string `json:"at"`
 	Next     string `json:"next"`
@@ -54,6 +56,11 @@ type teamTaskBoardItem struct {
 	// WaitUntil: epoch when a task paused as 「等外部：…」 (board.py wait) is handed to a workspace
 	// again (team_wait_external.go retryWaitingExternal).
 	WaitUntil int64 `json:"wait_until"`
+	// WatchPR: pull requests watched while the item is paused as 「等外部」 (board.py wait / watch-pr).
+	// PRNews: what board.py pr-events found new on them, one line with its link each; it set
+	// WaitUntil to now, and the hand-back carries these lines (team_pr_events.go).
+	WatchPR []string `json:"watch_pr,omitempty"`
+	PRNews  []string `json:"pr_news,omitempty"`
 	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
 	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
 	PauseReq string `json:"pause_req"`
@@ -92,7 +99,10 @@ type teamTaskBoardItem struct {
 
 	ReviewRejected string `json:"review_rejected"`
 	Dispatcher     string `json:"dispatcher"`
-	Reviewer       string `json:"reviewer"`
+	// Assigner: who set the task (ws-handoff, from the turn's caller identity); the final report and
+	// the question call mention them (team_task_assigner.go, #988). nil on rows from before.
+	Assigner *teamTaskAssigner `json:"assigner,omitempty"`
+	Reviewer string            `json:"reviewer"`
 	// ReviewTier: "complex" sends the verification to the complex-tier role (board tier); anything
 	// else, including unmarked, is simple (user 2026-11-04, 主角色代答 A+C).
 	ReviewTier   string   `json:"review_tier,omitempty"`
@@ -1272,6 +1282,9 @@ func renderTeamTaskTableAsks(items []teamTaskBoardItem, links []teamTaskLink, ch
 			wsLast := teamTaskBoardWorkspaceActive(it, now)
 			if card != nil && card.UpdatedAt.After(wsLast) {
 				wsLast = card.UpdatedAt
+			}
+			if m := strings.TrimSpace(it.Model + " " + it.Effort); m != "" {
+				short += " · " + m // #2075: which model this task runs on, to check against the handoff
 			}
 			running = append(running, runRow{where: where, short: short, span: span,
 				last: wsLast, bound: bound, stuck: state == teamTaskStuck || !wsLast.IsZero() && now.Sub(wsLast) >= teamTaskBoardStuckAfter})

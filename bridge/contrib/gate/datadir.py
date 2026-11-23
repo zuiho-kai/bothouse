@@ -7,10 +7,6 @@
   bothouse 拉起 gate 时两个都设成同一个数据目录（core/gate_proc.go）。
 """
 import os
-try:
-    import pwd  # Windows 没有 pwd 模块
-except ImportError:
-    pwd = None
 import sys
 import tempfile
 from pathlib import Path
@@ -26,21 +22,28 @@ def _in_test():
     return any(home == t or home.startswith(t + "/") for t in _TEMP)
 
 
+def _live_dir(p):
+    """p 自己或上级里放着 config.toml、又不在临时目录里的那一层：一份在用的数据目录（桥读的真实配置在那里）。"""
+    for d in (p, *p.parents):
+        s = str(d)
+        if any(s == t or s.startswith(t + os.sep) for t in _TEMP):
+            return None  # 往上走先碰到临时目录：测试自己建的数据目录，放行
+        if (d / "config.toml").is_file():
+            return d
+    return None
+
+
 def guard(path):
-    """测试碰到本账号的线上数据目录（真实主目录下含 config.toml 的 ~/.bothouse 或 ~/.cc-connect）就中止，同 brand.go GuardTestDataDir。
-    起因 2026-11-01：bot 会话带着 BOTHOUSE_DATA_DIR/CC_DATA_DIR，测试只换了 HOME，安装测试把团队记录、hooks、tools 写进了线上目录。"""
+    """测试碰到在用的数据目录（它自己或上级放着真实 config.toml，且不在临时目录里）就中止。
+    起因 2026-11-01：bot 会话带着 BOTHOUSE_DATA_DIR/CC_DATA_DIR，测试只换了 HOME，安装测试把团队记录、hooks、tools 写进了线上目录。
+    2026-11-22：原来只认真实主目录下的 ~/.bothouse、~/.cc-connect，本机线上目录 ~/.cc-connect-maomao 漏网，
+    单测夹具整份覆盖了线上任务板；改成按「真实配置在哪」判，不再写死目录名单。"""
     if path is None or str(path) == "" or not _in_test():
         return path
-    try:
-        # 真实主目录（不看被测试改掉的 HOME）：Unix 查账户库；Windows 的 USERPROFILE 是账户目录，Path.home() 也先看它
-        real = Path(pwd.getpwuid(os.getuid()).pw_dir) if pwd else Path(os.environ.get("USERPROFILE") or Path.home())
-    except KeyError:
-        return path
     p = Path(path).expanduser().resolve()
-    for name in (".bothouse", ".cc-connect"):
-        live = (real / name).resolve()
-        if (p == live or live in p.parents) and (live / "config.toml").exists():
-            raise SystemExit(f"测试碰到了线上数据目录 {p}：先清掉 BOTHOUSE_DATA_DIR / CC_DATA_DIR，HOME 放进 iso-check 的隔离目录")
+    live = _live_dir(p)
+    if live is not None:
+        raise SystemExit(f"测试碰到了线上数据目录 {p}（{live} 有真实 config.toml）：先清掉 BOTHOUSE_DATA_DIR / CC_DATA_DIR / BOARD_DIR，HOME 放进 iso-check 的隔离目录")
     return path
 
 

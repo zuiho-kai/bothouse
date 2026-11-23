@@ -116,7 +116,7 @@ level = "info" # debug, info, warn, error
 #                           #          隐藏思考和工具消息，每段文本独立发送
 #                           # quiet: hide thinking/tool, all text in one card, done emoji at end
 #                           #        隐藏思考和工具消息，所有文本合并到同一张卡片，完成后发送 done emoji
-# thinking_messages = true  # Show/hide thinking messages (default: true) / 是否显示思考消息（默认 true）
+# thinking_messages = false # Show/hide thinking messages (default: false) / 是否显示思考消息（默认 false）
 # thinking_max_len = 300    # Max chars for thinking messages (default: 300) / 思考消息最大字符数（默认 300）
 # tool_max_len = 500        # Max chars for tool use messages (default: 500) / 工具调用消息最大字符数（默认 500）
 # history_max_len = 1000    # Max chars per /history entry (default: 1000; 0 = no truncation) / 每条历史记录最大字符数（默认 1000；0 表示不截断）
@@ -884,6 +884,18 @@ name = "my-backend"
 # team_review_after_seconds = 3600 # Source: existing one-hour stuck threshold; dispatcher verification deadline.
 # task_forum = false             # Discord task forum: unset = on; false keeps the original task threads.
 #                                # 任务帖子区整体开关；不写即开，关闭后沿用原任务线程。
+# mention_assigner = true        # Lead bot: report posts and questions passed to you open with an @ of who
+#                                # set the task (bot/timer-set tasks @ the owner). Unset = off.
+#                                # 主 bot：交回结果、转你拍板的问题开头 @ 布置这件活的人；不写即关，写 true 打开。
+# mention_human_gate = true      # Gate human @ notifications: ordinary replies keep <@human> as text without
+#                                # pinging; only release posts (ws-pass, when mention_assigner = true) and
+#                                # decision asks (ws-forward --ask-user / bothouse send --ask-user) ping, with
+#                                # short-window dedup. Unset = off (bridge does not gate; role rules control @).
+#                                # Note: while on, @ written by role rules only pings on those two exits.
+#                                # In a team, enabling this on the lead applies to the whole team.
+#                                # 收口 @ 真人：普通回复里的 <@真人> 只留文字不响提醒，只在放行交回和要拍板两
+#                                # 个出口真 @ 并短窗去重；不写即关（桥不拦，按角色规矩走，不冲突）。
+#                                # 注意：开着时，规矩里写的 @ 也只在这两个出口响。团队里主角色打开后全队生效。
 # team_board = false               # Main bot: pinned per-channel team board, on unless set to false.
 #                                  # 主 bot 每频道一张置顶团队状态栏；不写即开，写 false 关闭。
 # Discord options for main + subs go under [projects.platforms.options]:
@@ -2561,3 +2573,9 @@ app_secret = "your-feishu-app-secret"
 # cron = 1
 # timer = 5
 # workspace = 20
+
+# Proactive outbox: reminders for the same chat due at the same minute become one message,
+# frequent reminders share a per-chat budget, and back off when nobody answers. Off by default.
+# 主动消息控量：同一聊天同一分钟到点的提醒合成一条、每小时级提醒按聊天限额、没人理自动少发。默认关。
+# [proactive]
+# enabled = false  # default: false / 默认关

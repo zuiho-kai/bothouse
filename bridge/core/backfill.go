@@ -161,6 +161,9 @@ const (
 	backfillMaxTotalRune = 8000
 )
 
+// SnowflakeAfter is snowflakeAfter for platforms.
+func SnowflakeAfter(a, b string) bool { return snowflakeAfter(a, b) }
+
 // snowflakeAfter reports whether message ID a was posted after b (numeric IDs as strings).
 func snowflakeAfter(a, b string) bool {
 	if len(a) != len(b) {

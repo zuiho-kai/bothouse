@@ -23,7 +23,7 @@ func (a *Agent) StartSessionStrict(ctx context.Context, id string) (core.AgentSe
 }
 
 func (s *acpSession) validateInputID(id string) error {
-	if !s.alive.Load() || s.ctx.Err() != nil {
+	if !s.Alive() || s.ctx.Err() != nil {
 		return fmt.Errorf("acp: original session closed")
 	}
 	if id == "" || id == core.ContinueSession || s.currentACPSessionID() != id {

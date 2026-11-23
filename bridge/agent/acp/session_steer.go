@@ -29,7 +29,7 @@ var _ core.MidTurnSender = (*acpSession)(nil)
 // not support steering or no prompt is running it returns an error, and the gate queues the
 // message for the next turn instead.
 func (s *acpSession) SendMidTurn(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
-	if !s.alive.Load() {
+	if !s.Alive() {
 		return fmt.Errorf("acp: session closed")
 	}
 	if !s.steerSupported.Load() {

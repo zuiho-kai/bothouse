@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--guard 时长] [--confirmed] [--force] [--probe]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--model <id> [--effort <级别>]] [--guard 时长] [--confirmed] [--force] [--probe]
+#   --model / --effort：这件活在工作区用的模型和推理强度（#2075）。id 照抄本项目 `model list` 里的，不在列表里就不交并列出可选项；
+#     工作区这一轮起按它跑，任务板记着，接回（--resume）、ws-forward 续做照它再切；工作区放回时桥换回原来的模型。不写就和原来一样。
 #   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   任务句或交接标题以「接回 #N」「续 #N」「续做 #N」「接着做 #N」开头、#N 还在工作区做着：不新开任务，内容转进那个工作区（见 join）。
@@ -29,6 +31,7 @@ import _team  # noqa: E402
 import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.py）
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
+import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
@@ -36,7 +39,7 @@ import board  # noqa: E402  任务板：交活时建条目、绑工作区（../g
 
 MIGRATED = _team.SETUP / "ws-park-migrated.json"  # 做过一次性迁移的聊天频道（见 migrate_unbound）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字）\n'
+USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字） [--model <id> [--effort <级别>]]\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部、已完成要返工）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
@@ -310,7 +313,7 @@ def held(it, chat: str):
     return it["ws"], name, str(r.get("parent") or lead_chat(chat))
 
 
-def join(old, path: str, task: str) -> int:
+def join(old, path: str, task: str, model=None, effort=None) -> int:
     """这次交的内容用 ws-forward 转进正在做 old 的工作区；转成返回 0，没转成退出并说明。两种都不上板、不认领。"""
     who = old.get("who") or "工作区"
     same = _real(old.get("where") or "") == _real(path)
@@ -319,7 +322,8 @@ def join(old, path: str, task: str) -> int:
     env = dict(os.environ)
     if board.foreign_why(old):  # 转话命令不碰别的频道派的活（#836）；交接点了名要进这件，按它的聊天频道转
         env["CC_SESSION_KEY"] = board.channel_of(old)
-    r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), "--id", str(old["id"]), what],
+    pick = (["--model", model] + (["--effort", effort] if effort else [])) if model else []  # 重新指定的模型一并转过去（#2075）
+    r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), *pick, "--id", str(old["id"]), what],
                        capture_output=True, text=True, env=env)
     if r.returncode != 0:
         sys.exit(f"ws-handoff: #{old['id']} 还在{who}做着，没新开任务；内容没转进去：{(r.stderr or r.stdout).strip()[:300]}")
@@ -426,6 +430,19 @@ def migrate_unbound(chat: str, plat: str, parent: str, pool: list) -> bool:
     MIGRATED.parent.mkdir(parents=True, exist_ok=True)
     MIGRATED.write_text(json.dumps(sorted(done | {parent}), ensure_ascii=False), encoding="utf-8")
     return freed
+
+
+def assigner():
+    """布置这件活的人：桥记下的、正在跑的这一轮是谁发起的（bothouse identity show，桥签名，模型改不了）。
+    {"id", "name", "kind"}，kind 是桥的 human / bot / scheduled / local；取不到返回 None，任务板不记，桥就不 @（#988）。"""
+    try:
+        r = subprocess.run([cc_bin(), "identity", "show"], capture_output=True, text=True, timeout=30)
+        c = (json.loads(r.stdout).get("claims") or {}) if r.returncode == 0 else {}
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        return None
+    if not isinstance(c, dict) or not c.get("kind"):
+        return None
+    return {"id": str(c.get("user_id") or ""), "name": str(c.get("user_name") or ""), "kind": str(c["kind"])}
 
 
 def claim_cmd(chat: str, wid: str, task: str, nid: int):
@@ -645,10 +662,124 @@ def _window_start(text):
     return (min(got) - dt.timedelta(minutes=10)) if got else now - dt.timedelta(hours=3)
 
 
+_HDR = re.compile(r'\[bothouse sender_id=(\S+) sender_name="([^"]*)"')
+_CTX_HEAD = "（频道里你上次看到之后的消息"
+_CTX_LINE = re.compile(r"^\[(\d{1,2}):(\d{2})，[^\]\n]*\] ([^:\n]+?): ", re.M)
+_INSERTED = re.compile(r"^\[回复 ([^：\]]+)：(.*)\] ↪ 已插入$", re.S)
+_LATEST = re.compile(r"（最新，回这条）\n(?:（用户这条[^\n]*）\n)?")
+_REPLYING = re.compile(r"^\[replying to [^\]]*\]\n", re.S)
+_SYS_TAIL = re.compile(r"\n\n\[系统定时消息[^\n]*$", re.S)
+_BOT_SENDERS = {"timer", "handoff", "relay", "system"}
+
+
+def _split_bridge(body, when):
+    """桥包好的一条用户消息拆成频道里的每句话：[(时刻, 谁, 原文)]。谁 = None 表示最新那条（桥的记录里不带名字）。
+    没 @ 到主角色的话在「频道里你上次看到之后的消息」那段（行头「[时:分，…] 名字: 」），主角色做事时插进来的在
+    「[回复 名字：原文] ↪ 已插入」，最新一条在「（最新，回这条）」之后。没有这些包装就返回 []（由调用方原样留一条）。"""
+    import datetime as dt
+    out = []
+    lm = _LATEST.search(body)
+    ctx_at = body.find(_CTX_HEAD)
+    if ctx_at >= 0:
+        ctx = body[ctx_at:lm.start() if lm and lm.start() > ctx_at else len(body)]
+        ctx = ctx.split("\n", 1)[1] if "\n" in ctx else ""
+        hits = list(_CTX_LINE.finditer(ctx))
+        for i, h in enumerate(hits):
+            seg = ctx[h.end():hits[i + 1].start() if i + 1 < len(hits) else len(ctx)].split("\n\n（", 1)[0].strip()
+            who = h.group(3).strip()
+            try:
+                t = when.replace(hour=int(h.group(1)), minute=int(h.group(2)), second=0, microsecond=0)
+            except ValueError:
+                t = when
+            if t > when:
+                t -= dt.timedelta(days=1)
+            if who.startswith("Claude橘") or "你这个账号" in who:
+                im = _INSERTED.match(seg)
+                if im:
+                    out.append((t, im.group(1), im.group(2).strip()))
+                continue  # 主角色自己账号发的（定时任务输出等），不是讨论
+            out.append((t, who, seg))
+    if lm:
+        out.append((when, None, _REPLYING.sub("", _SYS_TAIL.sub("", body[lm.end():])).strip()))
+    return out
+
+
+def _jsonl_text(content):
+    if isinstance(content, str):
+        return content
+    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _transcript_names(agent_ids, start):
+    """主角色的 Claude 会话记录（~/.claude/projects/*/<id>.jsonl）里，每条最新消息的原文 → 发言人（sender_name）。
+    桥的记录里最新那条不带名字，靠这里补；不是 Claude 的主角色找不到就只写「用户」。"""
+    import datetime as dt
+    names = {}
+    for aid in dict.fromkeys(agent_ids):
+        for f in sorted(Path.home().glob(f".claude/projects/*/{aid}.jsonl")):
+            for line in open(f, encoding="utf-8"):
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if o.get("type") != "user" or not o.get("timestamp"):
+                    continue
+                text = _jsonl_text((o.get("message") or {}).get("content"))
+                m = _HDR.search(text)
+                if not m or m.group(1) in _BOT_SENDERS:
+                    continue
+                when = dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).astimezone()
+                if when < start:
+                    continue
+                for _, who, t in _split_bridge(text[m.end():], when):
+                    if who is None and t:
+                        names.setdefault(t, m.group(2))
+    return names
+
+
+def _discussion(msgs, agent_ids, start):
+    """桥的记录 [(时刻 iso, role, content)] → 讨论原文 [(时刻 iso, 谁, 原文)]：用户消息拆成每句并标发言人，
+    主角色的话标「只作参考」，同一句只留一次；同一分钟里按出现先后（频道旧消息只记到分钟）。"""
+    import datetime as dt
+    try:
+        names = _transcript_names(agent_ids, start)
+    except Exception:  # noqa: BLE001  补名字失败不影响导出
+        names = {}
+    out, seen = [], set()
+
+    def add(ts, who, text):
+        if text and (who, text) not in seen:
+            seen.add((who, text))
+            out.append((ts, len(out), who, text))
+
+    for ts, role, c in msgs:
+        if role == "assistant":
+            if c.strip().upper() != "NO_REPLY":  # 没发出去的不算讨论
+                add(ts, "主角色（只作参考）", re.sub(r"\n*NO_REPLY\s*$", "", c.strip(), flags=re.I))
+            continue
+        system = "[系统定时消息，不是用户发的" in c and not _LATEST.search(c)  # 定时任务、工作区交回：只留它前面那段频道旧消息
+        try:
+            when = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            when = None
+        parts = _split_bridge(c, when) if when else []
+        if not parts:
+            if not system:
+                add(ts, "用户和队友", c.strip())
+            continue
+        for t, who, text in parts:
+            if t >= start:
+                add(t.isoformat(), who or names.get(text, "用户"), text)
+    out.sort(key=lambda x: (x[0][:16], x[1]))
+    return [(ts, who, text) for ts, _, who, text in out]
+
+
 def append_source(path, chat, project=None):
     """给交接追加「原话出处」节：聊天频道 id、交活人的会话记录、时间窗，并把时间窗里这个聊天频道的原始对话
-    （用户、主角色和队友的原话，来自桥的会话记录 sessions/<项目>_*.json）导出到 <交接>.原话.md。
-    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」。"""
+    （用户、主角色和队友的每条消息按时间原样，来自桥的会话记录：sessions/<项目>_*.json 旁的 .history/<会话 id>.jsonl，
+    旧桥内嵌在 json 的 history 也读）导出到 <交接>.原话.md；主角色的话标「只作参考」。
+    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」；
+    11-21「你把整个讨论内容给他」「我是说之后给工作区都要这样做」（此前只读内嵌 history，桥挪到 .history/ 后导出一直是 0 条）。"""
     try:
         text = Path(path).read_text(encoding="utf-8")
         if SOURCE in text or ":" not in (chat or ""):
@@ -664,17 +795,30 @@ def append_source(path, chat, project=None):
                 s = (d.get("sessions") or {}).get(sid) or {}
                 if s.get("agent_session_id"):
                     agent_ids.append(s["agent_session_id"])
-                for m in s.get("history") or []:
+                name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in sid) or "_"
+                hist = list(s.get("history") or [])
+                hf = f.parent / (f.name.removesuffix(".json") + ".history") / (name + ".jsonl")  # core/session_history.go
+                if hf.is_file():
+                    for ln in hf.read_text(encoding="utf-8").splitlines():
+                        try:
+                            hist.append(json.loads(ln))
+                        except ValueError:
+                            continue
+                for m in hist:
+                    if not isinstance(m, dict):
+                        continue
                     ts = m.get("timestamp") or ""
                     if ts and ts >= start.isoformat():
                         msgs.append((ts, m.get("role") or "?", m.get("content") or ""))
-        msgs.sort()
+        msgs.sort(key=lambda m: m[0])  # 只按时间；同一时刻保持记录里的先后（不按 role 字母排）
+        msgs = _discussion(msgs, agent_ids, start)
         dump = Path(path).with_suffix("").as_posix() + ".原话.md"
         with open(dump, "w", encoding="utf-8") as fh:
-            fh.write(f"# 聊天频道 {chat} 原始对话（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
-            fh.write("# user 条里有用户和队友的原话（行头「[时:分] 名字:」）；assistant 是主角色自己说的。\n\n")
-            for ts, role, c in msgs:
-                fh.write(f"### {ts[5:16].replace('T', ' ')} {role}\n{c}\n\n")
+            fh.write(f"# 聊天频道 {chat} 讨论原文（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
+            fh.write("# 程序从桥的会话记录原样导出，按时间。每条标了是谁说的。用户的话是准绳；队友的话是意见；「主角色（只作参考）」是主角色自己的理解，"
+                     "和用户原话冲突时信用户。交接里没有主角色的概括，做什么照用户原话自己判断。\n\n")
+            for ts, who, c in msgs:
+                fh.write(f"### {ts[5:16].replace('T', ' ')} {who}\n{c}\n\n")
         tr = ""
         if agent_ids:
             hits = sorted(Path.home().glob(f".claude/projects/*/{agent_ids[-1]}.jsonl"))
@@ -683,7 +827,7 @@ def append_source(path, chat, project=None):
                  "（交活时程序附：开工先读这里的原始对话，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
                  f"- 聊天频道：{chat}",
                  f"- 时间窗：{start:%m-%d %H:%M} 到交活",
-                 f"- 原话导出：{dump}（{len(msgs)} 条）",
+                 f"- 讨论原文：{dump}（{len(msgs)} 条，用户和主角色每条消息按时间原样；主角色的话只作参考）",
                  f"- 读原话：sed -n '1,400p' '{dump}'"]
         if tr:
             lines.append(f"- 主角色交活时的会话记录：{tr}")
@@ -933,17 +1077,34 @@ def arm_drift(nid):
 GUARD = None  # --guard 给的时长；None 用 board.GUARD_DELAY
 
 
-def start(path, task, chat, nid, project, answer=None):
+def own_workspace(previous, nid) -> str:
+    """这件活自己的会话所在的工作区：桥暂停它时记下会话的那个（team_workspaces.json tasks[编号].session_ws），
+    没有就用任务板上上次绑的 ws_was。挑工作区时排第一，认领得了就回原会话接着做。
+    来源：#933（11-21 #928）。ws-up --ask 在工作区自己那一轮里暂停任务，#1729 起那一轮照常跑完、工作区等它结束才放回；
+    这里原先只在验收退回时才优先原工作区，答复续办按编号挑了另一个空工作区，桥把原会话复制过去
+    （15:01:26「resumed with its saved session … from=…446」），原工作区那一轮还在跑：同一件活两个会话并行，
+    后台命令的叫醒和转话又进了原工作区。原工作区在那一轮里只收这件活本身（桥 claim 对别的活报占用），
+    被别的活占了就照常换下一个。"""
+    t = ((_ws_state().get("tasks") or {}).get(str(nid)) or {}) if nid else {}
+    return str(t.get("session_ws") or previous.get("ws_was") or "")
+
+
+def start(path, task, chat, nid, project, answer=None, reassigned=False):
     """挑空工作区、绑任务板 #nid、叫醒；没空的返回 False（调用方排队）。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
-    picked = held(previous, chat) or pick_pool(chat, task, nid, previous.get("ws_was", "") if previous.get("review_rejected") else "")
+    reassigned = reassigned or bool(previous.get("dispatcher") and project and project != previous.get("dispatcher"))
+    preferred = "" if reassigned else own_workspace(previous, nid)
+    picked = (None if reassigned else held(previous, chat)) or pick_pool(chat, task, nid, preferred)
     if picked is None:
         return False
     ws, name, parent = picked
-    board.update(nid, "已交接", who=f"{name}{_lead_name(project)}")
+    board.update(nid, "已交接", who=f"{name}{_lead_name(project)}", dispatcher=project)
     board.rebind(nid, ws)
     append_skeleton(path, nid)
-    r = subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True)
+    # 交活指定过模型的活接回、续做时照它再切（#2075）：新认领的工作区放回时已换回它自己的模型
+    why = _model.apply(ws if ":" in ws else f"discord:{ws}", previous.get("model"), previous.get("effort"), project)
+    r = (subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True) if why is None else
+         subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(previous.get('model'), previous.get('effort'))} 没切成：{why}"))
     if r.returncode != 0:
         # 没叫醒：工作区放回、任务板整条退回改前（#1492 L3：原先只放工作区，板停在「已交接」绑着那个工作区）
         parked = board._park_once(cc_bin(), ws, parent)
@@ -954,7 +1115,8 @@ def start(path, task, chat, nid, project, answer=None):
     record_last(path, ws, task, chat, nid, project)
     board.arm_guard(nid, GUARD)
     arm_drift(nid)
-    print(f"ws-handoff: #{nid} 交给 {name}", file=sys.stderr)
+    md = _model.label(previous.get("model"), previous.get("effort"))
+    print(f"ws-handoff: #{nid} 交给 {name}" + (f"，模型 {md}" if md else ""), file=sys.stderr)
     return True
 
 
@@ -983,7 +1145,7 @@ def drain():
             q.pop(index)
 
 
-def resume_answered(nid, answer):
+def resume_answered(nid, answer, project=None, model=None, effort=None):
     """等你的活收到答复：恢复条目、答复写进交接，找空工作区接着做；没有就排队（core resumeAskedTask 调）。"""
     board.refuse_foreign([nid], "ws-handoff")  # 别的频道派的活不在这里续（#836）；桥续办时以条目的 chat 调，照常过
     it = next((i for i in board.items() if i["id"] == nid), None)
@@ -1002,29 +1164,53 @@ def resume_answered(nid, answer):
                  "用户定了接着改，把用户定的标准写进交接，用 ws-handoff 另交一次")
     # 提问还在主角色手里（没转给用户）时到的答复是主角色定的，不写成用户说的
     by_lead = (it.get("pause_why") or "").startswith(board.ASK_LEAD_WHY)
+    is_ask = by_lead or (it.get("pause_why") or "") == board.ASK_WHY or (it.get("pause_why") or "").startswith(board.ASK_WHY)
     source = ("验收退回" if it.get("review_rejected") else
               "到点重试" if (it.get("pause_why") or "").startswith(board.WAIT_EXT) else
               "主角色定案" if by_lead else "用户答复")
     if by_lead:
         answer = f"（主角色定的，不是用户说的）{answer}"
-    board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
+    if answer:
+        board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
-    # 接着做的是这件活原来的负责人（派它的那个项目，交活时工作区会话就是以它的身份跑的），不是眼下转话的人：
-    # 11-17 #1727 龙娘派的活，主角色转定案后落进了主角色自己在工作区的会话，那个会话不替她做、又去问用户谁来接。
-    project = it.get("dispatcher") or os.environ.get("CC_PROJECT", "")
+
+    # 接着做的是谁：
+    # 默认保持原负责人（orig_dispatcher）和原工作区，避免桥重试（core/team_wait_external.go:123）、
+    # 提问定案（#1727）或验收退回时，注入聊天频道的 CC_PROJECT 误伤改派；
+    # 只有显式指定 --project 时才发生改派（reassigned），更新 dispatcher 并分配干净新工作区。
+    caller = os.environ.get("CC_PROJECT", "")
+    orig_dispatcher = it.get("dispatcher", "")
+    if project:
+        target_project = project
+    else:
+        target_project = orig_dispatcher or caller
+
+    reassigned = bool(project and target_project != orig_dispatcher)
+    # 若改派，更新任务板条目记录的 dispatcher
+    if reassigned:
+        board.update(nid, it.get("status", "已交接"), dispatcher=target_project)
+        it["dispatcher"] = target_project
+
+    # 若指定了模型，更新任务板
+    if model:
+        board.set_model(nid, model, effort)
+        it["model"] = model
+        if effort:
+            it["effort"] = effort
+
     in_queue = False
     with _queue() as q:
         for entry in q:
             if entry["nid"] == nid:
                 entry["answer"] = answer
-                entry["project"] = project
+                entry["project"] = target_project
                 in_queue = True
     board.resume(nid)
     if in_queue:
         return drain()  # 用户 2026-11-02：答复续办也保留原位置，不重复派发。
     with _queue() as q:
         try:
-            ok = start(it["where"], it["what"], it["chat"], nid, project, answer)
+            ok = start(it["where"], it["what"], it["chat"], nid, target_project, answer, reassigned=reassigned)
         except SystemExit as e:
             # 叫醒失败：start 已把板退回到续做前一刻；再退回接回前（暂停 / 待验收退回），答复留在交接里注明没送到，
             # 下次接回时照常再走（#1492 L3）
@@ -1033,7 +1219,7 @@ def resume_answered(nid, answer):
             sys.exit(f"{e.code}；#{nid} 已退回接回前（{it.get('status') or ''}），答复没送到")
         if not ok:
             board.update(nid, "排队")
-            q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": project, "answer": answer})
+            q.append({"nid": nid, "path": it["where"], "task": it["what"], "chat": it["chat"], "project": target_project, "answer": answer})
             print(f"ws-handoff: #{nid} 工作区都占着，排队", file=sys.stderr)
 
 
@@ -1045,8 +1231,22 @@ SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的
 def main(argv):
     if argv[:1] == ["--drain"]:
         return 0
-    if argv[:1] == ["--resume"] and len(argv) == 3:
-        return resume_answered(int(argv[1].lstrip("#")), argv[2])
+    if "--resume" in argv:
+        rem = [a for a in argv if a != "--resume"]
+        rem, model, effort = _model.parse(rem)
+        resume_project = None
+        if "--project" in rem:
+            idx = rem.index("--project")
+            if idx + 1 < len(rem):
+                resume_project = rem[idx + 1].strip()
+                rem = rem[:idx] + rem[idx + 2:]
+            else:
+                sys.exit("ws-handoff: --project 后面要跟角色项目名")
+        if not rem:
+            sys.exit("ws-handoff: --resume 后面要跟任务编号，如 ws-handoff --resume 123 [答复]")
+        nid = int(rem[0].lstrip("#"))
+        answer = " ".join(rem[1:]) if len(rem) > 1 else ""
+        return resume_answered(nid, answer, project=resume_project, model=model, effort=effort)
     global GUARD
     if "--guard" in argv:
         k = argv.index("--guard")
@@ -1059,6 +1259,7 @@ def main(argv):
     probe = "--probe" in argv
     argv = [a for a in argv if a not in ("--confirmed", "--force", "--probe")]
     short_name = None
+    argv, model, effort = _model.parse(argv)
     if "--short" in argv:
         k = argv.index("--short")
         short_name = argv[k + 1] if k + 1 < len(argv) else None
@@ -1088,6 +1289,8 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    if effort and not model:  # 分流前统一拦：并进已有任务的分支只转 --model，单写的 --effort 会被丢掉（审稿 #2076 第三轮）
+        sys.exit(f"ws-handoff: {_model.check(None, effort)}")
     # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
     print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
           "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
@@ -1102,15 +1305,20 @@ def main(argv):
         sys.exit(f"ws-handoff: {gate}")
     ref = resume_ref(task, notes)
     if in_progress(ref):
-        return join(ref, path, task)
+        return join(ref, path, task, model, effort)
     dup = None if force else live_dup(path)
     if in_progress(dup):
-        return join(dup, path, task)
+        return join(dup, path, task, model, effort)
     if dup:
         sys.exit(f"ws-handoff: {dup_error(dup)}")
     hits = [] if force else live_overlap(path, given_short, notes)
     if hits:
         sys.exit(f"ws-handoff: {overlap_error(hits)}")
+    # 新开的活才按本项目核模型（#2075：模型 id 不在列表里不交，列出可选项）。并进已有任务的两条（上面 join）不在这核：
+    # 接手的可能是别的项目，由 ws-forward 按接手方项目和工作区会话核（early_check），按发起方核会误拒（审稿 #2076 第二轮）
+    err = _model.check(model, effort)
+    if err:
+        sys.exit(f"ws-handoff: {err}")
     if own:  # 几道检查都过了才记，退回重交不留半截
         append_own(path, own)
         print(f"ws-handoff: 有一处两种读法不是方向也不是花钱，按交接写的放行，已附「{OWN}」", file=sys.stderr)
@@ -1124,13 +1332,14 @@ def main(argv):
         print(f"ws-handoff: 已附「{PLAN_FIRST}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     nid = None
+    by = assigner()
     if _team.workspace():
         ws, name = fixed_channel(chat), "工作区"
     elif ":" not in chat:
         sys.exit("ws-handoff: 没配工作区频道（WS_CHANNEL / 团队文件 \"workspace\"），也不在桥的会话里（CC_SESSION_KEY），没法从池里挑工作区")
     else:
         # 先上板拿编号再 claim：桥按编号记这件活的状态（#699），claim 不带编号看门就只能猜是哪一行
-        nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name, probe=probe)
+        nid = board.add(task, path, "排队", "待接手", chat=chat, short_name=short_name, probe=probe, assigner=by)
         try:
             picked = pick_pool(chat, task, nid)
         except SystemExit:
@@ -1145,7 +1354,7 @@ def main(argv):
     key = ws if ":" in ws else f"discord:{ws}"
     lead_name = _team.name_of(os.environ["CC_PROJECT"]) if os.environ.get("CC_PROJECT") else "主角色"
     if nid is None:  # 固定工作区频道：不经桥的池子，不 claim
-        nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name, probe=probe)
+        nid = board.add(task, path, "已交接", f"{name}{lead_name}", ws=key, chat=chat, short_name=short_name, probe=probe, assigner=by)
     else:
         board.update(nid, "已交接", who=f"{name}{lead_name}")
         board.rebind(nid, key, chat=chat)
@@ -1156,7 +1365,13 @@ def main(argv):
     elif block:
         print(f"ws-handoff: 已附「{_recall.SECTION}」", file=sys.stderr)
     append_skeleton(path, nid)
-    r = subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True)
+    # 交活指定的模型（#2075）：先记上任务板，再排到工作区会话下一轮（就是下面叫醒的这一轮）；没切成按叫醒失败撤回
+    why = None
+    if model:
+        board.set_model(nid, model, effort)
+        why = _model.apply(key, model, effort)
+    r = (subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True) if why is None else
+         subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(model, effort)} 没切成：{why}"))
     if r.returncode != 0:
         # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展
         # _park_once 返回 None（桥没响应、拒绝或出错）时交接还记在桥里，不能说撤掉了（审稿 pr410 必须改 2）
@@ -1176,7 +1391,8 @@ def main(argv):
     record_last(path, ws, task, chat, nid)
     guard = board.arm_guard(nid, GUARD)
     arm_drift(nid)
-    print(f"ws-handoff: 任务板 #{nid}" + (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
+    print(f"ws-handoff: 任务板 #{nid}" + (f"，模型 {_model.label(model, effort)}" if model else "") +
+          (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
     # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
     print(DONE.format(name=name))

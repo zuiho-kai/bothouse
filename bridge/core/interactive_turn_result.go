@@ -894,9 +894,13 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		queuedRenderer := func(content string) string {
 			return e.renderOutgoingContentForWorkspace(queued.platform, content, turn.workspaceDir)
 		}
-		turn.sp = newStreamPreview(e.streamPreview, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
+		turn.quietNarration = scheduledTurnUser(queued.userID) && !e.isTeamWorkspaceChat(turn.sessionKey)
+		turn.sp = newStreamPreview(e.turnPreviewCfg(turn.quietNarration), queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), turn.outputCtx, queuedRenderer)
 		turn.cp = newCompactProgressWriter(turn.outputCtx, queued.platform, markAgentReply(queued.platform, queued.replyCtx, turn.session), e.agent.Name(), e.i18n.CurrentLang(), queuedRenderer)
 		turn.cp.mirrorFor = e.taskThreadProgressContext(turn.outputCtx, queued.platform, turn.sessionKey, queuedRenderer)
+		if turn.quietNarration {
+			turn.cp.hideForScheduled()
+		}
 		turn.board = e.boardBegin(turn.state, turn.sessionKey) // maomao fork: the queued turn's board row
 		turn.cp.onStep = turn.board.step
 
@@ -906,8 +910,9 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		turn.cardThinkingText = ""
 		turn.cardAnswerText.Reset()
 
-		// Try to create a new streaming card for the queued turn
-		if scp, ok := queued.platform.(StreamingCardPlatform); ok {
+		// Try to create a new streaming card for the queued turn; a quiet
+		// scheduled turn opens none, same as the first turn (#953).
+		if scp, ok := queued.platform.(StreamingCardPlatform); ok && !turn.quietNarration {
 			if sc, err := authorizedOutputValue(turn.outputCtx, func() (StreamingCard, error) { return scp.CreateStreamingCard(turn.outputCtx, queued.replyCtx) }); err != nil {
 				slog.Warn("streaming card creation failed for queued turn", "error", err)
 			} else {
@@ -916,7 +921,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		}
 
 		// Send instant reply for queued turn if no streaming card is active.
-		if e.instantReply.Enabled && turn.streamCard == nil {
+		if e.instantReply.Enabled && turn.streamCard == nil && !turn.quietNarration {
 			replyContent := e.instantReply.Content
 			if replyContent == "" {
 				replyContent = e.i18n.T(MsgStarting)

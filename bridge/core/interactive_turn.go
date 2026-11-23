@@ -82,13 +82,17 @@ type interactiveTurn struct {
 	streamCard        StreamingCard
 	sentReplySegments []string // successful narration deliveries in this turn only
 	sendReplySegment  func(p Platform, replyCtx any, segment string)
-	cardToolCalls     []cardToolEntry // track tool calls for card content
-	cardThinkingText  string          // latest thinking text
-	cardAnswerText    strings.Builder // accumulated answer text
-	sp                *streamPreview
-	freezePreview     func() bool
-	cp                *compactProgressWriter
-	board             *boardTurnRef
+	// quietNarration: a cron/timer turn in a chat channel. No user waits on it, so
+	// only its final reply (NO_REPLY still applies) reaches the chat: no progress
+	// card, no live preview, and no narration segments between tool calls (#953).
+	quietNarration   bool
+	cardToolCalls    []cardToolEntry // track tool calls for card content
+	cardThinkingText string          // latest thinking text
+	cardAnswerText   strings.Builder // accumulated answer text
+	sp               *streamPreview
+	freezePreview    func() bool
+	cp               *compactProgressWriter
+	board            *boardTurnRef
 
 	// Event loop plumbing.
 	idleTimer      *time.Timer
