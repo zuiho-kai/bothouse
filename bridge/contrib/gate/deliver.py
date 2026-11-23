@@ -14,10 +14,17 @@
                   "diffs": ["差别1", "差别2", "差别3"], "at": "<ISO 时间>"}]}
 最新认可 = approvals 最后一条。进「全量」要求 approvals 非空。
 
-写：board stage / board approve（board.py 调本文件的 cli），对照件检查调 add_compare。
+写：board stage / board approve / board compare（board.py 调本文件的 cli）。
 approvals 只能往后追加：save 发现盘上已有的认可记录被改或被删就拒绝，本文件也不提供改、删认可的入口。
+
+对照件（用户 2026-11-23 认可的做法：「交之前，由一个只拿到你原话和原件的新人，把成品和原件并排比一遍，写出最大的三处差别，
+跟成品一起交给你。」）：
+- compare（board compare <编号>）：起一个不带工具、不读设置的干净模型（claude -p），只喂用户原话、原件或最新认可样、成品，
+  让它写最大的三处差别，带成品指纹记进 compares。
+- exit_check：交给用户的出口共用的判断（hooks/deliver-check.py 的 bothouse send 带附件、lead/ws-pass 放行都调它）：
+  登记过的成品有原件或认可样，却没有和现在这份指纹一致的对照件 → 拦；没有原件也没有认可样 → 只许带一句问话；没登记的不管。
 """
-import hashlib, json, os, sys, tempfile
+import base64, hashlib, json, os, shutil, subprocess, sys, tempfile
 from contextlib import contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -190,6 +197,252 @@ def add_compare(nid, product, against, diffs):
     return _change(nid, lambda rec: rec.setdefault("compares", []).append(one))
 
 
+# ---- 对照件：干净模型把成品和原件并排比，写最大的三处差别 ----
+MODEL = "sonnet"
+TIMEOUT = 300
+TEXT_MAX = 60000        # 文字材料最多喂这么多字，超出的截掉并写明
+IMG_MAX = 3 << 20       # 图片超过这么大先缩小再喂
+FRAMES = 6              # 视频按时长均匀抽这么多帧
+IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+VIDEO = (".mp4", ".mov", ".webm", ".mkv", ".m4v")
+
+SYSTEM = """你是交付前的对照人。你手上只有三样东西：用户的原话、原件（或用户认可过的样品）、这次要交给用户的成品。你没参与制作，不知道制作过程，不替任何人说话。
+把成品和原件并排比一遍，写出两者之间最大的三处差别，从大到小排。
+
+规则：
+1. 每处差别具体到指得出的地方：哪一段、哪个位置，原件是什么样，成品是什么样。一条一句大白话，不超过 80 字，不换行。
+2. 先看用户原话要的是什么：原话要、成品没做到的差别排最前。
+3. 只写差别。不评价好坏，不给修改建议，不写客套话。
+4. 两份几乎一样、找不出三处时，有几处写几处；一处也找不出就只写一条「没看出差别」。
+
+只输出一个 JSON 对象，不要别的字：{"diffs":["差别1","差别2","差别3"]}"""
+
+
+def _ffmpeg(name="ffmpeg"):
+    return shutil.which(name) or str(Path.home() / ".local" / "bin" / name)
+
+
+def _img(data, mime="image/jpeg"):
+    return {"type": "image", "source": {"type": "base64", "media_type": mime, "data": base64.b64encode(data).decode()}}
+
+
+def _run_media(args):
+    try:
+        r = subprocess.run(args, capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Refused(f"{Path(args[0]).name} 没跑成（{type(e).__name__}），图太大或视频要靠它抽帧才能比")
+    return r
+
+
+def _frames(p):
+    """视频按时长均匀抽 FRAMES 帧（宽不超过 768 的 JPEG）；返回 [(秒, 图片字节)]。"""
+    r = _run_media([_ffmpeg("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(p)])
+    try:
+        dur = float(r.stdout.decode().strip())
+    except ValueError:
+        raise Refused(f"读不出 {p} 的时长，没法抽帧来比")
+    out = []
+    with tempfile.TemporaryDirectory(prefix="deliver-cmp-") as d:
+        for k in range(FRAMES):
+            t, f = dur * (k + 0.5) / FRAMES, Path(d) / f"{k}.jpg"
+            _run_media([_ffmpeg(), "-y", "-loglevel", "error", "-ss", f"{t:.2f}", "-i", str(p), "-frames:v", "1",
+                        "-vf", "scale='min(768,iw)':-2", str(f)])
+            if f.is_file():
+                out.append((t, f.read_bytes()))
+    if not out:
+        raise Refused(f"{p} 一帧也抽不出来，没法比")
+    return out
+
+
+def _material(label, src):
+    """一份材料（本地文件）变成喂给模型的内容块；模型看不了的格式拒绝（Refused）。"""
+    p = Path(str(src)).expanduser()
+    if _is_link(src) or not p.is_file():
+        raise Refused(f"{label}「{src}」不是本机上的文件：干净模型不带工具，打不开链接，先把它落到本地再比")
+    ext = p.suffix.lower()
+    if ext in IMG_MIME:
+        data, mime = p.read_bytes(), IMG_MIME[ext]
+        if len(data) > IMG_MAX:
+            with tempfile.TemporaryDirectory(prefix="deliver-cmp-") as d:
+                small = Path(d) / "small.jpg"
+                _run_media([_ffmpeg(), "-y", "-loglevel", "error", "-i", str(p), "-frames:v", "1",
+                            "-vf", "scale='min(1568,iw)':-2", str(small)])
+                if not small.is_file():
+                    raise Refused(f"{label} {p} 太大，缩小也没成，没法比")
+                data, mime = small.read_bytes(), "image/jpeg"
+        return [{"type": "text", "text": f"【{label}】（图片）"}, _img(data, mime)]
+    if ext == ".pdf":
+        return [{"type": "text", "text": f"【{label}】（PDF）"},
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
+                                                "data": base64.b64encode(p.read_bytes()).decode()}}]
+    if ext in VIDEO:
+        out = [{"type": "text", "text": f"【{label}】（视频，按时长均匀抽的 {FRAMES} 帧，依次是）"}]
+        for t, data in _frames(p):
+            out += [{"type": "text", "text": f"第 {t:.1f} 秒："}, _img(data)]
+        return out
+    try:
+        text = p.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"{label} {p} 这种格式干净模型看不了：先转成图片、PDF 或文字，再用那一份比")
+    more = f"\n（后面还有 {len(text) - TEXT_MAX} 字没给）" if len(text) > TEXT_MAX else ""
+    return [{"type": "text", "text": f"【{label}】（文字，全文如下）\n{text[:TEXT_MAX]}{more}"}]
+
+
+def _ask_model(content):
+    """不带工具、不读设置、不挂 hook 的 claude -p 问一次（写法同 lead/_added_judge.py；有图所以走 stream-json）。
+    返回差别列表；没装 claude、超时、输出读不出都算没比成（Refused），不编差别。"""
+    msg = {"type": "user", "message": {"role": "user", "content": content}}
+    try:
+        p = subprocess.run(["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+                            "--no-session-persistence", "--system-prompt", SYSTEM, "--input-format", "stream-json",
+                            "--output-format", "stream-json", "--verbose"],
+                           input=json.dumps(msg, ensure_ascii=False) + "\n", capture_output=True, text=True,
+                           timeout=TIMEOUT, cwd=tempfile.gettempdir())
+        res = None
+        for l in p.stdout.splitlines():
+            with suppress(ValueError):
+                j = json.loads(l)
+                if isinstance(j, dict) and j.get("type") == "result":
+                    res = j
+        if res is None or p.returncode != 0 or res.get("is_error"):
+            raise RuntimeError(f"claude 退出码 {p.returncode}：{(p.stderr or p.stdout).strip()[-200:]}")
+        txt = (res.get("result") or "").strip()
+        j = json.loads(txt[txt.find("{"):txt.rfind("}") + 1])
+        diffs = [" ".join(str(d).split()) for d in (j.get("diffs") if isinstance(j, dict) else None) or []]
+        diffs = [d for d in diffs if d][:3]
+        if not diffs:
+            raise ValueError("结果里没有 diffs")
+        return diffs
+    except Refused:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise Refused(f"干净模型没比成（{type(e).__name__}: {str(e)[:200]}），没记对照件；过一会儿重跑")
+
+
+def _handoff_quotes(nid):
+    """这件活的交接文件里「用户原话」节的内容（任务板路径栏是本机交接文件时才有）；没有返回空串。"""
+    try:
+        b = _board()
+        f = b.handoff_of(b.item_by_id(int(nid)))
+        lines = Path(f).read_text(encoding="utf-8").splitlines() if f else []
+    except Exception:  # noqa: BLE001
+        return ""
+    out, on = [], False
+    for l in lines:
+        if l.lstrip().startswith("#"):
+            on = "用户原话" in l
+            continue
+        if on and l.strip():
+            out.append(l)
+    return "\n".join(out).strip()
+
+
+def against_of(rec):
+    """拿什么来比：登记的原件（refs 里第一份本机文件），没有原件就用最新认可的那份；都没有返回空串。"""
+    refs = [r for r in rec.get("refs") or [] if r]
+    for r in refs:
+        if not _is_link(r) and Path(r).expanduser().is_file():
+            return r
+    last = latest_approval(rec)
+    if last and last.get("file") and not _is_link(last["file"]) and Path(last["file"]).expanduser().is_file():
+        return last["file"]
+    return refs[0] if refs else ((last or {}).get("file") or "")
+
+
+def compare(nid, product=None, quotes=()):
+    """出一份对照件：干净模型只看用户原话、原件或最新认可样、成品，写最大的三处差别，记进 compares（带成品指纹）。
+    用户原话 = quotes（board compare --quote）+ 交接文件「用户原话」节 + 认可记录里的原话；一句都没有就拒绝。"""
+    nid = int(str(nid).lstrip("#"))
+    rec = load(nid)
+    if rec is None:
+        raise Refused(f"#{nid} 还没有交付记录：先 board stage {nid} 样 --product <成品> --ref <原件>")
+    product = _norm(product or rec.get("product") or "")
+    if not product:
+        raise Refused(f"#{nid} 没登记成品：board compare {nid} --product <成品文件>，或先 board stage {nid} 样 --product <成品>")
+    against = against_of(rec)
+    if not against:
+        raise Refused(f"#{nid} 没有原件、用户也没认过样，没有东西可比：只发最小的一段样，带一句问话让用户看；"
+                      f"有原件就 board stage {nid} {rec.get('stage') or '样'} --ref <原件> 登记")
+    said = [str(q).strip() for q in quotes if str(q).strip()]
+    said += [q for q in (_handoff_quotes(nid),) if q]
+    said += [a["quote"] for a in rec.get("approvals") or [] if a.get("quote")]
+    if not said:
+        raise Refused(f"要写 --quote：用户对这件活的原话，照抄，不要概括（board compare {nid} --quote \"<原话>\"）")
+    kind = "原件" if against in (rec.get("refs") or []) else "用户认可过的样品"
+    content = [{"type": "text", "text": "【用户原话】\n" + "\n".join(dict.fromkeys(said))}]
+    content += _material(kind, against) + _material("成品", product)
+    diffs = _ask_model(content)
+    return add_compare(nid, product, against, diffs)
+
+
+def diff_text(c):
+    """一份对照件写成跟成品一起交给用户的那段话。"""
+    return (f"和「{os.path.basename(str(c.get('against') or '')) or '原件'}」并排比，最大的差别：\n"
+            + "\n".join(f"{k}. {d}" for k, d in enumerate(c.get("diffs") or [], 1)))
+
+
+def _squash(s):
+    return "".join(ch for ch in str(s or "") if not ch.isspace() and ch not in "\"'`\\")
+
+
+def carried(msg, c):
+    """给用户的话里是不是带上了这份对照件的每一处差别（不看空白和引号）。"""
+    m = _squash(msg)
+    return all(_squash(d) in m for d in c.get("diffs") or [])
+
+
+def _same_file(a, b):
+    try:
+        return os.path.realpath(os.path.expanduser(str(a))) == os.path.realpath(os.path.expanduser(str(b)))
+    except (OSError, ValueError):
+        return False
+
+
+def _records():
+    out = []
+    for f in sorted(_dir().glob("*.json")):
+        with suppress(OSError, ValueError):
+            rec = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(rec, dict):
+                rec.setdefault("id", f.stem)
+                out.append(rec)
+    return out
+
+
+def exit_check(files, msg="", nid=None):
+    """交给用户的出口共用的判断。files：要发出去的本地文件；msg：跟着发的话；nid：知道是哪件活时给（ws-pass）。
+    管哪些：files 里是某份记录登记的成品（product）的，加上 nid 那份记录登记的本机成品。没登记的不管。
+    返回 (拦下的理由, 过了的对照件)：
+      有原件或认可样，却没有和现在这份成品指纹一致的对照件 → 拦，先 board compare；
+      没有原件也没有认可样 → msg 里没有一句问话就拦；
+      过了的对照件 [{"id", "file", "compare", "text"}]，调的一方保证 text（三处差别）跟成品一起到用户手里。"""
+    todo = {}
+    for rec in _records():
+        prod = rec.get("product") or ""
+        if not prod or _is_link(prod):
+            continue
+        hit = next((f for f in files if _same_file(f, prod)), None)
+        if hit or (nid is not None and str(rec.get("id")) == str(nid) and Path(prod).expanduser().is_file()):
+            todo[str(rec.get("id"))] = (rec, hit or prod)
+    problems, passed = [], []
+    for rid, (rec, f) in todo.items():
+        name = f"#{rid}「{rec.get('title') or ''}」的成品 {f}"
+        if not (rec.get("refs") or rec.get("approvals")):
+            if not any(q in str(msg or "") for q in "？?"):
+                problems.append(f"【没有原件也没有认可样】{name}：没有原件、用户也没认过样，只许发最小的一段样，"
+                                f"话里带一句问话（问用户这样行不行）。有原件就 board stage {rid} {rec.get('stage') or '样'} "
+                                f"--ref <原件> 登记，再跑 board compare {rid}")
+            continue
+        sha = sha256_of(f)
+        fresh = [c for c in rec.get("compares") or [] if sha and c.get("sha256") == sha and c.get("diffs")]
+        if not fresh:
+            problems.append(f"【没有对照件】{name}：有原件或用户认可过的样，但还没有和现在这份一致的对照件（成品改过要重比）。"
+                            f"先跑 board compare {rid}（干净模型只看用户原话、原件、成品，写最大的三处差别），再发")
+            continue
+        passed.append({"id": rid, "file": f, "compare": fresh[-1], "text": diff_text(fresh[-1])})
+    return problems, passed
+
+
 def _pop_opts(argv, single=(), multi=()):
     """从 argv 里取出 --名字 值：single 只留最后一个，multi 攒成列表。返回（剩下的位置参数，取到的选项）。"""
     rest, got, k = [], {m: [] for m in multi}, 0
@@ -210,7 +463,7 @@ def _pop_opts(argv, single=(), multi=()):
 
 
 def cli(cmd, argv):
-    """board stage / approve / deliver 的命令行：返回要打印的字；不做的事 sys.exit 一句人话（退出码 1）。"""
+    """board stage / approve / compare / deliver 的命令行：返回要打印的字；不做的事 sys.exit 一句人话（退出码 1）。"""
     try:
         if cmd == "stage":
             rest, o = _pop_opts(argv, single=("--product",), multi=("--ref",))
@@ -226,6 +479,13 @@ def cli(cmd, argv):
             a = rec["approvals"][-1]
             return (f"#{rec['id']} 已记下用户认可（第 {len(rec['approvals'])} 次）：{a['file']}"
                     + ("，不许动：" + "；".join(a["locked"]) if a["locked"] else ""))
+        if cmd == "compare":
+            rest, o = _pop_opts(argv, single=("--product",), multi=("--quote",))
+            if len(rest) != 1:
+                raise Refused("用法：board compare <编号> [--product 成品文件] [--quote \"<用户原话>\" ...]")
+            rec = compare(rest[0], o.get("--product"), o["--quote"])
+            return (f"#{rec['id']} 已记下对照件（成品 {rec['compares'][-1]['product']}）。发成品时把下面这段原样带在给用户的话里：\n"
+                    + diff_text(rec["compares"][-1]))
         if cmd == "deliver":
             if len(argv) != 1:
                 raise Refused("用法：board deliver <编号>")

@@ -39,6 +39,9 @@
                                          #   进「全量」前要有用户认可记录（board approve），没有就拒绝
   board approve <编号> --file <用户认的那份> --quote "<用户原话>" [--locked "<不许动的部分>" ...]
                                          #   记一次用户认可（只追加，不能改、不能删）；本地文件记 sha256，链接留空
+  board compare <编号> [--product 成品文件] [--quote "<用户原话>" ...]   # 交给用户前出对照件（#1904）：干净模型（不带工具）
+                                         #   只看用户原话、原件或最新认可样、成品，写最大的三处差别，带成品指纹记进交付记录。
+                                         #   用户原话取 --quote、交接「用户原话」节、认可记录里的原话；发成品时把三处差别带在话里
   board deliver <编号>                    # 打印这件活的交付记录（<BOARD_DIR>/deliver/<编号>.json，格式见 deliver.py）
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
@@ -2214,7 +2217,7 @@ def open_pr_hint():
     return f"还有 {len(prs)} 个 PR 没合：" + " ".join(f"#{x['number']}" for x in prs)
 
 
-WRITE_CMDS = ("update", "done", "pause", "backlog", "resume", "reject", "hold", "unhold", "next", "stage", "approve")  # 只能在派活频道改的命令
+WRITE_CMDS = ("update", "done", "pause", "backlog", "resume", "reject", "hold", "unhold", "next", "stage", "approve", "compare")  # 只能在派活频道改的命令
 
 
 def main(argv):
@@ -2292,7 +2295,7 @@ def main(argv):
             if not set_tier(int(argv[1].lstrip("#")), argv[2]):
                 sys.exit("条目不存在，未改档位")
             print("已改验收档位：" + REVIEW_TIERS[argv[2]])
-        elif cmd in ("stage", "approve", "deliver"):
+        elif cmd in ("stage", "approve", "compare", "deliver"):
             sys.modules.setdefault("board", sys.modules[__name__])  # 本文件当脚本跑时，deliver 里的 import board 拿到的就是这一份
             import deliver  # 用到才载：gate 进程 import board 时不需要它（sync_gate.sh 不拷）
             print(deliver.cli(cmd, argv[1:]))
