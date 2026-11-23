@@ -134,3 +134,51 @@ test('#1798 first start: no bridge running → progress steps, then 准备好了
   assert.equal(prepText({ stage: 'done', seconds: 78 }), '准备好了（用时 78 秒）');
   assert.match(prepText({ stage: 'members', online: 1, total: 2 }), /成员上线 1\/2/);
 });
+
+// #1884 (user「后台挂了插件自己拉起来」): a member dropped and the bridge no longer answers → it is started again.
+test('#1884 revive: the bridge is gone → started again; up again → nothing said', { skip: process.platform === 'win32' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bridge-revive-'));
+  writeFileSync(join(dir, 'bothouse'), '#!/bin/sh\n', { mode: 0o755 });
+  const configFile = join(dir, 'config.toml');
+  writeFileSync(configFile, '[management]\nenabled = true\nhost = "127.0.0.1"\nport = 1\ntoken = "t"\n');
+  const b = new Bridge({ dataDir: dir, configFile, members: () => members, env: { PATH: dir, HOME: dir }, checkWait: 1_000, checkPoll: 1, reviveWait: 1 });
+  b.first = false;
+  let srv;
+  const started = [];
+  // The stand-in start brings up a management server that answers /status, as the real bridge does.
+  b.start = (bin) => {
+    started.push(bin);
+    srv = createServer((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"data":{}}'); });
+    srv.listen(0, '127.0.0.1', () => writeFileSync(configFile, `[management]\nenabled = true\nhost = "127.0.0.1"\nport = ${srv.address().port}\ntoken = "t"\n`));
+    return new Promise(() => {});
+  };
+  const said = [];
+  b.onCheck = r => said.push(r);
+  try {
+    await b.revive();
+    assert.deepEqual(started, [join(dir, 'bothouse')]);
+    assert.deepEqual(said, [], 'it came up, so nothing is said');
+    await b.revive();
+    assert.equal(started.length, 1, 'a bridge that answers is not started again');
+    b.noKey = true;
+    srv.close();
+    await b.revive();
+    assert.equal(started.length, 1, 'no key: the key card is in charge, not a restart');
+  } finally { srv?.close(); }
+});
+
+test('#1884 revive: a bridge that exits at once is said in #general with its log', { skip: process.platform === 'win32' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bridge-revive-'));
+  writeFileSync(join(dir, 'bothouse'), '#!/bin/sh\necho "config.toml: bad port" >&2\nexit 3\n', { mode: 0o755 });
+  writeFileSync(join(dir, 'bothouse.log'), 'level=INFO msg=bye\n');
+  const b = new Bridge({ dataDir: dir, configFile: join(dir, 'none.toml'), members: () => members, env: { PATH: dir, HOME: dir }, checkWait: 10_000, checkPoll: 50, reviveWait: 1 });
+  b.first = false;
+  const said = [];
+  b.onCheck = r => said.push(r);
+  await b.revive();
+  assert.equal(said.length, 1);
+  const posted = [];
+  checkPoster({ post: (_room, m) => posted.push(m.text) }, () => 1, join(dir, 'self-check.json'))(said[0]);
+  assert.match(posted[0], /后台服务停了，自动重新启动后马上退出了（退出码 3）：config\.toml: bad port/);
+  assert.doesNotMatch(posted[0], /msg=bye/, 'the stopped bridge\'s own lines are not the reason');
+});

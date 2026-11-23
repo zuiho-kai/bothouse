@@ -268,6 +268,8 @@ export class CloudWebGateway {
         this.hub.setOnline(bot.member.id, false);
         // #121: a cc-connect that drops mid-stream never commits or deletes its preview.
         this.hub.dropDrafts('role', bot.member.id);
+        // #1884: a member of this host went offline; the plugin checks the bridge is still there (plugin.mjs).
+        if (bot.member.kind === 'dsh') this.onMemberLost?.(bot.member);
       }
     });
     ws.on('error', (error) => { this.logger.warn('collab: cloud-web socket error: %s', error?.message ?? error); });
