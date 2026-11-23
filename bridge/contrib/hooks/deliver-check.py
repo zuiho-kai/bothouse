@@ -12,7 +12,8 @@
      标签行像对外文案（简介、README、首屏、宣传语、标语、标题、帖子、文案、卖点、bio/tagline/slogan/profile/pitch），
      或本身就有一节「## 对标原文」，就必须有那一节：至少三条别人的原句、原样照抄、每条带链接或本地出处，
      我们的每句文案（我们：/中文：/英文：/→ 开头的行）后面标「照：第 N 条」。没摆就拦。
-     没覆盖的入口：模型直接回复的聊天正文不走命令，钩子看不到，这项管不到（要发文案请写成草稿文件或 -m 发）。
+     聊天回复正文也查：run.py 在 Stop 时先于 choice-ask-guard 调本脚本，回复里有文案稿没摆原句就 block（桥撤回已流出的草稿），
+     同一轮只拦一次（stop_hook_active 放行）。没覆盖：没有任何标题/加粗行/「…简介：」这类标签的散文段落；--stdin、位置参数正文。
 另有一项验收门（#1617）：主角色跑 ws-pass（放行，--stitch 预检不算）或 board done <号> 时，桥扣着的那件活的 [report]
 正文里写到的本地图片，本会话都要 Read 打开过（打开后没再改）；内容完全相同的截图也拦下，要打回补拍。
 由 run.py 在 bash-guard 之前调用（共用 bash-guard 在各家 CLI 的注册），可单独 `run.py off deliver-check` 关掉。
@@ -118,11 +119,17 @@ def sent_texts(command):
 # 用户 11-23 15:29 列的修法、15:39 回「2修」定下；11-08、11-22、11-23 第三次。橘写简介时把对标原句抽成「规律」
 # 再自己写，原句丢了，写回自编场景和数字；片子发前有检查，文案没有。
 COPY_EXT = {".md", ".markdown", ".txt"}
-COPY_WORDS = ("简介", "readme", "首屏", "宣传语", "标语", "标题", "帖子", "文案", "卖点",
-              "bio", "tagline", "slogan", "profile", "pitch")
+# 认文案稿的词（#1907 ③）：标题、加粗行里含这些词，或「<前缀>词<后缀>：」开头的标签行。
+# 中文词按子串认；英文词按整词认（about、bio 这类短词子串会误中）。
+COPY_WORDS = ("简介", "readme", "首屏", "宣传语", "宣传文案", "标语", "口号", "标题", "副标题", "帖子", "推文", "发帖",
+              "文案", "卖点", "导语", "一句话介绍", "介绍语", "仓库介绍", "项目介绍", "封面字")
+COPY_EN = re.compile(r"(?i)\b(?:readme|bio|tagline|slogan|profile|pitch|headline|description|about|tweet)\b")
 MD_HEADING = re.compile(r"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$")
-BOLD_LINE = re.compile(r"(?m)^\s*\*\*([^*\n]+)\*\*\s*$")
-COPY_LABEL = re.compile(r"(?m)^\s*(?:[-*]\s*)?\*{0,2}(?:GitHub\s*)?(?:简介|README|首屏|宣传语|标语|标题|帖子|文案|卖点)\*{0,2}\s*[:：]")
+BOLD_LINE = re.compile(r"(?m)^\s*\*\*([^*\n]+)\*\*\s*[:：]?\s*$")
+_LABEL_WORDS = "|".join(sorted(COPY_WORDS + ("README", "slogan", "tagline", "bio", "description", "About", "headline", "tweet"),
+                                key=len, reverse=True))
+COPY_LABEL = re.compile(r"(?mi)^\s*(?:[-*>]\s*|\d+[.)]\s*)?\*{0,2}[^\n:：*`]{0,12}?(?:%s)[^\n:：*`]{0,10}\*{0,2}\s*[:：]"
+                        % _LABEL_WORDS)
 REF_HEAD = re.compile(r"(?m)^\s{0,3}(#{1,6})\s*对标原文\s*$")
 REF_ENTRY = re.compile(r"(?m)^\s*(?:[-*>]\s+|\d+[.)]\s*|第\s*\d+\s*条)")
 SOURCE = re.compile(r"https?://\S+|(?:~\s*/|/)[^\s）)」』,，。；;]*|\b[\w.-]+\.(?:md|markdown|txt)\b")
@@ -132,15 +139,17 @@ OUR_LINE = re.compile(r"(?m)^\s*(?:[-*>]\s*|\d+[.)]\s*)?(?:我们|我们的文�
                       r"|^\s*→")
 
 
+def _copy_word(h):
+    return any(w in h.lower() for w in COPY_WORDS) or COPY_EN.search(h)
+
+
 def copy_like(text):
     """像对外文案稿时返回命中的那处标题/标签，否则 None。"""
     for m in MD_HEADING.finditer(text):
-        h = m.group(1).strip().lower()
-        if any(w in h for w in COPY_WORDS):
+        if _copy_word(m.group(1)):
             return m.group(1).strip()
     for m in BOLD_LINE.finditer(text):
-        h = m.group(1).strip().lower()
-        if any(w in h for w in COPY_WORDS):
+        if _copy_word(m.group(1)):
             return m.group(1).strip()
     m = COPY_LABEL.search(text)
     return m.group(0).strip() if m else None
@@ -516,8 +525,43 @@ def accept_gate(payload, cmd, cwd):
         deny("验收放行前的检查没过：\n" + "\n".join(problems) + "\n补齐后原样重跑这条命令。")
 
 
+def last_reply(payload):
+    """Stop：这轮要发出去的回复正文（CLI 给了 last_assistant_message 就用它，否则读会话记录最后一条助手文字）。"""
+    t = payload.get("last_assistant_message")
+    if isinstance(t, str) and t.strip():
+        return t
+    text = ""
+    try:
+        with open(transcript_for(payload) or "", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "assistant":
+                    t = text_of((d.get("message") or {}).get("content"))
+                    if t.strip():
+                        text = t
+    except (OSError, TypeError):
+        return ""
+    return text
+
+
+def reply_gate(payload):
+    """(c) 管到聊天回复（#1907）：模型直接打出来的回复里有文案稿却没摆对标原句，拦回让它补；只拦一次。"""
+    if payload.get("stop_hook_active"):
+        return
+    why = copy_gate_why(last_reply(payload), "这条回复")
+    if why:
+        print(json.dumps({"decision": "block", "reason": "发出前的文案检查没过（这条回复已撤回，用户看不到）：\n" + why +
+                          "\n把对标原文那节和逐句「照：第 N 条」补进回复，重发一遍完整回复。"}, ensure_ascii=False))
+
+
 def main():
     payload = json.loads(sys.stdin.read() or "{}")
+    if payload.get("hook_event_name") == "Stop":
+        reply_gate(payload)
+        return
     if payload.get("tool_name") != "Bash":
         return
     cmd = strip_heredocs((payload.get("tool_input") or {}).get("command") or "")

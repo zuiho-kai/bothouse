@@ -114,6 +114,38 @@ class DeliveryCheckTest(unittest.TestCase):
         self.assertNotEqual(self.call(command=f"bothouse send --file '{note}'"), "deny")
         self.assertNotEqual(self.call(command="bothouse send -m '今日进度：三个测试跑完'"), "deny")
 
+    def stop(self, reply, active=False):
+        self.log.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": reply}]}},
+                                       ensure_ascii=False) + "\n", encoding="utf-8")
+        payload = {"hook_event_name": "Stop", "cwd": str(self.role), "transcript_path": str(self.log),
+                   "session_id": "s", "stop_hook_active": active}
+        result = subprocess.run(
+            [sys.executable, "-I", str(HERE / "run.py"), "--role", str(self.role), "choice-ask-guard"],
+            input=json.dumps(payload), capture_output=True, text=True, env=self.env, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout or "{}")
+        return out.get("decision"), out.get("reason") or ""
+
+    def test_chat_reply_with_copy_needs_reference_section(self):
+        # #1907 打回①：聊天里直接打出来的简介也要过这道检查（Stop），拦下时告诉它补什么
+        decision, reason = self.stop("仓库简介改成这样：\n\nAn AI team that lives in your group chat.\n")
+        self.assertEqual(decision, "block")
+        self.assertIn("## 对标原文", reason)
+        ok = ("## 对标原文\n"
+              "1. 原句：An on-device AI agent for Android. 出处：https://github.com/wangzan101/Mika\n"
+              "2. 原句：Every agent's model. One place. 出处：https://github.com/yetone/magpie\n"
+              "3. 原句：Agent harness for learning difficult things. 出处：https://github.com/amosblomqvist/learnharness\n"
+              "\n仓库简介：An AI team in your group chat. 照：第 1 条\n")
+        self.assertNotEqual(self.stop(ok)[0], "block")
+        self.assertNotEqual(self.stop("测试跑完了，退出码 0。")[0], "block")
+        self.assertNotEqual(self.stop("仓库简介改成这样：xx", active=True)[0], "block")
+
+    def test_copy_words_cover_entries(self):
+        # #1907 打回③：简介/README/宣传语/标题/帖子这类入口的写法都认得
+        for line in ("**README 首屏**", "## Tagline", "- 宣传语：", "新标题：", "X 推文（英文）：", "小红书帖子：",
+                     "GitHub About:", "口号：", "一句话介绍：", "## 发帖正文"):
+            self.assertEqual(self.stop(line + "\n住在你群聊里的 AI 团队。")[0], "block", line)
+
     def test_send_command_quoted_in_heredoc_is_data(self):
         # 交回里会原样引用一条 send 命令当例子；按正文解析会把它当成真在发（#1907 交回被自己拦住）
         report = ("ws-up --notes /tmp/h.md --report - <<'EOF'\n"
