@@ -81,6 +81,17 @@ class T(unittest.TestCase):
         self.assertTrue(ctxsvc.FRAG_CH.search("么没") and ctxsvc.FRAG_CH.search("你推"))
         self.assertFalse(ctxsvc.FRAG_CH.search("美股"))
 
+    def test_kickoff_query_inline_handoff(self):
+        # #1902：交接全文附在提示末尾的开工轮也按活本身搜，不拿整段提示当查询
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "handoff-x.md"
+            f.write_text("# 交接：画像排序\n\n## 用户原话\n- 都做吧\n\n## 总目标\n按纠正次数排\n\n## 范围\n- 改：别的\n", encoding="utf-8")
+            text = f"做 画像排序（任务板 #1）。交接全文附在本条末尾（文件 {f}），不用再读文件。\n" + "工作区规矩 " * 200
+            q = ctxsvc.kickoff_query(text)
+            self.assertIsNotNone(q)
+            self.assertIn("按纠正次数排", q)
+            self.assertNotIn("工作区规矩", q)
+
     def test_bridge_messages_not_user(self):
         for t in ("现在是整点，想想爸爸", "接着做 #1474 注入对照", "橘 额度冷却，现在由你接手：#1", "你把活标成完成了"):
             self.assertFalse(ctxsvc.exp_is_user(t), t)
