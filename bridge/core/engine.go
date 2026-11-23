@@ -6238,7 +6238,8 @@ func agentSessionResumable(agent Agent, as AgentSession) bool {
 func (e *Engine) cleanupSideRunState(iKey string) {
 	e.interactiveMu.Lock()
 	keep := false
-	if state := e.interactiveStates[iKey]; state != nil {
+	state := e.interactiveStates[iKey]
+	if state != nil {
 		state.mu.Lock()
 		keep = state.agentSession != nil && state.agentSession.Alive() && agentHasBackgroundWork(state.agentSession)
 		state.mu.Unlock()
@@ -6246,9 +6247,56 @@ func (e *Engine) cleanupSideRunState(iKey string) {
 	e.interactiveMu.Unlock()
 	if keep {
 		slog.Info("scheduled run: agent still runs background work, process kept until it reports back", "session_key", iKey)
+		e.journalBackgroundKeep(iKey, state)
 		return
 	}
 	e.cleanupInteractiveState(iKey)
+}
+
+// journalBackgroundKeep writes the restart record for a process kept for background
+// work (#1894): a restart stops that process, and the record makes the next start
+// wake the session to pick the work up instead of losing it silently.
+func (e *Engine) journalBackgroundKeep(iKey string, state *interactiveState) {
+	j := e.turnJournalStore()
+	if j == nil || state == nil {
+		return
+	}
+	state.mu.Lock()
+	as := state.agentSession
+	state.mu.Unlock()
+	ok, err := j.KeepBackground(iKey, describeBackgroundWork(as), time.Now())
+	if err != nil {
+		slog.Warn("turn journal: background keep failed", "key", iKey, "error", err)
+	} else if !ok {
+		slog.Warn("turn journal: background keep has no turn to copy the chat from", "key", iKey)
+	}
+}
+
+// describeBackgroundWork names the work still running in as, for the wake-up text.
+func describeBackgroundWork(as AgentSession) string {
+	var parts []string
+	if r, ok := as.(SubTaskReporter); ok {
+		_, tasks, _ := r.SubTasks()
+		for _, t := range tasks {
+			if !t.Live() {
+				continue
+			}
+			d := turnResumeOneLine(t.Description, 80)
+			if t.Name != "" {
+				d = t.Name + "：" + d
+			}
+			parts = append(parts, "子 agent「"+d+"」")
+		}
+	}
+	if r, ok := as.(BackgroundTaskReporter); ok {
+		if running, _ := r.BackgroundTasks(); running > 0 {
+			parts = append(parts, fmt.Sprintf("%d 个后台命令", running))
+		}
+	}
+	if len(parts) == 0 {
+		return "后台活"
+	}
+	return strings.Join(parts, "、")
 }
 
 // agentHasBackgroundWork reports whether the agent process still runs work of its own
@@ -6340,6 +6388,7 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 			state.mu.Unlock()
 			e.interactiveMu.Unlock()
 			slog.Info("turn ended: agent still runs background work, process kept until it reports back", "session_key", sessionKey)
+			e.journalBackgroundKeep(sessionKey, state)
 			return
 		}
 	} else if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
@@ -6423,6 +6472,14 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 // closeAgentSessionBy is closeAgentSessionAndSignal with the close call given:
 // Close, or CloseForRestart of an AgentSessionRestartCloser.
 func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSession, closed chan struct{}, closeFn func() error) {
+	// #1894: the process closes while the bridge runs, so the restart record of its
+	// background work is no longer needed. While stopping it stays: the next start
+	// wakes the session.
+	if j := e.turnJournalStore(); j != nil && !e.isStoppingForJournal() {
+		if err := j.BackgroundDone(sessionKey); err != nil {
+			slog.Warn("turn journal: background done failed", "key", sessionKey, "error", err)
+		}
+	}
 	// Allow enough time for the agent's own graceful shutdown sequence:
 	// stdin close → Stop hooks (claude-mem summary etc.) → SIGTERM → SIGKILL.
 	// Claude Code's Stop hooks can take up to 120s (claude-mem uses a

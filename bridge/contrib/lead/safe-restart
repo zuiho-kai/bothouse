@@ -13,6 +13,34 @@
 # 第三个参数：给了就用 later 记在这条任务板条目的「下次看」上（later 只记原条目，不新建回看条目）；没给就裸挂桥定时叫醒，不上任务板
 # 第二个参数：重启后约 2 分钟自动叫醒本会话接着做，免得重启完干等（用户 2026-10-23「为什么看到后续了以后只能搞个定时任务跟踪一下」，起因 12:38 重启后空等 8 分钟）
 set -u
+# 重启前先等后台活交回（#1894：11-23 13:12 重启停掉了还在跑的子 agent，没人知道）。
+# 桥把「本轮结束、进程留着等后台活」的会话记在 turn-journal 里（background_work），进程还活着就算在跑。
+# 最多等 BG_WAIT 秒，到点照样重启：桥起来后会叫醒那个会话接着做。来源：子 agent 时限 30 分钟。
+JOURNAL_DIR=${CC_DATA_DIR:-$HOME/.bothouse}/turn-journal
+BG_WAIT=1800
+bg_running() {
+  [ -d "$JOURNAL_DIR" ] || return 0
+  /usr/bin/env python3 -I - "$JOURNAL_DIR" <<'PY' 2>/dev/null
+import glob, json, os, sys
+for f in glob.glob(os.path.join(sys.argv[1], "*.json")):
+    try:
+        entries = json.load(open(f)) or []
+    except Exception:
+        continue
+    for en in entries:
+        work, pid = en.get("background_work"), en.get("agent_pid") or 0
+        if not work or pid <= 0:
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        print("%s %s：%s" % (en.get("project", ""), en.get("session_key", ""), work))
+PY
+}
+[ "${1:-}" = --bg-running ] && { bg_running; exit 0; }
 here=$(cd "$(dirname "$0")" && pwd)
 LOG=${CC_LOG:-${CC_LOG_FILE:-}}
 if [ -z "$LOG" ]; then
@@ -48,6 +76,11 @@ esac
 if [ -n "${CC_PRE_RESTART:-}" ]; then
   chk=$(sh -c "$CC_PRE_RESTART" 2>&1) || echo "⚠️ 警告（不影响重启）：$chk" >&2
 fi
+bg_now=$(bg_running)
+if [ -n "$bg_now" ]; then
+  echo "有后台活还没交回，等它们交回再重启（最多 $((BG_WAIT / 60)) 分钟，到点照样重启、重启后叫醒对应会话）："
+  echo "$bg_now" | sed 's/^/  /'
+fi
 start=$(wc -l < "$LOG")
 nid=${3:-}
 if [ -n "$next" ]; then
@@ -75,7 +108,20 @@ nohup $det sh -c '
     i=$((i + 1))
   done
   sleep 3
+  waited=0
+  bg=$($7)
+  if [ -n "$bg" ]; then
+    echo "$(date "+%Y-%m-%d %H:%M:%S") 等后台活交回再重启：$(echo "$bg" | tr "\n" "；")" >> "$4"
+    while [ -n "$bg" ] && [ "$waited" -lt "$8" ]; do
+      sleep 10; waited=$((waited + 10)); bg=$($7)
+    done
+    if [ -n "$bg" ]; then
+      echo "$(date "+%Y-%m-%d %H:%M:%S") 等满 ${waited} 秒还没交回，照样重启，桥起来后叫醒：$(echo "$bg" | tr "\n" "；")" >> "$4"
+    else
+      echo "$(date "+%Y-%m-%d %H:%M:%S") 后台活都交回了（等了 ${waited} 秒）" >> "$4"
+    fi
+  fi
   echo "$(date "+%Y-%m-%d %H:%M:%S") 重启：$3" >> "$4"
   if [ -n "$5" ]; then launchctl kickstart -k "gui/$(id -u)/$5"; else "$6" daemon restart; fi >> "$4" 2>&1
-' _ "$start" "$LOG" "$reason" "$OUT" "$LABEL" "$cc" >/dev/null 2>&1 &
+' _ "$start" "$LOG" "$reason" "$OUT" "$LABEL" "$cc" "$here/$(basename "$0") --bg-running" "$BG_WAIT" >/dev/null 2>&1 &
 echo "已安排：本轮回复发出后约 10 秒重启桥（最多等 5 分钟）。原因：$reason"

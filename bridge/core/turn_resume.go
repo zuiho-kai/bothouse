@@ -139,7 +139,9 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 	folded := map[int][]string{}
 	for i, en := range candidates {
 		if n := newest[turnAuthorizationGroup(en)]; n != i {
-			if en.LastUserMessage != "" {
+			if en.BackgroundWork != "" {
+				folded[n] = append(folded[n], "（桥重启停掉了这个会话派出去、还没交回的后台活："+en.BackgroundWork+"。先核对它已写出的产物，没做完的接着做或重新派出）")
+			} else if en.LastUserMessage != "" {
 				folded[n] = append(folded[n], en.LastUserMessage)
 			}
 			folded[n] = append(folded[n], en.QueuedMessages...)
@@ -192,6 +194,19 @@ func planTurnResumes(entries []TurnJournalEntry, env turnResumeEnv) []turnResume
 // that will not see the old context: no session id, or the S1 fresh re-run).
 func buildTurnResumePrompt(en TurnJournalEntry, withOriginal bool) string {
 	var b strings.Builder
+	if en.BackgroundWork != "" {
+		// #1894: the turn had ended; only its background work was still running.
+		b.WriteString("（桥重启停掉了后台活）重启前派出去、还没交回的后台活被停了：")
+		b.WriteString(en.BackgroundWork)
+		b.WriteString("\n派出那一轮在做：")
+		b.WriteString(turnResumeMessageSummary(en.LastUserMessage))
+		b.WriteString("\n它不会再交回了。先核对它已写出的产物，没做完的接着做或重新派出，不要重复已完成的外部动作（push、合 PR、发消息）。")
+		if withOriginal && en.LastUserMessage != "" {
+			b.WriteString("\n\n原消息全文：\n")
+			b.WriteString(en.LastUserMessage)
+		}
+		return b.String()
+	}
 	b.WriteString("（桥重启打断了这一轮）重启前在做：")
 	b.WriteString(turnResumeMessageSummary(en.LastUserMessage))
 	b.WriteString("\n做到：")
