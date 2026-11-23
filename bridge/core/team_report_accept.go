@@ -96,6 +96,9 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
 		job.Prompt += heldMediaPrompt(saveHeldMedia(e.dataDir, hid, heldImgs, heldFiles))
+		if refGated(item) {
+			job.Prompt += refLeadPrompt(hid)
+		}
 		if batch {
 			job.Prompt += "\n这是分批交回：只验本批交付，放行不会关卡；任务和工作区保留，最终交回后才结束整件活。\n"
 		}
@@ -152,7 +155,9 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 	if mentionUser != "" {
 		e.recordHumanMention(chatKey, mentionUser, rec.Board)
 	}
-	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
+	if !refGated(item) {
+		e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
+	}
 	if !rec.Batch {
 		e.exitMarkPosted(team.ExitKindReport, rec.Board, rec.Headline)
 		e.markExitReported(rec.Board)
@@ -437,6 +442,17 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 		name = teamTaskBoardShort(*item)
 	}
 	text := spaceExitLines(heldHeadlineText(name, cp.Headline, unchecked))
+	// #1897: a reference task's attachments go out only through ws-pass's judge against the original.
+	withhold := refGated(item)
+	if withhold {
+		heldReportImages.mu.Lock()
+		n := len(heldReportImages.m[key]) + len(heldReportImages.files[key])
+		heldReportImages.mu.Unlock()
+		if n += len(reportNamedImages(cp.Body)) + len(exitFilesFor(cp.Session, cp.Body, item, nil, false)); n > 0 {
+			text += "\n" + fmt.Sprintf(refWithheldNote, n)
+			slog.Info("report accept: reference task; attachments withheld until judged against the original", "board_item", cp.Board, "attachments", n)
+		}
+	}
 	_, detail := team.ExitSplit(cp.Body)
 	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail, false)
 	inForum := forumRC != nil
@@ -466,8 +482,10 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	heldReportImages.mu.Unlock()
 	// Attachments go where the user reads the result: the chat channel, also when the text has a
 	// task forum post (#1888: #1885's video went only into the forum post, archived a second later).
-	e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
-	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+	if !withhold {
+		e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
+		e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+	}
 	if !cp.Batch {
 		e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
 		if cp.Board > 0 {

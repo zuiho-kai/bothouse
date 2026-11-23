@@ -435,8 +435,11 @@ func (e *Engine) postExitHeadline(ctx context.Context, p Platform, rc any, paren
 		}
 		return ""
 	}
-	// Attachments go to the chat channel the user reads, also when the text has a forum post (#1888).
-	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
+	// Attachments go to the chat channel the user reads, also when the text has a forum post (#1888);
+	// a reference task's report keeps them for ws-pass's judge against the original (#1897).
+	if kind != team.ExitKindReport || !refGated(item) {
+		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
+	}
 	if !rec.Batch {
 		e.exitMarkPosted(kind, hid, hline)
 	}
