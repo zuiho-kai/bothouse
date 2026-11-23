@@ -62,21 +62,8 @@ def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
     t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
-    return t  # 搜词、判重用整行；推出去的显示用 _short
+    return t  # 不截断：推送标题整行照原文（用户 11-03「标题不要截断」；截了定案正文会被截没）
 
-
-SHORT_CHARS = 30  # 推送每条只给短标题 + [#编号]（用户 11-02「给标题跟编号，然后你可以自己去搜」、11-23「我不是说只推标题吗」）
-
-
-def _short(line):
-    """推送显示用的短标题：去掉行首日期，取第一句（到句号、括号、冒号为止），最多 SHORT_CHARS 字。
-    整条原文按编号存进正文库（_row → stash），要细节跑 bothouse ctx <编号>，所以截短不丢定案。"""
-    t = re.sub(r"^\d{4}-\d{2}-\d{2}\s*", "", _title(line))
-    m = re.search(r"[。；;（(]|[：:](?=.)", t)
-    if m and m.start() >= 4:
-        t = t[:m.start()]
-    t = t.strip()
-    return t if len(t) <= SHORT_CHARS else t[:SHORT_CHARS - 1] + "…"
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
@@ -470,7 +457,7 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
                         pages[rel]["rows"].append(r)
                 continue
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
-        row = _row(rel, line, f"{ln}: {fold}{mark}{_short(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+        row = _row(rel, line, f"{ln}: {fold}{mark}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
         if weak:
             row["weak"] = True
         if "【旧】" in mark:
@@ -536,7 +523,7 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
     fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
     if "【旧】" in mark and "【旧】" not in fm:
         fm = "【旧】" + fm
-    title = _short(th.get("title") or line)
+    title = th.get("title") or _title(line)  # 帖标题整行，不截（11-07 括号内断开的坏标题清过 619 个）
     # 只推帖标题 + 那楼的 [#编号]（用户 11-23「我不是说只推标题吗？什么时候改原文了」）；楼的原文按编号存进正文库
     return [_row(file.as_posix(), line, f"{where}: {fm}{FORUM.label(f['id'])}【帖·{len(floors)}楼】{title}{exp_tag(rel, line)}",
                  root=Path("/"), ln=n)]
@@ -733,7 +720,7 @@ def decision_items(text, key=""):
     by, size, rows = {}, 0, {}
     for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
         fold = FORUM.label(FORUM.entry_id(rel, line)) if FORUM else ""
-        row = f"  {ln}: {fold}{_short(line)}{exp_tag(rel, line)}"
+        row = f"  {ln}: {fold}{_title(line)}{exp_tag(rel, line)}"
         size += len(row) + 1 + (0 if rel in by else len(rel) + 1)
         if size > DEC_BLOCK or sum(map(len, by.values())) >= DEC_ROWS:  # hits 按相关度排，超了就丢后面的
             break
@@ -972,7 +959,7 @@ def with_lessons(pages, text, skip=None, prepared=False):
     except Exception:  # 教训表读坏了不挡推页
         return pages
     for rel, n, ln, k, d in hits:
-        path, row = _shown(rel), f"{n}: {_short(ln)}{exp_tag(rel, ln)}"
+        path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
         if page is None:
             pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row, ln=n)]}))
