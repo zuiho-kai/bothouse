@@ -278,6 +278,57 @@ func TestTeamWorkspacesNewNumbering(t *testing.T) {
 	}
 }
 
+// #1030 (11-23 06:03, task #1021): the shared pool held a workspace whose last task had been
+// handed back while its turn still ran; the queued chatter draining after it registered as a
+// turn of task #0. The pool list called it free (no open handoff), `workspace new` adopted it,
+// and the claim right after was refused 「a turn of task #0 is still running there」 — the
+// handoff could not leave. A running turn is work in progress there too (#699 B): the pool
+// lists it busy and `new` skips it, so what `new` returns claims at once.
+func TestWorkspaceNewClaimTurnBusy(t *testing.T) {
+	g := newWorkspaceGuild()
+	e := newWorkspaceLead(t, g, t.TempDir())
+	e.teamWS = newTeamWorkspaces()
+	e.sessions.GetOrCreateActive("discord:100")
+	// The phantom turn of the report: running in pool 工作区1, of no task (task #0).
+	defer beginTeamTurn(teamTurnFact{Chat: "discord:201", Session: "discord:201", Engine: "doo"})()
+
+	pool, err := e.TeamWorkspacePool("discord:100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w1 TeamWorkspace
+	for _, w := range pool {
+		if w.ID == "201" {
+			w1 = w
+		}
+	}
+	if w1.Open == 0 {
+		t.Fatalf("201 with a turn running listed free: %+v", w1)
+	}
+
+	// `new` skips the turn-busy pool workspace and adopts the clean 工作区5; what it returns
+	// claims at once and lists under the chat.
+	_, w, err := e.NewTeamWorkspace("discord:100")
+	if err != nil || w.ID != "205" {
+		t.Fatalf("new with 201 turn-busy = %+v, %v; want adopted 205", w, err)
+	}
+	if err := e.ClaimTeamWorkspaceTask("discord:100", w.ID, w.Name, "", "t", 7); err != nil {
+		t.Fatalf("claim the workspace new returned = %v", err)
+	}
+
+	// With nothing left to adopt, `new` creates a clean channel — claimable at once too.
+	_, w2, err := e.NewTeamWorkspace("discord:100")
+	if err != nil || w2.ID == "201" || w2.ID == "205" {
+		t.Fatalf("new with the pool taken = %+v, %v; want a fresh channel", w2, err)
+	}
+	if err := e.ClaimTeamWorkspaceTask("discord:100", w2.ID, w2.Name, "", "t2", 8); err != nil {
+		t.Fatalf("claim the created workspace = %v", err)
+	}
+	if got := e.TeamWorkspacesOf("discord:100"); len(got) != 2 {
+		t.Fatalf("workspaces of discord:100 = %+v, want 2", got)
+	}
+}
+
 func TestWorkspaceParentPersisted(t *testing.T) {
 	g := newWorkspaceGuild()
 	dataDir := t.TempDir()

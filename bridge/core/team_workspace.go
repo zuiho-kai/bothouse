@@ -204,7 +204,9 @@ type TeamWorkspace struct {
 	// is asked to pause them and release; without it the plain release is tried and retried.
 	Park bool `json:"park,omitempty"`
 	// Open and Parked: in TeamWorkspacePool only, the handoffs to the workspace that are in
-	// work (not closed, not paused) and the paused ones, from the bridge's own record.
+	// work (not closed, not paused) and the paused ones, from the bridge's own record. Open
+	// counts a turn running there too when that is more (#699 B: a turn is work in progress
+	// even with no open handoff; a claim is refused while one runs).
 	Open   int `json:"open,omitempty"`
 	Parked int `json:"parked,omitempty"`
 	// WatchDue: in TeamWorkspacePool only, the earliest check time of the ten-minute watch on
@@ -1284,6 +1286,10 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
 				busy = busy || open >= teamWorkspaceBusy
 			}
+			// #699 B: a turn running there keeps it busy too — even a turn of no task (the
+			// claim refuses those). 11-23 06:03 `new` adopted 工作区2 while its queued chatter
+			// was still draining as a task #0 turn, and the claim of #1021 failed.
+			busy = busy || teamTurnRunning(plat+":"+c.ID)
 			home := teamWorkspaceHome(plat, c)
 			if inPool(guild[i], self) && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(home == "" || home == chat) && (pick == nil || n < teamWorkspaceNum(pick.Name)) {
@@ -2580,6 +2586,11 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner, Home: teamWorkspaceHome(pname, c)}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
+			// #699 B: a turn running there is work in progress even with no open handoff — a
+			// claim refuses it, so the pool does not list it free either.
+			if n := len(teamTurnsOf(pname + ":" + c.ID)); n > w.Open {
+				w.Open = n
+			}
 			w.WatchDue = dues[c.ID]
 			out = append(out, w)
 		}
