@@ -40,10 +40,21 @@ def _clean(x):
     return re.sub(r"\s+", " ", (x or "").replace("-->", "->")).strip()
 
 
-def tag_of(th, f):
+def title_for(th, line):
+    """帖子标题写回前重算（#1187）：从一楼原文截出来的标题（是原文开头一段，不是模型起的问句）按 forum_page.title_of 重截，
+    这样括号、引号、网址、时间里不会断开；模型起的标题原样留。"""
+    import forum_page
+    title = th.get("title") or ""
+    text = forum_page.clean(line).strip() if line else ""
+    if title and text.startswith(title.rstrip("。；;：:，, ")) and not (title.endswith(("？", "?")) and forum_page._paired(title)):
+        return forum_page.title_of(line)[0] or title
+    return title
+
+
+def tag_of(th, f, line=""):
     t = f" <!-- 帖 {th['tid']}·{f['floor']}楼"
     if f["floor"] == 1 and (th.get("title") or th.get("desc")):
-        t += f" 题「{_clean(th.get('title'))}」" + (f" 述「{_clean(th['desc'])}」" if th.get("desc") else "")
+        t += f" 题「{_clean(title_for(th, line))}」" + (f" 述「{_clean(th['desc'])}」" if th.get("desc") else "")
     return t + " -->"
 
 
@@ -61,9 +72,20 @@ def save(t):
         fl = [dict(f) for f in sorted(th["floors"], key=lambda f: f.get("floor", 0)) if f["id"] in live]
         for n, f in enumerate(fl, 1):
             f["floor"] = n
-            want[f["id"]] = tag_of(th, f)
-    changed = []
+            want[f["id"]] = (th, f)
+    # #1263（11-09）：06:00 这里给 108 页加了标注，提交被 pre-commit 无损检查拒（拒的是别人留在同页的未提交改动），
+    # check=False 没吭声，108 页改动一直留在主 wiki，wiki 整理的结果合不回去、卡了 101 个会话。
+    # 现在：主 wiki 里有别人未提交改动的页这次不标（下次再标）；提交被拒就把本次写的页原样换回，主 wiki 不留半成品。
+    dirty = set()
+    if (fs.WIKI / ".git").exists():
+        d = subprocess.run(["git", "-C", str(fs.WIKI), "-c", "core.quotepath=off", "diff", "--name-only", "HEAD"],
+                           capture_output=True, text=True)
+        dirty = set(d.stdout.splitlines())
+    changed, held = [], []
     for r, p, page, lines in pages:
+        if r == fs.WIKI and p.relative_to(r).as_posix() in dirty:
+            held.append(p.relative_to(r).as_posix())
+            continue
         out = []
         for line in lines:
             b = fs.bare(line)
@@ -72,20 +94,36 @@ def save(t):
                 continue
             body = fs.TAG.sub("", line)
             tag = want.get(f"{page}#{hashlib.sha1(b.encode()).hexdigest()[:10]}", "")
+            if tag:
+                tag = tag_of(*tag, line)  # 一楼的标题按这行原文重算（title_for）
             out.append(body + tag if (tag or fs.TAG.search(line)) else line)
         if out != lines:
             fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".ft-", suffix=".md")
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(out))
             os.replace(tmp, p)  # 整页换，推送和网页不读到半页
-            changed.append((r, p))
-    main = [p.relative_to(fs.WIKI).as_posix() for r, p in changed if r == fs.WIKI]
+            changed.append((r, p, "\n".join(lines), "\n".join(out)))
+    if held:
+        print(f"skip {len(held)} page(s) with someone's uncommitted edits in the main wiki (tagged next run): "
+              + ", ".join(held[:10]), file=sys.stderr)
+    main = [(p, old, new) for r, p, old, new in changed if r == fs.WIKI]
     if main and (fs.WIKI / ".git").exists():
-        subprocess.run(["git", "-C", str(fs.WIKI), "add", "--", *main], check=False)
-        subprocess.run(["git", "-C", str(fs.WIKI), "commit", "-q", "-m", f"forum: 楼层帖标注 {len(main)} 页（#1177 forum_threads）", "--", *main],
-                       check=False)
+        names = [p.relative_to(fs.WIKI).as_posix() for p, _, _ in main]
+        subprocess.run(["git", "-C", str(fs.WIKI), "add", "--", *names], check=False)
+        c = subprocess.run(["git", "-C", str(fs.WIKI), "commit", "-q", "-m", f"forum: 楼层帖标注 {len(main)} 页（#1177 forum_threads）",
+                            "--", *names], capture_output=True, text=True)
+        if c.returncode:
+            undone = 0
+            for p, old, new in main:
+                if p.read_text(encoding="utf-8") == new:  # 只换回本次写的，写后又被人改过的不动
+                    p.write_text(old, encoding="utf-8")
+                    undone += 1
+            subprocess.run(["git", "-C", str(fs.WIKI), "reset", "-q", "--", *names], check=False)
+            print(f"COMMIT REFUSED, {undone}/{len(main)} main-wiki page(s) put back as they were: "
+                  + (c.stderr or c.stdout).strip()[-600:], file=sys.stderr)
+            main = []
     fs._tcache.clear()
-    print(json.dumps({"pages_changed": len(changed), "main_wiki": len(main)}, ensure_ascii=False), file=sys.stderr)
+    print(json.dumps({"pages_changed": len(changed), "main_wiki": len(main), "held": len(held)}, ensure_ascii=False), file=sys.stderr)
 
 
 def key(s):
