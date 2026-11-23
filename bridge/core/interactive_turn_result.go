@@ -854,7 +854,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 			}
 			err := e.recordTurnAgent(queued.authorization, turn.replyAgent)
 			if err == nil {
-				err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
+				err = as.Send(queuedPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 			}
 			turn.session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 			nextSend <- err
