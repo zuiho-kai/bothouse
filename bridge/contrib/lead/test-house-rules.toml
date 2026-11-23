@@ -1,0 +1,9 @@
+# 测试用总表片段：本机 [[check]] 登记的样子（#1893）。真表在 ~/wiki/rules/house-rules.toml。
+[[check]]
+id = "local-own-rule"
+artifact = "交接"
+where = "~/.bothouse/collaboration/handoff-rules.local.json"
+overlay = true
+requires = [
+  { name = "本机规矩行", re = "本机规矩\\s*[:：]", sample = "- 本机规矩：照本机守则" },
+]
