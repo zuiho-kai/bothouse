@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"mime"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -78,9 +81,10 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		}
 		return false
 	}
+	heldImgs, heldFiles := takeWorkspaceImages(sessionKey, boundTime(item)), takeWorkspaceFiles(sessionKey, boundTime(item), false)
 	heldReportImages.mu.Lock()
-	heldReportImages.m[rec.Key] = takeWorkspaceImages(sessionKey, boundTime(item))
-	heldReportImages.files[rec.Key] = takeWorkspaceFiles(sessionKey, boundTime(item), false)
+	heldReportImages.m[rec.Key] = heldImgs
+	heldReportImages.files[rec.Key] = heldFiles
 	heldReportImages.mu.Unlock()
 	queued := false
 	if lead != nil && lead.timerScheduler != nil {
@@ -91,6 +95,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
+		job.Prompt += heldMediaPrompt(saveHeldMedia(e.dataDir, hid, heldImgs, heldFiles))
 		if batch {
 			job.Prompt += "\n这是分批交回：只验本批交付，放行不会关卡；任务和工作区保留，最终交回后才结束整件活。\n"
 		}
@@ -233,12 +238,16 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 			int(waitFor/time.Minute), notesArg, notesArg, int(leadAcceptTimeout/time.Minute))
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了（能自己查的去查：日志、提交、线上）。二选一：\n"+
+	now := time.Now()
+	// #1888: #1885's lead spent 26 minutes on a 35-second clip (sprite-sheet json, rebuilt montages)
+	// and the report went out unchecked at minute 10. User 11-23: 「他看多少就验收多少，或者不用完全看完」.
+	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了。看多少判多少，不必看完，到 %s 前定（现在 %s）："+
+		"先读四段，再看随交回的附件（视频抽一张帧拼图就够）；不翻工作区的中间产物、不自己重做拼图或重渲，没看的部分在 verdict 里写一句。二选一：\n"+
 		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件就是只放行文字；带附件放行时这份文字一并放行，不用再跑一次），系统照原文贴给用户。\n"+
 		"- 不合格：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工。\n"+
 		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。放行后用户在聊天频道看到的就是这份汇报原文，你再讲一遍，他同一件事要读两遍：放行后回 NO_REPLY。"+
 		"只有你查到汇报里没写的事（和汇报对不上、还没上线、要用户动手）才说，最多两句，只说对不上的那一点。\n",
-		notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
+		now.Add(5*time.Minute).Format("15:04"), now.Format("15:04"), notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
 	return b.String()
 }
 
@@ -455,12 +464,10 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	delete(heldReportImages.m, key)
 	delete(heldReportImages.files, key)
 	heldReportImages.mu.Unlock()
-	mediaRC := rc
-	if inForum {
-		mediaRC = forumRC
-	}
-	e.postHeldImages(ctx, p, mediaRC, cp.Chat, imgs, cp.Body)
-	e.postExitFiles(ctx, p, mediaRC, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+	// Attachments go where the user reads the result: the chat channel, also when the text has a
+	// task forum post (#1888: #1885's video went only into the forum post, archived a second later).
+	e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
+	e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	if !cp.Batch {
 		e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)
 		if cp.Board > 0 {
@@ -512,4 +519,53 @@ func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, parent 
 		sent = append(sent, img)
 	}
 	noteExitImagesShown(e.dataDir, chat, sent)
+	slog.Info("report accept: images posted with the report in the chat channel", "chat", chat, "images", len(sent), "of", len(seen))
+}
+
+// saveHeldMedia keeps a copy of what the workspace sent with a held report where the lead can open
+// it, so the lead looks at the deliverable itself instead of searching the workspace (#1888).
+func saveHeldMedia(dataDir string, hid int, imgs []ImageAttachment, files []FileAttachment) []string {
+	if dataDir == "" || len(imgs)+len(files) == 0 {
+		return nil
+	}
+	dir := filepath.Join(dataDir, "team", "held-media", fmt.Sprint(hid))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		slog.Warn("report accept: cannot keep the held attachments for the lead", "board_item", hid, "error", err)
+		return nil
+	}
+	var out []string
+	save := func(name string, data []byte) {
+		name = filepath.Base(name)
+		if name == "." || name == "/" || len(data) == 0 {
+			return
+		}
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, data, 0o600); err == nil {
+			out = append(out, path)
+		}
+	}
+	for _, img := range imgs {
+		save(img.FileName, img.Data)
+	}
+	for _, f := range files {
+		save(f.FileName, f.Data)
+	}
+	return out
+}
+
+// heldMediaPrompt lists the held attachments for the lead, with one command that turns a video
+// into a single contact sheet.
+func heldMediaPrompt(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n随交回的附件（用户会看到的就是这些，直接打开）：\n")
+	for _, p := range paths {
+		b.WriteString("- " + p + "\n")
+		if strings.HasPrefix(mime.TypeByExtension(strings.ToLower(filepath.Ext(p))), "video/") {
+			fmt.Fprintf(&b, "  视频不用播完，抽帧拼一张图看：ffmpeg -v error -i %q -vf \"fps=1/4,scale=400:-1,tile=4x3\" -frames:v 1 -y %q\n", p, p+".sheet.jpg")
+		}
+	}
+	return b.String()
 }
