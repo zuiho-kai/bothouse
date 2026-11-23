@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestSend_ModelSkillReachesNewAndResumedTurns(t *testing.T) {
+func TestSend_ModelSkillOncePerAgentSession(t *testing.T) {
 	s, responses, requests := newTestSession(t, nil)
 	seen := make(chan string, 2)
 	go func() {
@@ -36,7 +36,9 @@ func TestSend_ModelSkillReachesNewAndResumedTurns(t *testing.T) {
 	}()
 	// Grok and DeepSeek share this ACP transport. Explicit progress commands
 	// must survive both a fresh prompt and the next prompt of the same session.
-	for _, user := range []string{"[Public progress channel] bothouse progress --run fresh --seq 1 --kind start\n检查绑定", "[Public progress channel] bothouse progress --run renewed --seq 1 --kind start\n继续检查"} {
+	// #1899: the model skill rides only the first prompt of an agent session;
+	// repeating it every turn buried the user's question.
+	for i, user := range []string{"[Public progress channel] bothouse progress --run fresh --seq 1 --kind start\n检查绑定", "[Public progress channel] bothouse progress --run renewed --seq 1 --kind start\n继续检查"} {
 		done := make(chan error, 1)
 		go func() { done <- s.Send(user, "test", nil, nil) }()
 		select {
@@ -48,8 +50,9 @@ func TestSend_ModelSkillReachesNewAndResumedTurns(t *testing.T) {
 			t.Fatal("ACP prompt did not complete")
 		}
 		got := <-seen
-		if !strings.Contains(got, "model list --json") || !strings.Contains(got, "CC_SESSION_KEY") || !strings.HasSuffix(got, user) {
-			t.Fatalf("model skill or user content missing from actual ACP wire payload: %s", got)
+		hasSkill := strings.Contains(got, "model list --json") && strings.Contains(got, "CC_SESSION_KEY")
+		if hasSkill != (i == 0) || !strings.HasSuffix(got, user) {
+			t.Fatalf("prompt %d: model skill present = %v (want %v) or user content missing from ACP wire payload: %s", i+1, hasSkill, i == 0, got)
 		}
 	}
 }
