@@ -105,12 +105,49 @@ func TestHeldReportLeadPromptCarriesAttachments(t *testing.T) {
 			t.Fatalf("attachment %s not kept for the lead (%v) or not in the prompt:\n%s", name, err, prompt)
 		}
 	}
-	for _, want := range []string{"看多少判多少，不必看完，5 分钟内定", "不翻工作区的中间产物", "ffmpeg -v error -i", "tile=4x3"} {
+	for _, want := range []string{"看多少判多少，不必看完，到 " + time.Now().Add(5*time.Minute).Format("15:04") + " 前定（现在 ", "不翻工作区的中间产物", "ffmpeg -v error -i", "tile=4x3"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("lead prompt lacks %q:\n%s", want, prompt)
 		}
 	}
 	if rec := e.heldReportFor(46); rec == nil {
 		t.Fatal("report not held")
+	}
+}
+
+// #1888 matrix: direct exit, held then passed, held then timed out × task forum on and off; a
+// picture and an 8.5 MB video sent with the report all reach the chat channel.
+func TestHeldReportAttachmentsReachChat(t *testing.T) {
+	video := make([]byte, 8583316) // #1885's tiehuafei-demo-v3-send.mp4
+	for _, route := range []string{"direct", "pass", "timeout"} {
+		for _, forum := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/forum=%v", route, forum), func(t *testing.T) {
+				e, p, key := heldMediaFixture(t, "")
+				e.taskForumOff.Store(!forum)
+				heldReportImages.mu.Lock()
+				heldReportImages.files[key] = []FileAttachment{{FileName: "demo-v3.mp4", MimeType: "video/mp4", Data: video}}
+				heldReportImages.mu.Unlock()
+				switch route {
+				case "direct":
+					e.dropHeldReport(key, "test: direct exit instead")
+					e.workspaceChatForTest = func(string) bool { return true }
+					e.noteWorkspaceImages("discord:222", []ImageAttachment{{FileName: "compare.jpg", MimeType: "image/jpeg", Data: []byte("jpg")}})
+					e.noteWorkspaceFiles("discord:222", []FileAttachment{{FileName: "demo-v3.mp4", MimeType: "video/mp4", Data: video}})
+					item := e.boardItemByID(1885)
+					e.postExitHeadline(e.ctx, p, "discord:111", "111", "222", "橘", team.ExitKindReport,
+						"[report] #1885 背景：样片。\n第三版做好了\n要你做的：看片。\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第三版做好了", item)
+				case "pass":
+					if err := e.deliverHeldReport(key, "逐条：看了拼图和四段", false); err != nil {
+						t.Fatal(err)
+					}
+				case "timeout":
+					e.recoverPendingReports(true)
+				}
+				got := strings.Join(p.sentMedia(), "|")
+				if got != "discord:111 compare.jpg|discord:111 demo-v3.mp4" {
+					t.Fatalf("attachments = %q, want the picture and the video in the chat channel", got)
+				}
+			})
+		}
 	}
 }

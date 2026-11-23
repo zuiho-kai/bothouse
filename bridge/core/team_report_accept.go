@@ -238,15 +238,16 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 			int(waitFor/time.Minute), notesArg, notesArg, int(leadAcceptTimeout/time.Minute))
 		return b.String()
 	}
+	now := time.Now()
 	// #1888: #1885's lead spent 26 minutes on a 35-second clip (sprite-sheet json, rebuilt montages)
 	// and the report went out unchecked at minute 10. User 11-23: 「他看多少就验收多少，或者不用完全看完」.
-	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了。看多少判多少，不必看完，5 分钟内定："+
+	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了。看多少判多少，不必看完，到 %s 前定（现在 %s）："+
 		"先读四段，再看随交回的附件（视频抽一张帧拼图就够）；不翻工作区的中间产物、不自己重做拼图或重渲，没看的部分在 verdict 里写一句。二选一：\n"+
 		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件就是只放行文字；带附件放行时这份文字一并放行，不用再跑一次），系统照原文贴给用户。\n"+
 		"- 不合格：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工。\n"+
 		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。放行后用户在聊天频道看到的就是这份汇报原文，你再讲一遍，他同一件事要读两遍：放行后回 NO_REPLY。"+
 		"只有你查到汇报里没写的事（和汇报对不上、还没上线、要用户动手）才说，最多两句，只说对不上的那一点。\n",
-		notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
+		now.Add(5*time.Minute).Format("15:04"), now.Format("15:04"), notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
 	return b.String()
 }
 
@@ -518,6 +519,7 @@ func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, parent 
 		sent = append(sent, img)
 	}
 	noteExitImagesShown(e.dataDir, chat, sent)
+	slog.Info("report accept: images posted with the report in the chat channel", "chat", chat, "images", len(sent), "of", len(seen))
 }
 
 // saveHeldMedia keeps a copy of what the workspace sent with a held report where the lead can open
