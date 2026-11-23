@@ -104,6 +104,33 @@ class DeliveryCheckTest(unittest.TestCase):
         self.sheet("skip", draft, "copy gate test")
         self.assertEqual(self.call(command=cmd), "deny")
 
+    def test_copy_local_source_must_hold_the_quote(self):
+        # #1907 打回②：出处写成本地文件时，原句必须原样在那个文件里；自己编一句配个真路径要拦
+        refs = self.role / "refs.md"
+        refs.write_text("# 对标\n\nAn on-device AI agent for Android.\n"
+                        "Every agent's model. One place.\nAgent harness for learning difficult things.\n",
+                        encoding="utf-8")
+        draft = self.role / "intro-local.md"
+        head = ("# GitHub 简介\n\n## 对标原文\n"
+                "1. 原句：An on-device AI agent for Android. 出处：refs.md\n"
+                "2. 原句：Every agent's model. One place. 出处：%s\n"
+                "3. 原句：Agent harness for learning difficult things. 出处：refs.md\n"
+                "\n我们：「An AI team in your group chat.」 照：第 1 条\n" % refs)
+        cmd = f"bothouse send --file '{draft}'"
+        draft.write_text(head, encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertNotEqual(self.call(command=cmd), "deny")
+        # 编一句、出处仍是真文件：拦，并说清是编的
+        draft.write_text(head.replace("An on-device AI agent for Android. 出处", "Live in your group chat forever. 出处"),
+                         encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        got = self.call(command=cmd)
+        self.assertEqual(got, "deny")
+        # 出处文件不存在：拦
+        draft.write_text(head.replace("出处：refs.md\n\n我们", "出处：nowhere.md\n\n我们"), encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertEqual(self.call(command=cmd), "deny")
+
     def test_copy_text_send_needs_reference_section(self):
         self.assertEqual(self.call(command="bothouse send -m '**GitHub 简介**：住在你群聊里的 AI 团队。'"), "deny")
 

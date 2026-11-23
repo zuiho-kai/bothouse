@@ -186,7 +186,38 @@ def ref_section(text):
     return body[:stop]
 
 
-def copy_gate_why(text, what):
+def ref_entry_parts(line):
+    """一条「原句 … 出处 …」→ (原句, 出处)；出处是 SOURCE 认出的那截，原句是它前面的文字。"""
+    m = REF_ENTRY.match(line)
+    src = SOURCE.search(line)
+    nxt = src.start() if src else len(line)
+    quote = re.split(r"(?i)\s*(?:出处|来源|链接|source)\s*[:：]", line[m.end() if m else 0:nxt], maxsplit=1)[0]
+    quote = re.sub(r"(?i)^\s*(?:原句|原文|quote)\s*[:：]\s*", "", quote.strip())
+    quote = quote.strip(" \t\"'“”‘’「」『』`*:：-—")
+    return quote, (src.group(0).strip() if src else "")
+
+
+def ref_source_problem(n, quote, src, base=""):
+    """本地文件出处要核对：原句必须能在那个文件里原样找到（#1907 打回②）；链接出处不上网核。"""
+    if not quote:
+        return "第 %d 条没写原句（写成「- 原句：<照抄别人的原话> 出处：<链接或本地文件路径>」）。" % n
+    if src.startswith(("http://", "https://")):
+        return None
+    p = os.path.expanduser(src)
+    if not os.path.isabs(p):
+        p = os.path.join(base or os.getcwd(), p)
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except OSError:
+        return "第 %d 条出处的本地文件打不开：%s（路径写对了吗）" % (n, src)
+    if re.sub(r"\s+", "", quote) not in re.sub(r"\s+", "", content):
+        return ("第 %d 条原句在出处文件里找不到原样的一句：%s —— 原句要照抄别人真实写过的话，"
+                "不能自己编一句再配个出处" % (n, src))
+    return None
+
+
+def copy_gate_why(text, what, base=""):
     """要补什么；None = 可以发。"""
     hit = copy_like(text)
     sec = ref_section(text)
@@ -197,12 +228,17 @@ def copy_gate_why(text, what):
                 "## 对标原文\n"
                 "1. 原句：<别人的原句，原样照抄> 出处：<链接或本地文件路径>\n"
                 "2. …\n3. …\n"
-                "至少三条；我们的每句文案后面标「照：第 N 条」，指向上面对应的那条。" % (what, hit))
+                "至少三条；我们的每句文案后面标「照：第 N 条」，指向上面对应的那条。"
+                "出处写本地文件时，原句要能在那个文件里原样找到。" % (what, hit))
     problems = []
     entries = [l for l in sec.splitlines() if REF_ENTRY.match(l) and SOURCE.search(l)]
     if len(entries) < 3:
         problems.append("「对标原文」里带出处的原句只有 %d 条，至少要 3 条；每条写成一行："
                         "「- 原句：<照抄别人的原话> 出处：<链接或本地文件路径>」。" % len(entries))
+    for i, line in enumerate(entries, 1):
+        bad = ref_source_problem(i, *ref_entry_parts(line), base=base)
+        if bad:
+            problems.append(bad)
     tags = [int(m.group(1)) for m in TAG.finditer(text)]
     if not tags:
         problems.append("我们的文案一句都没标「照：第 N 条」：每句后面标上它是照第几条原句写的。")
@@ -592,7 +628,7 @@ def reply_gate(payload):
     拦过一次还没补上，不再拦（免得来回卡死），这条回复由桥换成一句「文案检查没过，草稿没发出」，原文不出去。"""
     sid = str(payload.get("session_id") or "")
     text = last_reply(payload)
-    why = copy_gate_why(text, "这条回复")
+    why = copy_gate_why(text, "这条回复", payload.get("cwd") or os.getcwd())
     again = bool(payload.get("stop_hook_active")) and _copy_state(sid)
     if not why:
         _copy_state(sid, False)
@@ -635,11 +671,11 @@ def main():
                 text = fh.read()
         except (OSError, UnicodeDecodeError):
             continue
-        why = copy_gate_why(text, f)
+        why = copy_gate_why(text, f, cwd)
         if why:
             problems.append(why)
     for text in sent_texts(cmd):
-        why = copy_gate_why(text, "要发的这段文字")
+        why = copy_gate_why(text, "要发的这段文字", cwd)
         if why:
             problems.append(why)
     cli = payload.get("hook_cli") or ""
