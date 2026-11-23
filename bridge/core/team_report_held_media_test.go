@@ -151,3 +151,100 @@ func TestHeldReportAttachmentsReachChat(t *testing.T) {
 		}
 	}
 }
+
+// #2130: across rework rounds on the same task, saveHeldMedia clears stale files from the prior
+// round so held-media/<hid> keeps only the latest round, while passing posts only the final video
+// (not the numbered review sample, which stays locally in held-media/<hid> for inspection).
+func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T) {
+	p := &heldMediaPlatform{forumRoutingPlatform: &forumRoutingPlatform{stubForumPlatform: newStubForumPlatform()}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.dataDir = t.TempDir()
+	e.platformReady = map[Platform]bool{p: true}
+	dir := t.TempDir()
+	e.SetTeam(dir, "lead", true)
+	e.workspaceChatForTest = func(string) bool { return true }
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	t.Cleanup(e.timerScheduler.Stop)
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1061,"what":"黎曼动效","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
+	item := e.boardItemByID(1061)
+
+	// Round 1 (v9): holds both final video and numbered review sample plus images.
+	e.noteWorkspaceImages("discord:222", []ImageAttachment{
+		{FileName: "黎曼猜想xClaude-v9-抽帧拼图.jpg", MimeType: "image/jpeg", Data: []byte("v9-sheet")},
+	})
+	e.noteWorkspaceFiles("discord:222", []FileAttachment{
+		{FileName: "黎曼猜想xClaude-v9-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("v9-final")},
+		{FileName: "黎曼猜想xClaude-v9-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("v9-sample")},
+	})
+	v9Body := "[report] #1061 背景：黎曼动效。\n第九版出好了。\n要你做的：没有\n我加的：无\n细节：无"
+	if !e.holdReportForLead(e.ctx, p, "111", "222", "橘", v9Body, "discord:222", 1061, "背景：黎曼动效。\n第九版出好了。", "", "", item) {
+		t.Fatal("v9 report was not held")
+	}
+	v9Rec := e.heldReportFor(1061)
+	if v9Rec == nil {
+		t.Fatal("missing held v9 report")
+	}
+	if !e.rejectHeldReport(v9Rec.Key, "重做第十版") {
+		t.Fatal("failed to reject v9 report")
+	}
+
+	// Round 2 (v10): re-handback on the same task #1061.
+	e.noteWorkspaceImages("discord:222", []ImageAttachment{
+		{FileName: "黎曼猜想xClaude-v10-抽帧拼图.jpg", MimeType: "image/jpeg", Data: []byte("v10-sheet")},
+	})
+	e.noteWorkspaceFiles("discord:222", []FileAttachment{
+		{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("v10-final")},
+		{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("v10-sample")},
+	})
+	v10Body := "[report] #1061 背景：黎曼动效。\n第十版出好了。\n要你做的：没有\n我加的：无\n细节：无"
+	if !e.holdReportForLead(e.ctx, p, "111", "222", "橘", v10Body, "discord:222", 1061, "背景：黎曼动效。\n第十版出好了。", "", "", item) {
+		t.Fatal("v10 report was not held")
+	}
+
+	heldDir := filepath.Join(e.dataDir, "team", "held-media", "1061")
+	entries, err := os.ReadDir(heldDir)
+	if err != nil {
+		t.Fatalf("read held-media dir: %v", err)
+	}
+	var heldNames []string
+	for _, ent := range entries {
+		heldNames = append(heldNames, ent.Name())
+	}
+	for _, name := range heldNames {
+		if strings.Contains(name, "v9") {
+			t.Fatalf("stale v9 attachment left in held-media/1061: %v", heldNames)
+		}
+	}
+	if len(heldNames) != 3 {
+		t.Fatalf("held-media/1061 files = %v, want 3 v10 attachments (including numbered sample for local review)", heldNames)
+	}
+
+	v10Rec := e.heldReportFor(1061)
+	if v10Rec == nil {
+		t.Fatal("missing held v10 report")
+	}
+	if err := e.deliverHeldReport(v10Rec.Key, "逐条：第十版已核，放行", false); err != nil {
+		t.Fatalf("deliver v10 report: %v", err)
+	}
+	got := p.sentMedia()
+	want := []string{
+		"discord:111 黎曼猜想xClaude-v10-抽帧拼图.jpg",
+		"discord:111 黎曼猜想xClaude-v10-成片-720p.mp4",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("sent media = %q, want %q", got, want)
+	}
+
+	// Empty re-handback also clears previous held-media files.
+	if paths := saveHeldMedia(e.dataDir, 1061, nil, nil); len(paths) != 0 {
+		t.Fatalf("empty saveHeldMedia paths = %v, want empty", paths)
+	}
+	if entries, err := os.ReadDir(heldDir); err == nil && len(entries) != 0 {
+		t.Fatalf("held-media/1061 not cleared on empty re-handback: %d entries left", len(entries))
+	}
+}
