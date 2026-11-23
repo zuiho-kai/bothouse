@@ -775,13 +775,15 @@ def main():
         payload["stop_hook_active"] = bool(payload.get("stop_hook_active")) or load_state().get(sid) == turn
 
     draft = last_reply(payload.get("transcript_path")) if stop else ""
-    proc = None
+    proc, checked_by = None, name
     try:
         if "deliver-check" not in off and (
                 (name == "bash-guard" and payload.get("hook_event_name") == "PreToolUse") or
                 (name == "choice-ask-guard" and stop)):  # 聊天回复正文的文案检查（#1907）走 Stop，先于 choice-ask-guard
             proc = deliver_check(payload, None if stop else path)
+            checked_by = "deliver-check"
         if proc is None:
+            checked_by = name
             proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
                                   capture_output=True, text=True)
     finally:
@@ -789,6 +791,7 @@ def main():
             os.unlink(tmp)
         if codex_tmp:
             os.unlink(codex_tmp)
+    proc = trial_gate(proc, checked_by, sid, draft or json.dumps(payload.get("tool_input") or {}, ensure_ascii=False))
     if turn is not None:
         try:
             blocked = json.loads(proc.stdout or "{}").get("decision") == "block"
@@ -851,6 +854,27 @@ def main():
     sys.exit(proc.returncode)
 
 
+def gate_trials():
+    """gate_trials.py next to this file (python3 -I leaves the script's directory off sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gate_trials", os.path.join(HERE, "gate_trials.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def trial_gate(proc, check, session, excerpt):
+    """#1924: a hook may block (block / deny / exit 2) only if its check is an old one (gate-trials.json legacy)
+    or its replay on real replies passed (gate_trials.measured). Otherwise the would-be block is logged to
+    gate-trials.tsv and the call passes. The check is the hook's bothouse_check, else the hook's name."""
+    gt = gate_trials()
+    kind, named, why = gt.block_of(proc.returncode, proc.stdout, proc.stderr)
+    if kind is None or gt.may_block(named or check):
+        return proc
+    gt.log(named or check, "observe", session, why, excerpt)
+    return subprocess.CompletedProcess(proc.args, 0, "", proc.stderr)
+
+
 def deliver_check(payload, dsh_log):
     """Run deliver-check.py before bash-guard. Its result is returned only when it denies (then bash-guard is
     skipped); otherwise None and bash-guard runs as before. DSH: the session log becomes a Claude Code transcript
@@ -885,7 +909,14 @@ def deliver_check(payload, dsh_log):
         return None
     if isinstance(d, dict) and d.get("bothouse_replace"):
         # #1907: blocked once and sent back unfixed. The turn ends, but the bridge swaps the draft for this line.
-        note_stop_blocked(str(d.get("draft") or ""), withhold=True, replace=str(d["bothouse_replace"]))
+        # #1924: only a check whose replay record passed may replace, and the original draft always follows the
+        # line (用户 11-03「我不是让你做兜底么」: the user never gets nothing); an unmeasured check only logs.
+        check, draft = d.get("bothouse_check") or "deliver-check", str(d.get("draft") or "")
+        gt = gate_trials()
+        if gt.may_replace(check):
+            note_stop_blocked(draft, withhold=True, replace=str(d["bothouse_replace"]) + gt.ORIGINAL + draft)
+        else:
+            gt.log(check, "observe-replace", payload.get("session_id"), d["bothouse_replace"], draft)
         if proc.stderr:
             sys.stderr.write(proc.stderr)
         return None
@@ -1082,18 +1113,21 @@ def run_agy(target, raw, event):
         except (OSError, ValueError):
             st = {}
         payload["stop_hook_active"] = step is not None and st.get(sid) == step
-    proc = None
+    proc, checked_by = None, os.path.basename(target)[:-3]
     try:
         if "deliver-check" not in load_off(role_dir(payload["cwd"])) and (
                 (event == "PreToolUse" and os.path.basename(target) == "bash-guard.py") or
                 (event == "Stop" and os.path.basename(target) == "choice-ask-guard.py")):
             proc = deliver_check(payload, None)
+            checked_by = "deliver-check"
         if proc is None:
+            checked_by = os.path.basename(target)[:-3]
             proc = subprocess.run([sys.executable, "-I", target], input=json.dumps(payload, ensure_ascii=False),
                                   capture_output=True, text=True)
     finally:
         if tmp:
             os.unlink(tmp)
+    proc = trial_gate(proc, checked_by, sid, json.dumps(payload.get("tool_input") or {}, ensure_ascii=False))
     ans, blocked = agy_answer(event, proc.returncode, proc.stdout, proc.stderr)
     if blocked and event == "Stop" and step is not None:
         try:

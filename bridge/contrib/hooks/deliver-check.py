@@ -724,6 +724,14 @@ def main():
         why = copy_gate_why(text, "要发的这段文字", cwd)
         if why:
             problems.append(why)
+    if problems:
+        # #1924：文案检查（#1907）是新检查，回放没达标前只记录不拦（gate_trials.py，记录 gate-trials.json）
+        spec = importlib.util.spec_from_file_location("gate_trials", os.path.join(HERE, "gate_trials.py"))
+        gt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gt)
+        if not gt.may_block("copy-gate"):
+            gt.log("copy-gate", "observe", payload.get("session_id"), " ".join(problems), cmd)
+            problems = []
     cli = payload.get("hook_cli") or ""
     known, reads = (False, [])
     if cli not in ("gemini", "grok"):
