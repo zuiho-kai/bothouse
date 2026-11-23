@@ -1128,6 +1128,9 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 		add("life_page", e.lifePageBlock())   // once per context, cron and timer included (lifepage.go)
 		add("member", e.memberBlock(session)) // once per context and note kind, with or without the gate
 	}
+	// What the user approved in this chat's open tasks: once per context, a workspace too, since that is
+	// where the approved product gets changed (deliver_approved.go).
+	add("approved", e.deliverApprovedBlock(session, sessionKey))
 	if !turnCtx {
 		return content
 	}
