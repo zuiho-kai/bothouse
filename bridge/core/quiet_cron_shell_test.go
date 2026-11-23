@@ -425,6 +425,104 @@ func TestShellTimeoutKeptOutOfQuietGroup(t *testing.T) {
 	}
 }
 
+// A scheduled shell job that exits 0 with nothing to say used to post
+// "⏰ ✅ `cmd`\n\n(no output)" — every healthy 定时检查 dropped an empty result
+// line into the chat (user 2026-11-23 「定时检查一切正常时，频道里也会多一条
+// (no output) 空消息」, #2104). Now a quick silent success posts nothing; a run
+// long enough to have posted ⏳ closes that line with a bare ✅ so it does not
+// keep looking like it is still running. Output and failures post as before.
+func TestCronShellSilentSuccessPostsNothing(t *testing.T) {
+	silent := "exit 0"
+	longSilent := "sleep 1.2"
+	if runtime.GOOS == "windows" {
+		longSilent = "Start-Sleep -Milliseconds 1200"
+	}
+
+	schedulers := []struct {
+		name string
+		run  func(e *Engine, p Platform, replyCtx any, command string) error
+	}{
+		{"cron", func(e *Engine, p Platform, replyCtx any, command string) error {
+			return e.executeCronShell(p, replyCtx, &CronJob{ID: "silent-cron", Exec: command})
+		}},
+		{"timer", func(e *Engine, p Platform, replyCtx any, command string) error {
+			return e.executeTimerShell(p, replyCtx, &TimerJob{ID: "silent-timer", Exec: command})
+		}},
+	}
+
+	for _, scheduler := range schedulers {
+		t.Run(scheduler.name+"-quick-silent", func(t *testing.T) {
+			e := newTestEngine()
+			p := &stubPlatformEngine{n: "qq"}
+			if err := scheduler.run(e, p, "chat", silent); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			if sent := p.getSent(); len(sent) != 0 {
+				t.Fatalf("silent success posted %d messages, want none: %q", len(sent), sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-silent-plain-platform", func(t *testing.T) {
+			e := newTestEngine()
+			p := &stubPlatformEngine{n: "qq"}
+			if err := scheduler.run(e, p, "chat", longSilent); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			sent := p.getSent()
+			want := "⏰ ✅ `" + longSilent + "`"
+			if len(sent) != 2 || !strings.HasPrefix(sent[0], "⏰ ⏳") || sent[1] != want {
+				t.Fatalf("long silent run posted %q, want ⏰ ⏳ then exactly %q", sent, want)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-silent-updating-platform", func(t *testing.T) {
+			e := newTestEngine()
+			p := &mockUpdaterPlatform{}
+			if err := scheduler.run(e, p, "chat", longSilent); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			msgs := p.getMessages()
+			want := "update:⏰ ✅ `" + longSilent + "`"
+			if len(msgs) == 0 || msgs[len(msgs)-1] != want {
+				t.Fatalf("preview ended at %q, want last update %q", msgs, want)
+			}
+			for _, m := range msgs {
+				if strings.Contains(m, "no output") {
+					t.Fatalf("preview carried a (no output) body: %q", msgs)
+				}
+			}
+			if sent := p.getSent(); len(sent) != 0 {
+				t.Fatalf("updating platform also got plain messages: %q", sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-loud-success-still-posts", func(t *testing.T) {
+			e := newTestEngine()
+			p := &stubPlatformEngine{n: "qq"}
+			if err := scheduler.run(e, p, "chat", "echo scheduled-output"); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			sent := p.getSent()
+			if len(sent) != 1 || !strings.Contains(sent[0], "⏰ ✅") || !strings.Contains(sent[0], "scheduled-output") {
+				t.Fatalf("loud success posted %q, want one ⏰ ✅ with the output", sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-failure-still-posts", func(t *testing.T) {
+			e := newTestEngine()
+			p := &stubPlatformEngine{n: "qq"}
+			err := scheduler.run(e, p, "chat", "echo boom; exit 7")
+			if err == nil {
+				t.Fatal("a failing job must return its error")
+			}
+			sent := p.getSent()
+			if len(sent) != 1 || !strings.Contains(sent[0], "⏰ ❌") || !strings.Contains(sent[0], "exit code 7") {
+				t.Fatalf("failure posted %q, want one ⏰ ❌ with the exit code", sent)
+			}
+		})
+	}
+}
+
 // cronReplyContextQuietPlatform gives ExecuteCronJob the reply context it must
 // reconstruct for a proactive run, and keeps QQ's quiet-group rule.
 type cronReplyContextQuietPlatform struct {

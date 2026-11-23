@@ -3043,13 +3043,32 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 
 	exitOK := cmd.ProcessState.ExitCode() == 0
 
+	if exitOK && strings.TrimSpace(output) == "" {
+		// A silent success posts no result (user 2026-11-23: every healthy 定时
+		// 检查 still dropped a "(no output)" line into the chat, #2104). A run
+		// long enough to have announced ⏳ (callers pass opts only then) still
+		// closes that line with a bare ✅ — it must not keep looking like it is
+		// running. A run that finished inside quickFinishTimeout posts nothing.
+		if len(opts) < 2 {
+			return nil
+		}
+		doneMsg := fmt.Sprintf("⏰ ✅ `%s`", cmdLabel)
+		if useUpdate, ok := opts[0].(bool); ok && useUpdate {
+			if handle := opts[1]; handle != nil {
+				if err := updaterFor(p).UpdateMessage(e.ctx, handle, doneMsg); err != nil {
+					return err
+				}
+				e.recordExternalSend(p, sessionKey, workDir, doneMsg, "定时脚本")
+				return nil
+			}
+		}
+		e.sendSystemNotice(p, replyCtx, doneMsg)
+		return nil
+	}
+
 	var finalMsg string
 	if exitOK {
-		result := strings.TrimSpace(output)
-		if result == "" {
-			result = "(no output)"
-		}
-		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(result, 3000))
+		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(strings.TrimSpace(output), 3000))
 	} else {
 		errMsg := output
 		if errMsg != "" {
