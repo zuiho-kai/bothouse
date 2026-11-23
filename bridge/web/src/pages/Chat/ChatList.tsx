@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { MessageSquare, ChevronRight, Search } from 'lucide-react';
+import { Hash, MessageSquare, ChevronRight, Search } from 'lucide-react';
 import { EmptyState } from '@/components/ui';
 import { LibraryAvatar } from '@/components/library/LibraryAvatar';
 import { resolveRoleAvatar, useAvatarStyle } from '@/lib/avatarMap';
@@ -95,6 +95,18 @@ export default function ChatList() {
           </label>
         )}
       </header>
+
+      <Link
+        to="/chat/rooms/general"
+        className="flex min-h-[72px] items-center gap-3.5 rounded-card bg-surface px-4 py-3.5 shadow-ui-1 transition-colors duration-base hover:bg-surface-sunken focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sm:px-5"
+      >
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent-wash text-accent-text"><Hash size={22} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-ink">{t('general.title')}</span>
+          <span className="block text-sm text-ink-soft">{t('general.summary')}</span>
+        </span>
+        <ChevronRight size={16} className="shrink-0 text-ink-mute" />
+      </Link>
 
       {loading && entries.length === 0 ? (
         <div className="overflow-hidden rounded-card bg-surface shadow-ui-1" aria-busy="true">

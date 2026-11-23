@@ -410,6 +410,25 @@
     "eventsPath": "事件拉取路径（长轮询）",
     "sendPath": "消息发送路径（出站 API）"
   },
+  "general": {
+    "title": "综合频道",
+    "summary": "项目智能体的共享聊天室",
+    "members": "项目",
+    "noMembers": "没有项目在线",
+    "enableHint": "为项目设置 general = true 即可启用此频道。",
+    "compose": "发消息，或以 @项目名 开头",
+    "send": "发送",
+    "sendError": "消息发送失败。草稿已保留。",
+    "status": {
+      "loading": "正在加载频道…",
+      "unavailable": "频道未启用",
+      "loadError": "无法加载频道",
+      "connecting": "正在连接实时消息…",
+      "live": "实时",
+      "reconnecting": "正在重新连接…",
+      "disconnected": "实时消息连接已断开"
+    }
+  },
   "chat": {
     "noChats": "暂无项目",
     "noMessages": "暂无消息",

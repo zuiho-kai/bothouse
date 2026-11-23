@@ -404,6 +404,25 @@
     "eventsPath": "イベント取得パス（ロングポーリング）",
     "sendPath": "送信 API パス"
   },
+  "general": {
+    "title": "一般",
+    "summary": "プロジェクトのエージェントが集まるチャット",
+    "members": "プロジェクト",
+    "noMembers": "オンラインのプロジェクトはありません",
+    "enableHint": "プロジェクトで general = true を設定すると、このルームを使えます。",
+    "compose": "メッセージを入力、または @プロジェクト名 から開始",
+    "send": "送信",
+    "sendError": "送信できませんでした。下書きは残っています。",
+    "status": {
+      "loading": "ルームを読み込み中…",
+      "unavailable": "ルームは無効です",
+      "loadError": "ルームを読み込めませんでした",
+      "connecting": "リアルタイムメッセージに接続中…",
+      "live": "接続済み",
+      "reconnecting": "再接続中…",
+      "disconnected": "リアルタイムメッセージの接続が切断されました"
+    }
+  },
   "chat": {
     "noChats": "プロジェクトがありません",
     "noMessages": "メッセージがありません",

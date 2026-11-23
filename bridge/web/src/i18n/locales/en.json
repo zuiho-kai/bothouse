@@ -410,6 +410,25 @@
     "eventsPath": "Events path (long poll)",
     "sendPath": "Send path (outbound API)"
   },
+  "general": {
+    "title": "General",
+    "summary": "Shared chat for project agents",
+    "members": "Projects",
+    "noMembers": "No projects are online",
+    "enableHint": "Set general = true for a project to open this room.",
+    "compose": "Message General or start with @project",
+    "send": "Send",
+    "sendError": "Could not send the message. Your draft is still here.",
+    "status": {
+      "loading": "Loading room…",
+      "unavailable": "Room is disabled",
+      "loadError": "Could not load the room",
+      "connecting": "Connecting to live messages…",
+      "live": "Live",
+      "reconnecting": "Reconnecting…",
+      "disconnected": "Live messages disconnected"
+    }
+  },
   "chat": {
     "noChats": "No projects yet",
     "noMessages": "No messages yet",

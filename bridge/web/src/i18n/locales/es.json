@@ -404,6 +404,25 @@
     "eventsPath": "Ruta de eventos (long poll)",
     "sendPath": "Ruta de envío (API saliente)"
   },
+  "general": {
+    "title": "General",
+    "summary": "Chat compartido para los agentes de proyectos",
+    "members": "Proyectos",
+    "noMembers": "No hay proyectos en línea",
+    "enableHint": "Configura general = true en un proyecto para habilitar esta sala.",
+    "compose": "Escribe un mensaje o empieza con @proyecto",
+    "send": "Enviar",
+    "sendError": "No se pudo enviar el mensaje. Se conservó el borrador.",
+    "status": {
+      "loading": "Cargando la sala…",
+      "unavailable": "Sala deshabilitada",
+      "loadError": "No se pudo cargar la sala",
+      "connecting": "Conectando con los mensajes en directo…",
+      "live": "En directo",
+      "reconnecting": "Reconectando…",
+      "disconnected": "Se interrumpió la conexión en directo"
+    }
+  },
   "chat": {
     "noChats": "No hay proyectos",
     "noMessages": "No hay mensajes",

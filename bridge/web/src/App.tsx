@@ -11,6 +11,7 @@ import SessionList from '@/pages/Sessions/SessionList';
 import SessionChat from '@/pages/Sessions/SessionChat';
 import ChatList from '@/pages/Chat/ChatList';
 import ChatView from '@/pages/Chat/ChatView';
+import GeneralChat from '@/pages/Chat/GeneralChat';
 import CronList from '@/pages/Cron/CronList';
 import SystemConfig from '@/pages/System/Config';
 import LibraryPage from './pages/Library/LibraryPage';
@@ -91,6 +92,7 @@ export default function App() {
         <Route path="bridge" element={<BridgeAdapters />} />
         <Route path="skills" element={<SkillList />} />
         <Route path="chat" element={<ChatList />} />
+        <Route path="chat/rooms/general" element={<GeneralChat />} />
         <Route path="chat/:name" element={<ChatView />} />
         <Route path="cron" element={<CronList />} />
         <Route path="library" element={<LibraryPage />} />

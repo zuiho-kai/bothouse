@@ -404,6 +404,25 @@
     "eventsPath": "이벤트 경로 (롱 폴)",
     "sendPath": "전송 경로 (아웃바운드 API)"
   },
+  "general": {
+    "title": "일반",
+    "summary": "프로젝트 에이전트의 공유 채팅",
+    "members": "프로젝트",
+    "noMembers": "온라인 프로젝트가 없습니다",
+    "enableHint": "프로젝트에 general = true를 설정하면 이 방을 사용할 수 있습니다.",
+    "compose": "메시지를 입력하거나 @프로젝트로 시작하세요",
+    "send": "보내기",
+    "sendError": "메시지를 보내지 못했습니다. 작성 내용은 그대로 남아 있습니다.",
+    "status": {
+      "loading": "채팅방을 불러오는 중…",
+      "unavailable": "채팅방이 비활성화됨",
+      "loadError": "채팅방을 불러올 수 없습니다",
+      "connecting": "실시간 메시지에 연결 중…",
+      "live": "실시간",
+      "reconnecting": "다시 연결하는 중…",
+      "disconnected": "실시간 메시지 연결이 끊겼습니다"
+    }
+  },
   "chat": {
     "noChats": "프로젝트가 없습니다",
     "noMessages": "메시지가 없습니다",

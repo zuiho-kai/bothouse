@@ -407,6 +407,25 @@
     "eventsPath": "事件拉取路徑（長輪詢）",
     "sendPath": "訊息發送路徑（出站 API）"
   },
+  "general": {
+    "title": "綜合頻道",
+    "summary": "專案代理程式的共用聊天室",
+    "members": "專案",
+    "noMembers": "沒有專案上線",
+    "enableHint": "為專案設定 general = true 即可啟用此頻道。",
+    "compose": "傳送訊息，或以 @專案名稱 開頭",
+    "send": "傳送",
+    "sendError": "無法傳送訊息。草稿已保留。",
+    "status": {
+      "loading": "正在載入頻道…",
+      "unavailable": "頻道未啟用",
+      "loadError": "無法載入頻道",
+      "connecting": "正在連線至即時訊息…",
+      "live": "即時",
+      "reconnecting": "正在重新連線…",
+      "disconnected": "即時訊息連線已中斷"
+    }
+  },
   "chat": {
     "noChats": "尚無專案",
     "noMessages": "尚無訊息",
