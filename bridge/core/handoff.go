@@ -911,10 +911,7 @@ func (s *Session) SettleHandoff(delivered bool) {
 		s.memCtx = true // maomao fork: and the MEMORY.md block (memoryBlock)
 	}
 	s.memTaken = false
-	if !delivered && s.rulesTaken != "" && s.TurnCtx != nil && s.TurnCtx.Rules == s.rulesTaken {
-		s.TurnCtx.Rules = "" // maomao fork: and the team-mode rules (teamRulesOnce)
-	}
-	s.rulesTaken = ""
+	s.settleOnceLocked(delivered) // every once-per-context block (inject.go)
 	if delivered && s.freshDonePending != "" {
 		s.freshDoneUpTo = s.freshDonePending
 	}

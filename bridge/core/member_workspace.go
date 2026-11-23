@@ -778,19 +778,6 @@ func (e *Engine) memberBlock(session *Session) string {
 	default:
 		return ""
 	}
-	key := "on"
-	if note == memberNoteOffer {
-		key = "offer"
-	}
-	send := false
-	session.UpdateTurnCtx(func(t *TurnCtxSent) {
-		if t.Member != key {
-			t.Member, send = key, true
-		}
-	})
-	if !send {
-		return ""
-	}
 	if note == memberNoteOn && e.runAsUser() != "" {
 		note += memberNoteRunAs
 	}

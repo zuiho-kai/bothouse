@@ -620,3 +620,16 @@ func listAntigravitySessions(workDir string) ([]core.AgentSessionInfo, error) {
 
 	return sessions, nil
 }
+
+// TurnPreamble is the task lifecycle guidance and, unless cmd pins the model (it then cannot be
+// switched from the bridge), the model-control instructions; the engine sends it once per agent
+// context (core.TurnPreambleAgent, #1903).
+func (a *Agent) TurnPreamble() string {
+	a.mu.Lock()
+	pinned := hasModelFlag(a.cliExtraArgs)
+	a.mu.Unlock()
+	if pinned {
+		return taskLifecycleInstructions
+	}
+	return taskLifecycleInstructions + "\n\n" + core.ModelSwitchInstructions()
+}

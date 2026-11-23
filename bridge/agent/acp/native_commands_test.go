@@ -61,10 +61,11 @@ func TestNativeCommandIsSentAsTyped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// #1903: the engine adds the model skill (once per context); the session sends prompts as typed.
 	for _, want := range []struct {
 		text    string
 		asTyped bool
-	}{{"/context", true}, {"hello", false}} {
+	}{{"/context", true}, {"hello", true}} {
 		select {
 		case got := <-prompts:
 			if (got == want.text) != want.asTyped {

@@ -42,11 +42,10 @@ func (s *acpSession) SendMidTurn(prompt string, messageID string, images []core.
 	if sid == "" {
 		return fmt.Errorf("acp: no agent session id")
 	}
-	// Unlike sendLocked, keep the private-output state (it belongs to the running turn), and skip
-	// the model-control instructions: the running turn's own prompt carried them.
+	// Unlike sendLocked, keep the private-output state (it belongs to the running turn).
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, false),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files),
 		"_meta":     map[string]any{steerMetaKey: true},
 	}
 	res, err := s.tr.call(s.ctx, "session/prompt", params)
