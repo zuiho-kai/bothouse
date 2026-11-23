@@ -19,10 +19,12 @@ const (
 	antiSpinMaxWakes = 2 // wakes allowed inside one window; the next one is refused
 )
 
-// wakesModel: the job is a prompt the model set for itself. Scripts (Exec), handoff dispatches
-// and forwarded notices are deliveries the bridge makes, not self-polling.
+// wakesModel: the job is a prompt the model set for itself. Scripts (Exec), handoff dispatches,
+// forwarded notices, workspace-handback acceptance wakes (ReportID, TaskReview) and the board's
+// handback guard timers (Guard) are deliveries the bridge makes, not self-polling (#1915: three
+// handbacks in 10 minutes blocked #1912's guard, so its handback could go unreviewed).
 func (j *TimerJob) wakesModel() bool {
-	return j != nil && j.Exec == "" && !j.Handoff && !j.Forward
+	return j != nil && j.Exec == "" && !j.Handoff && !j.Forward && !j.Guard && j.ReportID == "" && j.TaskReview == nil
 }
 
 // CheckAntiSpinTimer refuses a new prompt timer when, together with the session's other prompt

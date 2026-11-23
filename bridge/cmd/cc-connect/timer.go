@@ -40,7 +40,7 @@ func runTimer(args []string) {
 func runTimerAdd(args []string) {
 	var project, sessionKey, delay, atTime, prompt, execCmd, desc, dataDir, sessionMode string
 	var timeoutMins *int
-	var mute, silent, injectIfBusy, handoff, forward bool
+	var mute, silent, injectIfBusy, handoff, forward, guard bool
 	var replyBoard int
 
 	var positional []string
@@ -111,6 +111,8 @@ func runTimerAdd(args []string) {
 			handoff = true
 		case "--forward":
 			forward = true
+		case "--guard":
+			guard = true
 		case "--reply-board":
 			if i+1 < len(args) {
 				i++
@@ -191,6 +193,9 @@ func runTimerAdd(args []string) {
 	}
 	if forward {
 		body["forward"] = true
+	}
+	if guard {
+		body["guard"] = true
 	}
 	if replyBoard > 0 {
 		body["reply_board"] = replyBoard
@@ -459,6 +464,7 @@ Options:
       --inject-if-busy       If the session is mid-turn, add the prompt to that turn instead of queuing
       --handoff              Wake-up for a handed-over task (ws-handoff): the turn opens the automatic progress card
       --forward              One-shot notice the lead forwards into a workspace (ws-forward): a delivery, not a status poll
+      --guard                Task board's handback guard (board.py): wakes the lead once if a workspace is late
       --reply-board <id>     The turn's posts report on task-board item <id>: a reply to them reaches that work
       --data-dir <path>      Data directory (default: ~/.bothouse)
   -h, --help                 Show this help

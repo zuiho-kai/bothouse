@@ -1230,7 +1230,7 @@ def arm_guard(nid, delay=None):
         return None
     try:
         p = subprocess.run([cc, "timer", "add", "-s", it["chat"], "--delay", delay, "--timeout-mins", "0",
-                            "--silent", "--desc", f"兜底 #{nid}：工作区 {delay} 没交回就查", "--prompt", _guard_prompt(it, delay)],
+                            "--silent", "--guard", "--desc", f"兜底 #{nid}：工作区 {delay} 没交回就查", "--prompt", _guard_prompt(it, delay)],
                            capture_output=True, text=True, timeout=WS_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         print(f"board: #{nid} 兜底定时器没挂上（{e}）", file=sys.stderr)
