@@ -1,6 +1,7 @@
 """记忆论坛夜间结算（score_night.py）和写入时过时检测（wiki 的 invalidate.py）：python3 -I contrib/gate/test_score_night.py
 模型调用都换成假的，wiki、推送记录、票全在临时目录。"""
-import json, os, subprocess, sys, tempfile, unittest
+import json, os, re, subprocess, sys, tempfile, time, unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +17,12 @@ for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMM
     os.environ[k] = "t@t" if "EMAIL" in k else "t"
 os.environ["MEMVOTE_DIR"] = str(Path(_tmp.name) / "exp")
 (Path(_tmp.name) / "exp").mkdir()
+LOGS = Path(_tmp.name) / "logs"  # 失败信号读的会话记录、任务板、桥会话表全指到临时目录，不读开发机上的真记录
+for k, sub in (("SCORE_CLAUDE_LOGS", "claude"), ("SCORE_CODEX_LOGS", "codex"), ("SCORE_AGY_LOGS", "agy"),
+               ("SCORE_DSH_LOGS", "dsh"), ("SCORE_SESSIONS", "sessions")):
+    (LOGS / sub).mkdir(parents=True)
+    os.environ[k] = str(LOGS / sub)
+os.environ["SCORE_BOARD_DONE"] = str(LOGS / "board-done.jsonl")
 sys.path.insert(0, str(HERE))
 import memvote, score_night, forum_scores  # noqa: E402
 
@@ -100,6 +107,51 @@ class T(unittest.TestCase):
         self.assertEqual(len(votes), 1)
         self.assertFalse((self.exp / "score-state.json").exists())
         self.assertNotIn("## 历史", (WIKI / "tooling/p.md").read_text(encoding="utf-8"))
+
+
+    def test_failed_command_in_turn_is_failure_without_correction(self):
+        """那轮没被纠正，但会话记录里命令跑失败（Exit code 非 0 且有输出）：也记一次失败，signals 记 cmd_fail。"""
+        push = [json.loads(x) for x in (self.exp / "push.jsonl").read_text(encoding="utf-8").splitlines()]
+        push[1]["q"] = "好的"  # 第二句不再是纠正
+        (self.exp / "push.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in push), encoding="utf-8")
+
+        def iso(stamp):
+            return datetime.fromtimestamp(time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M:%S"))).astimezone().isoformat()
+        rows = [
+            {"type": "user", "timestamp": iso("2026-11-03 10:00:00"), "message": {"role": "user", "content": [
+                {"type": "text", "text": "[bothouse sender_id=1 platform=discord chat_id=1]\n发版怎么走"}]}},
+            {"type": "user", "timestamp": iso("2026-11-03 10:02:00"), "message": {"role": "user", "content": [
+                {"type": "tool_result", "is_error": True, "content": "Exit code 2\nmake: *** [release] Error 2"}]}},
+            {"type": "user", "timestamp": iso("2026-11-03 10:03:00"), "message": {"role": "user", "content": [
+                {"type": "tool_result", "is_error": True, "content": "Exit code 1"}]}},  # grep 没搜到：不算
+        ]
+        log = LOGS / "claude" / "s.jsonl"
+        log.write_text("".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in rows), encoding="utf-8")
+        try:
+            with patch.object(score_night, "judge", self.judge), \
+                    patch.object(forum_scores, "path", lambda: self.exp / "scores.json"):
+                score_night.main()
+        finally:
+            log.unlink()
+        votes = [json.loads(x) for x in (self.exp / "votes.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(r["id"], r["vote"]) for r in votes if r["by"] == "outcome"], [(f"tooling/p.md#{self.h[0]}", -1)])
+        tags = [json.loads(x) for x in (self.exp / "tags.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(tags[0]["signals"], ["cmd_fail"])
+        self.assertEqual(tags[0]["signal_src"], ["claude:cmd_fail"])
+        night = json.loads((self.exp / "nightly.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(night["signals"]["cmd_fail"], 1)
+        self.assertEqual(night["signal_only_failure"], 1)
+
+    def test_claude_logs_follow_data_dir(self):
+        """没给 SCORE_CLAUDE_LOGS 时，按数据目录下 roles/<角色> 的 Claude 编码目录找，不写死某台机器的路径。"""
+        home = Path(_tmp.name) / "home"
+        data = home / ".bothouse-x"
+        want = home / ".claude/projects" / (re.sub(r"[^A-Za-z0-9]", "-", str(data / "roles")) + "-a")
+        want.mkdir(parents=True)
+        (home / ".claude/projects/-other-roles-b").mkdir()
+        with patch.dict(os.environ, {"SCORE_CLAUDE_LOGS": "", "BOTHOUSE_DATA_DIR": str(data)}), \
+                patch.object(score_night, "HOME", home):
+            self.assertEqual(score_night.claude_logs(), [want])
 
 
 class Invalidate(unittest.TestCase):
