@@ -5,31 +5,24 @@ import (
 	"testing"
 )
 
-func TestPreparePromptIncludesModelSkill(t *testing.T) {
-	s := &antigravitySession{workDir: t.TempDir()}
-	got, files := s.preparePrompt("hello", nil, nil)
-	if !strings.Contains(got, "model list --json") || !strings.HasSuffix(got, "hello") || len(files) != 0 {
-		t.Fatalf("default stream/print prompt missing model skill: %s", got)
-	}
-}
-
-func TestPreparePromptIncludesTaskLifecycleGuidance(t *testing.T) {
-	s := &antigravitySession{workDir: t.TempDir()}
-	got, _ := s.preparePrompt("read a file", nil, nil)
-	for _, want := range []string{"manage_task", "DONE", "Do not kill", "latest task status"} {
+// #1903: the task lifecycle and model-control instructions are the Agent's TurnPreamble, sent by
+// the engine once per agent context; preparePrompt no longer puts them before every prompt.
+func TestTurnPreambleCarriesModelSkillAndLifecycle(t *testing.T) {
+	a := &Agent{activeIdx: -1}
+	got := a.TurnPreamble()
+	for _, want := range []string{"model list --json", "manage_task", "DONE", "Do not kill", "latest task status"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("task lifecycle guidance missing %q", want)
+			t.Errorf("preamble missing %q", want)
 		}
 	}
 }
 
-func TestPreparePromptPreservesPublicProgress(t *testing.T) {
+func TestPreparePromptSendsOnlyTheMessage(t *testing.T) {
 	s := &antigravitySession{workDir: t.TempDir()}
-	for _, run := range []string{"fresh", "renewed"} {
-		input := "[Public progress channel] bothouse progress --run " + run + " --seq 1 --kind start\n检查绑定"
-		got, _ := s.preparePrompt(input, nil, nil)
-		if !strings.HasSuffix(got, input) {
-			t.Fatal("public progress instructions lost by stream/print prompt preparation")
+	for _, input := range []string{"hello", "[Public progress channel] bothouse progress --run fresh --seq 1 --kind start\n检查绑定"} {
+		got, files := s.preparePrompt(input, nil, nil)
+		if got != input || len(files) != 0 {
+			t.Fatalf("preparePrompt(%q) = %q, want the message alone", input, got)
 		}
 	}
 }

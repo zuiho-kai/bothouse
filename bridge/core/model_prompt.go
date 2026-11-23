@@ -25,12 +25,17 @@ func modelSwitchPromptForPath(exe string) string {
 	return strings.ReplaceAll(ModelSwitchPrompt, "bothouse model", quoted+" model")
 }
 
-// PrependModelSwitchInstructions supplies tool instructions to adapters without
-// native system-prompt injection. Send on each turn so resumed CLI sessions and
-// workspace changes do not depend on instruction-file discovery or old history.
+// ModelSwitchInstructions is the model-control block for adapters without native
+// system-prompt injection; they hand it to the engine as their TurnPreamble, which
+// sends it once per agent context (inject.go, #1903).
+func ModelSwitchInstructions() string {
+	return modelControlHead + "\n" + modelSwitchPromptForExe() + "\n" + modelControlEnd
+}
+
+// PrependModelSwitchInstructions puts ModelSwitchInstructions before prompt (codex: its
+// once-per-process preamble).
 func PrependModelSwitchInstructions(prompt string) string {
-	return modelControlHead + "\n" + modelSwitchPromptForExe() +
-		"\n" + modelControlEnd + "\n\n" + prompt
+	return ModelSwitchInstructions() + "\n\n" + prompt
 }
 
 // Markers of the block above; handoffs strip it from old user turns.

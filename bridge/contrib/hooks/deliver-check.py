@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash)：`bothouse send --image/--file/--video <文件>` 发成品前的检查，缺一样就拦。
-三项检查（只看带附件或 -m/--message 正文的 send；--tts、--audio、--stdin、不带参数的纯文字不拦）：
+四项检查（只看带附件或 -m/--message 正文的 send；--tts、--audio、--stdin、不带参数的纯文字不拦）：
  (a) 看过成品：本轮（最后一条用户消息之后）用 Read 打开过要发的这个文件本身（同一路径），且打开之后文件没再改过。
      Read 打不开的格式（docx/pptx/xlsx/视频/压缩包…）认本轮 Read 过的、文件名含成品主名、比成品新的渲染图/PDF。
      只在认得出会话记录格式时查：Claude Code / Qoder JSONL、DSH（run.py 转成 Claude Code 格式）、Codex rollout
@@ -8,12 +8,19 @@
  (b) 对过验收单：本角色有开着的验收单（accept.py）时，每个要发的文件（按内容指纹）都要
      `accept check <活名> <文件> "<逐条对照>"…` 对照过某张单子的全部当前条目，或 `accept skip <文件> "<原因>"`。
      单子后来加了条目，旧的对照作废。
- (c) 文案摆过对标原句（#1907）：要发的文本稿（.md/.markdown/.txt、README）或 -m/--message 正文，只要标题、加粗行、
+ (c) 对照件（#1904，用户 11-23 认可「交之前，由一个只拿到你原话和原件的新人，把成品和原件并排比一遍，写出最大的三处差别，
+     跟成品一起交给你」）：要发的文件是登记过的成品（任务板目录 deliver/<编号>.json 的 product，board stage 登记）时，
+     有原件或用户认可过的样 → 要有和现在这份文件指纹一致的对照件（board compare <编号>，干净模型写的三处差别），
+     而且三处差别原样带在这条 send 的话里；没有原件也没有认可样 → 话里要有一句问话。没登记的文件不管。
+     判断在 gate/deliver.py 的 exit_check（ws-pass 放行也调它）；找不到 deliver.py（旧安装）这项跳过。
+ (d) 文案摆过对标原句（#1907）：要发的文本稿（.md/.markdown/.txt、README）或 -m/--message 正文，只要标题、加粗行、
      标签行像对外文案（简介、README、首屏、宣传语、标语、标题、帖子、文案、卖点、bio/tagline/slogan/profile/pitch），
+     没有标题/加粗/标签的整段文字里带简介、宣传稿、宣传语、标题、帖子这类词也算；
      或本身就有一节「## 对标原文」，就必须有那一节：至少三条别人的原句、原样照抄、每条带链接或本地出处，
+     出处写本地文件时该文件里要真有这句原句（链接出处只按形式看，不上网核），
      我们的每句文案（我们：/中文：/英文：/→ 开头的行）后面标「照：第 N 条」。没摆就拦。
-     聊天回复正文也查：run.py 在 Stop 时先于 choice-ask-guard 调本脚本，回复里有文案稿没摆原句就 block（桥撤回已流出的草稿），
-     同一轮只拦一次（stop_hook_active 放行）。没覆盖：没有任何标题/加粗行/「…简介：」这类标签的散文段落；--stdin、位置参数正文。
+     聊天回复正文也查：run.py 在 Stop 时先于 choice-ask-guard 调本脚本，回复里有文案稿没摆原句就 block（桥撤回已流出的草稿、
+     不拼回回复里）；同一轮第二次还没补原句就换成一句「文案检查没过，草稿没发出」，原文不出频道。没覆盖：--stdin、位置参数正文。
 另有一项验收门（#1617）：主角色跑 ws-pass（放行，--stitch 预检不算）或 board done <号> 时，桥扣着的那件活的 [report]
 正文里写到的本地图片，本会话都要 Read 打开过（打开后没再改）；内容完全相同的截图也拦下，要打回补拍。
 由 run.py 在 bash-guard 之前调用（共用 bash-guard 在各家 CLI 的注册），可单独 `run.py off deliver-check` 关掉。
@@ -624,7 +631,7 @@ def _copy_state(sid, value=None):
 
 
 def reply_gate(payload):
-    """(c) 管到聊天回复（#1907）：回复里有文案稿却没摆对标原句就拦回让它补（桥把草稿从频道撤回、不再拼回去）；
+    """(d) 管到聊天回复（#1907）：回复里有文案稿却没摆对标原句就拦回让它补（桥把草稿从频道撤回、不再拼回去）；
     拦过一次还没补上，不再拦（免得来回卡死），这条回复由桥换成一句「文案检查没过，草稿没发出」，原文不出去。"""
     sid = str(payload.get("session_id") or "")
     text = last_reply(payload)
@@ -641,6 +648,45 @@ def reply_gate(payload):
     print(json.dumps({"decision": "block", "reason": "发出前的文案检查没过（草稿已从频道撤回）：\n" + why +
                       "\n把对标原文那节和逐句「照：第 N 条」补进回复，重发一遍完整回复。补不出原句就只回一句「%s」：" 
                       "再发一次没补的原文，桥会把它换成这句话，原文不会发出去。" % COPY_REPLACE}, ensure_ascii=False))
+
+# ---- 对照件（#1904）----
+def send_message(command):
+    """`bothouse send` 跟着附件发的话：-m/--message 的内容；没写 -m（话是位置参数或 --stdin 喂的）就拿整条命令当话看。"""
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        return command
+    out = [toks[i + 1] for i, t in enumerate(toks[:-1]) if t in ("-m", "--message")]
+    out += [t.split("=", 1)[1] for t in toks if t.startswith(("--message=", "-m="))]
+    return "\n".join(out) if out else command
+
+
+def deliver_mod():
+    """gate/deliver.py（交付记录和对照件判断）：GATE_DIR、仓库里的 ../gate、数据目录下装的 collaboration/gate、runtime/gate，
+    哪个有就用哪个；都没有返回 None。"""
+    dirs = [os.environ.get("GATE_DIR") or "", os.path.join(os.path.dirname(HERE), "gate"),
+            os.path.join(data_dir(), "collaboration", "gate"), os.path.join(data_dir(), "collaboration", "runtime", "gate")]
+    for d in dirs:
+        if d and os.path.isfile(os.path.join(d, "deliver.py")):
+            sys.path.insert(0, d)
+            import deliver
+            return deliver
+    return None
+
+
+def compare_problems(files, msg):
+    """要发的文件里登记过的成品：缺对照件、三处差别没带在话里、没原件没认可样又没问话，各出一条。"""
+    mod = deliver_mod()
+    if mod is None:
+        return []
+    problems, passed = mod.exit_check(files, msg)
+    for one in passed:
+        if not mod.carried(msg, one["compare"]):
+            problems.append("【差别没带上】#%s 的成品 %s 已有对照件，把下面这段原样写进这条 send 的 -m，跟成品一起交给用户：\n%s"
+                            % (one["id"], one["file"], one["text"]))
+    return problems
 
 
 def main():
@@ -709,6 +755,10 @@ def main():
                 "看着成品逐条对：`accept check <活名> <文件> \"<第1条怎么对上的>\" \"<第2条…>\"`（每条一句，条数要和单子一样）。"
                 "对不上的先改成品。这个文件确实不属于任何一张单子：`accept skip <文件> \"<原因>\"`；"
                 "活已交完：`accept done <活名>`。" % ("、".join(missing), names, shown))
+    try:
+        problems += compare_problems(files, send_message(cmd))
+    except BaseException as e:  # 对照件这项自己坏了（记录读不了、gate 脚本载不了）不挡别的检查，也不挡发送
+        sys.stderr.write("deliver-check: 对照件这项跳过（%s: %s）\n" % (type(e).__name__, e))
     if problems:
         deny("发成品前的检查没过（交付前验收）：\n" + "\n".join(problems) +
              "\n补齐后原样重发这条 send。用户新说的要求先 `accept add <活名> \"<原话>\"` 记上。")

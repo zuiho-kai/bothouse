@@ -2,8 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 	"io/fs"
@@ -142,7 +140,7 @@ func (e *Engine) contextRules(rules string, session *Session, agent Agent) strin
 	if rules == "" {
 		return ""
 	}
-	return e.teamRulesOnce(rules, session, agent)
+	return e.injectBlock(session, "rules", rules)
 }
 
 // houseRulesMaxBytes caps <data dir>/rules/house.md; a larger file is not sent at all (and logged),
@@ -185,22 +183,6 @@ func prefixRules(rules, prompt string) string {
 		return prompt
 	}
 	return rules + "\n" + prompt
-}
-
-// teamRulesOnce returns rules when this delivery must carry them, else "": once per agent context,
-// for every backend. TurnCtxSent.Rules holds a hash of the text sent, and a new session, a
-// compaction (ResetTurnCtx, see checkRulesContext) or a different text (another dispatch mode,
-// edited rules) sends them again. A nil session gets them on every delivery. Before this, every
-// turn repeated about 2,000 characters of rules (2026-10-29 Discord session review).
-func (e *Engine) teamRulesOnce(rules string, session *Session, agent Agent) string {
-	if session == nil {
-		return rules
-	}
-	sum := sha256.Sum256([]byte(rules))
-	if !session.takeTeamRules(hex.EncodeToString(sum[:8])) {
-		return ""
-	}
-	return rules
 }
 
 // A context that shrinks below this share of its last size between turns was compacted.

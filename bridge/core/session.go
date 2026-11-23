@@ -77,11 +77,11 @@ type Session struct {
 	leadHandoffTaken     string
 	leadHandoffTakenAt   time.Time
 	leadHandoffTakenSnap *LeadHandoffSnapshot
-	freshCtx             bool   // maomao fork: agent started without resume; see freshContextImages
-	freshTaken           bool   // freshCtx taken by a turn not yet sent
-	memCtx               bool   // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
-	memTaken             bool   // memCtx taken by a turn not yet sent
-	rulesTaken           string // TurnCtxSent.Rules set by a turn not yet sent (takeTeamRules)
+	freshCtx             bool              // maomao fork: agent started without resume; see freshContextImages
+	freshTaken           bool              // freshCtx taken by a turn not yet sent
+	memCtx               bool              // maomao fork: give the next turn the bot's MEMORY.md (memoryBlock)
+	memTaken             bool              // memCtx taken by a turn not yet sent
+	onceTaken            map[string]string // TurnCtxSent.Once marks a turn not yet sent replaced (injectBlock)
 	// maomao fork: posts up to freshDoneUpTo already went to an earlier fresh context
 	// (freshContextImages); freshDonePending replaces it once the turn is sent.
 	freshDoneUpTo, freshDonePending string
@@ -101,17 +101,15 @@ type TurnCtxSent struct {
 	// already pushed per (key, bot, epoch) and returns only new entries. A new context gets a new
 	// epoch because TurnCtx is dropped with it (11-03: the gate alone decides what was pushed).
 	Epoch          string          `json:"epoch,omitempty"`
-	ReferenceSince time.Time       `json:"-"`                // deliberately unknown after a bridge restart
-	ReferenceIDs   map[string]bool `json:"-"`                // agent output sent by this context only
-	Team           string          `json:"team,omitempty"`   // teammate status key (without elapsed times)
-	Member         string          `json:"member,omitempty"` // member-workspace note this context got (member_workspace.go)
+	ReferenceSince time.Time       `json:"-"` // deliberately unknown after a bridge restart
+	ReferenceIDs   map[string]bool `json:"-"` // agent output sent by this context only
 	// LeadHandoff is the switch record this agent context already received, and
 	// LeadHandoffAt is the time of its last update block (#274). Both are reset
 	// with the rest of TurnCtx when the agent context is replaced.
 	LeadHandoff   string    `json:"lead_handoff,omitempty"`
 	LeadHandoffAt time.Time `json:"lead_handoff_at,omitempty"`
-	// Rules is a hash of the team-mode rules this context got (teamRulesOnce).
-	Rules string `json:"rules,omitempty"`
+	// Once: block name → key of every once-per-context block this context got (inject.go).
+	Once map[string]string `json:"once,omitempty"`
 	// ContextTokens is the agent's last reported prompt size, for agents that do not report
 	// compaction (checkRulesContext).
 	ContextTokens int `json:"context_tokens,omitempty"`
@@ -213,6 +211,12 @@ func (t *TurnCtxSent) clone() *TurnCtxSent {
 		return nil
 	}
 	c := *t
+	if t.Once != nil {
+		c.Once = make(map[string]string, len(t.Once))
+		for k, v := range t.Once {
+			c.Once[k] = v
+		}
+	}
 	if t.ReferenceIDs != nil {
 		c.ReferenceIDs = make(map[string]bool, len(t.ReferenceIDs))
 		for id, sent := range t.ReferenceIDs {
@@ -230,21 +234,6 @@ func (s *Session) UpdateTurnCtx(fn func(*TurnCtxSent)) {
 		s.TurnCtx = &TurnCtxSent{}
 	}
 	fn(s.TurnCtx)
-}
-
-// takeTeamRules reports whether the team-mode rules (by hash key) must go with this turn, and marks
-// them sent to the current context; SettleHandoff undoes the mark when the turn was not sent.
-func (s *Session) takeTeamRules(key string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.TurnCtx == nil {
-		s.TurnCtx = &TurnCtxSent{}
-	}
-	if s.TurnCtx.Rules == key {
-		return false
-	}
-	s.TurnCtx.Rules, s.rulesTaken = key, key
-	return true
 }
 
 // noteContextTokens records the agent's prompt size; a drop below half the last one is a

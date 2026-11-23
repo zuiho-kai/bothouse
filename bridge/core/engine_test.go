@@ -10243,8 +10243,9 @@ func TestCmdPs_BusySession_InjectsToAgent(t *testing.T) {
 	sess.sendMu.Lock()
 	calls := append([]string(nil), sess.sendCalls...)
 	sess.sendMu.Unlock()
-	if len(calls) != 1 || !strings.HasSuffix(calls[0], "[Current request and context]\nadd unit tests") || !strings.Contains(calls[0], "This request is from a human.") {
-		t.Fatalf("expected supplemental request with current-source policy, got %v", calls)
+	// #1903: the running turn already has the policy; a human's text goes as is.
+	if len(calls) != 1 || calls[0] != "add unit tests" {
+		t.Fatalf("expected the supplemental request alone, got %v", calls)
 	}
 
 	sent := p.getSent()

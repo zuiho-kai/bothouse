@@ -177,11 +177,12 @@ function run(cmd, args, { input, timeout, log, env }) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
     let out = '';
-    const timer = setTimeout(() => child.kill(), timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeout);
     child.stdout.on('data', d => { out += d; });
     child.stderr.on('data', d => { out += d; });
     child.on('error', error => { clearTimeout(timer); resolve({ code: -1, out: String(error?.message ?? error) }); });
-    child.on('close', code => { clearTimeout(timer); if (log) writeFileSync(log, out, { mode: 0o600 }); resolve({ code, out }); });
+    child.on('close', code => { clearTimeout(timer); if (log) writeFileSync(log, out, { mode: 0o600 }); resolve({ code, out, timedOut }); });
     // A child that exits before reading its input breaks the pipe; its exit code and output still tell the result.
     child.stdin.on('error', () => {});
     child.stdin.end(input ?? '');
@@ -372,7 +373,7 @@ export class Bridge {
       this.endPrep({ stage: 'stopped', noKey: this.noKey });
       if (this.noKey) this.watchKey();
       // No key has its own card (plugin.mjs onOfflineMember); any other refusal is said in the channel.
-      else this.onCheck?.({ ok: false, items: [{ key: 'apply', ok: false, why: `成员没写进后台：${String(res?.error ?? r.out.trim().slice(-200)) || '没有输出'}（日志 ${join(this.dataDir, 'bothouse-apply.log')}）` }], members: [] });
+      else this.onCheck?.({ ok: false, items: [{ key: 'apply', ok: false, why: `成员没写进后台：${String(res?.error ?? r.out.trim().slice(-200)) || (r.timedOut ? `${APPLY_TIMEOUT_MS / 1000} 秒没回应，已停下` : `没有输出，退出码 ${r.code}`)}（日志 \`${join(this.dataDir, 'bothouse-apply.log')}\`）` }], members: [] });
       return;
     }
     this.noKey = false;

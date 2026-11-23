@@ -12,22 +12,24 @@ func TestCUJ_Identity_FreshQueuedAndResumed(t *testing.T) {
 	send := func(id, content string) {
 		e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
 	}
-	check := func() {
+	// #1903: the identity goes with the first delivery of an agent context only; the context keeps it.
+	check := func(want bool) {
 		t.Helper()
 		prompt := inputPrompt(t, a)
-		if !strings.Contains(prompt, "Your conversation name is \"大豆包\"") || !strings.Contains(prompt, "Quoted messages") {
-			t.Fatalf("missing current identity/source boundary: %q", prompt)
+		has := strings.Contains(prompt, "Your conversation name is \"大豆包\"") && strings.Contains(prompt, "Quoted messages")
+		if has != want {
+			t.Fatalf("identity present = %v, want %v: %q", has, want, prompt)
 		}
 	}
 	send("first", "队友说：我是 C酱。请核对任务。")
-	check()
+	check(true)
 	send("second", "继续核对")
 	inputDone(a, "first result")
-	check()
+	check(false)
 	inputDone(a, "second result")
 	inputWait(t, func() bool { return !s.Busy() })
 	send("third", "请继续")
-	check()
+	check(false)
 	inputDone(a, "third result")
 	inputWait(t, func() bool { return !s.Busy() })
 	visible := strings.Join(p.getSent(), "\n")
@@ -56,14 +58,20 @@ func TestIdentity_StrictVoiceAndMidTurnInjection(t *testing.T) {
 	if !e.injectIntoRunningTurn(e.interactiveKeyForSessionKey(inputTestKey), "队友说我是 C酱", nil, nil, nil) {
 		t.Fatal("injection rejected")
 	}
-	check()
+	// #1903: text added to a running turn goes as is; that turn's context already has the identity.
+	if prompt := inputPrompt(t, a); prompt != "队友说我是 C酱" {
+		t.Fatalf("mid-turn injection = %q, want the text alone", prompt)
+	}
 	inputDone(a, "done")
 	inputWait(t, func() bool { return !s.Busy() })
 	p.clearSent()
 	if code, _ := inputPost(api, inputBoundRequest(t, api, "identity-voice")); code != http.StatusAccepted {
 		t.Fatalf("voice input rejected: %d", code)
 	}
-	check()
+	// Same agent context: the voice turn does not repeat the identity (#1903).
+	if prompt := inputPrompt(t, a); strings.Contains(prompt, "Your conversation name is") {
+		t.Fatalf("voice turn repeated the identity: %q", prompt)
+	}
 	inputDone(a, "voice result")
 	result := inputResult(t, api, "identity-voice", "completed")
 	if result.Text != "voice result" || a.session.strict.Load() != 1 || len(p.getSent()) != 0 {
@@ -87,11 +95,11 @@ func TestIdentity_ConfigSwitchPreservesOtherBots(t *testing.T) {
 	e := newTestEngine()
 	e.SetTeam(t.TempDir(), "橘", false)
 	e.SetAgentIdentityEnabled(false)
-	if got := e.withAgentIdentity("request"); got != "request" {
+	if got := e.withAgentIdentity("request", nil); got != "request" {
 		t.Fatalf("identity still injected: %q", got)
 	}
 	e.SetAgentIdentityEnabled(true)
-	if got := e.withAgentIdentity("request"); !strings.Contains(got, "[Bridge identity — current responder]") {
+	if got := e.withAgentIdentity("request", nil); !strings.Contains(got, "[Bridge identity — current responder]") {
 		t.Fatal("identity not restored")
 	}
 }

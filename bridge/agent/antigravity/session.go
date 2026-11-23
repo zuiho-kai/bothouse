@@ -576,14 +576,9 @@ func (s *antigravitySession) CachedUsage() *core.UsageReport {
 }
 
 func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
-	fullPrompt, saved := as.attachRefs(prompt, images, files)
-	fullPrompt = taskLifecycleInstructions + fullPrompt
-	// A model pinned in cmd cannot be switched from the bridge; do not tell the
-	// model it can.
-	if !hasModelFlag(as.extraArgs) {
-		fullPrompt = core.PrependModelSwitchInstructions(fullPrompt)
-	}
-	return fullPrompt, saved
+	// The task lifecycle and model-control instructions are the Agent's TurnPreamble now: the
+	// engine sends them once per agent context (#1903), not before every prompt.
+	return as.attachRefs(prompt, images, files)
 }
 
 // attachRefs saves images and files into the workspace and appends their paths to prompt.
@@ -642,4 +637,4 @@ func (as *antigravitySession) attachRefs(prompt string, images []core.ImageAttac
 }
 
 // Guidance complements native task validation; it is not a permission rule.
-const taskLifecycleInstructions = "[Task lifecycle]\nBefore manage_task actions, check the latest task status. Do not kill a task that is DONE or has already exited. A completed command needs no cleanup kill. If a running task finishes between checking and stopping, report the rejected stop separately and do not retry it.\n\n"
+const taskLifecycleInstructions = "[Task lifecycle]\nBefore manage_task actions, check the latest task status. Do not kill a task that is DONE or has already exited. A completed command needs no cleanup kill. If a running task finishes between checking and stopping, report the rejected stop separately and do not retry it."

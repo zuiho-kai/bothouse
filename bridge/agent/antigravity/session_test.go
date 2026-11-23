@@ -162,8 +162,8 @@ func TestAntigravitySession_ResumePassesConversationID(t *testing.T) {
 	if !contains(args, "--conversation") || !contains(args, "conversation-1") {
 		t.Fatalf("resume args = %v, want --conversation conversation-1", args)
 	}
-	if len(args) < 2 || args[len(args)-2] != "-p" || !strings.HasSuffix(args[len(args)-1], "second turn") || !strings.Contains(args[len(args)-1], "model list --json") {
-		t.Fatalf("prompt args = %v, want model-control instructions followed by second turn", args)
+	if len(args) < 2 || args[len(args)-2] != "-p" || args[len(args)-1] != "second turn" {
+		t.Fatalf("prompt args = %v, want the message alone (#1903: the engine sends the preamble once)", args)
 	}
 }
 
