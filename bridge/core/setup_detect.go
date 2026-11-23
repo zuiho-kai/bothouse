@@ -113,7 +113,7 @@ func cursorLogin(ctx context.Context, path string) string {
 	}
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用本文件 --version 探测的 5 秒；实测未登录时 0.4 秒
 	defer cancel()
-	b, _ := exec.CommandContext(tctx, path, "status", "--format", "json").Output()
+	b, _ := probeCmd(tctx, path, "status", "--format", "json").Output()
 	var st struct {
 		IsAuthenticated *bool `json:"isAuthenticated"`
 	}
@@ -268,7 +268,7 @@ var identityOf = map[string][]string{
 var helpOutput = func(ctx context.Context, path string) string {
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用本文件 --version 探测的 5 秒
 	defer cancel()
-	b, _ := exec.CommandContext(tctx, path, "--help").CombinedOutput()
+	b, _ := probeCmd(tctx, path, "--help").CombinedOutput()
 	return string(b)
 }
 
@@ -331,7 +331,7 @@ func isGenuine(ctx context.Context, bin, path string) bool {
 func versionLine(ctx context.Context, path string) string {
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second) // 来源：沿用改动前本文件 --version 探测的 5 秒
 	defer cancel()
-	b, err := exec.CommandContext(tctx, path, "--version").Output()
+	b, err := probeCmd(tctx, path, "--version").Output()
 	if err != nil {
 		return ""
 	}
@@ -565,4 +565,13 @@ func ResolveWizardProvider(vendorID, agentType, baseURL, apiKey, model string) P
 		p.APIFormat = APIFormatOpenAIChat
 	}
 	return p
+}
+
+// probeCmd: a CLI probe whose timeout really ends it. On Windows an npm CLI is a .cmd shim: the
+// timeout kills cmd.exe but its node.exe keeps the output pipe, and Output() waited for it forever,
+// so `setup apply` never printed and DSH said 「成员没写进后台：没有输出」 (#1914). WaitDelay stops waiting.
+func probeCmd(ctx context.Context, path string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd
 }
