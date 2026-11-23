@@ -62,6 +62,13 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 		return string(out)
 	}
 	id := strings.TrimSpace(run("board", "add", "task", "-", "doing", "role", "--short", "task"))
+	// #1904: board loads deliver.py for stage/approve/deliver, so it must be installed beside board.py.
+	if out := run("board", "stage", id, "样"); !strings.Contains(out, "样") {
+		t.Fatalf("board stage: %s", out)
+	}
+	if out, err := exec.Command(filepath.Join(bin, "board"), "stage", id, "全量").CombinedOutput(); err == nil {
+		t.Fatalf("full stage without an approval was allowed: %s", out)
+	}
 	// #699 D: board done asks the bridge first; no bridge runs here, so answer like one that never saw the task.
 	stub := filepath.Join(home, "bridge-stub")
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\n[ \"$2\" = transition ] && { echo '{\"known\":false}'; exit 0; }\nexit 1\n"), 0755); err != nil {

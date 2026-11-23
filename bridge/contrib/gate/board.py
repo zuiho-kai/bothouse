@@ -34,6 +34,15 @@
                                          #   后自动去掉标记、叫原工作区从停点续（core/team_release_hold.go）
   board unhold [编号...]                  # 发布没切（取消/改期）时手动去掉「为发布暂停」；不给编号 = 全部
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
+  board stage <编号> 样|全量 [--product 成品] [--ref 原件 ...]   # 成品活先交一小段样、用户认了才铺开全量（#1904）：
+                                         #   登记这件活做到哪一段、成品和原件在哪（路径或链接；--ref 给了就整份换）。
+                                         #   进「全量」前要有用户认可记录（board approve），没有就拒绝
+  board approve <编号> --file <用户认的那份> --quote "<用户原话>" [--locked "<不许动的部分>" ...]
+                                         #   记一次用户认可（只追加，不能改、不能删）；本地文件记 sha256，链接留空
+  board compare <编号> [--product 成品文件] [--quote "<用户原话>" ...]   # 交给用户前出对照件（#1904）：干净模型（不带工具）
+                                         #   只看用户原话、原件或最新认可样、成品，写最大的三处差别，带成品指纹记进交付记录。
+                                         #   用户原话取 --quote、交接「用户原话」节、认可记录里的原话；发成品时把三处差别带在话里
+  board deliver <编号>                    # 打印这件活的交付记录（<BOARD_DIR>/deliver/<编号>.json，格式见 deliver.py）
   board tier <编号> simple|complex         # 验收档位：不标=简单档（设置里选的便宜模型先审）；审的人拿不准标 complex，
                                          #   桥换复杂档的审核人再审一遍（用户 2026-11-04「简单的交给便宜模型」）
   board watch-pr <编号> <GitHub PR URL>   # 这件事暂停在「等外部」时盯这个合并请求：有新评论、新审核、检查失败或跑完、合并或关闭，
@@ -2208,7 +2217,7 @@ def open_pr_hint():
     return f"还有 {len(prs)} 个 PR 没合：" + " ".join(f"#{x['number']}" for x in prs)
 
 
-WRITE_CMDS = ("update", "done", "pause", "backlog", "resume", "reject", "hold", "unhold", "next")  # 只能在派活频道改的命令
+WRITE_CMDS = ("update", "done", "pause", "backlog", "resume", "reject", "hold", "unhold", "next", "stage", "approve", "compare")  # 只能在派活频道改的命令
 
 
 def main(argv):
@@ -2286,6 +2295,10 @@ def main(argv):
             if not set_tier(int(argv[1].lstrip("#")), argv[2]):
                 sys.exit("条目不存在，未改档位")
             print("已改验收档位：" + REVIEW_TIERS[argv[2]])
+        elif cmd in ("stage", "approve", "compare", "deliver"):
+            sys.modules.setdefault("board", sys.modules[__name__])  # 本文件当脚本跑时，deliver 里的 import board 拿到的就是这一份
+            import deliver  # 用到才载：gate 进程 import board 时不需要它（sync_gate.sh 不拷）
+            print(deliver.cli(cmd, argv[1:]))
         elif cmd == "returned" and len(argv) in (3, 4, 6):
             if not returned(int(argv[1].lstrip("#")), *argv[2:]):
                 sys.exit("条目不存在，未登记交回")
