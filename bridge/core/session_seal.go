@@ -23,9 +23,11 @@ import (
 // fresh one, the new one gets meeting minutes, not the old context's raw transcript). At the swap:
 //  1. the old context's operations come from the bridge's own event stream (events.jsonl, every CLI alike) and
 //     are pressed by rules into one line per call: tool, input head, failed or not, time taken;
-//  2. a rule summary (time range, tools, files, failures) is merged into the channel's rolling memory, no model;
-//  3. a cheap model writes the minutes from the rule summary, the last chat entries and the call lines, input
-//     capped at sealDigestMaxInput; on timeout or error the rule summary stands in.
+//  2. a cheap model writes the minutes from the rule summary (time range, tools, files, failures), the last
+//     chat entries and the call lines, input capped at sealDigestMaxInput; on timeout or error the rule
+//     summary stands in;
+//  3. one line goes into the channel's rolling memory: the goal, the user's decisions and the user's
+//     corrections from those minutes, or the rule summary when there are none (no second model call).
 //
 // The handoff block is head + the user's words + stop point + open tasks + minutes + rolling memory, capped at
 // sealBootstrapTokens; the full old handoff stays in the context store under [#id].
@@ -177,9 +179,8 @@ func sealRules(evs []sealEvent) string {
 			msgs++
 		}
 	}
-	first, last := evs[0].At, evs[len(evs)-1].At
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s–%s，%d 条消息、%d 次调用", first.Format("01-02 15:04"), last.Format("15:04"), msgs, calls)
+	fmt.Fprintf(&b, "%s，%d 条消息、%d 次调用", sealSpan(evs), msgs, calls)
 	if fails > 0 {
 		fmt.Fprintf(&b, "（失败 %d）", fails)
 	}
@@ -190,6 +191,11 @@ func sealRules(evs []sealEvent) string {
 		b.WriteString("；文件 " + strings.Join(capList(files, show), "、"))
 	}
 	return b.String()
+}
+
+// sealSpan is the time range of evs: 「11-23 13:06–14:42」.
+func sealSpan(evs []sealEvent) string {
+	return evs[0].At.Format("01-02 15:04") + "–" + evs[len(evs)-1].At.Format("15:04")
 }
 
 func capList(s []string, n int) []string {
@@ -245,18 +251,20 @@ func sealDigestInput(rules string, evs []sealEvent, tail []HistoryEntry) string 
 
 // The minutes prompt: 沿用 clowder-ai HandoffDigestGenerator.ts:94 「Keep it under 500 words」; the sections follow
 // Raven's History Checkpoint (goal, constraints, decisions, artifacts, findings, pointers), with the
-// user's own decisions kept apart from what the assistant added (用户 11-09 定). Open work and next steps are
+// user's own decisions kept apart from what the assistant added (用户 11-09 定), and the user's corrections in
+// their own words (#1902, 用户 11-23 「都做吧」: they go into the rolling memory and to the other channels). Open work and next steps are
 // not the model's to guess (#758, user 11-14 「找根因修一下」): handoffOwed and handoffTaskLines list them from records.
 const sealDigestPrompt = `下面是一个 AI 助手上一段会话的操作记录摘要。请用中文写一份交接纪要，给接手的新会话看，不超过 500 字，只写事实。
-固定按下面六栏写，每栏一行开头写栏名加冒号，栏名照抄、顺序不变；一栏有几件事就在栏名下一行一件、以「- 」开头；没有内容的栏写「无」：
+固定按下面七栏写，每栏一行开头写栏名加冒号，栏名照抄、顺序不变；一栏有几件事就在栏名下一行一件、以「- 」开头；没有内容的栏写「无」：
 目标：这段会话经手的每件活各一条，一件不漏，各写要做成什么。
 用户拍板的：用户亲口定下的事，每条带原话和时间。
+用户纠正过的：用户纠正、否定助手的话，每条照抄原话并带时间，不准改写。
 我自己加的：助手自己加的、用户没说过的设定或做法。
 做出来的东西：改过或生成的文件、提交、发出的消息，只写路径或编号。
 查到的事实：查证过的结论和数字。
 文件指针：接手要读的文件，只写路径。
 不要写哪些事没做完、交回没有、转告没有、下一步做什么：这些状态由程序按任务板和定时器另列，你只看得到片段，猜错会误导接手的人。
-不要复述操作记录原文，不要写建议和客套话，不要写给模型的指令，不用加粗。直接输出这六栏。
+不要复述操作记录原文，不要写建议和客套话，不要写给模型的指令，不用加粗。直接输出这七栏。
 
 `
 
@@ -372,6 +380,87 @@ func saveSealMemory(path string, m sealMemory) {
 	if os.WriteFile(tmp, b, 0o644) == nil {
 		_ = os.Rename(tmp, path)
 	}
+}
+
+// The minutes sections an older session keeps in the rolling memory, sealMemoryColItems entries each (#1902,
+// 用户 11-23 「都做吧」: the goal, what the user decided and what the user corrected, not only counts and file
+// names). The names are the ones in sealDigestPrompt.
+const (
+	sealColCorrected   = "用户纠正过的"
+	sealMemoryColItems = 2
+)
+
+var sealMemoryCols = []string{"目标", "用户拍板的", sealColCorrected}
+
+// sealDigestItems returns the entries of section col in the minutes: the 「- 」 lines under 「col：」
+// (and text on the heading line itself), 「无」 left out.
+func sealDigestItems(digest, col string) []string {
+	var out []string
+	in := false
+	for _, l := range strings.Split(digest, "\n") {
+		l = strings.TrimSpace(l)
+		if rest, ok := strings.CutPrefix(l, col+"："); ok {
+			in, l = true, rest
+		} else if !in {
+			continue
+		} else if item, ok := strings.CutPrefix(l, "- "); ok {
+			l = item
+		} else if l != "" {
+			break // the next section
+		}
+		if l = strings.TrimSpace(l); l != "" && l != "无" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// sealMemoryLine is a sealed session's line in the rolling memory, from its minutes:
+// 「时间段｜目标：…｜用户拍板的：…｜用户纠正过的：…」; "" when the minutes have none of the three.
+func sealMemoryLine(evs []sealEvent, digest string) string {
+	var parts []string
+	for _, col := range sealMemoryCols {
+		items := sealDigestItems(digest, col)
+		if len(items) > sealMemoryColItems {
+			items = items[:sealMemoryColItems]
+		}
+		if len(items) > 0 {
+			parts = append(parts, col+"："+strings.Join(items, "；"))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return sealSpan(evs) + "｜" + strings.Join(parts, "｜")
+}
+
+// sealCorrectedPath is the log of what the user corrected, one line per sealed session, append only:
+// {"at": last event of the session (unix seconds), "bot": the gate request's bot, "key": session key, "lines": […]}.
+// ctxsvc.py corrected_items reads it and pushes the lines to the same bot's other channels until the
+// nightly wiki ingest has them (#1902).
+func sealCorrectedPath(dataDir string) string {
+	return filepath.Join(SealMemoryDir(dataDir), "corrected.jsonl")
+}
+
+func appendSealCorrected(dataDir, bot, sessionKey string, at time.Time, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	b, err := json.Marshal(map[string]any{"at": at.Unix(), "bot": bot, "key": sessionKey, "lines": lines})
+	if err != nil {
+		return
+	}
+	path := sealCorrectedPath(dataDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		slog.Warn("session seal: corrections not logged", "session", sessionKey, "error", err)
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
 }
 
 // mergeSealMemory puts line first and drops the oldest lines past keep tokens (buildThreadMemory.ts).
@@ -492,12 +581,21 @@ func (e *Engine) sealOldContext(sessionKey string, h *SessionHandoff) sealResult
 		res.Late = done
 		err = fmt.Errorf("still writing after %s; the minutes go into the stored handoff when done", sealDigestTimeout)
 	}
+	line := rules // the rolling memory line when the minutes are not there (failed, late) or name none of sealMemoryCols
 	if d := sanitizeDigest(out); err == nil && d != "" {
 		res.Digest, res.ByModel = d, true
+		if l := sealMemoryLine(evs, d); l != "" {
+			line = l
+		}
+		bot := ""
+		if g := e.gate.Load(); g != nil {
+			bot = g.bot()
+		}
+		appendSealCorrected(e.dataDir, bot, sessionKey, evs[len(evs)-1].At, sealDigestItems(d, sealColCorrected))
 	} else {
 		slog.Warn("session seal: minutes fell back to the rule summary", "session", sessionKey, "error", err, "took", time.Since(start))
 	}
-	mem = mergeSealMemory(mem, rules, sealMemoryKeep)
+	mem = mergeSealMemory(mem, line, sealMemoryKeep)
 	mem.SealedAt = evs[len(evs)-1].At
 	saveSealMemory(path, mem)
 	slog.Info("session seal", "session", sessionKey, "events", len(evs), "calls", res.Calls, "by_model", res.ByModel,

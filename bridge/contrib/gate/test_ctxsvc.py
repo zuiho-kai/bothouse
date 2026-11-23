@@ -1,6 +1,6 @@
 """ctxsvc 查询清洗、推页格式、wiki 路径可配的测试，不加载模型：python3 -I contrib/gate/test_ctxsvc.py"""
 import re
-import json, sys, tempfile, unittest
+import json, sqlite3, sys, tempfile, unittest
 from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
@@ -464,6 +464,32 @@ class T(unittest.TestCase):
             keyed = [w["path"] for w in ctxsvc.match_wiki("发版 release 流水线", prepared=True,
                                                           key="discord:proj", focus="发版 release 流水线")]
             self.assertTrue(keyed and keyed[0].endswith("app.md"), keyed)
+
+    def test_corrected_items_other_channels_since_ingest(self):
+        # #1902：桥封存时记下的「用户纠正过的」，同一角色在别的频道带上；本频道的、夜间入库前的、别的角色的不带
+        with tempfile.TemporaryDirectory() as d:
+            ctxsvc.WIKI = Path(d)
+            db = sqlite3.connect(Path(d) / ".ingest.sqlite")
+            db.execute("create table dream_window(at real)")
+            db.execute("insert into dream_window values (1000.5)")
+            db.commit()
+            db.close()
+            self.addCleanup(ctxsvc._mark.clear)
+            f = Path(d) / "data" / "session_memory" / "corrected.jsonl"
+            f.parent.mkdir(parents=True)
+            p = patch.object(ctxsvc, "store_dir", return_value=Path(d) / "data" / "ctx")
+            p.start()
+            self.addCleanup(p.stop)
+            recs = [{"at": 2000, "bot": "", "key": "discord:a", "lines": ["「别的频道说的」（11-23 13:10）"]},
+                    {"at": 2000, "bot": "", "key": "discord:b", "lines": ["「本频道说的」"]},
+                    {"at": 900, "bot": "", "key": "discord:a", "lines": ["「入库前说的」"]},
+                    {"at": 2000, "bot": "long", "key": "discord:a", "lines": ["「对别的角色说的」"]}]
+            f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+            got = ctxsvc.corrected_items("", "discord:b")
+            self.assertEqual([w["path"] for w in got], ["【今天别的频道用户纠正过的】"])
+            self.assertEqual(got[0]["desc"], "- 「别的频道说的」（11-23 13:10）")
+            self.assertEqual(got[0]["rows"][0]["id"], "txt:" + ctxsvc.hashlib.sha1("「别的频道说的」（11-23 13:10）".encode()).hexdigest()[:16])
+            self.assertEqual(ctxsvc.corrected_items("long", "discord:b")[0]["desc"], "- 「对别的角色说的」")
 
 if __name__ == "__main__":
     unittest.main()
