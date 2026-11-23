@@ -25,7 +25,7 @@ type TimerJob struct {
 	Exec        string         `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
 	WorkDir     string         `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
 	Description string         `json:"description"`
-	Silent      *bool          `json:"silent,omitempty"` // suppress start notification; nil = use global default
+	Silent      *bool          `json:"silent,omitempty"` // suppress start and ⏳ progress notifications; nil = use global default
 	Mute        bool           `json:"mute,omitempty"`   // suppress ALL messages (start + result)
 	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
 	// instead of queuing a new one after it. Falls back to queuing when injection fails.

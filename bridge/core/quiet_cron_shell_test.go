@@ -523,6 +523,131 @@ func TestCronShellSilentSuccessPostsNothing(t *testing.T) {
 	}
 }
 
+// A job marked silent (job.Silent or the global silent default — the same flag
+// that suppresses the ⏰ start notice) announces no ⏳ progress on a long run
+// either: silent + long + no output posts zero messages (#1031 review — the
+// daily wiki check, cron addad1ef with silent=true, spawns several subprocesses,
+// runs well past 500ms, and still lit up ⏳→✅ every morning). Failure, timeout
+// and real output still post their result when it is ready.
+func TestCronShellSilentJobPostsNoProgress(t *testing.T) {
+	yes := true
+	longSilent := "sleep 1.2"
+	longLoud := "sleep 1.2; echo scheduled-output"
+	longFail := "sleep 1.2; echo boom; exit 7"
+	timeoutCmd := "sleep 5"
+	if runtime.GOOS == "windows" {
+		longSilent = "Start-Sleep -Milliseconds 1200"
+		longLoud = "Start-Sleep -Milliseconds 1200; echo scheduled-output"
+		longFail = "Start-Sleep -Milliseconds 1200; echo boom; exit 7"
+		timeoutCmd = "Start-Sleep -Seconds 5"
+	}
+
+	schedulers := []struct {
+		name    string
+		prepare func(e *Engine)
+		run     func(e *Engine, p Platform, command string, silent *bool) error
+	}{
+		{"cron", func(e *Engine) { e.SetCronScheduler(NewCronScheduler(nil)) },
+			func(e *Engine, p Platform, command string, silent *bool) error {
+				return e.executeCronShell(p, "chat", &CronJob{ID: "silent-job-cron", Exec: command, Silent: silent})
+			}},
+		{"timer", func(e *Engine) { e.SetTimerScheduler(NewTimerScheduler(nil)) },
+			func(e *Engine, p Platform, command string, silent *bool) error {
+				return e.executeTimerShell(p, "chat", &TimerJob{ID: "silent-job-timer", Exec: command, Silent: silent})
+			}},
+	}
+
+	for _, scheduler := range schedulers {
+		t.Run(scheduler.name+"-long-empty", func(t *testing.T) {
+			e := newTestEngine()
+			scheduler.prepare(e)
+			p := &stubPlatformEngine{n: "qq"}
+			if err := scheduler.run(e, p, longSilent, &yes); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			if sent := p.getSent(); len(sent) != 0 {
+				t.Fatalf("silent long run posted %d messages, want none: %q", len(sent), sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-empty-updating-platform", func(t *testing.T) {
+			e := newTestEngine()
+			scheduler.prepare(e)
+			p := &mockUpdaterPlatform{}
+			if err := scheduler.run(e, p, longSilent, &yes); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			if msgs := p.getMessages(); len(msgs) != 0 {
+				t.Fatalf("silent run announced preview updates: %q", msgs)
+			}
+			if sent := p.getSent(); len(sent) != 0 {
+				t.Fatalf("silent run posted %d messages, want none: %q", len(sent), sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-output", func(t *testing.T) {
+			e := newTestEngine()
+			scheduler.prepare(e)
+			p := &stubPlatformEngine{n: "qq"}
+			if err := scheduler.run(e, p, longLoud, &yes); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			sent := p.getSent()
+			if len(sent) != 1 || !strings.Contains(sent[0], "⏰ ✅") || !strings.Contains(sent[0], "scheduled-output") {
+				t.Fatalf("silent run with output posted %q, want one ⏰ ✅ result", sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-failure", func(t *testing.T) {
+			e := newTestEngine()
+			scheduler.prepare(e)
+			p := &stubPlatformEngine{n: "qq"}
+			err := scheduler.run(e, p, longFail, &yes)
+			if err == nil {
+				t.Fatal("a failing job must return its error")
+			}
+			sent := p.getSent()
+			if len(sent) != 1 || !strings.Contains(sent[0], "⏰ ❌") || !strings.Contains(sent[0], "exit code 7") {
+				t.Fatalf("silent failure posted %q, want one ⏰ ❌ result", sent)
+			}
+		})
+
+		t.Run(scheduler.name+"-long-timeout", func(t *testing.T) {
+			prevHook := testHookScheduledShellTimeout
+			testHookScheduledShellTimeout = func(time.Duration) time.Duration { return 900 * time.Millisecond }
+			t.Cleanup(func() { testHookScheduledShellTimeout = prevHook })
+
+			e := newTestEngine()
+			scheduler.prepare(e)
+			p := &stubPlatformEngine{n: "qq"}
+			err := scheduler.run(e, p, timeoutCmd, &yes)
+			if err == nil || !strings.Contains(err.Error(), "timed out") {
+				t.Fatalf("error = %v, want a timeout", err)
+			}
+			sent := p.getSent()
+			if len(sent) != 1 || !strings.Contains(sent[0], "⏰ ⚠️ timeout") {
+				t.Fatalf("silent timeout posted %q, want one ⏰ ⚠️ timeout", sent)
+			}
+		})
+	}
+
+	// The global silent default reaches the same place: no job flag, scheduler
+	// default on, still no ⏳ and no result for a quiet success.
+	t.Run("cron-global-default-silent", func(t *testing.T) {
+		e := newTestEngine()
+		cs := NewCronScheduler(nil)
+		cs.SetDefaultSilent(true)
+		e.SetCronScheduler(cs)
+		p := &stubPlatformEngine{n: "qq"}
+		if err := e.executeCronShell(p, "chat", &CronJob{ID: "silent-default", Exec: longSilent}); err != nil {
+			t.Fatalf("run() error = %v", err)
+		}
+		if sent := p.getSent(); len(sent) != 0 {
+			t.Fatalf("global-silent long run posted %d messages, want none: %q", len(sent), sent)
+		}
+	})
+}
+
 // cronReplyContextQuietPlatform gives ExecuteCronJob the reply context it must
 // reconstruct for a proactive run, and keeps QQ's quiet-group rule.
 type cronReplyContextQuietPlatform struct {
