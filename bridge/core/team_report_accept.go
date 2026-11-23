@@ -542,11 +542,22 @@ func (e *Engine) postHeldImages(ctx context.Context, p Platform, rc any, parent 
 
 // saveHeldMedia keeps a copy of what the workspace sent with a held report where the lead can open
 // it, so the lead looks at the deliverable itself instead of searching the workspace (#1888).
+// Re-handbacks on the same task clear stale files from previous rounds first (#2130).
 func saveHeldMedia(dataDir string, hid int, imgs []ImageAttachment, files []FileAttachment) []string {
-	if dataDir == "" || len(imgs)+len(files) == 0 {
+	if dataDir == "" || hid <= 0 {
 		return nil
 	}
 	dir := filepath.Join(dataDir, "team", "held-media", fmt.Sprint(hid))
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, ent := range entries {
+			if err := os.RemoveAll(filepath.Join(dir, ent.Name())); err != nil {
+				slog.Warn("report accept: cannot remove stale held attachment", "board_item", hid, "file", ent.Name(), "error", err)
+			}
+		}
+	}
+	if len(imgs)+len(files) == 0 {
+		return nil
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		slog.Warn("report accept: cannot keep the held attachments for the lead", "board_item", hid, "error", err)
 		return nil

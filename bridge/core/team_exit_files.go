@@ -180,9 +180,10 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 		}
 		seen[k] = true
 		out = append(out, f)
-		if len(out) == exitFileMax {
-			break
-		}
+	}
+	out = filterExitVideos(out)
+	if len(out) > exitFileMax {
+		out = out[:exitFileMax]
 	}
 	return out
 }
@@ -191,11 +192,111 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 // at screenshots and samples); documents (text, pdf, office, html…) do not. User 11-10: 「附件除非是没有
 // 对应的链接才给我，否则不用给我」 — a report with a release page, PR or web link carries no documents.
 func isMediaFile(f FileAttachment) bool {
+	if isVideoFile(f) {
+		return true
+	}
 	mt := strings.ToLower(f.MimeType)
 	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.FileName))); ext != "" {
 		mt = strings.ToLower(ext)
 	}
-	return strings.HasPrefix(mt, "image/") || strings.HasPrefix(mt, "audio/") || strings.HasPrefix(mt, "video/")
+	return strings.HasPrefix(mt, "image/") || strings.HasPrefix(mt, "audio/")
+}
+
+func isVideoFile(f FileAttachment) bool {
+	mt := strings.ToLower(f.MimeType)
+	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.FileName))); ext != "" {
+		mt = strings.ToLower(ext)
+	}
+	if strings.HasPrefix(mt, "video/") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(f.FileName)) {
+	case ".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi":
+		return true
+	}
+	return false
+}
+
+var (
+	exitVideoRoleRe = regexp.MustCompile(`(?:样片带段号|带段号样片|带段号|段号版|段号|审片版|审片|成片|正片|成品|样片)`)
+	exitVideoSepRe  = regexp.MustCompile(`[-_\s.]+`)
+)
+
+func isReviewSampleVideo(name string) bool {
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	return strings.Contains(base, "带段号") || strings.Contains(base, "段号") || strings.Contains(base, "审片")
+}
+
+func isFinalVideo(name string) bool {
+	if isReviewSampleVideo(name) {
+		return false
+	}
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	return strings.Contains(base, "成片") || strings.Contains(base, "正片") || strings.Contains(base, "成品")
+}
+
+func exitVideoPriority(name string) int {
+	switch {
+	case isReviewSampleVideo(name):
+		return 0
+	case isFinalVideo(name):
+		return 3
+	case strings.Contains(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)), "样片"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+func exitVideoEditionKey(name string) string {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)))
+	base = exitVideoRoleRe.ReplaceAllString(base, "-")
+	var parts []string
+	for _, tok := range exitVideoSepRe.Split(base, -1) {
+		switch tok {
+		case "", "2160p", "1440p", "1080p", "720p", "480p", "4k", "send":
+			continue
+		}
+		parts = append(parts, tok)
+	}
+	return strings.Join(parts, "-")
+}
+
+// filterExitVideos keeps at most one video per edition when posting to the chat channel (#2130):
+// when a final cut (成片) is present, numbered review samples (样片带段号) stay local in held-media
+// for review instead of being posted alongside the final cut.
+func filterExitVideos(files []FileAttachment) []FileAttachment {
+	best := map[string]int{}
+	hasFinal := false
+	for i, f := range files {
+		if !isVideoFile(f) {
+			continue
+		}
+		if isFinalVideo(f.FileName) {
+			hasFinal = true
+		}
+		k := exitVideoEditionKey(f.FileName)
+		prev, ok := best[k]
+		if !ok || exitVideoPriority(f.FileName) > exitVideoPriority(files[prev].FileName) {
+			best[k] = i
+		}
+	}
+	if len(best) == 0 {
+		return files
+	}
+	out := make([]FileAttachment, 0, len(files))
+	for i, f := range files {
+		if isVideoFile(f) {
+			if best[exitVideoEditionKey(f.FileName)] != i {
+				continue
+			}
+			if hasFinal && isReviewSampleVideo(f.FileName) {
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // postExitFiles posts files in the chat channel after the exit's text. Best effort.

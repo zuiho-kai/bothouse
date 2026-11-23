@@ -173,3 +173,75 @@ func TestExitFilesOnlyForDeliverableDocs(t *testing.T) {
 		t.Fatalf("file the workspace sent was dropped: %+v", files)
 	}
 }
+
+// #2130: when a handback carries both a final cut (成片) and a numbered review sample (样片带段号)
+// or two resolutions of the same edition, only one video per edition goes to the chat channel,
+// preferring the final cut while keeping the numbered sample local for review.
+func TestExitFilesForDedupVideosAndKeepFinal(t *testing.T) {
+	body := "[report] #1061 背景：出片。\n第十版出好了。\n要你做的：没有\n我加的：无\n"
+	namesOf := func(files []FileAttachment) []string {
+		out := make([]string, 0, len(files))
+		for _, f := range files {
+			out = append(out, f.FileName)
+		}
+		return out
+	}
+
+	t.Run("final and numbered sample both orders", func(t *testing.T) {
+		final := FileAttachment{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("final")}
+		sample := FileAttachment{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")}
+		for _, kept := range [][]FileAttachment{{final, sample}, {sample, final}} {
+			got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+			if strings.Join(got, "|") != final.FileName {
+				t.Fatalf("got %v, want only %q", got, final.FileName)
+			}
+		}
+	})
+
+	t.Run("same edition different resolution keeps one", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("720")},
+			{FileName: "黎曼猜想xClaude-v10-成片-1080p.mp4", MimeType: "video/mp4", Data: []byte("1080")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if len(got) != 1 || got[0] != "黎曼猜想xClaude-v10-成片-720p.mp4" {
+			t.Fatalf("got %v, want single video", got)
+		}
+	})
+
+	t.Run("final cut suppresses numbered sample even with different prefix", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "成片-720p.mp4", MimeType: "video/mp4", Data: []byte("final")},
+			{FileName: "黎曼-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if strings.Join(got, "|") != "成片-720p.mp4" {
+			t.Fatalf("got %v, want only final cut", got)
+		}
+	})
+
+	t.Run("numbered sample alone still posts", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if strings.Join(got, "|") != "黎曼猜想xClaude-v10-样片带段号-720p.mp4" {
+			t.Fatalf("got %v, want sample when no final cut exists", got)
+		}
+	})
+
+	t.Run("distinct episodes keep each final and drop each numbered sample", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "第1集-v2-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("s1")},
+			{FileName: "第1集-v2-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("f1")},
+			{FileName: "第2集-v2-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("f2")},
+			{FileName: "第2集-v2-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("s2")},
+			{FileName: "说明.csv", MimeType: "text/csv", Data: []byte("a,b")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		want := "第1集-v2-成片-720p.mp4|第2集-v2-成片-720p.mp4|说明.csv"
+		if strings.Join(got, "|") != want {
+			t.Fatalf("got %v, want %q", got, want)
+		}
+	})
+}
