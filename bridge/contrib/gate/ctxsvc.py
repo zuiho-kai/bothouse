@@ -14,7 +14,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, threading, time, urllib.request
+import collections, hashlib, json, math, os, re, sqlite3, threading, time, urllib.request
 from pathlib import Path
 
 try:
@@ -194,7 +194,9 @@ def turn_query(text, key=""):
 # 最常见 5 条占全部推送 56%）。开工那一轮改用：提示里的任务那句 + 它点名的交接文件的标题、「用户原话」「总目标」两节；
 # 交接没有这两节就用交接开头。提示里已经写着的规矩（行的词大半出现在提示的套话里）这一轮不占推送名额，票和分不动。
 _KICK_TASK = re.compile(r"(?:从主频道接手一整块大活|工作区接手)[：:]\s*(.+?)(?:。\s*先读交接|\n|$)")
-_KICK_FILE = re.compile(r"先读交接\s*((?:~|/)[^\s`'\"（）()「」]*?\.md)")
+# 交接不长时 ws-handoff 把全文附在提示末尾，措辞是「交接全文附在本条末尾（文件 <路径>）」（11-14 起）；
+# 只认「先读交接」时这类开工轮整段（套话 + 交接全文）当查询，重排超过桥的 2 秒限时，整轮没推送（#1902）
+_KICK_FILE = re.compile(r"(?:先读交接|交接全文附在本条末尾（文件)\s*((?:~|/)[^\s`'\"（）()「」]*?\.md)")
 KICK_SECTIONS = ("用户原话", "总目标")
 KICK_CHARS = 1500  # 交接里取的字数：用户原话 + 总目标一般 600–1200 字，再长就是转述了
 KICK_DUP = 0.7  # 一行的词有这么多出现在开工套话里，就算「提示里已经带着」（离线 #1436 回放定，见 notes/memfix1436）
@@ -560,7 +562,7 @@ def context(req):
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     dec = decision_items(text, key)
-    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + board_items(key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + corrected_items(bot, key) + board_items(key)
            + proposal_items(text, bot, key)
            + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
@@ -828,6 +830,56 @@ def profile_items(roots, sender, bot=""):
     return [{"path": f"【懂你 {who} {hashlib.sha1(body.encode()).hexdigest()[:6]}】",
              "desc": f"{who} 的画像（夜间从他自己的原话重写，{_shown(rel, roots[0])}）：这条消息是他发的，照这些懂他，"
                      "说话做事贴他的判断和口味\n" + body}]
+
+
+# ---- 今天别的频道用户纠正过的（#1902，用户 11-23「都做吧」）----
+# 桥封存旧会话时，把交接纪要「用户纠正过的」栏追加到 <数据目录>/session_memory/corrected.jsonl
+# （core/session_seal.go appendSealCorrected，一行 {"at": 旧会话最后一条事件的 unix 秒, "bot", "key", "lines"}）。
+# 这里取同一角色、别的频道、夜间入库之后的行推出去：纪要只传给本频道的下一个会话，知识库次日才入库，
+# 当天在别的频道（和不走交接的工作区）就靠这一块。夜里入库后这些话进了 wiki，水位过了就不再带。
+CORRECTED_HEAD = "【今天别的频道用户纠正过的】"
+_mark = {}  # 入库水位：src =（库文件, mtime），at = 水位
+
+
+def _ingest_mark():
+    """夜间入库读到哪了：主 wiki 根下 .ingest.sqlite 表 dream_window 的 max(at)（unix 秒，~/wiki/bin/ingest.py --nightly 推进）。
+    只读打开、最多等 0.2 秒；库文件没变用上次读的，读不到沿用上次值，从没读到过按最近 24 小时。"""
+    f = WIKI / ".ingest.sqlite"
+    try:
+        src = (str(f), f.stat().st_mtime)
+        if _mark.get("src") != src:
+            db = sqlite3.connect(f.absolute().as_uri() + "?mode=ro", uri=True, timeout=0.2)
+            try:
+                at = db.execute("select max(at) from dream_window").fetchone()[0]
+            finally:
+                db.close()
+            _mark["src"] = src
+            if at is not None:
+                _mark["at"] = float(at)
+    except (OSError, sqlite3.Error):
+        pass
+    return _mark.get("at") or time.time() - 86400
+
+
+def corrected_items(bot, key):
+    d = store_dir()
+    try:
+        raw = (d.parent / "session_memory" / "corrected.jsonl").read_text(encoding="utf-8")
+    except (AttributeError, OSError):  # 没装 datadir（终端 hook）或还没封存过
+        return []
+    mark = _ingest_mark()
+    rows = []
+    for line in raw.splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if r.get("bot", "") != bot or r.get("key") == key or not r.get("at", 0) > mark:
+            continue
+        rows += [{"id": "txt:" + hashlib.sha1(x.encode()).hexdigest()[:16], "text": "- " + x, "group": ""} for x in r.get("lines") or []]
+    if not rows:
+        return []
+    return [_render({"path": CORRECTED_HEAD, "head": "", "sep": "\n", "rows": rows})]
 
 
 def _read(f):
