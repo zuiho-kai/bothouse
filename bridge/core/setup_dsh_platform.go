@@ -306,7 +306,9 @@ func GetDSHStatusFor(ctx context.Context, target string, langs ...string) DSHSta
 	// #1387 made this the "existing model login/key lets the wizard leave the key empty" flag; this
 	// PR's key-presence read (including $DSH_HOME/.env) still counts, so both are ORed.
 	st.HasDeepSeekKey = dshHasUsableModel() || dshHasDeepSeekKey()
-	if out, err := exec.CommandContext(ctx, dshBin, "--version").Output(); err == nil {
+	vctx, vcancel := context.WithTimeout(ctx, 10*time.Second) // #1914: a hung dsh shim must not hold setup apply
+	defer vcancel()
+	if out, err := probeCmd(vctx, dshBin, "--version").Output(); err == nil {
 		st.Version = strings.TrimSpace(string(out))
 	}
 	if module, err := GetDSHModuleState(); err == nil && module.Installed {
@@ -534,7 +536,7 @@ func dshNodeStatus(ctx context.Context, langs ...string) (string, string) {
 	if err != nil {
 		return "", i18n.T(MsgDSHNodeRequired)
 	}
-	out, err := exec.CommandContext(ctx, node, "--version").Output()
+	out, err := probeCmd(ctx, node, "--version").Output()
 	version := strings.TrimSpace(string(out))
 	if err != nil {
 		return version, i18n.T(MsgDSHNodeRunFailed)
