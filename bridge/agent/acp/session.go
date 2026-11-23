@@ -57,7 +57,6 @@ type acpSession struct {
 	streamErrCandidate string // Cursor trailing error text held until the prompt ends; guarded by outputMu
 
 	sendMu         sync.Mutex
-	modelCtlSID    string      // agent session that already got the model-control instructions; guarded by sendMu
 	promptInFlight atomic.Bool // a session/prompt RPC is outstanding (sendLocked)
 	steerSupported atomic.Bool // handshake advertised steerMetaKey (session_steer.go)
 	imagePrompts   atomic.Bool // handshake advertised promptCapabilities.image
@@ -944,12 +943,9 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		return fmt.Errorf("acp: no agent session id")
 	}
 
-	// The model-control instructions go once per agent session: the agent keeps
-	// them in its own history, so repeating them every turn only buries the question.
-	modelSkill := s.commands.name(prompt) == "" && s.modelCtlSID != sid
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, modelSkill),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
@@ -971,9 +967,6 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	s.promptInFlight.Store(true)
 	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
 	s.promptInFlight.Store(false)
-	if err == nil && modelSkill {
-		s.modelCtlSID = sid
-	}
 	complete() // write failure/cancellation may not invoke the reader callback
 	var result struct {
 		StopReason string          `json:"stopReason"`
@@ -1054,11 +1047,10 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	return nil
 }
 
-// promptBlocks builds session/prompt content: the text (with saved file references, after the
-// model-control instructions when modelSkill) and, when the agent advertised
+// promptBlocks builds session/prompt content: the text (with saved file references) and, when the agent advertised
 // promptCapabilities.image, one image block per supported image. Other images are saved to disk
 // and referenced by path in the text.
-func (s *acpSession) promptBlocks(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, modelSkill bool) []any {
+func (s *acpSession) promptBlocks(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) []any {
 	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
 	prompt = core.AppendFileRefs(prompt, filePaths)
 	var imageBlocks []any
@@ -1074,9 +1066,6 @@ func (s *acpSession) promptBlocks(prompt string, messageID string, images []core
 		} else if strings.TrimSpace(prompt) == "" {
 			prompt = "User sent image(s)."
 		}
-	}
-	if modelSkill {
-		prompt = core.PrependModelSwitchInstructions(prompt)
 	}
 	blocks := []any{map[string]any{"type": "text", "text": prompt}}
 	return append(blocks, imageBlocks...)

@@ -157,7 +157,7 @@ func TestWizardTeamDefaultsKeepNoGateRouting(t *testing.T) {
 		t.Fatal("the addressed sub must answer")
 	}
 	// the identity block names the role by its wizard name (multi-role teams only)
-	if got := sub.withAgentIdentity("hi"); !strings.Contains(got, `"小助"`) {
+	if got := sub.withAgentIdentity("hi", nil); !strings.Contains(got, `"小助"`) {
 		t.Fatalf("wizard sub identity = %q", got)
 	}
 }

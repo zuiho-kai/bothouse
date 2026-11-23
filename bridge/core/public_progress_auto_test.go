@@ -438,7 +438,7 @@ func TestTimerTurnUserHandoffOpensCard(t *testing.T) {
 	if got != "handoff" || scheduledTurnUser(got) {
 		t.Fatalf("handoff timer = %q (scheduled=%v), want non-routine \"handoff\"", got, scheduledTurnUser(got))
 	}
-	if !strings.Contains(withSubagentPolicy("x", got, false), "automated") {
+	if !subagentFromBot(got, false) {
 		t.Fatal("handoff turn must still be treated as automated for subagent policy")
 	}
 }

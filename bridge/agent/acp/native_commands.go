@@ -11,8 +11,8 @@ import (
 )
 
 // An ACP server advertises its slash commands with an available_commands_update and runs one
-// when a session/prompt is exactly that command. Each session keeps the list it was given, so
-// sendLocked can leave the model-control instructions off such a prompt, and hands it to its
+// when a session/prompt is exactly that command. Each session keeps the list it was given and
+// hands it to its
 // agent, which answers the engine's question before a session exists (core.NativeCommandAgent).
 
 var _ core.NativeCommandAgent = (*Agent)(nil)
