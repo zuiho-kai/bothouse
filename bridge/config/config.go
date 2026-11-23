@@ -631,6 +631,7 @@ type ProjectConfig struct {
 	// bridge scan, not Discord, decides when the thread is hidden.
 	PublicProgressResultReadyArchiveMins *int   `toml:"public_progress_result_ready_archive_mins,omitempty"`
 	Name                                 string `toml:"name"`
+	General                              bool   `toml:"general,omitempty"`  // join the native General room
 	Mode                                 string `toml:"mode,omitempty"`     // "" or "multi-workspace"
 	BaseDir                              string `toml:"base_dir,omitempty"` // parent dir for workspaces
 	SkipGit                              *bool  `toml:"skip_git,omitempty"`
@@ -1480,7 +1481,7 @@ func (c *Config) validateInternal(permissive bool) error {
 		default:
 			return fmt.Errorf("config: %s.dispatch_mode must be \"solo\", \"team\", or \"mixed\"", prefix)
 		}
-		if len(proj.Platforms) == 0 && !permissive {
+		if len(proj.Platforms) == 0 && !proj.General && !permissive {
 			return fmt.Errorf("config: %s needs at least one [[projects.platforms]]", prefix)
 		}
 		for j, p := range proj.Platforms {

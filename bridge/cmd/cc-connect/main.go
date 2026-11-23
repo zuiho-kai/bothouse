@@ -501,7 +501,7 @@ func runMain() {
 	rt := newProjectRuntime(configPath, rootOpts)
 
 	for _, proj := range cfg.Projects {
-		b, err := buildProject(cfg, configPath, rootOpts, proj)
+		b, err := rt.buildConfiguredProject(cfg, proj)
 		if errors.Is(err, errSkipProject) {
 			continue
 		}
@@ -1031,7 +1031,7 @@ type builtProject struct {
 func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions, proj config.ProjectConfig) (builtProject, error) {
 	var b builtProject
 	active := proj.ActivePlatforms()
-	if len(active) == 0 { // every platform stopped with `module disable`: the role's files stay, it just doesn't run
+	if len(active) == 0 && !proj.General { // every platform stopped with `module disable`
 		slog.Info("project not started: all its platforms are disabled", "project", proj.Name)
 		return b, errSkipProject
 	}

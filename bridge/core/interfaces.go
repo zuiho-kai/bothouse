@@ -15,6 +15,13 @@ type Platform interface {
 	Stop() error
 }
 
+// FinalTextReplySender receives the complete final answer as a single message.
+// Platforms with a durable room transcript can use it instead of the display
+// path that splits replies and appends status footers.
+type FinalTextReplySender interface {
+	ReplyFinalText(ctx context.Context, replyCtx any, content string) error
+}
+
 // RepeatedReplySuppressor opts a platform into suppressing narration that the
 // model repeats across tool boundaries within one turn, and into dropping a
 // final reply that only repeats what a script already posted this turn or that

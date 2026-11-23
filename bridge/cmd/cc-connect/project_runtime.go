@@ -32,6 +32,7 @@ type projectRuntime struct {
 	apiSrv     *core.APIServer
 	relayMgr   *core.RelayManager
 	dirHistory *core.DirHistory
+	general    *core.GeneralRoom
 
 	// seams for tests
 	loadConfig   func(path string) (*config.Config, error)
@@ -179,7 +180,7 @@ func (rt *projectRuntime) HotLoad() core.HotLoadResult {
 		if _, running := rt.engines[proj.Name]; running {
 			continue
 		}
-		if len(proj.ActivePlatforms()) == 0 { // disabled with `module disable`: not a failure
+		if len(proj.ActivePlatforms()) == 0 && !proj.General { // disabled with `module disable`
 			continue
 		}
 		if err := rt.startProject(cfg, proj); err != nil {
@@ -205,7 +206,7 @@ func (rt *projectRuntime) startProject(cfg *config.Config, proj config.ProjectCo
 			return fmt.Errorf("run_as_user: %w", err)
 		}
 	}
-	b, err := rt.build(cfg, rt.configPath, rt.rootOpts, proj)
+	b, err := rt.buildConfiguredProject(cfg, proj)
 	if err != nil {
 		switch {
 		case b.engine != nil:
@@ -230,6 +231,22 @@ func (rt *projectRuntime) startProject(cfg *config.Config, proj config.ProjectCo
 	rt.engines[proj.Name] = b.engine
 	rt.all = append(rt.all, b.engine)
 	return nil
+}
+
+func (rt *projectRuntime) buildConfiguredProject(cfg *config.Config, proj config.ProjectConfig) (builtProject, error) {
+	if proj.General && rt.general == nil {
+		room, err := core.NewGeneralRoom(cfg.DataDir)
+		if err != nil {
+			slog.Error("General room unavailable", "error", err)
+			return builtProject{}, err
+		}
+		rt.general = room
+	}
+	built, err := rt.build(cfg, rt.configPath, rt.rootOpts, proj)
+	if err == nil && proj.General {
+		built.engine.AddPlatform(rt.general.Platform(proj.Name, built.engine.DisplayName()))
+	}
+	return built, err
 }
 
 // ── hot removal ─────

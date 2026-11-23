@@ -392,6 +392,19 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 	fullResponse, terminalReply, baseResponse, isSilent := r.fullResponse, r.terminalReply, r.baseResponse, r.isSilent
 	statusFooter, legacyStatusFooter := r.statusFooter, r.legacyStatusFooter
 	suppressDuplicate, turnSentTexts := r.suppressDuplicate, r.turnSentTexts
+	if sender, ok := p.(FinalTextReplySender); ok {
+		if isSilent || suppressDuplicate {
+			return true
+		}
+		content := e.renderOutgoingContentForWorkspace(p, baseResponse, turn.workspaceDir)
+		if err := authorizedOutput(turn.outputCtx, func() error {
+			return sender.ReplyFinalText(turn.outputCtx, turn.replyCtx, content)
+		}); err != nil {
+			slog.Error("failed to deliver final text reply", "platform", p.Name(), "error", err)
+			return false
+		}
+		return true
+	}
 	replyStart := time.Now()
 
 	// Everything this turn already put in the channel: narration flushed

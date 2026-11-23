@@ -149,6 +149,48 @@ func writeHotConfig(t *testing.T, path, body string) {
 	}
 }
 
+func TestGeneralOnlyProjectsStartAndHotLoad(t *testing.T) {
+	registerHotFakes()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	header := fmt.Sprintf("data_dir = %q\n", filepath.Join(dir, "data"))
+	project := func(name string) string {
+		return fmt.Sprintf("\n[[projects]]\nname = %q\ngeneral = true\n[projects.agent]\ntype = \"hotfake\"\n", name)
+	}
+	writeHotConfig(t, cfgPath, header+project("general-first"))
+	rt := newProjectRuntime(cfgPath, rootCLIOptions{})
+	t.Cleanup(func() {
+		for _, engine := range rt.stopAccepting() {
+			_ = engine.Stop()
+		}
+	})
+	cfg, err := rt.loadConfig(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := rt.buildConfiguredProject(cfg, cfg.Projects[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := built.engine.Start(); err != nil {
+		t.Fatal(err)
+	}
+	rt.addRunning(cfg.Projects[0].Name, built.engine)
+	rt.setReady(true)
+
+	writeHotConfig(t, cfgPath, header+project("general-first")+project("general-second"))
+	result := rt.HotLoad()
+	if result.Error != "" || len(result.Failed) != 0 || len(result.Added) != 1 || result.Added[0] != "general-second" {
+		t.Fatalf("hot load General-only project: %+v", result)
+	}
+	for _, name := range []string{"general-first", "general-second"} {
+		platforms := rt.engines[name].Platforms()
+		if len(platforms) != 1 || platforms[0].Name() != "general" {
+			t.Fatalf("project %s platforms = %v, want General only", name, platforms)
+		}
+	}
+}
+
 func TestHotLoadStartsAddedProject(t *testing.T) {
 	rt, head := newHotRuntime(t, "hot-old")
 	old := rt.engines["hot-old"]
