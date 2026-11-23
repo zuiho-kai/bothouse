@@ -81,6 +81,39 @@ class DeliveryCheckTest(unittest.TestCase):
         for cli in ("", "agy"):
             self.assertNotEqual(self.call(cli), "deny")
 
+    def test_copy_draft_needs_three_verbatim_refs_and_tags(self):
+        # #1907：对外文案稿发出前，稿里要先摆对标原句；没摆、条数不够、我们的文案漏标照哪条，都拦
+        draft = self.role / "intro.md"
+        cmd = f"bothouse send --file '{draft}'"
+        draft.write_text("# GitHub 简介\n\n住在你群聊里的 AI 团队，自己分活。\n", encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertEqual(self.call(command=cmd), "deny")
+        draft.write_text(
+            "# GitHub 简介\n\n## 对标原文\n"
+            "1. 原句：An on-device AI agent for Android. 出处：https://github.com/wangzan101/Mika\n"
+            "2. 原句：Every agent's model. One place. 出处：https://github.com/yetone/magpie\n"
+            "3. 原句：Agent harness for learning difficult things. 出处：https://github.com/amosblomqvist/learnharness\n"
+            "\n我们：「An AI team in your group chat.」 照：第 1 条\n", encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertNotEqual(self.call(command=cmd), "deny")
+        draft.write_text(draft.read_text(encoding="utf-8").replace(" 照：第 1 条", ""), encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertEqual(self.call(command=cmd), "deny")
+        draft.write_text(draft.read_text(encoding="utf-8").replace("3. 原句", "3. 删掉").replace(
+            " 出处：https://github.com/amosblomqvist/learnharness", ""), encoding="utf-8")
+        self.sheet("skip", draft, "copy gate test")
+        self.assertEqual(self.call(command=cmd), "deny")
+
+    def test_copy_text_send_needs_reference_section(self):
+        self.assertEqual(self.call(command="bothouse send -m '**GitHub 简介**：住在你群聊里的 AI 团队。'"), "deny")
+
+    def test_plain_markdown_and_plain_text_send_pass(self):
+        note = self.role / "weekly.md"
+        note.write_text("# 周报\n\n今天跑完三个测试。\n", encoding="utf-8")
+        self.sheet("skip", note, "not a copy draft")
+        self.assertNotEqual(self.call(command=f"bothouse send --file '{note}'"), "deny")
+        self.assertNotEqual(self.call(command="bothouse send -m '今日进度：三个测试跑完'"), "deny")
+
     def test_codex_original_image_read_survives_normalization(self):
         self.sheet("check", "cover", self.file, "color checked")
         events = [

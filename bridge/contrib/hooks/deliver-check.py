@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash)：`bothouse send --image/--file/--video <文件>` 发成品前的检查，缺一样就拦。
-两项检查（只看带附件的 send；纯文字、--tts、--audio 不拦）：
+三项检查（只看带附件或 -m/--message 正文的 send；--tts、--audio、--stdin、不带参数的纯文字不拦）：
  (a) 看过成品：本轮（最后一条用户消息之后）用 Read 打开过要发的这个文件本身（同一路径），且打开之后文件没再改过。
      Read 打不开的格式（docx/pptx/xlsx/视频/压缩包…）认本轮 Read 过的、文件名含成品主名、比成品新的渲染图/PDF。
      只在认得出会话记录格式时查：Claude Code / Qoder JSONL、DSH（run.py 转成 Claude Code 格式）、Codex rollout
@@ -8,6 +8,11 @@
  (b) 对过验收单：本角色有开着的验收单（accept.py）时，每个要发的文件（按内容指纹）都要
      `accept check <活名> <文件> "<逐条对照>"…` 对照过某张单子的全部当前条目，或 `accept skip <文件> "<原因>"`。
      单子后来加了条目，旧的对照作废。
+ (c) 文案摆过对标原句（#1907）：要发的文本稿（.md/.markdown/.txt、README）或 -m/--message 正文，只要标题、加粗行、
+     标签行像对外文案（简介、README、首屏、宣传语、标语、标题、帖子、文案、卖点、bio/tagline/slogan/profile/pitch），
+     或本身就有一节「## 对标原文」，就必须有那一节：至少三条别人的原句、原样照抄、每条带链接或本地出处，
+     我们的每句文案（我们：/中文：/英文：/→ 开头的行）后面标「照：第 N 条」。没摆就拦。
+     没覆盖的入口：模型直接回复的聊天正文不走命令，钩子看不到，这项管不到（要发文案请写成草稿文件或 -m 发）。
 另有一项验收门（#1617）：主角色跑 ws-pass（放行，--stitch 预检不算）或 board done <号> 时，桥扣着的那件活的 [report]
 正文里写到的本地图片，本会话都要 Read 打开过（打开后没再改）；内容完全相同的截图也拦下，要打回补拍。
 由 run.py 在 bash-guard 之前调用（共用 bash-guard 在各家 CLI 的注册），可单独 `run.py off deliver-check` 关掉。
@@ -64,6 +69,116 @@ def sent_files(command, cwd):
             i = j
         i += 1
     return out
+
+
+def sent_texts(command):
+    """`bothouse send -m/--message <正文>` 的正文。解析不了返回 []。"""
+    try:
+        lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        return []
+    out, i = [], 0
+    while i < len(toks):
+        t = toks[i]
+        if os.path.basename(t) == "bothouse" and i + 1 < len(toks) and toks[i + 1] == "send":
+            j = i + 2
+            while j < len(toks) and toks[j] not in SEPS:
+                a = toks[j]
+                if a in ("-m", "--message") and j + 1 < len(toks):
+                    out.append(toks[j + 1])
+                    j += 2
+                    continue
+                if a.startswith("--message="):
+                    out.append(a.split("=", 1)[1])
+                j += 1
+            i = j
+        i += 1
+    return out
+
+
+# ---- 对外文案稿：发之前先摆出对标原句（#1907）----
+# 用户 11-23 15:29 列的修法、15:39 回「2修」定下；11-08、11-22、11-23 第三次。橘写简介时把对标原句抽成「规律」
+# 再自己写，原句丢了，写回自编场景和数字；片子发前有检查，文案没有。
+COPY_EXT = {".md", ".markdown", ".txt"}
+COPY_WORDS = ("简介", "readme", "首屏", "宣传语", "标语", "标题", "帖子", "文案", "卖点",
+              "bio", "tagline", "slogan", "profile", "pitch")
+MD_HEADING = re.compile(r"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$")
+BOLD_LINE = re.compile(r"(?m)^\s*\*\*([^*\n]+)\*\*\s*$")
+COPY_LABEL = re.compile(r"(?m)^\s*(?:[-*]\s*)?\*{0,2}(?:GitHub\s*)?(?:简介|README|首屏|宣传语|标语|标题|帖子|文案|卖点)\*{0,2}\s*[:：]")
+REF_HEAD = re.compile(r"(?m)^\s{0,3}(#{1,6})\s*对标原文\s*$")
+REF_ENTRY = re.compile(r"(?m)^\s*(?:[-*>]\s+|\d+[.)]\s*|第\s*\d+\s*条)")
+SOURCE = re.compile(r"https?://\S+|(?:~\s*/|/)[^\s）)」』,，。；;]*|\b[\w.-]+\.(?:md|markdown|txt)\b")
+TAG = re.compile(r"照\s*[:：]\s*第?\s*(\d+)\s*条")
+# 我们的文案行：我们：/中文：/英文：/简介：… 开头，或 → 开头（照原文改的那句）
+OUR_LINE = re.compile(r"(?m)^\s*(?:[-*>]\s*|\d+[.)]\s*)?(?:我们|我们的文案|中文版?|英文版?|简介|标题|正文|帖子|README)\s*[:：]"
+                      r"|^\s*→")
+
+
+def copy_like(text):
+    """像对外文案稿时返回命中的那处标题/标签，否则 None。"""
+    for m in MD_HEADING.finditer(text):
+        h = m.group(1).strip().lower()
+        if any(w in h for w in COPY_WORDS):
+            return m.group(1).strip()
+    for m in BOLD_LINE.finditer(text):
+        h = m.group(1).strip().lower()
+        if any(w in h for w in COPY_WORDS):
+            return m.group(1).strip()
+    m = COPY_LABEL.search(text)
+    return m.group(0).strip() if m else None
+
+
+def ref_section(text):
+    """「## 对标原文」那一节（到同级或更高级标题为止）；没有返回 None。"""
+    m = REF_HEAD.search(text)
+    if not m:
+        return None
+    level = len(m.group(1))
+    body = text[m.end():]
+    stop = len(body)
+    for h in re.finditer(r"(?m)^\s{0,3}(#{1,6})\s", body):
+        if len(h.group(1)) <= level:
+            stop = h.start()
+            break
+    return body[:stop]
+
+
+def copy_gate_why(text, what):
+    """要补什么；None = 可以发。"""
+    hit = copy_like(text)
+    sec = ref_section(text)
+    if sec is None:
+        if hit is None:
+            return None
+        return ("【文案没摆对标原句】%s 是对外文案稿（%s）。发之前先在稿子里加一节：\n"
+                "## 对标原文\n"
+                "1. 原句：<别人的原句，原样照抄> 出处：<链接或本地文件路径>\n"
+                "2. …\n3. …\n"
+                "至少三条；我们的每句文案后面标「照：第 N 条」，指向上面对应的那条。" % (what, hit))
+    problems = []
+    entries = [l for l in sec.splitlines() if REF_ENTRY.match(l) and SOURCE.search(l)]
+    if len(entries) < 3:
+        problems.append("「对标原文」里带出处的原句只有 %d 条，至少要 3 条；每条写成一行："
+                        "「- 原句：<照抄别人的原话> 出处：<链接或本地文件路径>」。" % len(entries))
+    tags = [int(m.group(1)) for m in TAG.finditer(text)]
+    if not tags:
+        problems.append("我们的文案一句都没标「照：第 N 条」：每句后面标上它是照第几条原句写的。")
+    bad = sorted({t for t in tags if t < 1 or t > len(entries)})
+    if bad:
+        problems.append("有「照：第 %s 条」指不到上面的原句（现在只有 %d 条）。"
+                        % ("、".join(map(str, bad)), len(entries)))
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not OUR_LINE.search(line) or TAG.search(line):
+            continue
+        if i + 1 < len(lines) and TAG.search(lines[i + 1]):
+            continue
+        problems.append("这句我们的文案没标照哪条原句：%s" % line.strip()[:60])
+    if problems:
+        return "【文案没摆对标原句】%s：\n  %s" % (what, "\n  ".join(problems))
+    return None
 
 
 def ts(s):
@@ -392,12 +507,31 @@ def main():
     cmd = (payload.get("tool_input") or {}).get("command") or ""
     if "ws-pass" in cmd or "board" in cmd:
         accept_gate(payload, cmd, payload.get("cwd") or os.getcwd())
-    if "bothouse" not in cmd or "send" not in cmd or not any(fl in cmd for fl in FLAGS):
+    if "bothouse" not in cmd or "send" not in cmd:
+        return
+    if not any(fl in cmd for fl in FLAGS) and not re.search(r"(?:^|\s)(?:-m|--message)(?:\s|=|$)", cmd):
         return
     cwd = payload.get("cwd") or os.getcwd()
     allf = sent_files(cmd, cwd)
     files = [f for f in allf if os.path.isfile(f)]
     problems = []
+    # 对外文案稿：稿里没摆对标原句就拦（#1907）
+    for f in files:
+        if os.path.splitext(f)[1].lower() not in COPY_EXT and \
+                not os.path.basename(f).lower().startswith("readme"):
+            continue
+        try:
+            with open(f, encoding="utf-8") as fh:
+                text = fh.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        why = copy_gate_why(text, f)
+        if why:
+            problems.append(why)
+    for text in sent_texts(cmd):
+        why = copy_gate_why(text, "要发的这段文字")
+        if why:
+            problems.append(why)
     cli = payload.get("hook_cli") or ""
     known, reads = (False, [])
     if cli not in ("gemini", "grok"):
