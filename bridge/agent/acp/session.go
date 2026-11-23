@@ -57,6 +57,7 @@ type acpSession struct {
 	streamErrCandidate string // Cursor trailing error text held until the prompt ends; guarded by outputMu
 
 	sendMu         sync.Mutex
+	modelCtlSID    string      // agent session that already got the model-control instructions; guarded by sendMu
 	promptInFlight atomic.Bool // a session/prompt RPC is outstanding (sendLocked)
 	steerSupported atomic.Bool // handshake advertised steerMetaKey (session_steer.go)
 	imagePrompts   atomic.Bool // handshake advertised promptCapabilities.image
@@ -943,9 +944,12 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		return fmt.Errorf("acp: no agent session id")
 	}
 
+	// The model-control instructions go once per agent session: the agent keeps
+	// them in its own history, so repeating them every turn only buries the question.
+	modelSkill := s.commands.name(prompt) == "" && s.modelCtlSID != sid
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, s.commands.name(prompt) == ""),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files, modelSkill),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
@@ -967,6 +971,9 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	s.promptInFlight.Store(true)
 	res, err := s.tr.callCompleted(s.ctx, "session/prompt", params, complete)
 	s.promptInFlight.Store(false)
+	if err == nil && modelSkill {
+		s.modelCtlSID = sid
+	}
 	complete() // write failure/cancellation may not invoke the reader callback
 	var result struct {
 		StopReason string          `json:"stopReason"`
