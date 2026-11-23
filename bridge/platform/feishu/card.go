@@ -44,7 +44,7 @@ func (p *interactivePlatform) SendCard(ctx context.Context, rctx any, card *core
 		return fmt.Errorf("%s: chatID is empty, cannot send card", p.tag())
 	}
 
-	if !p.noReplyToTrigger && p.shouldReplyInThread(rc) {
+	if p.shouldUseThreadOrReplyAPI(rc) && p.shouldReplyInThread(rc) {
 		return p.ReplyCard(ctx, rctx, card)
 	}
 
