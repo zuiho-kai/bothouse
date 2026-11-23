@@ -205,24 +205,25 @@ func TestWizardMemberWorkspacesOnlyForTeamWhenTicked(t *testing.T) {
 	}
 }
 
+// memberBlock goes through the one exit (inject.go, #1903) like withTurnBlocksRef sends it.
 func TestMemberBlockOncePerContext(t *testing.T) {
 	e := &Engine{name: "lead", dataDir: t.TempDir()}
 	s := &Session{}
-	if got := e.memberBlock(s); got != "" {
+	if got := e.injectBlock(s, "member", e.memberBlock(s)); got != "" {
 		t.Fatalf("no config to save the switch to, yet recommended: %q", got)
 	}
 	e.SetMemberWorkspacesSaver(func(bool) error { return nil })
-	if got := e.memberBlock(s); got != memberNoteOffer {
+	if got := e.injectBlock(s, "member", e.memberBlock(s)); got != memberNoteOffer {
 		t.Fatalf("off, no team: want the recommendation, got %q", got)
 	}
-	if got := e.memberBlock(s); got != "" {
+	if got := e.injectBlock(s, "member", e.memberBlock(s)); got != "" {
 		t.Fatalf("recommendation repeated in the same context: %q", got)
 	}
 	e.SetMemberWorkspaces(true)
-	if got := e.memberBlock(s); got != memberNoteOn {
+	if got := e.injectBlock(s, "member", e.memberBlock(s)); got != memberNoteOn {
 		t.Fatalf("turned on: want the usage note, got %q", got)
 	}
-	if got := e.memberBlock(s); got != "" {
+	if got := e.injectBlock(s, "member", e.memberBlock(s)); got != "" {
 		t.Fatalf("usage note repeated: %q", got)
 	}
 }

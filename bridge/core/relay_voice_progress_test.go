@@ -41,7 +41,7 @@ func TestVoiceRelay_SpokenTaskOpensCardOnVoiceChannel(t *testing.T) {
 	if strings.Contains(prompt, "--run ") || !strings.HasSuffix(prompt, "build a page") {
 		t.Fatalf("voice turn without an open task carried progress text: %q", prompt)
 	}
-	if strings.Contains(prompt, "[Task card members]") || strings.Contains(prompt, "relay send") || !strings.Contains(prompt, "Do not start subagents") {
+	if strings.Contains(prompt, "[Task card members]") || strings.Contains(prompt, "relay send") || !strings.Contains(prompt, subagentBotLine) {
 		t.Fatal("voice imported delegation instructions or lost its policy")
 	}
 	run := turnToken(t, e, "discord:voice:thread-a")
