@@ -118,6 +118,12 @@ type TurnJournalEntry struct {
 	// Abandoned: resuming stopped (no progress / too old) and the channel was
 	// told; the next start removes it.
 	Abandoned bool `json:"abandoned,omitempty"`
+	// BackgroundWork marks an entry written when a turn ended but its agent process was
+	// kept for background work (sub-agents, background commands) that had not reported
+	// back; the text says what that work is. A restart stops the process, so the entry
+	// is resumed like an interrupted turn and the session is told to pick the work up
+	// (#1894: 11-23 13:12 a restart stopped a Fable sub-agent and nobody was told).
+	BackgroundWork string `json:"background_work,omitempty"`
 }
 
 // source: K4 scope review item 10 (notes/restart-k4-resume.md): tool-step writes throttled to >= 5 s.
@@ -137,6 +143,9 @@ type TurnJournal struct {
 	// inherited: TurnIDs that were on disk when the journal was opened (left
 	// by an earlier process); only these are resumed (K4).
 	inherited map[string]bool
+	// lastEnded: interactive key -> copy of its last ended turn (KeepBackground copies
+	// the routing fields from it when the keep comes after the turn's entry is gone)
+	lastEnded map[string]TurnJournalEntry
 	// progressSaved: when Progress last wrote each entry (writes are throttled).
 	progressSaved map[string]time.Time
 }
@@ -165,7 +174,7 @@ func OpenTurnJournal(path string) (*TurnJournal, error) {
 		return nil, err
 	}
 	j := &TurnJournal{path: path, entries: map[string]*TurnJournalEntry{}, active: map[string]string{},
-		inherited: map[string]bool{}, progressSaved: map[string]time.Time{}}
+		inherited: map[string]bool{}, progressSaved: map[string]time.Time{}, lastEnded: map[string]TurnJournalEntry{}}
 	data, err := os.ReadFile(path)
 	if err == nil && len(data) > 0 {
 		var list []*TurnJournalEntry
@@ -286,6 +295,81 @@ func (j *TurnJournal) Delete(turnID string) error {
 	delete(j.entries, turnID)
 	delete(j.progressSaved, turnID)
 	j.clearActiveLocked(en.InteractiveKey, turnID)
+	if en.BackgroundWork == "" && en.InteractiveKey != "" && j.lastEnded != nil {
+		j.lastEnded[en.InteractiveKey] = *en
+	}
+	return j.saveLocked()
+}
+
+// KeepBackground records that the agent process on key was kept after its turn
+// for background work that has not reported back (#1894). The entry copies the
+// chat routing of the key's running or last ended turn, replaces an earlier such
+// entry on the key, and is not active. false when there is nothing to copy.
+func (j *TurnJournal) KeepBackground(key, work string, now time.Time) (bool, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var src *TurnJournalEntry
+	if id := j.active[key]; id != "" {
+		src = j.entries[id]
+	}
+	if src == nil {
+		if en, ok := j.lastEnded[key]; ok {
+			src = &en
+		}
+	}
+	for id, en := range j.entries {
+		if en.InteractiveKey == key && en.BackgroundWork != "" {
+			if src == nil {
+				cp := *en
+				src = &cp
+			}
+			delete(j.entries, id)
+			delete(j.inherited, id)
+		}
+	}
+	if src == nil {
+		return false, nil
+	}
+	en := TurnJournalEntry{
+		Authorization:   src.Authorization,
+		TurnID:          newTurnID(),
+		Kind:            TurnKindTurn,
+		Project:         src.Project,
+		SessionKey:      src.SessionKey,
+		InteractiveKey:  key,
+		WorkspaceDir:    src.WorkspaceDir,
+		Platform:        src.Platform,
+		Trigger:         src.Trigger,
+		AgentSessionID:  src.AgentSessionID,
+		AgentPID:        src.AgentPID,
+		AgentPGID:       src.AgentPGID,
+		AgentType:       src.AgentType,
+		AgentSeenAt:     src.AgentSeenAt,
+		LastUserMessage: src.LastUserMessage,
+		StartedAt:       now,
+		BackgroundWork:  work,
+	}
+	j.entries[en.TurnID] = &en
+	return true, j.saveLocked()
+}
+
+// BackgroundDone removes the background-work entry on key: the kept process closed
+// after its work reported back. Not called while the bridge stops: then the entry
+// must survive into the next start.
+func (j *TurnJournal) BackgroundDone(key string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	changed := false
+	for id, en := range j.entries {
+		if en.InteractiveKey == key && en.BackgroundWork != "" {
+			delete(j.entries, id)
+			delete(j.inherited, id)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
 	return j.saveLocked()
 }
 

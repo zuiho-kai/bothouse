@@ -163,6 +163,37 @@ class TimeLimit(unittest.TestCase):
         self.assertIsNone(h.check(mk_timed(31 * 60, tool="Write", path="/x/notes/handoff.md")))
         self.assertIsNotNone(h.check(mk_timed(31 * 60, tool="Write", path="/x/src/a.go")))
 
+    def _append(self, d, recs):
+        import datetime
+        sub = os.path.join(os.path.dirname(d["transcript_path"]), "sess", "subagents", "agent-a1.jsonl")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        with open(sub, "a") as f:
+            for ago, rec in recs:
+                rec["timestamp"] = (now - datetime.timedelta(seconds=ago)).isoformat()
+                f.write(json.dumps(rec) + "\n")
+
+    def test_resumed_after_stop_counts_from_resume(self):
+        # #1894: run cut off by a restart (no stop mark), resumed 40 minutes later by SendMessage.
+        d = mk_timed(50 * 60)
+        self._append(d, [
+            (45 * 60, {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}),
+            (3 * 60, {"type": "user", "origin": {"kind": "coordinator"},
+                      "message": {"role": "user", "content": "Resume: continue"}}),
+        ])
+        self.assertIsNone(h.check(d))
+
+    def test_message_during_run_keeps_first_start(self):
+        # A coordinator message while the run is going (short gap) does not restart the clock.
+        d = mk_timed(50 * 60)
+        self._append(d, [
+            (6 * 60, {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}),
+            (3 * 60, {"type": "user", "origin": {"kind": "coordinator"},
+                      "message": {"role": "user", "content": "also check X"}}),
+        ])
+        self.assertEqual(h.check(d)["hookSpecificOutput"]["permissionDecision"], "deny")
+
     def test_main_session_untouched(self):
         d = mk_timed(90 * 60)
         del d["agent_id"]
