@@ -5429,12 +5429,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				promptContent := attemptPrompt
 				if msg.inputTurn != nil {
 					if strict, ok := as.(StrictResumeSession); ok {
-						err = strict.SendResumed(promptContent, msg.MessageID, images, msg.Files, msg.inputTurn.expectedID)
+						err = strict.SendResumed(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files, msg.inputTurn.expectedID)
 					} else {
 						err = fmt.Errorf("live session does not support strict resume")
 					}
 				} else {
-					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
+					err = as.Send(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				if msg.externalInput != nil {
@@ -8720,7 +8720,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				}
 				err := e.recordTurnAgent(queued.authorization, queuedAgent)
 				if err == nil {
-					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+					err = as.Send(attemptPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				return err

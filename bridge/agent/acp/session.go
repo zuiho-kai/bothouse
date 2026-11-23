@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1077,10 +1076,7 @@ var acpImageMimeTypes = map[string]bool{"image/png": true, "image/jpeg": true, "
 // acpImageBlocks returns inline ACP image blocks for images of a supported type, and the rest.
 func acpImageBlocks(images []core.ImageAttachment) (blocks []any, rest []core.ImageAttachment) {
 	for _, img := range images {
-		mt := strings.ToLower(strings.TrimSpace(img.MimeType))
-		if mt == "" || !acpImageMimeTypes[mt] {
-			mt = http.DetectContentType(img.Data)
-		}
+		mt := core.SniffImageMime(img.MimeType, img.Data) // the bytes win: DSH rejects a type that does not match them
 		if len(img.Data) == 0 || !acpImageMimeTypes[mt] {
 			rest = append(rest, img)
 			continue
@@ -1099,7 +1095,7 @@ func (s *acpSession) appendImageRefs(prompt string, images []core.ImageAttachmen
 	var paths []string
 	for i, img := range images {
 		ext := ".bin"
-		switch img.MimeType {
+		switch core.SniffImageMime(img.MimeType, img.Data) {
 		case "image/jpeg":
 			ext = ".jpg"
 		case "image/gif":

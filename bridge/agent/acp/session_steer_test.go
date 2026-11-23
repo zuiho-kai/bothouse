@@ -245,3 +245,14 @@ func TestToolNameCacheIsBounded(t *testing.T) {
 		t.Fatalf("tool name cache grew to %d (cap %d)", n, toolInputCacheMaxEntries)
 	}
 }
+
+// #1922: a PNG screenshot Discord saved as .jpg / image/jpeg is declared by its bytes; DSH rejects a mismatch.
+func TestPromptBlocksPNGNamedJPEG(t *testing.T) {
+	s, _, _ := newTestSession(t, nil)
+	s.imagePrompts.Store(true)
+	img := core.ImageAttachment{MimeType: "image/jpeg", FileName: "shot.jpg", Data: steerTestPNG}
+	blocks := s.promptBlocks("", "m", []core.ImageAttachment{img}, nil)
+	if len(blocks) != 2 || blocks[1].(map[string]any)["mimeType"] != "image/png" {
+		t.Fatalf("PNG bytes named .jpg must be declared image/png: %v", blocks)
+	}
+}
