@@ -133,9 +133,6 @@ type replyContext struct {
 	// this send carries the turn's final answer (core.FinalReplyMarker).
 	lead  string
 	final bool
-	// inThread: post into messageID's reply thread whatever thread_isolation and
-	// no_reply_to_trigger say (a task card's thread, task_thread_progress.go).
-	inThread bool
 }
 
 type Platform struct {
@@ -3750,7 +3747,7 @@ func (p *Platform) shouldReplyInThread(rc replyContext) bool {
 	if rc.messageID == "" {
 		return false
 	}
-	return rc.inThread || (p.threadIsolation && isThreadSessionKey(rc.sessionKey))
+	return p.threadIsolation && isThreadSessionKey(rc.sessionKey)
 }
 
 // shouldUseThreadOrReplyAPI is true when we should call Im.Message.Reply (optionally with ReplyInThread).
@@ -3758,7 +3755,7 @@ func (p *Platform) shouldUseThreadOrReplyAPI(rc replyContext) bool {
 	if rc.messageID == "" {
 		return false
 	}
-	return rc.inThread || !p.noReplyToTrigger
+	return !p.noReplyToTrigger
 }
 
 func (p *Platform) sendNewMessageToChat(ctx context.Context, rc replyContext, msgType, content string) error {

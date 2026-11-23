@@ -10,53 +10,6 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// The task card's reply thread is the task's thread: a workspace turn's posts and progress
-// card go there, also when no_reply_to_trigger sends ordinary answers as new messages.
-func TestFeishuTaskThreadTarget(t *testing.T) {
-	f := newFakeFeishuIM()
-	p := newFakeFeishuPlatform(t, f)
-	p.noReplyToTrigger = true
-	p.useInteractiveCard = true
-	ctx := context.Background()
-	task := &core.Task{ID: "task-thread", Title: "t", SessionKey: "feishu:oc_ws:ou_u", ChannelID: "oc_ws", State: core.TaskStateInProgress}
-	if _, ok := p.TaskThreadReplyCtx(task); ok {
-		t.Fatal("a task without a card has no thread")
-	}
-	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
-		t.Fatal(err)
-	}
-	if task.ThreadID == "" || task.ThreadID != task.MessageID {
-		t.Fatalf("thread id = %q, card = %q", task.ThreadID, task.MessageID)
-	}
-	rc, ok := p.TaskThreadReplyCtx(task)
-	if !ok {
-		t.Fatal("no thread reply context for a posted card")
-	}
-	if err := p.Send(ctx, rc, "第一步：读数据"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.SendPreviewStart(ctx, rc, core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{{ID: "a", Description: "查日志", Status: core.SubTaskRunning}})); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.creates) != 1 || len(f.replies) != 2 {
-		t.Fatalf("want the card only as a new message and two thread replies, got creates=%d replies=%d", len(f.creates), len(f.replies))
-	}
-	for i, r := range f.replies {
-		if r["root"] != task.MessageID || r["reply_in_thread"] != true {
-			t.Fatalf("reply %d not in the card's thread: %v", i, r)
-		}
-	}
-	if !strings.Contains(f.replies[0]["content"].(string), "第一步：读数据") {
-		t.Fatalf("thread post = %v", f.replies[0])
-	}
-
-	now := time.Now()
-	task.ThreadArchivedAt = &now
-	if _, ok := p.TaskThreadReplyCtx(task); ok {
-		t.Fatal("an archived thread takes no posts")
-	}
-}
-
 func TestFeishuSubTaskTableCard(t *testing.T) {
 	p := &Platform{useInteractiveCard: true, progressStyle: "card"}
 	if !p.SupportsSubTaskTablePayload() {

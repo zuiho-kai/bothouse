@@ -52,7 +52,6 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if task.MessageID != "" {
 		err := p.patchCardMessage(ctx, task.MessageID, cardJSON)
 		if err == nil || !isFeishuMessageGone(err) {
-			task.ThreadID = task.MessageID
 			return unrecoverableErr(err)
 		}
 		slog.Info("feishu: task card deleted, posting it again", "task_id", task.ID, "chat", task.ChannelID, "message", task.MessageID)
@@ -65,8 +64,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 	if err != nil {
 		return unrecoverableErr(err)
 	}
-	// The card's reply thread is the task's thread (task_thread_progress.go).
-	task.MessageID, task.ThreadID = id, id
+	task.MessageID = id
 	return nil
 }
 
