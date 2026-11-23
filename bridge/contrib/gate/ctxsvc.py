@@ -62,7 +62,21 @@ def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
     t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
-    return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
+    return t  # 搜词、判重用整行；推出去的显示用 _short
+
+
+SHORT_CHARS = 30  # 推送每条只给短标题 + [#编号]（用户 11-02「给标题跟编号，然后你可以自己去搜」、11-23「我不是说只推标题吗」）
+
+
+def _short(line):
+    """推送显示用的短标题：去掉行首日期，取第一句（到句号、括号、冒号为止），最多 SHORT_CHARS 字。
+    整条原文按编号存进正文库（_row → stash），要细节跑 bothouse ctx <编号>，所以截短不丢定案。"""
+    t = re.sub(r"^\d{4}-\d{2}-\d{2}\s*", "", _title(line))
+    m = re.search(r"[。；;（(]|[：:](?=.)", t)
+    if m and m.start() >= 4:
+        t = t[:m.start()]
+    t = t.strip()
+    return t if len(t) <= SHORT_CHARS else t[:SHORT_CHARS - 1] + "…"
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
@@ -456,7 +470,7 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
                         pages[rel]["rows"].append(r)
                 continue
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
-        row = _row(rel, line, f"{ln}: {fold}{mark}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
+        row = _row(rel, line, f"{ln}: {fold}{mark}{_short(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
         if weak:
             row["weak"] = True
         if "【旧】" in mark:
@@ -501,17 +515,9 @@ def _floor_line(cid):
     return None
 
 
-LATEST_SHARE = 2  # 最新楼和推出的那楼至少共用这么多个实词才附带（11-11 重放：共用 0–1 个的附带最新楼几乎都不相干）
-
-
-def _content_toks(line):
-    """一行标题里的实词（去掉带虚字的二字词和常用词，同 rare_toks）。"""
-    return {t for t in search.toks(_title(line)) if not FRAG_CH.search(t) and t not in COMMON}
-
-
 def _thread_rows(th, rel, root, hit=None, mark=""):
-    """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
-    别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
+    """楼层帖推一行「帖标题 [#编号]」，编号是最高分楼（同票取命中那楼）的，投票记到那一楼；楼原文不推（11-23）。
+    别的页上的楼写出页路径。"""
     floors = {f["id"]: f for f in th["floors"]}
     found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
     found = [(f, x) for f, x in found if x and is_item(x[2])]
@@ -524,23 +530,16 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
         mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
         if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
             top = mine[0]
-    latest = max(found, key=lambda t: t[0].get("floor", 0))
+    f, (file, n, line) = top
     here = ((root or WIKI) / rel).resolve()
-    out = []
-    # 最新楼只在和推出的那楼讲同一件事时附带：大帖里最新楼常是别的小问题，和本轮无关
-    with_latest = latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) \
-        and len(_content_toks(latest[1][2]) & _content_toks(top[1][2])) >= LATEST_SHARE
-    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if with_latest else []):
-        where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
-        u, d = FORUM.counts(f["id"])
-        head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
-        fold = FORUM.label(f["id"])
-        fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
-        if "【旧】" in mark and "【旧】" not in fm:
-            fm = "【旧】" + fm
-        out.append(_row(file.as_posix(), line, f"{where}: {fm}{head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
-                        root=Path("/"), ln=n))
-    return out
+    where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
+    fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
+    if "【旧】" in mark and "【旧】" not in fm:
+        fm = "【旧】" + fm
+    title = _short(th.get("title") or line)
+    # 只推帖标题 + 那楼的 [#编号]（用户 11-23「我不是说只推标题吗？什么时候改原文了」）；楼的原文按编号存进正文库
+    return [_row(file.as_posix(), line, f"{where}: {fm}{FORUM.label(f['id'])}【帖·{len(floors)}楼】{title}{exp_tag(rel, line)}",
+                 root=Path("/"), ln=n)]
 
 
 def context(req):
@@ -734,7 +733,7 @@ def decision_items(text, key=""):
     by, size, rows = {}, 0, {}
     for rel, ln, line in hits:  # 按页折叠：页路径只写一次（路径常有 80 字，逐行写占掉一半）
         fold = FORUM.label(FORUM.entry_id(rel, line)) if FORUM else ""
-        row = f"  {ln}: {fold}{_title(line)}{exp_tag(rel, line)}"
+        row = f"  {ln}: {fold}{_short(line)}{exp_tag(rel, line)}"
         size += len(row) + 1 + (0 if rel in by else len(rel) + 1)
         if size > DEC_BLOCK or sum(map(len, by.values())) >= DEC_ROWS:  # hits 按相关度排，超了就丢后面的
             break
@@ -973,7 +972,7 @@ def with_lessons(pages, text, skip=None, prepared=False):
     except Exception:  # 教训表读坏了不挡推页
         return pages
     for rel, n, ln, k, d in hits:
-        path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
+        path, row = _shown(rel), f"{n}: {_short(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
         if page is None:
             pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row, ln=n)]}))
