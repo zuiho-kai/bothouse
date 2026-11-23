@@ -768,6 +768,8 @@ type interactiveState struct {
 	lastRecallProbeAt        time.Time
 	recallProbeInFlight      bool
 	stopDraft                string // a Stop hook blocked this reply draft; it is withdrawn when the segment matches (stop_draft.go); guarded by mu
+	stopWithhold             bool   // the blocked draft must never reach the channel, not even merged back (copy gate #1907); guarded by mu
+	stopReplace              string // the hook let the turn end but the draft must not go out: send this instead (#1907); guarded by mu
 	workspaceDir             string
 	agent                    Agent
 	mu                       sync.Mutex
@@ -7436,6 +7438,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if len(turn.textParts) > turn.segmentStart {
 			if draft, ok := turn.state.takeStopDraft(strings.Join(turn.textParts[turn.segmentStart:], "")); ok {
 				turn.sp.retract()
+				slog.Info("stop hook: withdrew the blocked draft from the channel", "session", turn.sessionKey, "draft_runes", utf8.RuneCountInString(draft))
 				turn.textParts = turn.textParts[:turn.segmentStart]
 				turn.silentHold = false
 				if len(draft) > len(turn.blockedDraft) {

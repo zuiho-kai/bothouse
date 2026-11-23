@@ -143,8 +143,24 @@ def _copy_word(h):
     return any(w in h.lower() for w in COPY_WORDS) or COPY_EN.search(h)
 
 
+# 散文段（#1907 用户 11-23 16:31 ③）：没有标题、加粗、标签的整段文字里出现这些词也算文案稿。
+PROSE_WORDS = ("简介", "宣传稿", "宣传语", "宣传文案", "标题", "帖子", "推文", "标语", "口号")
+PROSE_EN = re.compile(r"(?i)\b(?:readme|tagline|slogan)\b")
+CODE_SPAN = re.compile(r"(?s)```.*?```|`[^`\n]*`")
+PATHISH = re.compile(r"(?:~|\.{0,2})?/[^\s）)」』,，。；;]*|\b[\w.-]+\.(?:md|markdown|txt|py|go|json)\b")
+
+
+def copy_prose(text):
+    """含文案词的散文段（代码块、反引号、路径和文件名里的词不算）：返回那段开头，否则 None。"""
+    for para in re.split(r"\n\s*\n", CODE_SPAN.sub(" ", text)):
+        bare = PATHISH.sub(" ", para)
+        if any(w in bare for w in PROSE_WORDS) or PROSE_EN.search(bare):
+            return para.strip().splitlines()[0][:40] if para.strip() else None
+    return None
+
+
 def copy_like(text):
-    """像对外文案稿时返回命中的那处标题/标签，否则 None。"""
+    """像对外文案稿时返回命中的那处标题/标签/段落，否则 None。"""
     for m in MD_HEADING.finditer(text):
         if _copy_word(m.group(1)):
             return m.group(1).strip()
@@ -152,7 +168,7 @@ def copy_like(text):
         if _copy_word(m.group(1)):
             return m.group(1).strip()
     m = COPY_LABEL.search(text)
-    return m.group(0).strip() if m else None
+    return m.group(0).strip() if m else copy_prose(text)
 
 
 def ref_section(text):
@@ -547,14 +563,48 @@ def last_reply(payload):
     return text
 
 
+COPY_REPLACE = "文案检查没过，草稿没发出。"
+def _copy_state(sid, value=None):
+    """这个会话的上一次拦是不是文案检查拦的（value=None 只读；True/False 写）。"""
+    COPY_STATE = os.path.join(data_dir(), "hooks-state", "copy-gate.json")
+    try:
+        with open(COPY_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = {}
+    if value is None:
+        return bool(st.get(sid))
+    if value:
+        st[sid] = True
+    else:
+        st.pop(sid, None)
+    try:
+        os.makedirs(os.path.dirname(COPY_STATE), exist_ok=True)
+        with open(COPY_STATE, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+    return bool(value)
+
+
 def reply_gate(payload):
-    """(c) 管到聊天回复（#1907）：模型直接打出来的回复里有文案稿却没摆对标原句，拦回让它补；只拦一次。"""
-    if payload.get("stop_hook_active"):
+    """(c) 管到聊天回复（#1907）：回复里有文案稿却没摆对标原句就拦回让它补（桥把草稿从频道撤回、不再拼回去）；
+    拦过一次还没补上，不再拦（免得来回卡死），这条回复由桥换成一句「文案检查没过，草稿没发出」，原文不出去。"""
+    sid = str(payload.get("session_id") or "")
+    text = last_reply(payload)
+    why = copy_gate_why(text, "这条回复")
+    again = bool(payload.get("stop_hook_active")) and _copy_state(sid)
+    if not why:
+        _copy_state(sid, False)
         return
-    why = copy_gate_why(last_reply(payload), "这条回复")
-    if why:
-        print(json.dumps({"decision": "block", "reason": "发出前的文案检查没过（这条回复已撤回，用户看不到）：\n" + why +
-                          "\n把对标原文那节和逐句「照：第 N 条」补进回复，重发一遍完整回复。"}, ensure_ascii=False))
+    if again:
+        _copy_state(sid, False)
+        print(json.dumps({"bothouse_replace": COPY_REPLACE, "draft": text}, ensure_ascii=False))
+        return
+    _copy_state(sid, True)
+    print(json.dumps({"decision": "block", "reason": "发出前的文案检查没过（草稿已从频道撤回）：\n" + why +
+                      "\n把对标原文那节和逐句「照：第 N 条」补进回复，重发一遍完整回复。补不出原句就只回一句「%s」：" 
+                      "再发一次没补的原文，桥会把它换成这句话，原文不会发出去。" % COPY_REPLACE}, ensure_ascii=False))
 
 
 def main():

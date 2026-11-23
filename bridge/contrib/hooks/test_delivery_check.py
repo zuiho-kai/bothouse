@@ -114,14 +114,14 @@ class DeliveryCheckTest(unittest.TestCase):
         self.assertNotEqual(self.call(command=f"bothouse send --file '{note}'"), "deny")
         self.assertNotEqual(self.call(command="bothouse send -m '今日进度：三个测试跑完'"), "deny")
 
-    def stop(self, reply, active=False):
+    def stop(self, reply, active=False, env=None):
         self.log.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": reply}]}},
                                        ensure_ascii=False) + "\n", encoding="utf-8")
         payload = {"hook_event_name": "Stop", "cwd": str(self.role), "transcript_path": str(self.log),
                    "session_id": "s", "stop_hook_active": active}
         result = subprocess.run(
             [sys.executable, "-I", str(HERE / "run.py"), "--role", str(self.role), "choice-ask-guard"],
-            input=json.dumps(payload), capture_output=True, text=True, env=self.env, timeout=20)
+            input=json.dumps(payload), capture_output=True, text=True, env=env or self.env, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
         out = json.loads(result.stdout or "{}")
         return out.get("decision"), out.get("reason") or ""
@@ -138,7 +138,56 @@ class DeliveryCheckTest(unittest.TestCase):
               "\n仓库简介：An AI team in your group chat. 照：第 1 条\n")
         self.assertNotEqual(self.stop(ok)[0], "block")
         self.assertNotEqual(self.stop("测试跑完了，退出码 0。")[0], "block")
-        self.assertNotEqual(self.stop("仓库简介改成这样：xx", active=True)[0], "block")
+
+    def test_second_unfixed_copy_reply_is_replaced_not_sent(self):
+        # #1907 打回①（16:31）：拦过一次又原样发，不能放行原文：不再拦，告诉桥撤掉、换成一句话
+        import socket, threading
+        data = Path(tempfile.mkdtemp(prefix="dc-", dir="/tmp"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(data, ignore_errors=True))
+        (data / "run").mkdir()
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(str(data / "run" / "api.sock"))
+        srv.listen(4)
+        got = []
+
+        def serve():
+            while True:
+                try:
+                    c, _ = srv.accept()
+                except OSError:
+                    return
+                buf = b""
+                while b"\r\n\r\n" not in buf:
+                    buf += c.recv(65536)
+                head, body = buf.split(b"\r\n\r\n", 1)
+                n = int([l for l in head.split(b"\r\n") if l.lower().startswith(b"content-length")][0].split(b":")[1])
+                while len(body) < n:
+                    body += c.recv(65536)
+                got.append(json.loads(body))
+                c.sendall(b"HTTP/1.0 200 OK\r\n\r\n{}")
+                c.close()
+        threading.Thread(target=serve, daemon=True).start()
+        self.addCleanup(srv.close)
+        env = dict(self.env, CC_SESSION_KEY="discord:1", CC_DATA_DIR=str(data), CC_PROJECT="p")
+        draft = "仓库简介改成这样：住在你群聊里的 AI 团队。"
+        # 别的钩子拦过（active）但这轮还没被文案检查拦过：照常拦，给它补的机会
+        self.assertEqual(self.stop(draft, active=True, env=env)[0], "block")
+        self.assertTrue(got and got[-1]["withhold"] and not got[-1]["replace"], got)
+        decision, _ = self.stop(draft, active=True, env=env)
+        self.assertNotEqual(decision, "block")
+        self.assertEqual(got[-1]["replace"], "文案检查没过，草稿没发出。")
+        self.assertIn("群聊里的 AI 团队", got[-1]["draft"])
+        # 换了以后状态清掉：下一轮新回复又是先拦
+        self.assertEqual(self.stop(draft, env=env)[0], "block")
+
+    def test_copy_words_in_plain_prose_paragraph(self):
+        # #1907 打回③：没有标题、加粗、标签的整段文字里写了简介/README/宣传稿/宣传语/标题/帖子也进检查
+        for para in ("我把仓库简介改成住在你群聊里的 AI 团队，自己分活自己验收。",
+                     "README 第一句换成一群住在聊天里的 AI 同事。", "宣传稿开头写一个人带一支 AI 团队。",
+                     "宣传语就用一个群，一支团队。", "新的标题是 AI 团队住进你的群。", "这条帖子写我们怎么分活。"):
+            self.assertEqual(self.stop("前面说点别的。\n\n" + para)[0], "block", para)
+        # 只在路径、文件名、代码里出现不算
+        self.assertNotEqual(self.stop("日志在 /tmp/x/README.md，`标题` 字段没变。")[0], "block")
 
     def test_copy_words_cover_entries(self):
         # #1907 打回③：简介/README/宣传语/标题/帖子这类入口的写法都认得

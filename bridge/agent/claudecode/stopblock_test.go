@@ -23,12 +23,22 @@ func TestMergeStopBlockedReply(t *testing.T) {
 func TestStopBlockedReplyFlow(t *testing.T) {
 	cs := &claudeSession{}
 	cs.noteReplyText("前面写的一大段完整回复，包含所有细节和结论。")
-	cs.noteStopBlocked()
+	cs.noteStopBlocked("")
 	cs.noteReplyText("补一句。")
 	if got, blocked := cs.takeStopBlockedReply("补一句。"); got != "前面写的一大段完整回复，包含所有细节和结论。\n\n补一句。" || !blocked {
 		t.Fatalf("got %q blocked=%v", got, blocked)
 	}
 	if got, blocked := cs.takeStopBlockedReply("下一轮"); got != "下一轮" || blocked {
 		t.Fatalf("state leaked: %q blocked=%v", got, blocked)
+	}
+}
+
+// #1907: a copy-gate block keeps the draft out even when the rewrite is short.
+func TestCopyGateBlockNeverMergesDraftBack(t *testing.T) {
+	cs := &claudeSession{}
+	cs.noteReplyText("仓库简介改成这样：住在你群聊里的 AI 团队，自己分活、自己验收。")
+	cs.noteStopBlocked("Stop hook feedback:\n发出前的文案检查没过（草稿已撤回）")
+	if got, blocked := cs.takeStopBlockedReply("文案检查没过。"); got != "文案检查没过。" || !blocked {
+		t.Fatalf("got %q blocked=%v", got, blocked)
 	}
 }

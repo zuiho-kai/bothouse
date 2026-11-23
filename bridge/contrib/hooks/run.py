@@ -846,7 +846,7 @@ def main():
     else:
         sys.stdout.write(stop_full_reply(payload.get("hook_event_name"), proc.stdout))
         if draft and stop_blocked(proc):
-            note_stop_blocked(draft)
+            note_stop_blocked(draft, withhold="文案检查没过" in (proc.stdout or ""))
     sys.stderr.write(proc.stderr)
     sys.exit(proc.returncode)
 
@@ -882,6 +882,12 @@ def deliver_check(payload, dsh_log):
     try:
         d = json.loads(proc.stdout or "{}")
     except ValueError:
+        return None
+    if isinstance(d, dict) and d.get("bothouse_replace"):
+        # #1907: blocked once and sent back unfixed. The turn ends, but the bridge swaps the draft for this line.
+        note_stop_blocked(str(d.get("draft") or ""), withhold=True, replace=str(d["bothouse_replace"]))
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
         return None
     if isinstance(d, dict) and ((d.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
                                 or d.get("decision") == "block"):
@@ -924,7 +930,7 @@ def stop_blocked(proc):
     return isinstance(d, dict) and d.get("decision") == "block"
 
 
-def note_stop_blocked(draft):
+def note_stop_blocked(draft, withhold=False, replace=""):
     """The draft was already streamed to the channel: tell the bridge (POST /stop-blocked) to take it back, so
     the user gets the rewrite only, not both (11-08 鲸鱼娘 DM). Best effort: no bridge, no change.
     DSH scrubs every variable whose name holds KEY/TOKEN/SECRET/PASSWORD from a hook's environment, so a DSH
@@ -934,8 +940,8 @@ def note_stop_blocked(draft):
     if not key or not data:
         return
     import socket
-    body = json.dumps({"project": os.environ.get("CC_PROJECT", ""), "session_key": key, "draft": draft},
-                      ensure_ascii=False).encode()
+    body = json.dumps({"project": os.environ.get("CC_PROJECT", ""), "session_key": key, "draft": draft,
+                       "withhold": bool(withhold), "replace": replace}, ensure_ascii=False).encode()
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(3)
