@@ -111,12 +111,12 @@ nohup $det sh -c '
   waited=0
   bg=$($7)
   if [ -n "$bg" ]; then
-    echo "$(date "+%Y-%m-%d %H:%M:%S") 等后台活交回再重启：$(echo "$bg" | tr "\n" "；")" >> "$4"
+    echo "$(date "+%Y-%m-%d %H:%M:%S") 等后台活交回再重启：$(echo "$bg" | awk "{printf (NR>1 ? \"；\" : \"\") \$0}")" >> "$4"
     while [ -n "$bg" ] && [ "$waited" -lt "$8" ]; do
       sleep 10; waited=$((waited + 10)); bg=$($7)
     done
     if [ -n "$bg" ]; then
-      echo "$(date "+%Y-%m-%d %H:%M:%S") 等满 ${waited} 秒还没交回，照样重启，桥起来后叫醒：$(echo "$bg" | tr "\n" "；")" >> "$4"
+      echo "$(date "+%Y-%m-%d %H:%M:%S") 等满 ${waited} 秒还没交回，照样重启，桥起来后叫醒：$(echo "$bg" | awk "{printf (NR>1 ? \"；\" : \"\") \$0}")" >> "$4"
     else
       echo "$(date "+%Y-%m-%d %H:%M:%S") 后台活都交回了（等了 ${waited} 秒）" >> "$4"
     fi
