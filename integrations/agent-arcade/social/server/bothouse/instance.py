@@ -3,6 +3,8 @@ import base64
 import hashlib
 import http.client
 import json
+import ipaddress
+import os
 import re
 import secrets
 import socket
@@ -10,7 +12,7 @@ import sys
 import time
 import tomllib
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 
 def digest(value):
@@ -102,6 +104,68 @@ def upstream_identity(access, actor, link, instance, project):
     return None
 
 
+def local_channels_host(cfg, file):
+    # Follow collabDataDir's existing directory/legacy selection. Compare the
+    # origin only; never use the Channels owner credential to speak for a friend.
+    home = Path.home()
+    data = Path(os.environ.get("BOTHOUSE_DATA_DIR") or cfg.get("data_dir") or file.parent)
+    directory = data / "conest-collab"
+    if data in (home / ".bothouse", home / ".cc-connect") or not directory.exists():
+        directory = home / ".conest-collab"
+    record = Path(os.environ.get("CONEST_COLLAB_DATA") or directory) / "collab.owner.json"
+    with record.open("rb") as stream:
+        origin = urlsplit(json.loads(stream.read(16385))["local"]["origin"])
+    if (origin.scheme == "http" and origin.path in ("", "/") and not origin.username
+            and not origin.password and not origin.query and not origin.fragment and origin.port
+            and ipaddress.ip_address(origin.hostname).is_loopback):
+        return origin.netloc
+    return None
+
+
+def is_bridge_role(row):
+    # Management /roles omits the default source; the role-state feed names it.
+    return row.get("source") in (None, "", "bridge")
+
+
+def native_bindings(cfg, file, get, rows):
+    # memberRole() uses the stored native member ID for both the project and
+    # its cloud_web ?bot=. The management role roster also includes external bots.
+    native = {r["name"][4:]: r for r in rows if r.get("source") == "dsh"
+              and r.get("agent_type") == "dsh" and r.get("name", "").startswith("dsh:")}
+    if not native:
+        return {}
+    try:
+        host = local_channels_host(cfg, file)
+        if not host:
+            return {}
+        stored = {m["id"] for m in get("dsh/members")["members"]
+                  if m.get("source") in ("ui", "config") and m.get("cli") is None}
+    except (OSError, KeyError, TypeError, ValueError, http.client.HTTPException):
+        return {}
+    engines = {r["name"]: r for r in rows if is_bridge_role(r) and r.get("agent_type") == "dsh"}
+    bound = {}
+    for project in cfg.get("projects", []):
+        key = project.get("name")
+        if key not in native or key not in stored or key not in engines:
+            continue
+        platforms = [p for p in project.get("platforms", []) if p.get("type") == "cloud_web"]
+        if len(platforms) != 1:
+            continue
+        opts = platforms[0].get("options", {})
+        try:
+            url = urlsplit(opts.get("ws_url", ""))
+            if (url.scheme != "ws" or url.netloc != host or url.path != "/cloud-web/ws"
+                    or parse_qs(url.query).get("bot") != [key]):
+                continue
+        except ValueError:
+            continue
+        channel_ready = any(p.get("name") == (opts.get("name") or "cloud_web") and p.get("ready") is True
+                            for p in engines[key].get("platforms", []))
+        bound[key] = (native[key], channel_ready and native[key].get("online") is True
+                      and not platforms[0].get("disabled") and not project.get("disabled"))
+    return bound
+
+
 def run(file, request):
     with file.open("rb") as stream:
         cfg = tomllib.load(stream)
@@ -118,27 +182,37 @@ def run(file, request):
     roles = []
     instance = None
     upstream_user = actor
-    for item in get("roles")["roles"]:
+    rows = get("roles")["roles"]
+    native = native_bindings(cfg, file, get, rows)
+    for item in rows:
         project = item["name"]
-        if item.get("source") or not project or "/" in project or project in (".", ".."):
-            continue  # DSH-native roles use a different chat protocol.
+        if not is_bridge_role(item) or not project or "/" in project or project in (".", ".."):
+            continue  # A verified DSH member is emitted once through its own engine below.
         if instance is None:
             instance = instance_id(cfg, file)
         number = "bh_" + digest(instance + "\0" + project)[:21]
-        if request.get("number", number) != number:
+        legacy = None
+        label = item.get("display_name") or project
+        if project in native:
+            member, connected = native[project]
+            legacy = number
+            number = "bh_" + digest(instance + "\0dsh\0" + project)[:21]
+            label = member.get("display_name") or project
+        if "number" in request and request["number"] not in (number, legacy):
             continue
         access_route = "projects/" + quote(project, safe="") + "/users"
         access = get(access_route)
         if authority:
             ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
-            roles.append(dict(id=project, displayName=item.get("display_name") or project,
+            roles.append(dict(id=project, displayName=label,
                               selectable=access.get("configured") is False, matches=request.get("identity") in ids))
             continue
         authorized = upstream_identity(access, actor, link, instance, project)
         if authorized is None:
             continue
         upstream_user = authorized
-        ready = bool(bridge.get("enabled") and bridge.get("token") and not item.get("paused"))
+        ready = bool(bridge.get("enabled") and bridge.get("token") and not item.get("paused")
+                     and (legacy is None or connected))
         if request["action"] == "portrait":
             if not request.get("number") or not ready:
                 return {}
@@ -146,8 +220,8 @@ def run(file, request):
             if portrait and upstream_identity(get(access_route), actor, link, instance, project) is not None:
                 return portrait
             return {}
-        roles.append(dict(id=project, number=number, displayName=item.get("display_name") or project,
-                          configured=ready, kind="ai", source="bothouse"))
+        roles.append(dict(id=project, number=number, displayName=label,
+                          configured=ready, kind="ai", source="bothouse", **({"legacyNumber": legacy} if legacy else {})))
     if authority:
         return {"instance": instance, "projects": roles}
     listing = request["action"] == "list"

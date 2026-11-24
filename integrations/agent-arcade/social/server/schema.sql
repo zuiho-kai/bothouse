@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS bothouse_pair_codes (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   digest TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL
 );
+-- Identity continuity only. This table grants no access to a role.
+CREATE TABLE IF NOT EXISTS bothouse_native_numbers (
+  legacy TEXT PRIMARY KEY, native TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS bothouse_links (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   scope TEXT NOT NULL, revision TEXT NOT NULL

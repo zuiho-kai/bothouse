@@ -39,17 +39,36 @@ function localInstance(env = process.env) {
 
 function bothouseDirectory(store, request) {
   const targetNumber = /^bh_[a-f0-9]{21}$/;
+  function nativeNumber(number) {
+    return store.one('SELECT native FROM bothouse_native_numbers WHERE legacy=?',number)?.native || number;
+  }
   async function list(account, number) {
-    const data = await request({action:'list',account,link:pairing.active(store,account),...(number && {number})});
+    const data = await request({action:'list',account,link:pairing.active(store,account),...(number && {number:nativeNumber(number)})});
     if (!Array.isArray(data?.contacts)) return {contacts:[],directoryStatus:'offline'};
-    const {contacts, directoryStatus, directoryReason} = data;
+    const contacts=data.contacts.filter(role=>{
+      if (role.legacyNumber) {
+        if (nativeNumber(role.legacyNumber)===role.number) return true;
+        store.run('INSERT OR IGNORE INTO bothouse_native_numbers(legacy,native) VALUES(?,?)',role.legacyNumber,role.number);
+        return nativeNumber(role.legacyNumber)===role.number;
+      }
+      // Losing the DSH roster cannot reopen a second chat under its old project number.
+      return nativeNumber(role.number)===role.number;
+    });
+    const directoryStatus = data.contacts.length && !contacts.length ? 'offline' : data.directoryStatus;
+    const {directoryReason} = data;
     return {contacts, directoryStatus,
-      ...(directoryStatus==='empty' && ['no_roles','not_shared'].includes(directoryReason) ? {directoryReason} : {})};
+      ...(directoryStatus === 'empty' && ['no_roles','not_shared'].includes(directoryReason) ? {directoryReason} : {})};
+  }
+  // Reuse an existing chat or group seat only when this account's live
+  // directory proves the earlier Bridge number belongs to the native member.
+  function byNumber(contacts, number) {
+    return contacts.find(member=>member.number===number || (member.legacyNumber && member.legacyNumber===number));
   }
   async function resolveMember(account, number) {
     if (typeof number!=='string' || !targetNumber.test(number.toLowerCase())) return null;
     number=number.toLowerCase();
-    return (await list(account,number)).contacts.find(member=>member.number === number) || null;
+    const role=byNumber((await list(account,number)).contacts,number);
+    return role ? {...role,number} : null;
   }
   function install(role) {
     const old = store.one('SELECT kind FROM users WHERE number=?',role.number);
@@ -59,20 +78,29 @@ function bothouseDirectory(store, request) {
   }
   async function start(account,body) {
     if (body.expectedAccount !== account) fail(409,'account_changed','请回到当前账号');
-    const role = await resolveMember(account,body.number);
+    const requested=typeof body.number==='string' && body.number.toLowerCase();
+    if (!targetNumber.test(requested)) fail(409,'bothouse_unavailable','此账号暂时无法联系这位 Bothouse 角色');
+    const role = byNumber((await list(account,requested)).contacts,requested);
     if (!role?.configured) fail(409,'bothouse_unavailable','此账号暂时无法联系这位 Bothouse 角色');
-    return store.transaction(()=>{ install(role); return {conversation:store.openDirect(account,role.number)}; });
+    return store.transaction(()=>{
+      const number=role.legacyNumber && store.direct(account,role.legacyNumber) ? role.legacyNumber : role.number;
+      install({...role,number});
+      return {conversation:store.openDirect(account,number)};
+    });
   }
   async function group(account,chat,body) {
     const canManage = store.group(account,chat).owner === account;
     const {contacts,directoryStatus} = await list(account);
+    const assigned=role=>role.legacyNumber && store.one('SELECT 1 FROM members WHERE chat=? AND account=?',chat,role.legacyNumber)
+      ? {...role,number:role.legacyNumber} : role;
     if (body) {
       if (!canManage || body.expectedAccount !== account || typeof body.enabled !== 'boolean')
         fail(403,'group_owner','请用当前群主账号管理群成员');
-      const role = contacts.find(r=>r.number===body.number);
+      const contact = byNumber(contacts,body.number);
+      const role = contact && assigned(contact);
       store.transaction(()=>{
         if (!targetNumber.test(body.number)) fail(404,'unknown_role','找不到这个角色');
-        if (!body.enabled) {store.remove(account,chat,body.number,false);return;}
+        if (!body.enabled) {store.remove(account,chat,role?.number || body.number,false);return;}
         if (!role?.configured) fail(409,'bothouse_unavailable','这位 Bothouse 角色暂不可用');
         install(role);
         if (store.one('SELECT 1 FROM members WHERE chat=? AND account=?',chat,role.number)) return;
@@ -83,10 +111,10 @@ function bothouseDirectory(store, request) {
     }
     const joined = store.all("SELECT u.number,u.name AS displayName FROM members m JOIN users u ON m.account=u.number WHERE m.chat=? AND u.kind='ai'",chat)
       .filter(row=>targetNumber.test(row.number)).map(row=>{
-        const role=contacts.find(r=>r.number===row.number);
+        const role=byNumber(contacts,row.number);
         return {...row,kind:'ai',source:'bothouse',configured:!!role?.configured,sharing:!!role?.configured};
       });
-    return {groupAi:{joined,canManage,available:canManage?contacts:[],directoryStatus}};
+    return {groupAi:{joined,canManage,available:canManage?contacts.map(assigned):[],directoryStatus}};
   }
   async function portrait(account, chatId) {
     const peer = chat => chat.first_user === account ? chat.second_user : chat.first_user;
@@ -95,7 +123,7 @@ function bothouseDirectory(store, request) {
     const number = peer(chat);
     if (!targetNumber.test(number) || store.user(number).kind !== 'ai') return null;
     const link = pairing.active(store,account);
-    const result = await request({action:'portrait',account,number,link});
+    const result = await request({action:'portrait',account,number:nativeNumber(number),link});
     if (pairing.active(store,account)?.revision !== link?.revision) return null;
     const current = store.access(account,chatId);
     if (current.type !== 'direct' || peer(current) !== number || current.membershipRevision !== chat.membershipRevision)
@@ -132,7 +160,7 @@ function bothouseDirectory(store, request) {
   async function finish(turn) {
     if (!current(turn)) return {};
     if (/^\s*\//u.test(turn.text)) return {bothouseStatus:'chat_text_only'};
-    const data=await request({action:'chat',...turn});
+    const data=await request({...turn,number:nativeNumber(turn.number),action:'chat'});
     if (!data?.text) return {bothouseStatus:'unavailable'};
     // Re-read live visibility after the turn; a removed/replaced role cannot answer for its successor.
     const role=await resolveMember(turn.account,turn.number);
@@ -142,7 +170,7 @@ function bothouseDirectory(store, request) {
   }
   // The task board records progress and sends the result to the originating conversation.
   function runTextTask(turn) {
-    return request({...turn, link:pairing.active(store,turn.account), action:'chat'});
+    return request({...turn, number:nativeNumber(turn.number), link:pairing.active(store,turn.account), action:'chat'});
   }
   return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
