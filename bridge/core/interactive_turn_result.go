@@ -282,7 +282,7 @@ func (e *Engine) composeTurnResult(turn *interactiveTurn, r *interactiveResult) 
 
 	// #699 C: a reply is not a handback (WorkspaceExit is), nothing is forwarded from it.
 	if !isSilent && turn.input == nil {
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventMessageSent,
 			SessionKey: turn.sessionKey,
 			Platform:   p.Name(),

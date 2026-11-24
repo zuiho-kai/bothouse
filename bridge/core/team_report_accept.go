@@ -117,6 +117,15 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			owner.teamExit.mu.Unlock()
 		}
 	}
+	acceptor := ""
+	if queued {
+		acceptor = lead.name
+	}
+	// the event layer (cron_event.go): any `bothouse cron add --event workspace.report` job runs
+	e.fireTrigger(TriggerEvent{Name: EventWorkspaceReport, Text: body, Fields: map[string]string{
+		"board": fmt.Sprint(hid), "short": teamTaskBoardShort(*item), "dispatcher": item.Dispatcher,
+		"chat": p.Name() + ":" + parent, "workspace": ws, "acceptor": acceptor, "batch": fmt.Sprint(batch),
+	}})
 	if !batch {
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, team.ExitKindReport, hid, body)
 	}
