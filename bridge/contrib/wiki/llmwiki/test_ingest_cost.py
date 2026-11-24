@@ -45,10 +45,10 @@ print(json.dumps({"type": "final", "text": "done"}))
 def db_with_fails(fails):
     db = sqlite3.connect(":memory:")
     db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                     "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                     "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                      "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                      "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
-    db.executemany("insert into fails values (?,?)", fails.items())
+    db.executemany("insert into fails (id, n) values (?,?)", fails.items())
     return db
 
 
@@ -127,6 +127,28 @@ class PendingShrink(unittest.TestCase):
         half = self.run_round([p], {p.stem: 1})
         self.assertLess(len(half[0]), len(whole[0]))
         self.assertIn("rec0-", half[0])
+
+    def test_count_from_before_the_read_position_does_not_shrink_new_content(self):
+        # an older version gave up on a delta, marked it read and kept the count (#806)
+        now = time.time() - 7200
+        p = session("moved", [f"rec{i}-" + "y" * 60 for i in range(6)], now)
+        db = db_with_fails({p.stem: 6})
+        db.execute("insert into ingested values (?,?,?)", (p.stem, 5, now))
+        self.assertEqual(I.failures(db, p.stem), 0)
+        db.execute("update fails set offset=5")
+        self.assertEqual(I.failures(db, p.stem), 6)
+
+    def test_state_adds_the_position_to_an_older_fails_table(self):
+        path = ROOT / "old.sqlite"
+        old = sqlite3.connect(path)
+        old.execute("create table fails(id text primary key, n int)")
+        old.execute("insert into fails values ('a', 2)")
+        old.commit()
+        old.close()
+        with patch.object(I, "STATE", path):
+            db = I.state()
+        self.assertEqual(db.execute("select id, n, offset from fails").fetchall(), [("a", 2, None)])
+        self.assertEqual(I.failures(db, "a"), 2)
 
     def test_newest_first_orders_the_round(self):
         now = time.time() - 7200
