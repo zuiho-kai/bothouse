@@ -17,6 +17,9 @@ import (
 // Only the heading counts. A four-part section that merely mentions 「逐条」 is not a list to post:
 // 13:32 #1948's own report said 「逐条」 in its parts and ws-pass posted the replayed片段 from its
 // details into the user's channel by mistake.
+//
+// #1953: lines inside ``` fences never count. 14:32 #1949's details pasted an isolated test's
+// output whose fenced block held a 「材料逐条：」 sample, and that sample was posted to the channel.
 const chatItemLimit = 1900 // 来源：沿用 #1948 的 _read_gate.py LIMIT=1900（Discord 单条 2000 字，留余量）
 
 var (
@@ -28,8 +31,18 @@ var (
 // item lines under it, split under chatItemLimit. nil when the body has no such block.
 func chatItems(body string) []string {
 	var rows []string
-	inside := false
+	inside, fenced := false, false
 	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+			if inside {
+				break
+			}
+			continue
+		}
+		if fenced {
+			continue
+		}
 		if !inside {
 			inside = chatItemHead.MatchString(line)
 			continue

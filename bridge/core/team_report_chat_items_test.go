@@ -27,6 +27,24 @@ func TestChatItemsNeedsTheHeading(t *testing.T) {
 	}
 }
 
+// #1953: a 「材料逐条：」 inside a ``` fence (pasted test output in the details) is not posted;
+// the real block outside the fence still is.
+func TestChatItemsSkipsCodeFences(t *testing.T) {
+	sample := "细节：\n入口自验：\n```\n材料逐条：\n1. 隔离甲：样例一。\n2. 隔离乙：样例二。\n```\n"
+	body := "[report] #1949 背景：修超时。\n做完了。\n要你做的：没有。\n我加的：无\n" + sample
+	if got := chatItems(body); got != nil {
+		t.Fatalf("fenced sample posted %q", got)
+	}
+	got := chatItems(itemsBody + sample)
+	if len(got) != 1 || !strings.Contains(got[0], "3. 免疫系统") || strings.Contains(got[0], "隔离") {
+		t.Fatalf("real block with a fenced sample = %q", got)
+	}
+	got = chatItems("[report] #46 背景：x\n细节：\n" + sample + "材料逐条：\n1. 知乎：真条目。\n")
+	if len(got) != 1 || got[0] != "材料逐条：\n1. 知乎：真条目。" {
+		t.Fatalf("real block after a fence = %q", got)
+	}
+}
+
 // Long rows split under the message limit, heading on the first message only.
 func TestChatItemsSplitsUnderLimit(t *testing.T) {
 	row := "1. 知乎：" + strings.Repeat("长", chatItemLimit)
