@@ -39,7 +39,7 @@ func TestHeldReportRefTaskWithholdsAttachments(t *testing.T) {
 					e.workspaceChatForTest = func(string) bool { return true }
 					e.noteWorkspaceFiles("discord:222", []FileAttachment{{FileName: "demo-v4.mp4", MimeType: "video/mp4", Data: []byte("mp4")}})
 					e.postExitHeadline(e.ctx, p, "discord:111", "111", "222", "橘", team.ExitKindReport,
-						"[report] #1885 背景：样片。\n第四版做好了\n要你做的：看片。\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第四版做好了", e.boardItemByID(1885))
+						"[report] #1885 背景：样片。\n第四版做好了\n要你做的：看片。\n给你的：无\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第四版做好了", e.boardItemByID(1885))
 				}
 				media := p.sentMedia()
 				said := strings.Join(p.getSent(), "\n")

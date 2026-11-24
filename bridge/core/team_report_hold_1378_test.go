@@ -101,7 +101,7 @@ func TestHeldReportDroppedWhenNotesHandedOnAsNewItem(t *testing.T) {
 	}
 }
 
-const waitBody = "[report] #46 背景：你让我发版。\n合进去了，等 CI\n要你做的：没有。\n我加的：无\n细节：\n等外部：CI 在排队\n再看：30m"
+const waitBody = "[report] #46 背景：你让我发版。\n合进去了，等 CI\n要你做的：没有。\n给你的：无\n我加的：无\n细节：\n等外部：CI 在排队\n再看：30m"
 
 func holdWaiting(t *testing.T, e *Engine, p Platform, item *teamTaskBoardItem) string {
 	t.Helper()

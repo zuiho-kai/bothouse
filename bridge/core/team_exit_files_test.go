@@ -17,7 +17,7 @@ func TestExitFilesForNamedReport(t *testing.T) {
 	if err := os.WriteFile(doc, []byte("# 审查报告\n两个 P2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n我加的：无。\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 " + doc + "。\n"
+	body := "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n给你的：无\n我加的：无。\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 " + doc + "。\n"
 	files := exitFilesFor("discord:ws", body, nil, nil, false)
 	if len(files) != 1 || files[0].FileName != filepath.Base(doc) || !strings.Contains(string(files[0].Data), "两个 P2") {
 		t.Fatalf("named report not attached: %+v", files)
@@ -28,7 +28,7 @@ func TestExitFilesForNamedReport(t *testing.T) {
 }
 
 func TestReportDeliverableProblems(t *testing.T) {
-	noFile := "[report] #36 背景：审查 PR。\n已产出中文审查报告，列出两个 P2。\n要你做的：没有\n我加的：无\n"
+	noFile := "[report] #36 背景：审查 PR。\n已产出中文审查报告，列出两个 P2。\n要你做的：没有\n给你的：无\n我加的：无\n"
 	if p := reportDeliverableProblems("discord:ws", noFile, nil); len(p) != 1 || !strings.Contains(p[0], "没带上成品") {
 		t.Fatalf("claim without file or link not bounced: %v", p)
 	}
@@ -36,7 +36,7 @@ func TestReportDeliverableProblems(t *testing.T) {
 	if p := reportDeliverableProblems("discord:ws", link, nil); p != nil {
 		t.Fatalf("report with a link bounced: %v", p)
 	}
-	plain := "[report] #1 背景：修 bug。\n已修好并合进 develop。\n要你做的：没有\n我加的：无\n"
+	plain := "[report] #1 背景：修 bug。\n已修好并合进 develop。\n要你做的：没有\n给你的：无\n我加的：无\n"
 	if p := reportDeliverableProblems("discord:ws", plain, nil); p != nil {
 		t.Fatalf("report without a document claim bounced: %v", p)
 	}
@@ -54,7 +54,7 @@ func TestExitFilesFromHandoff(t *testing.T) {
 	notes := filepath.Join(dir, "handoff.md")
 	os.WriteFile(notes, []byte("## 范围\n- 改：读 "+old+"\n## 检查点\n- 报告写到 "+doc+"\n"), 0o600)
 	item := &teamTaskBoardItem{Where: notes, Bound: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)}
-	body := "[report] #2 背景：x\n已产出审查报告。\n要你做的：没有\n我加的：无\n"
+	body := "[report] #2 背景：x\n已产出审查报告。\n要你做的：没有\n给你的：无\n我加的：无\n"
 	files := exitFilesFor("discord:ws", body, item, nil, false)
 	if len(files) != 1 || files[0].FileName != "out-report.md" {
 		t.Fatalf("handoff output not found: %+v", files)
@@ -108,7 +108,7 @@ func TestWorkspaceReportCarriesDocuments(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.noteWorkspaceFiles(exitWSKey, []FileAttachment{{MimeType: "text/csv", Data: []byte("a,b"), FileName: "bench.csv"}})
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n我加的：无\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 "+doc+"。")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #36 背景：你让我检查那个合并请求。\n完成中文审查报告，列出两个 P2 问题。\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n- 改：产出中文审查报告 —— 已完成，报告路径 "+doc+"。")
 	inputWait(t, func() bool { return len(p.filesTo("discord:chat1")) == 2 })
 	got := p.filesTo("discord:chat1")
 	if got[0] != "bench.csv" || got[1] != filepath.Base(doc) {
@@ -122,7 +122,7 @@ func TestExitFilesSkipDocsWhenLinked(t *testing.T) {
 	dir := t.TempDir()
 	doc := filepath.Join(dir, "about-en.txt")
 	os.WriteFile(doc, []byte("about"), 0o600)
-	head := "[report] #3 背景：发版。\n新版已发出，说明文档已写好。\n要你做的：没有\n我加的：无\n细节：说明 " + doc + "\n"
+	head := "[report] #3 背景：发版。\n新版已发出，说明文档已写好。\n要你做的：没有\n给你的：无\n我加的：无\n细节：说明 " + doc + "\n"
 	kept := []FileAttachment{
 		{FileName: "shot.png", MimeType: "image/png", Data: []byte("png")},
 		{FileName: "demo.mp4", MimeType: "video/mp4", Data: []byte("mp4")},
@@ -157,14 +157,14 @@ func TestExitFilesOnlyForDeliverableDocs(t *testing.T) {
 	notes := filepath.Join(dir, "handoff.md")
 	os.WriteFile(notes, []byte("## 检查点\n- 记录写到 "+doc+"\n"), 0o600)
 	item := &teamTaskBoardItem{Where: notes, Bound: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)}
-	cited := "[report] #1399 背景：把鲸鱼娘拉过去。\n三件都上线了，鲸鱼娘回到 agentm。\n要你做的：没有\n我加的：无\n细节：\n- 部署记录更新在 " + doc + "\n"
+	cited := "[report] #1399 背景：把鲸鱼娘拉过去。\n三件都上线了，鲸鱼娘回到 agentm。\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n- 部署记录更新在 " + doc + "\n"
 	if files := exitFilesFor("discord:ws", cited, item, nil, false); len(files) != 0 {
 		t.Fatalf("cited wiki page attached: %+v", files)
 	}
-	if files := exitFilesFor("discord:ws", "[report] #1399 背景：x\n三件都上线了。\n要你做的：没有\n我加的：无\n", item, nil, false); len(files) != 0 {
+	if files := exitFilesFor("discord:ws", "[report] #1399 背景：x\n三件都上线了。\n要你做的：没有\n给你的：无\n我加的：无\n", item, nil, false); len(files) != 0 {
 		t.Fatalf("handoff-named page attached without a document claim: %+v", files)
 	}
-	made := "[report] #36 背景：审查 PR。\n写好了部署文档。\n要你做的：没有\n我加的：无\n细节：" + doc + "\n"
+	made := "[report] #36 背景：审查 PR。\n写好了部署文档。\n要你做的：没有\n给你的：无\n我加的：无\n细节：" + doc + "\n"
 	if files := exitFilesFor("discord:ws", made, item, nil, false); len(files) != 1 || files[0].FileName != "deployment.md" {
 		t.Fatalf("deliverable not attached: %+v", files)
 	}
@@ -178,7 +178,7 @@ func TestExitFilesOnlyForDeliverableDocs(t *testing.T) {
 // or two resolutions of the same edition, only one video per edition goes to the chat channel,
 // preferring the final cut while keeping the numbered sample local for review.
 func TestExitFilesForDedupVideosAndKeepFinal(t *testing.T) {
-	body := "[report] #1061 背景：出片。\n第十版出好了。\n要你做的：没有\n我加的：无\n"
+	body := "[report] #1061 背景：出片。\n第十版出好了。\n要你做的：没有\n给你的：无\n我加的：无\n"
 	namesOf := func(files []FileAttachment) []string {
 		out := make([]string, 0, len(files))
 		for _, f := range files {

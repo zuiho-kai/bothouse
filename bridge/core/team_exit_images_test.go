@@ -58,7 +58,7 @@ func TestWorkspaceReportCarriesImages(t *testing.T) {
 	e.noteWorkspaceImages(exitWSKey, []ImageAttachment{{MimeType: "image/png", Data: png, FileName: "sent.png"}})
 	e.noteWorkspaceImages(exitChatKey, []ImageAttachment{{MimeType: "image/png", Data: png, FileName: "not-a-workspace.png"}})
 
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你要看对照图。\n对照图做好了\n要你做的：没有。\n我加的：无\n细节：对照图在 "+named+" 和 https://x.test/a.png")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你要看对照图。\n对照图做好了\n要你做的：没有。\n给你的：无\n我加的：无\n细节：对照图在 "+named+" 和 https://x.test/a.png")
 	inputWait(t, func() bool { return len(p.imagesTo("discord:chat1")) == 2 })
 	got := p.imagesTo("discord:chat1")
 	if got[0] != "sent.png" || got[1] != "cmp-zh-1.png" {
@@ -102,12 +102,12 @@ func TestWorkspaceReportLeavesOutAnotherChannelsImage(t *testing.T) {
 	own := write("gate-before-after.png", 'b')
 
 	// #1614 hands its contact sheet back to its own chat channel.
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #1614 背景：你要 1080p 下载链接。\n1080p 成片好了。\n要你做的：点链接看片。\n我加的：无\n细节：\n每秒一帧拼图 "+sheet)
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #1614 背景：你要 1080p 下载链接。\n1080p 成片好了。\n要你做的：点链接看片。\n给你的：无\n我加的：无\n细节：\n每秒一帧拼图 "+sheet)
 	inputWait(t, func() bool { return len(p.imagesTo("discord:chat1")) == 1 })
 
 	// #1617, from another chat channel, quotes that path as a test sample and names its own picture.
 	// The first copy sits in quoted output (the real report); the second is in plain words.
-	body := "[report] #1617 背景：你要我验收更自主。\n没看图时放行被拦。\n要你做的：没有\n我加的：无\n细节：\n入口自验：旧汇报是已贴出的 #1614。\n```\n$ ws-pass --id 1614 --verdict 逐条\ndeny：【没看过截图】#1614 的汇报里列了 1 张图，你这个会话还没打开过 1 张：\n  " + sheet + "\n```\n试的那份旧汇报的图是 " + sheet + " 。\n截图 " + own
+	body := "[report] #1617 背景：你要我验收更自主。\n没看图时放行被拦。\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n入口自验：旧汇报是已贴出的 #1614。\n```\n$ ws-pass --id 1614 --verdict 逐条\ndeny：【没看过截图】#1614 的汇报里列了 1 张图，你这个会话还没打开过 1 张：\n  " + sheet + "\n```\n试的那份旧汇报的图是 " + sheet + " 。\n截图 " + own
 	e.forwardWorkspaceExit(p, "discord:ws2:u1", body)
 	inputWait(t, func() bool { return len(p.imagesTo("discord:chat2")) == 1 })
 	time.Sleep(50 * time.Millisecond)
@@ -120,7 +120,7 @@ func TestWorkspaceReportLeavesOutAnotherChannelsImage(t *testing.T) {
 
 	// The same chat channel may show its picture again (a follow-up task's 改前 picture).
 	exitBoardItem(t, e, 1620, "宣传片再改")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #1620 背景：你要再改一处。\n改好了。\n要你做的：没有\n我加的：无\n细节：\n改前 "+sheet)
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #1620 背景：你要再改一处。\n改好了。\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n改前 "+sheet)
 	inputWait(t, func() bool { return len(p.imagesTo("discord:chat1")) == 2 })
 }
 

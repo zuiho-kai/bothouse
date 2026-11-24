@@ -35,7 +35,7 @@ func TestWorkspaceExitAPIKeepsDraftTaskIdentity(t *testing.T) {
 			s := &APIServer{engines: map[string]*Engine{"lead": e}}
 			call := func(id int) WorkspaceExitResult {
 				t.Helper()
-				report := fmt.Sprintf("[report] #%d 背景：你让我做这件事。\n已经完成。\n要你做的：没有。\n我加的：无\n入口自验：\n```\nsent ok\n```", id)
+				report := fmt.Sprintf("[report] #%d 背景：你让我做这件事。\n已经完成。\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：\n```\nsent ok\n```", id)
 				body, err := json.Marshal(map[string]string{"session_key": exitWSKey, "project": "lead", "kind": team.ExitKindReport, "text": report})
 				if err != nil {
 					t.Fatal(err)
@@ -77,7 +77,7 @@ func TestExitCommandDoesNotReturnAnotherWorkspaceTask(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #765 背景：另一工作区的任务。\n已经完成。\n要你做的：没有。\n我加的：无")
+	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #765 背景：另一工作区的任务。\n已经完成。\n要你做的：没有。\n给你的：无\n我加的：无")
 	if !errors.Is(err, ErrWorkspaceExitNoTask) {
 		t.Fatalf("another workspace's task accepted: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestReplyMarkerIsNotAHandback(t *testing.T) {
 	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#7 第一阶段", 7); err != nil {
 		t.Fatal(err)
 	}
-	report := "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```"
+	report := "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```"
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
 	inputDone(a, report)
@@ -144,7 +144,7 @@ func TestExitCommandFailed(t *testing.T) {
 	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#8", 8); err != nil {
 		t.Fatal(err)
 	}
-	res, err := e.WorkspaceExit(e.ctx, exitWSKey, exitKindFailed, "[report] #8 背景：你让我装 X。\n装不上：上游没发包\n要你做的：没有。\n我加的：无")
+	res, err := e.WorkspaceExit(e.ctx, exitWSKey, exitKindFailed, "[report] #8 背景：你让我装 X。\n装不上：上游没发包\n要你做的：没有。\n给你的：无\n我加的：无")
 	if err != nil || res.State != string(TeamTaskFailed) {
 		t.Fatalf("failed exit = %+v, %v", res, err)
 	}
@@ -170,7 +170,7 @@ func TestExitCommandInTurnIsNotNagged(t *testing.T) {
 	if r, err := e.QueueSessionReset(exitWSKey); err != nil || !r.Queued {
 		t.Fatalf("reset not queued: %+v, %v", r, err)
 	}
-	report := "[report] #9 背景：你让我做这件事。\n做完了\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```"
+	report := "[report] #9 背景：你让我做这件事。\n做完了\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```"
 	if res := exitByCommand(t, e, exitWSKey, report); res.State != string(TeamTaskReturned) {
 		t.Fatalf("exit = %+v, want returned", res)
 	}
@@ -195,18 +195,18 @@ func TestExitCommandNamingAnotherTaskLeavesTheTaskInWork(t *testing.T) {
 	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#1705", 1705); err != nil {
 		t.Fatal(err)
 	}
-	exitByCommand(t, e, exitWSKey, "[report] #1705 背景：你让我查换活起点。\n查完了\n要你做的：没有。\n我加的：无\n入口自验：看了日志\n```\nok\n```")
+	exitByCommand(t, e, exitWSKey, "[report] #1705 背景：你让我查换活起点。\n查完了\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：看了日志\n```\nok\n```")
 	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#1711", 1711); err != nil {
 		t.Fatal(err)
 	}
-	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #1705 背景：你让我查换活起点。\n又看了一遍\n要你做的：没有。\n我加的：无")
+	_, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #1705 背景：你让我查换活起点。\n又看了一遍\n要你做的：没有。\n给你的：无\n我加的：无")
 	if !errors.Is(err, ErrTeamTaskTransition) {
 		t.Fatalf("a report of #1705 from the workspace doing #1711: err = %v, want refused", err)
 	}
 	if task, _, _ := e.TeamTask(1711); !teamTaskInWork(task.State) {
 		t.Fatalf("#1711 = %+v, want still in work", task)
 	}
-	res := exitByCommand(t, e, exitWSKey, "[report] #1711 背景：你让我出样片。\n样片出了\n要你做的：没有。\n我加的：无\n入口自验：看了成片\n```\nok\n```")
+	res := exitByCommand(t, e, exitWSKey, "[report] #1711 背景：你让我出样片。\n样片出了\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：看了成片\n```\nok\n```")
 	if res.Board != 1711 || res.State != string(TeamTaskReturned) {
 		t.Fatalf("#1711's own report = %+v, want returned", res)
 	}
