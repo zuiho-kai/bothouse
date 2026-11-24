@@ -21,6 +21,7 @@ import forum_scores as fs  # noqa: E402
 import wiki_search  # noqa: E402
 
 MODEL = os.environ.get("FORUM_THREADS_MODEL", "sonnet")  # 沿用第一次归帖（notes/forum-threads-1177/cluster.py MODEL）
+ASK_TIMEOUT = 600  # 一批最多等 10 分钟：接口挂住时不让夜间任务一直不退（#1891 agentm 上旧网关挂住实测）
 CANDS = wiki_search.TOP  # 每条给模型看的候选帖数：沿用 wiki_search 前 TOP 行
 
 PROMPT = """记忆论坛里一个帖子问一件事，下面多楼是对这件事的不同回答（新说法、更正、补充都跟在同一帖）。
@@ -179,7 +180,7 @@ def grams(s):
 def ask(prompt):
     r = subprocess.run([os.environ.get("CLAUDE_BIN", "claude"), "-p", "--model", MODEL, "--output-format", "json", "--tools", "",
                         "--system-prompt", "你只输出 JSON。", "--setting-sources", ""],
-                       input=prompt, capture_output=True, text=True, cwd=tempfile.gettempdir())
+                       input=prompt, capture_output=True, text=True, cwd=tempfile.gettempdir(), timeout=ASK_TIMEOUT)
     j = json.loads(r.stdout)
     m = re.search(r"\{.*\}", j.get("result", ""), re.S)
     return json.loads(m.group(0)), j.get("total_cost_usd", 0)
@@ -210,6 +211,9 @@ def assign(dry=False):
             blocks.append(f"新记忆 {i}：{text[cid]}\n候选帖：\n{lines}")
         try:
             res, c = ask(PROMPT.format(items="\n\n".join(blocks)))
+        except subprocess.TimeoutExpired:  # 接口挂住：后面各批也会挂，停下，已归的照写，剩下的下次再来
+            print("TIMEOUT", chunk[0], file=sys.stderr)
+            break
         except Exception as e:  # noqa: BLE001  这批失败就留到下次，不写半份
             print("FAIL", chunk[0], e, file=sys.stderr)
             continue
