@@ -134,7 +134,10 @@ type publicRun struct {
 	mu              sync.Mutex
 	record          progressRecord
 	publisher       TaskCardPublisher
-	stopped         func() bool
+	// archiveReadAt is when the archive sweep last read this card's archived
+	// thread (memory only, guarded by mu); see archivedThreadRecheckEvery.
+	archiveReadAt time.Time
+	stopped       func() bool
 	// candidate is the card still open for this session. A turn adopts it only
 	// when its first report continues the numbering instead of starting anew;
 	// a fresh request always opens its own card.
@@ -790,6 +793,16 @@ func (p *PublicProgress) startFinishedThreadArchiveLoop(ctx context.Context) {
 	}()
 }
 
+// An archived thread is re-read only to notice a reply that reopened it.
+// Reading every archived thread each minute cost one REST call per thread per
+// minute (1,655 threads on 2026-11-24), so it is read at most hourly and not
+// at all a week after archiving; a reply after that leaves the thread open,
+// nothing is lost.
+const (
+	archivedThreadRecheckEvery = time.Hour
+	archivedThreadRecheckFor   = 7 * 24 * time.Hour
+)
+
 // archiveFinishedThreads hides the threads of terminal task cards and of
 // result_ready cards whose longer wait has passed. A card whose latest public
 // fact is still pending is skipped: archiving first would make the platform
@@ -834,7 +847,12 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 				// An archived thread is only interesting again once its wait
 				// has elapsed; the activity read below tells us whether a
 				// reply or a manual reopen actually brought it back.
-				due = canReadActivity && now.Sub(*archivedAt) >= wait
+				due = canReadActivity && now.Sub(*archivedAt) >= wait &&
+					now.Sub(*archivedAt) < archivedThreadRecheckFor &&
+					now.Sub(r.archiveReadAt) >= archivedThreadRecheckEvery
+				if due {
+					r.archiveReadAt = now
+				}
 			}
 		}
 		if !due {
@@ -852,6 +870,12 @@ func (p *PublicProgress) archiveFinishedThreads(ctx context.Context, now time.Ti
 			activity, err := reader.TaskThreadLastActivity(callCtx, snapshot)
 			cancel()
 			if err != nil {
+				if errors.Is(err, ErrPlatformNotReady) {
+					// Every other card would fail the same way: stop this
+					// sweep, the next minute's sweep tries again.
+					slog.Debug("public progress: archive sweep stopped, platform not ready", "error", err)
+					return
+				}
 				slog.Warn("public progress: read task thread activity failed", "task_id", snapshot.ID, "thread", snapshot.ThreadID, "error", err)
 				continue
 			}

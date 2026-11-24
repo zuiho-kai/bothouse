@@ -1,5 +1,4 @@
-"""ws-handoff 队列（11-08 工作区队列卡 5 天）：排队的活来自工作区时按交活的聊天频道认领；一件接不上不挡后面的；
-新活先让队里的接。"""
+"""ws-handoff 从工作区里交活时按交活的聊天频道认领（11-08 工作区队列卡 5 天）。排队表 11-24 拿掉，排队的用例跟着删了。"""
 import json
 import os
 from pathlib import Path
@@ -22,11 +21,9 @@ class DrainQueue(unittest.TestCase):
         for name in ("board", "datadir", "_team", "lead"):
             sys.modules.pop(name, None)
         self.mod = runpy.run_path(str(Path(__file__).with_name("ws-handoff")))
-        self.g = self.mod["drain"].__globals__
-        self.queue = Path(self.g["QUEUE"])
-        self.queue.parent.mkdir(parents=True, exist_ok=True)
+        self.g = self.mod["pick_pool"].__globals__
         self.state = Path(self.tmp) / "team_workspaces.json"
-        # 替身按真 _ws_state 的语义来：team_workspaces.json 读不到就 {}（start() 现在经 own_workspace 也走它）
+        # 替身按真 _ws_state 的语义来：team_workspaces.json 读不到就 {}
         self.g["_ws_state"] = lambda: json.loads(self.state.read_text()) if self.state.exists() else {}
 
     def test_lead_chat_maps_workspace_to_its_chat(self):
@@ -52,52 +49,6 @@ class DrainQueue(unittest.TestCase):
         self.assertEqual(nc("# t\n" + src.replace("room:mv", "feishu:x"), "room:main"), "room:main")  # 跨平台
         self.assertEqual(nc("- 聊天频道：room:mv\n", "room:main"), "room:main")  # 不在原话出处节里不算
 
-    def test_failed_item_keeps_place_and_does_not_block_rest(self):
-        self.queue.write_text(json.dumps([
-            {"nid": 1, "path": "a", "task": "坏的", "chat": "room:w2"},
-            {"nid": 2, "path": "b", "task": "好的", "chat": "room:main"},
-        ]))
-        started = []
-
-        def start(path, task, chat, nid, *a):
-            if nid == 1:
-                raise SystemExit("ws-handoff: workspace claim 失败：channel is a workspace")
-            started.append(nid)
-            return True
-        with patch.object(self.g["board"], "items", return_value=[{"id": 1}, {"id": 2}]), \
-                patch.dict(self.g, {"start": start}):
-            self.mod["drain"]()
-        self.assertEqual(started, [2])
-        self.assertEqual([x["nid"] for x in json.loads(self.queue.read_text())], [1])
-
-    def test_failed_wake_does_not_leave_item_handed_over(self):
-        # #1492：叫醒失败时板子还写「已交接」、绑着放回去的工作区，没人干也没人知道
-        g = self.mod["start"].__globals__
-        Path(g["board"]._path("board.jsonl")).write_text(json.dumps(
-            {"id": 7, "what": "活", "status": "排队", "chat": "room:main", "sk": "room:main"}) + "\n")
-        with patch.dict(g, {"pick_pool": lambda *a: ("room:w3", "工作区3", "room:main"),
-                            "append_skeleton": lambda *a: None, "timer_cmd": lambda *a: ["false"]}), \
-                patch.object(g["board"], "_park_once", lambda *a: None):
-            with self.assertRaises(SystemExit):
-                self.mod["start"]("notes.md", "活", "room:main", 7, "lead")
-        rows = g["board"]._read()
-        it = next((i for i in rows if i["id"] == 7), None)
-        self.assertIsNotNone(it, f"#7 gone from {g['board']._path('board.jsonl')}: {rows}")
-        self.assertNotEqual(it.get("ws"), "room:w3")
-        self.assertNotIn("已交接", it.get("status", ""))
-        self.assertEqual(it.get("status"), "排队")  # 退回改前（develop 的 board.restore）
-
-    def test_no_free_workspace_stops_drain(self):
-        self.queue.write_text(json.dumps([
-            {"nid": 1, "path": "a", "task": "x", "chat": "room:main"},
-            {"nid": 2, "path": "b", "task": "y", "chat": "room:main"},
-        ]))
-        calls = []
-        with patch.object(self.g["board"], "items", return_value=[{"id": 1}, {"id": 2}]), \
-                patch.dict(self.g, {"start": lambda path, task, chat, nid, *a: calls.append(nid) and False}):
-            self.mod["drain"]()
-        self.assertEqual(calls, [1])
-        self.assertEqual(len(json.loads(self.queue.read_text())), 2)
 
     def test_pick_pool_claims_as_chat_channel(self):
         self.state.write_text(json.dumps({"parents": {}, "handoffs": {"room:w2": [{"chat": "room:main"}]}}))
@@ -109,8 +60,7 @@ class DrainQueue(unittest.TestCase):
 
         class R:
             returncode = 0
-        with patch.dict(self.g, {"ws_cmd": ws_cmd, "release_stale_returned": lambda c: None,
-                                    "migrate_unbound": lambda *a: False}), \
+        with patch.dict(self.g, {"ws_cmd": ws_cmd}), \
                 patch.object(self.g["subprocess"], "run", side_effect=lambda cmd, **k: seen.setdefault("claim", cmd) and R()):
             got = self.mod["pick_pool"]("room:w2", "任务", 7)
         self.assertEqual(seen["list"], "room:main")

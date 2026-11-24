@@ -113,8 +113,8 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
-	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
 	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("held report reached the chat before the lead passed it: %q", got)
@@ -124,7 +124,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	}
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if fwd != "📬「第一阶段」\n\n【背景】你让我做这件事。\n\n【做了什么】第一阶段做完\n\n【要你做的】没有。\n\n【我加的】无" || askRef.MatchString(fwd) {
+	if fwd != "③做完【第一阶段】第一阶段做完" || askRef.MatchString(fwd) { // #1965: result only, background in the post
 		t.Fatalf("report forward = %q", fwd)
 	}
 	if n := len(e.teamExit.asks); n != 0 {
@@ -158,10 +158,10 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
-	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
-	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
+	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "③做完") || !strings.Contains(fwd, "第一阶段做完") {
 		t.Fatalf("forward = %q", fwd)
 	}
 }

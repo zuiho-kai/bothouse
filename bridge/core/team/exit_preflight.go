@@ -55,6 +55,7 @@ func ReportSkeleton(id int, notes string) string {
 	fmt.Fprintf(&b, "[report] #%d 背景：%s：这件事是什么、用户当时怎么说的、当初有哪几项）\n", id, ReportBlank)
 	fmt.Fprintf(&b, "%s：做了哪几项、各改成什么、上线没有）\n", ReportBlank)
 	fmt.Fprintf(&b, "要你做的：%s：要用户拍板或只有用户能做的事；没有就写「没有」）\n", ReportBlank)
+	fmt.Fprintf(&b, "给你的：%s：要用户看的网址或文件完整路径，和上面几段一起贴给用户，文件当附件发；没有就写「无」）\n", ReportBlank)
 	fmt.Fprintf(&b, "我加的：%s：用户原话里没有、自己加的设定；没有就写「无」）\n", ReportBlank)
 	b.WriteString("细节：\n")
 	fmt.Fprintf(&b, "入口自验：%s：用户实际用的入口和在那里走一遍的结果；下面紧跟截图/录屏/成品路径或链接，或 ``` 包住的命令输出）\n", ReportBlank)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func streamTestProcess() {
 				Content string `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &input) != nil || input.Event != "user" || !strings.HasSuffix(input.Message.Content, fmt.Sprintf("prompt-%d", turn)) || strings.Contains(input.Message.Content, "model list --json") { // #1903: the engine sends the preamble once, not the session
+		if json.Unmarshal(scanner.Bytes(), &input) != nil || input.Event != "user" || !strings.Contains(input.Message.Content, fmt.Sprintf("prompt-%d", turn)) || strings.Contains(input.Message.Content, "model list --json") { // #1903: the engine sends the preamble once, not the session
 			fmt.Println(`{"event":"result","result":{"status":"ERROR","response":"prompt or process continuity lost"}}`)
 			return
 		}
@@ -276,4 +277,102 @@ func TestStreamSession_StallWaitsForPendingPermission(t *testing.T) {
 	if !s.stalled {
 		t.Fatal("stall flag not set")
 	}
+}
+
+// #2168: streamSession keeps workspace attachments in .cc-connect/attachments across turns and
+// only deletes fallback files written to os.TempDir().
+func TestStreamSession_RetainsWorkspaceAttachmentsAfterTurn(t *testing.T) {
+	t.Run("workspace attachments survive turn", func(t *testing.T) {
+		dir := t.TempDir()
+		s, err := newStreamSession(context.Background(), os.Args[0],
+			[]string{"-test.run=^TestStreamSession_ReusesProcessAndSeparatesThoughts$", "--"},
+			dir, "", "default", "resume-123",
+			[]string{"CC_AGY_STREAM_TEST=1"}, 5*time.Second, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		err = s.Send("prompt-1", "msg",
+			[]core.ImageAttachment{{MimeType: "image/png", Data: []byte("img-bytes")}},
+			[]core.FileAttachment{{FileName: "stream-keep.txt", Data: []byte("doc-bytes")}},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.After(3 * time.Second)
+		for {
+			select {
+			case ev := <-s.Events():
+				if ev.Type == core.EventError {
+					t.Fatalf("unexpected error: %v", ev.Error)
+				}
+				if ev.Type == core.EventResult {
+					attachDir := filepath.Join(dir, ".cc-connect", "attachments")
+					if _, err := os.Stat(filepath.Join(attachDir, "stream-keep.txt")); err != nil {
+						t.Fatalf("file attachment deleted after stream turn: %v", err)
+					}
+					entries, err := os.ReadDir(attachDir)
+					if err != nil {
+						t.Fatalf("read attachDir: %v", err)
+					}
+					hasImg := false
+					for _, e := range entries {
+						if strings.HasPrefix(e.Name(), "img_") && strings.HasSuffix(e.Name(), ".png") {
+							hasImg = true
+							break
+						}
+					}
+					if !hasImg {
+						t.Fatalf("image attachment deleted after stream turn; entries=%v", entries)
+					}
+					return
+				}
+			case <-deadline:
+				t.Fatal("stream turn did not finish")
+			}
+		}
+	})
+
+	t.Run("tempdir fallback still cleans up", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".cc-connect"), []byte("blocker"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Keep TMPDIR unchanged so the sandbox child check in os.Args[0] passes; use a unique
+		// filename in os.TempDir() and ensure cleanup even if the assertion fails.
+		fname := fmt.Sprintf("stream-fallback-%d.txt", time.Now().UnixNano())
+		fallbackPath := filepath.Join(os.TempDir(), fname)
+		t.Cleanup(func() { _ = os.Remove(fallbackPath) })
+
+		s, err := newStreamSession(context.Background(), os.Args[0],
+			[]string{"-test.run=^TestStreamSession_ReusesProcessAndSeparatesThoughts$", "--"},
+			dir, "", "default", "resume-123",
+			[]string{"CC_AGY_STREAM_TEST=1"}, 5*time.Second, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		if err := s.Send("prompt-1", "msg", nil, []core.FileAttachment{{FileName: fname, Data: []byte("tmp")}}); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.After(3 * time.Second)
+		for {
+			select {
+			case ev := <-s.Events():
+				if ev.Type == core.EventError {
+					t.Fatalf("unexpected error: %v", ev.Error)
+				}
+				if ev.Type == core.EventResult {
+					if _, err := os.Stat(fallbackPath); !os.IsNotExist(err) {
+						t.Fatalf("fallback temp attachment should be removed after stream turn, got err=%v", err)
+					}
+					return
+				}
+			case <-deadline:
+				t.Fatal("stream turn did not finish")
+			}
+		}
+	})
 }

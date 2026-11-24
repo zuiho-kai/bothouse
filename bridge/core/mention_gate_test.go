@@ -122,7 +122,7 @@ func TestMentionGateReleaseAndDedup(t *testing.T) {
 		t.Fatalf("pass = %d %s", w.Code, w.Body)
 	}
 	recs = mp.sentRecords()
-	if len(recs) != 2 || !strings.HasPrefix(recs[1].content, "<@1498> 📬") || !slices.Equal(recs[1].notifiedHumans(), []string{"1498"}) {
+	if len(recs) != 2 || !strings.HasPrefix(recs[1].content, "<@1498> ③做完") || !slices.Equal(recs[1].notifiedHumans(), []string{"1498"}) {
 		t.Fatalf("release post = %+v, want prefix <@1498> and notified=[1498]", recs[1])
 	}
 
@@ -314,7 +314,7 @@ func TestMentionSwitchFourCombinations(t *testing.T) {
 				t.Fatalf("pass = %d %s", w.Code, w.Body)
 			}
 			rec1 := mp.sentRecords()[1]
-			if gotPrefix := strings.HasPrefix(rec1.content, "<@1498> 📬"); gotPrefix != tc.wantReleasePrefix {
+			if gotPrefix := strings.HasPrefix(rec1.content, "<@1498> ③做完"); gotPrefix != tc.wantReleasePrefix {
 				t.Fatalf("release prefix=%v, want %v (content=%q)", gotPrefix, tc.wantReleasePrefix, rec1.content)
 			}
 			if gotPing := slices.Contains(rec1.notifiedHumans(), "1498"); gotPing != tc.wantReleasePing {

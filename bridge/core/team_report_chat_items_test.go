@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const itemsBody = "[report] #46 背景：你让我修材料。\n看完了，都写进逐条。\n要你做的：没有。\n我加的：无\n细节：\n材料逐条：\n" +
+const itemsBody = "[report] #46 背景：你让我修材料。\n看完了，都写进逐条。\n要你做的：没有。\n给你的：无\n我加的：无\n细节：\n材料逐条：\n" +
 	"1. 知乎：它在四十多个分身里派活打编程比赛，奖金按贡献分。\n" +
 	"2. 情绪引擎：信任分六档，吃醋和记忆没有关系。\n" +
 	"3. 免疫系统：证据推翻后，下游的结论一起作废。\n"
@@ -17,7 +17,7 @@ func TestChatItemsNeedsTheHeading(t *testing.T) {
 	if got := chatItems(itemsBody); len(got) != 1 || !strings.HasPrefix(got[0], "材料逐条：\n1. 知乎") {
 		t.Fatalf("heading block = %q", got)
 	}
-	body := "[report] #46 背景：你让我修材料。\n看完了，十条都写在细节的逐条里。\n要你做的：没有。\n我加的：无\n细节：\n" +
+	body := "[report] #46 背景：你让我修材料。\n看完了，十条都写在细节的逐条里。\n要你做的：没有。\n给你的：无\n我加的：无\n细节：\n" +
 		"1. 知乎：它在四十多个分身里派活打编程比赛，奖金按贡献分。\n"
 	if got := chatItems(body); got != nil {
 		t.Fatalf("a mention of 逐条 outside the heading posted %q", got)
@@ -31,7 +31,7 @@ func TestChatItemsNeedsTheHeading(t *testing.T) {
 // the real block outside the fence still is.
 func TestChatItemsSkipsCodeFences(t *testing.T) {
 	sample := "细节：\n入口自验：\n```\n材料逐条：\n1. 隔离甲：样例一。\n2. 隔离乙：样例二。\n```\n"
-	body := "[report] #1949 背景：修超时。\n做完了。\n要你做的：没有。\n我加的：无\n" + sample
+	body := "[report] #1949 背景：修超时。\n做完了。\n要你做的：没有。\n给你的：无\n我加的：无\n" + sample
 	if got := chatItems(body); got != nil {
 		t.Fatalf("fenced sample posted %q", got)
 	}
@@ -79,7 +79,7 @@ func TestHeldReportPassPostsChatItems(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("pass posted %d messages: %q", len(got), got)
 	}
-	if !strings.HasPrefix(got[0], "📬「验证报告」\n") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") ||
+	if !strings.HasPrefix(got[0], "③做完【验证报告】") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") ||
 		!strings.Contains(got[1], "3. 免疫系统") {
 		t.Fatalf("pass post = %q", got)
 	}
@@ -98,7 +98,7 @@ func TestHeldReportTimeoutPostsChatItems(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("timeout posted %d messages: %q", len(got), got)
 	}
-	if !strings.HasPrefix(got[0], "📬「验证报告」（"+leadUncheckedMark+"）\n") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") {
+	if !strings.HasPrefix(got[0], "③做完【验证报告】（"+leadUncheckedMark+"）") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") {
 		t.Fatalf("timeout post = %q", got)
 	}
 }

@@ -33,7 +33,6 @@ class ReviewResume(unittest.TestCase):
 
         with patch.dict(self.g, {
             "ws_cmd": lambda *args: {"parent": "room:chat", "pool": pool},
-            "migrate_unbound": lambda *args: False,
         }), patch.object(self.g["subprocess"], "run", claim):
             got = self.mod["pick_pool"]("room:chat", "redo", 46, preferred)
         return got, calls
@@ -54,7 +53,6 @@ class ReviewResume(unittest.TestCase):
         calls = []
         with patch.dict(self.g, {
             "ws_cmd": lambda *args: {"parent": "room:chat", "pool": pool, "workspace": {}},
-            "migrate_unbound": lambda *args: False,
         }), patch.object(self.g["subprocess"], "run", lambda *a, **k: calls.append(a)):
             with self.assertRaises(SystemExit) as cm:
                 self.mod["pick_pool"]("room:chat", "redo", 46, "room:3")
@@ -69,7 +67,7 @@ class ReviewResume(unittest.TestCase):
         parked = []
         with patch.object(board, "DIR", tmp), patch.dict(self.g, {
                 "pick_pool": lambda *a: ("room:3", "工作区3", "room:chat"),
-                "QUEUE": tmp / "ws-queue.json", "cc_bin": lambda: "bothouse",
+                "cc_bin": lambda: "bothouse",
                 "append_skeleton": lambda *a: None}), \
              patch.object(board, "_park_once", lambda *a, **k: parked.append(a) or True), \
              patch.object(board, "_del_timer", lambda *a: None), \
@@ -105,24 +103,26 @@ class ReviewResume(unittest.TestCase):
     def test_rejected_task_passes_preference_through_start(self):
         board = self.g["board"]
         seen = []
-        def pick(*args):
+        def pick(*args):  # 只看 start 传给 pick_pool 的优先工作区；真 pick_pool 没空位就新建或退出，这里记下就退出
             seen.append(args)
-            return None
-        with patch.object(board, "items", return_value=[{"id": 46, "ws_was": "room:3", "review_rejected": "test"}]), patch.dict(self.g, {"pick_pool": pick}):
-            self.assertFalse(self.mod["start"]("notes", "redo", "room:chat", 46, "reviewer"))
+            raise SystemExit("stop")
+        with patch.object(board, "items", return_value=[{"id": 46, "ws_was": "room:3", "review_rejected": "test"}]), patch.dict(self.g, {"pick_pool": pick}), \
+             self.assertRaises(SystemExit):
+            self.mod["start"]("notes", "redo", "room:chat", 46, "reviewer")
         self.assertEqual(seen, [("room:chat", "redo", 46, "room:3")])
 
     def test_answered_task_goes_back_to_its_own_session_workspace(self):
         # #933（11-21 #928）：提问那一轮还在原工作区跑，答复续办原先按编号挑了另一个空工作区，两个会话并行
         board = self.g["board"]
         seen = []
-        def pick(*args):
+        def pick(*args):  # 只看 start 传给 pick_pool 的优先工作区；真 pick_pool 没空位就新建或退出，这里记下就退出
             seen.append(args)
-            return None
+            raise SystemExit("stop")
         state = {"tasks": {"928": {"id": 928, "state": "paused", "session_ws": "room:446"}}}
         with patch.object(board, "items", return_value=[{"id": 928, "ws_was": "room:1"}]), \
-             patch.dict(self.g, {"pick_pool": pick, "_ws_state": lambda: state}):
-            self.assertFalse(self.mod["start"]("notes", "redo", "room:chat", 928, "reviewer"))
+             patch.dict(self.g, {"pick_pool": pick, "_ws_state": lambda: state}), \
+             self.assertRaises(SystemExit):
+            self.mod["start"]("notes", "redo", "room:chat", 928, "reviewer")
         self.assertEqual(seen, [("room:chat", "redo", 928, "room:446")])
         pool = [{"id": "1", "name": "工作区1", "open": 0}, {"id": "446", "name": "工作区7", "owner": "room:chat", "open": 0}]
         self.assertEqual(self.choose(pool, "room:446")[0][0], "room:446")
@@ -146,7 +146,6 @@ class ReviewResume(unittest.TestCase):
             "held": lambda *a: held_called.append(a) or ("room:3", "工作区3", "room:chat"),
             "append_skeleton": lambda *a: None,
             "timer_cmd": lambda *a: ["true"],
-            "arm_drift": lambda *a: None,
             "record_last": lambda *a: None,
             "_recall": types.SimpleNamespace(append_to=lambda *a: None),
         }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \
@@ -176,7 +175,6 @@ class ReviewResume(unittest.TestCase):
             "held": lambda *a: held_called.append(a) or None,
             "append_skeleton": lambda *a: None,
             "timer_cmd": lambda *a: ["true"],
-            "arm_drift": lambda *a: None,
             "record_last": lambda *a: None,
             "_recall": types.SimpleNamespace(append_to=lambda *a: None),
         }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \
@@ -204,7 +202,6 @@ class ReviewResume(unittest.TestCase):
             "pick_pool": lambda *a: pick_called.append(a) or ("room:1", "工作区1", "room:chat"),
             "append_skeleton": lambda *a: None,
             "timer_cmd": lambda *a: ["true"],
-            "arm_drift": lambda *a: None,
             "record_last": lambda *a: None,
             "_recall": types.SimpleNamespace(append_to=lambda *a: None),
         }), patch.object(self.g["subprocess"], "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="Timer created: t1", stderr="")), \

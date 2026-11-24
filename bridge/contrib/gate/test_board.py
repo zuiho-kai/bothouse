@@ -54,6 +54,19 @@ class Board(unittest.TestCase):
         self.assertFalse(board._asking(it))
         self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
 
+    def test_wait_stop(self):
+        # #1972：到点重试是配置错（记的模型不在列表）就停：撤 wait_until，不再是等外部，条目留暂停
+        self.assertEqual(cli("add", "PR9977 验证", "~/n.md", "在做", "工作区1"), (0, "#1"))
+        self.assertEqual(cli("wait", "1", "等 CI", "1")[0], 0)
+        rc, out = cli("wait-stop", "1", "记着的模型 保持现状 不能用")
+        self.assertEqual(rc, 0, out)
+        it = board._read()[0]
+        self.assertTrue(it.get("paused"))
+        self.assertNotIn("wait_until", it)
+        self.assertEqual(board.wait_kind_of(it), "")
+        self.assertIn("重试停了", it["pause_why"])
+        self.assertNotEqual(cli("wait-stop", "9", "x")[0], 0)
+
     def test_pr_events_wake_waiting_external(self):
         # #1855：等外部的条目盯合并请求。暂停时合并请求上已有的评论按编号记底；之后的新评论、当前提交上的失败检查
         # （哪怕红在暂停前）叫一次并带原文链接；没动静不出声；报过的不重复叫

@@ -31,7 +31,7 @@ func heldFixture(t *testing.T) (*Engine, *reportTestPlatform, *TimerStore, *team
 	return e, p, store, &item
 }
 
-const acceptBody = "[report] #46 背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n我加的：无\n细节：日志在工作区"
+const acceptBody = "[report] #46 背景：你让我修汇报。\n改好了，已上线\n要你做的：没有。\n给你的：无\n我加的：无\n细节：日志在工作区"
 
 func holdForTest(t *testing.T, e *Engine, p Platform, item *teamTaskBoardItem, doubt string) {
 	t.Helper()
@@ -97,7 +97,7 @@ func TestHeldReportPassPosts(t *testing.T) {
 		t.Fatalf("pass = %d %s", w.Code, w.Body)
 	}
 	got := p.sentTo("discord:chat1")
-	if len(got) != 1 || !strings.HasPrefix(got[0], "📬「验证报告」\n") || strings.Contains(got[0], leadUncheckedMark) || !strings.Contains(got[0], "改好了，已上线") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "③做完【验证报告】改好了") || strings.Contains(got[0], leadUncheckedMark) || !strings.Contains(got[0], "改好了，已上线") {
 		t.Fatalf("passed post = %q", got)
 	}
 	if w := verdictCall(t, e, 46, "pass", "逐条：修汇报做到了，线上日志有 report posted"); w.Code != http.StatusNotFound {
@@ -142,7 +142,7 @@ func TestHeldReportTimeoutPostsUnchecked(t *testing.T) {
 	e.teamExit.mu.Unlock()
 	e.recoverPendingReports(true)
 	got := p.sentTo("discord:chat1")
-	if len(got) != 1 || !strings.HasPrefix(got[0], "📬「验证报告」（"+leadUncheckedMark+"）\n") || !strings.Contains(got[0], "改好了，已上线") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "③做完【验证报告】（"+leadUncheckedMark+"）") || !strings.Contains(got[0], "改好了，已上线") {
 		t.Fatalf("timeout post = %q", got)
 	}
 	e.recoverPendingReports(true)
@@ -229,7 +229,7 @@ func TestHeldReportRejectedThenReworkIsHeldAgain(t *testing.T) {
 	if e.exitReportedSinceBound(46, item.Bound) {
 		t.Fatal("a rejected report counts as posted for this handoff")
 	}
-	rework := "[report] #46 背景：你让我修汇报。\n补了线上验证\n要你做的：没有。\n我加的：无\n细节：入口自验见工作区"
+	rework := "[report] #46 背景：你让我修汇报。\n补了线上验证\n要你做的：没有。\n给你的：无\n我加的：无\n细节：入口自验见工作区"
 	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", rework, exitWSKey, 46, "背景：你让我修汇报。\n补了线上验证\n要你做的：没有。\n我加的：无", "", "", item)
 	rec := e.heldReportFor(46)
 	if rec == nil || !strings.Contains(rec.Body, "补了线上验证") {
@@ -258,7 +258,7 @@ func TestHeldReportRejectedThenReworkIsHeldAgain(t *testing.T) {
 // (ws-pass <files> --verdict sends "carried") goes through.
 func TestVerdictPassRefusesReviewWithoutDeliverable(t *testing.T) {
 	e, p, _, item := heldFixture(t)
-	body := "[report] #46 背景：你让我改两份英文稿。\n两份都改完了\n要你做的：审两份定稿。\n我加的：无\n细节：在工作区"
+	body := "[report] #46 背景：你让我改两份英文稿。\n两份都改完了\n要你做的：审两份定稿。\n给你的：无\n我加的：无\n细节：在工作区"
 	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", body, exitWSKey, 46, "背景：你让我改两份英文稿。", "", "", item)
 	if e.heldReportFor(46) == nil {
 		t.Fatal("report not held")

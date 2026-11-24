@@ -114,7 +114,8 @@ func TestGetUsage_RefreshesTokenAndFetchesQuota(t *testing.T) {
 		"token":    map[string]string{"access_token": "old", "refresh_token": "rt", "expiry": "2026-10-13T18:53:14.98139+08:00"},
 		"id_token": fakeIDToken("client-123.apps.googleusercontent.com"),
 	})
-	os.WriteFile(filepath.Join(cliDir, "antigravity-oauth-token"), tokFile, 0o600)
+	// agy 1.5.10 stores the fallback credential at ~/.gemini/jetski-standalone-oauth-token.
+	os.WriteFile(filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"), tokFile, 0o600)
 
 	bad := "GOCSPX-" + strings.Repeat("b", googleClientSecretBody)
 	good := "GOCSPX-" + strings.Repeat("g", googleClientSecretBody)
@@ -247,6 +248,35 @@ func TestGetUsage_WarmCacheReturnsImmediately(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("background refresh never landed: %+v", r.Buckets[0].Windows)
+}
+
+// The credential moved in agy 1.5.10: the current path wins, the old name is
+// still read when it is the only one present, and a miss names every path.
+func TestReadQuotaToken_FallsBackToOldName(t *testing.T) {
+	home := t.TempDir()
+	geminiDir := filepath.Join(home, ".gemini")
+	cliDir := filepath.Join(geminiDir, "antigravity-cli")
+	os.MkdirAll(cliDir, 0o700)
+
+	_, err := readQuotaToken(home)
+	if err == nil {
+		t.Fatal("missing credential must be an error")
+	}
+	for _, want := range quotaTokenFiles(home) {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name tried path %s: %v", want, err)
+		}
+	}
+
+	os.WriteFile(filepath.Join(cliDir, "antigravity-oauth-token"), []byte("old"), 0o600)
+	if raw, err := readQuotaToken(home); err != nil || string(raw) != "old" {
+		t.Fatalf("old name fallback: %q, %v", raw, err)
+	}
+
+	os.WriteFile(filepath.Join(geminiDir, "jetski-standalone-oauth-token"), []byte("new"), 0o600)
+	if raw, err := readQuotaToken(home); err != nil || string(raw) != "new" {
+		t.Fatalf("current name must win: %q, %v", raw, err)
+	}
 }
 
 func TestSessionCachedUsageNeverWaits(t *testing.T) {

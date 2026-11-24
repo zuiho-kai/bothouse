@@ -126,15 +126,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	report      *UsageReport // immutable snapshot for the role card
-	reportScope string       // attribution captured when the existing footer fetched it
-	reportAt    time.Time
-	text        string    // last successful quota text
-	okAt        time.Time // when text was fetched; zero if never
-	failText    string    // set when the latest attempt failed
-	attemptAt   time.Time // when the latest attempt finished
-	done        chan struct{}
-	waited      bool // a footer already spent the first-probe wait
+	report       *UsageReport // immutable snapshot for the role card
+	reportScope  string       // attribution captured when the existing footer fetched it
+	reportAt     time.Time
+	footerReport *UsageReport // last successful footer measurement, rendered at read time
+	okAt         time.Time    // when the footer measurement was fetched; zero if never
+	failText     string       // set when the latest attempt failed
+	attemptAt    time.Time    // when the latest attempt finished
+	done         chan struct{}
+	waited       bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -2116,6 +2116,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		endProactive()
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupSideRunState(iKey)
+		if msg.capacityHeld {
+			// deferForCapacity already told the channel this run is skipped.
+			slog.Warn("cron: model cooling down, run skipped", "id", job.ID, "session", runSessionKey)
+			return nil
+		}
 		if !job.Mute && turnDelivered(session, prevHistLen) {
 			e.proactiveDelivered(proactiveIDs, runSessionKey)
 		}
@@ -2160,6 +2165,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	endProactive()
 	e.forgetScheduledTurn(job.ID, iKey)
+	if msg.capacityHeld {
+		// Held for re-delivery after the cooldown: the job counts as run from here, as a queued one does.
+		slog.Warn("cron: model cooling down, run held for re-delivery", "id", job.ID, "session", sessionKey)
+		return nil
+	}
 	if !job.Mute && turnDelivered(session, prevHistLen) {
 		e.proactiveDelivered(proactiveIDs, sessionKey)
 	}
@@ -5361,6 +5371,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
 		}
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
+		msg.capacityHeld = true
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
@@ -5452,6 +5463,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func(wait time.Duration) {
 				// cooling: a probe failed while a cooldown was already running, so
 				// the honest notice is "still cooling", not "3 tries failed".
+				msg.capacityHeld = true
 				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, probeCapacity)
 			})
 		// Failed local turns can leave queued ordinary messages for the outer
@@ -8559,6 +8571,11 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		// A time limit claimed for the turn that just ended finishes its stop
+		// first: it drops the queue itself, so a message dequeued meanwhile is
+		// never sent to the session it is closing (same boundary as
+		// chainQueuedTurn).
+		state.awaitScheduledCancelLocked()
 		if e.isStoppingForJournal() {
 			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
 			// turn after Stop has begun; the journal already holds its queue.
@@ -8729,6 +8746,12 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					err = as.Send(attemptPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				if err != nil && (state.isStopped() || !as.Alive()) {
+					// #2132: already off the queue when the session went away — it
+					// ends like the dropped queued messages, not as a turn error
+					// on a dead process.
+					err = fmt.Errorf("agent session ended")
+				}
 				return err
 			},
 			false, // a message drained from the queue was already offered its probe
@@ -10072,7 +10095,11 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	defer e.replyFooterMu.Unlock()
 	switch {
 	case !ent.okAt.IsZero() && time.Since(ent.okAt) < replyFooterUsageMaxAge:
-		return ent.text, true
+		// Render the retained measurement so its reset still expires between probes.
+		if text := formatReplyFooterUsage(ent.footerReport, e.i18n); text != "" {
+			return text, true
+		}
+		return e.i18n.T(MsgQuotaNoData), false
 	case ent.done != nil || (ent.attemptAt.IsZero() && e.replyFooterInflight[agentID]):
 		return e.i18n.T(MsgQuotaPending), false
 	case ent.failText != "":
@@ -10122,7 +10149,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 	defer e.replyFooterMu.Unlock()
 	ent.attemptAt = time.Now()
 	if text != "" {
-		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
+		ent.footerReport, ent.okAt, ent.failText = report, ent.attemptAt, ""
 	} else {
 		ent.failText = failText
 	}
@@ -11525,9 +11552,14 @@ func formatUsageReport(report *UsageReport, lang Language) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(usageAccountLabel(lang))
-	sb.WriteString(accountDisplay(report))
+	if report.Email != "" || report.AccountID != "" || report.UserID != "" {
+		sb.WriteString(usageAccountLabel(lang))
+		sb.WriteString(accountDisplay(report))
+	}
 	sb.WriteString(formatUsageBlocks(report, lang))
+	if sb.Len() == 0 {
+		return usageUnavailableText(lang)
+	}
 
 	return strings.TrimSpace(sb.String())
 }
@@ -11537,6 +11569,9 @@ func formatUsageBlocks(report *UsageReport, lang Language) string {
 	for _, bucket := range report.Buckets {
 		var blocks []string
 		for i := range bucket.Windows {
+			if usageWindowExpired(&bucket.Windows[i]) {
+				continue
+			}
 			blocks = append(blocks, formatUsageBlock(lang, &bucket.Windows[i]))
 		}
 		if len(blocks) == 0 {
@@ -11577,8 +11612,17 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 			continue
 		}
 		var primary, secondary *UsageWindow
+		var first, second *UsageWindow
 		for i := range bucket.Windows {
 			window := &bucket.Windows[i]
+			if usageWindowExpired(window) {
+				continue
+			}
+			if first == nil {
+				first = window
+			} else if second == nil {
+				second = window
+			}
 			switch window.WindowSeconds {
 			case 18000:
 				primary = window
@@ -11588,23 +11632,27 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 				}
 			}
 		}
-		if primary == nil && len(bucket.Windows) > 0 {
+		if primary == nil && first != nil {
 			// Fall back to the first window when no 5-hour quota is reported
 			// (e.g. Codex accounts whose first bucket only exposes a 7-day
 			// window). Skip it if the slot is already occupied by the 7-day
 			// window so the same block is not rendered twice.
-			if secondary != &bucket.Windows[0] {
-				primary = &bucket.Windows[0]
+			if secondary != first {
+				primary = first
 			}
 		}
-		if secondary == nil && len(bucket.Windows) > 1 && &bucket.Windows[1] != primary {
-			secondary = &bucket.Windows[1]
+		if secondary == nil && second != nil && second != primary {
+			secondary = second
 		}
 		if primary != nil || secondary != nil {
 			return primary, secondary
 		}
 	}
 	return nil, nil
+}
+
+func usageWindowExpired(window *UsageWindow) bool {
+	return window.ResetAtUnix > 0 && window.ResetAtUnix <= time.Now().Unix()
 }
 
 func formatUsageBlock(lang Language, window *UsageWindow) string {

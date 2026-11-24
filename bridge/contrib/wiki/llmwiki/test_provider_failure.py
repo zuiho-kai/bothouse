@@ -196,9 +196,9 @@ class ProviderFailure(unittest.TestCase):
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
-        db.execute("CREATE TABLE fails(id TEXT PRIMARY KEY, n INT" + ("" if role else ", offset INT") + ")")
-        db.execute("INSERT INTO fails VALUES (" + ("?,?" if role else "?,?,?") + ")",
-                   ("aaaaaaaa", I.MAX_FAILS - 1) if role else ("aaaaaaaa", I.MAX_FAILS - 1, 0))
+        # The block contract stores a read position per fail row (#1852); the offset column exists either way now.
+        db.execute("CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT)")
+        db.execute("INSERT INTO fails VALUES (?,?,?)", ("aaaaaaaa", I.MAX_FAILS - 1, 0))
         return self.queue_round(db, message, paid_fallback)
 
     def queue_round(self, db, message, paid_fallback):

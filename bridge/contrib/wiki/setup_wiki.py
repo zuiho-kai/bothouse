@@ -131,7 +131,7 @@ def main_wiki(w, lead, project=""):
                "transcripts": str(w / ".no-sessions"), "rule_files": []}
     cfg["home"] = str(w)  # not ingest.py's "~/wiki" default: a main wiki at $WIKI_DIR is its own home
     cfg.update({k: v for k, v in (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {}).items()
-                if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
+                if k.endswith("_engine") or k in ("after_codex", "codex_models", "agy_model", "agy_cmd", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
     commit(w, "llm-wiki：主 wiki 和共享程序（向导建）")
     print(w, "created")
@@ -181,20 +181,22 @@ def main(bot):
     cfg = {
         "transcripts": f"{TRANSCRIPTS}/{bot}",
         "assistant": name, "bots": {n: [n] for n in [LEAD, *NAMES.values()]}, "user_names": [USER] if USER else [],
+        # Source: role MEMORY.md and CLAUDE.md above place dream candidates in the registered misc domain.
+        "dream_dir": "misc",
         # every pass on codex (ChatGPT subscription), none on Claude: user 「额度花太快」; models and efforts as
         # ~/wiki's private pipeline (~/wiki/bin/ingest.py:55-77: night/review/dream/split codex:high, lint codex:max,
-        # chain gpt-6-luna → gpt-6.1-sol → gpt-6-astra)
+        # chain gpt-6-luna → gpt-6.1-sol; user 2026-11-18: no Astra)
         "ingest_engine": "codex:high", "fallback_engine": "codex:high", "night_engine": "codex:high",
         "review_engine": "codex:high", "lint_engine": "codex:max", "dream_engine": "codex:high",
         "split_engine": "codex:high",
-        "codex_models": ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"],
+        "codex_models": ["gpt-6-luna", "gpt-6.1-sol"],
         "after_codex": [],  # no Claude fallback: a failed batch waits for the next night
         "rule_files": [PERSONA[bot]],
     }
     if _bots[bot].get("dsh_home"):
         cfg["dsh_home"] = _bots[bot]["dsh_home"]  # the dsh engine runs under the role's DSH home (ingest.py dsh_env)
     engines = (json.loads(os.environ.get("WIKI_ENGINES") or "{}") or {})
-    cfg.update({k: v for k, v in engines.items() if k.endswith("_engine") or k in ("after_codex", "codex_models", "dsh_cmd", "dsh_patch", "dsh_env_file")})
+    cfg.update({k: v for k, v in engines.items() if k.endswith("_engine") or k in ("after_codex", "codex_models", "agy_model", "agy_cmd", "dsh_cmd", "dsh_patch", "dsh_env_file")})
     (w / "config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")  # git-ignored
     r = subprocess.run([sys.executable, "-X", "utf8", "-I", "bin/lint.py"], cwd=w, capture_output=True, text=True)
     print(bot, r.stdout.strip())

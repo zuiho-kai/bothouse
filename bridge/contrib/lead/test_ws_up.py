@@ -749,7 +749,7 @@ class HandoffAlignTest(WsPoolTest):
     def test_timer_queues_and_marks_handoff(self):
         self.pool([{"id": "1", "name": "工作区1", "owner": "", "open": 0, "parked": 0}])
         self.handoff(self.note("a"), "改登录页")
-        t = [c for c in self.calls() if c[:2] == ["timer", "add"] and "--handoff" in c][-1]  # 后面还挂了兜底和查跑偏的定时
+        t = [c for c in self.calls() if c[:2] == ["timer", "add"] and "--handoff" in c][-1]  # 后面还挂了兜底的定时
         self.assertNotIn("--inject-if-busy", t)  # 忙时排队、轮到时自己开卡，不插进别的活那一轮
         self.assertIn("--handoff", t)
         # #597 G36：任务写进 --desc，桥拿它当这一轮的任务名（谁在干啥），不把开工提示当任务名

@@ -73,7 +73,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 // reposted is set on the second pass after the card was found deleted.
 func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language, reposted bool) error {
 	if p.session == nil || p.selfID() == "" {
-		return errors.New("discord session is not ready")
+		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
 	marker := "cc-task:" + task.ID
 	taskRender := taskCardRender(task, string(lang), marker)
@@ -187,7 +187,7 @@ func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 // alone.
 func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error {
 	if p.session == nil || p.selfID() == "" {
-		return errors.New("discord session is not ready")
+		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
 		return nil
@@ -219,7 +219,7 @@ func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error
 // surface the missing destination through the normal unrecoverable path.
 func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error {
 	if p.session == nil || p.selfID() == "" {
-		return errors.New("discord session is not ready")
+		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
 		return nil
@@ -241,7 +241,7 @@ func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error 
 // a reply that reopened a thread is not hidden again by the same sweep.
 func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) (time.Time, error) {
 	if p.session == nil || p.selfID() == "" {
-		return time.Time{}, errors.New("discord session is not ready")
+		return time.Time{}, fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
 	if task.ThreadID == "" || task.ThreadID == task.ChannelID {
 		return time.Time{}, nil
@@ -278,7 +278,7 @@ func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) 
 
 func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
 	if p.session == nil || p.selfID() == "" {
-		return errors.New("discord session is not ready")
+		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
 	if task.ThreadID == "" {
 		return errors.New("task thread unavailable")

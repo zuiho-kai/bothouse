@@ -16,7 +16,8 @@ _source = wsh._source
 LEAD_NOTES = ("# 交接\n\n## 总目标\n把页面改好\n\n## 用户原话\n- 11-24 13:09「把首页那句话改掉」\n\n"
               "## 范围\n- 改：首页标题\n- 不改：无\n\n### 细项\n```\n## 围栏里的不是标题\n```\n")
 DUMP = ("# 聊天频道 discord:42 讨论原文\n# 说明\n\n### 11-24 13:09 zuiho\n把首页那句话改掉\n\n"
-        "### 11-24 13:10 橘 主角色（只作参考）\n好，我理解是改标题\n\n### 11-24 13:12 zuiho\n" + "长" * 80 + "\n\n")
+        "### 11-24 13:10 主角色（程序只留了她问用户的问句）\n是改标题吗？\n（她这条其余是提议和说明，程序没放进来）\n\n"
+        "### 11-24 13:12 zuiho\n" + "长" * 80 + "\n\n")
 
 
 class RawHandoffTest(unittest.TestCase):
@@ -84,7 +85,9 @@ class RawHandoffTest(unittest.TestCase):
         self.assertIn("bothouse send -p proj -s discord:42 --stdin", prompt)
         self.assertIn("原话里的词指什么", prompt)
         self.assertLess(prompt.index("【讨论原文"), prompt.index("工作区开工："))  # 讨论原文紧跟首句
-        self.assertIn("好，我理解是改标题", prompt)
+        self.assertIn("主角色的话只留了她问用户的问句，她的提议没放进来】", prompt)
+        self.assertIn("是改标题吗？", prompt)
+        self.assertIn("原话没说定、要你自己选的做法（选哪个工具、哪种方案、走哪条路）不写成做完，单列成拿不准的选项并标推荐", prompt)
 
     def test_resume_kickoff_has_no_understanding_line(self):
         path = self.write(LEAD_NOTES, DUMP)
@@ -106,7 +109,7 @@ class RawHandoffTest(unittest.TestCase):
         self.assertIn("- 「把首页那句话改掉」—— （待填", sk)
         self.assertEqual(sk.count("把首页那句话改掉"), 1)  # 交接里引的同一句不重复列
         self.assertIn("- 「" + "长" * 80 + "」—— （待填", sk)  # 长句原话全文照列，不截断
-        self.assertNotIn("我理解是改标题", sk)  # 主角色的话不进逐条
+        self.assertNotIn("是改标题吗", sk)  # 主角色的问句不进逐条
         self.assertNotIn("每条「改」都要逐条写到", sk)
 
     def test_relay_text(self):
@@ -136,7 +139,9 @@ class RawHandoffTest(unittest.TestCase):
             self.assertEqual([t for _, _, t in fresh], ["标题别动"])
             dump = Path(_source.dump_path(path)).read_text(encoding="utf-8")
             self.assertIn("# 追加：", dump)
-            self.assertIn("好，改副标题", dump)
+            self.assertNotIn("好，改副标题", dump)  # 主角色的新话只留问句，这条没有问句
+            self.assertIn(_source._LEAD_NONE, dump)
+            self.assertIn("好，改副标题", Path(_source.lead_path(path)).read_text(encoding="utf-8"))  # 全文在她那份里
             self.assertNotIn("上次导出前说的", dump)
             self.assertEqual(_source.append_new(path, "discord:42", "proj"), [])  # 再跑不重复导
         self.assertIn(("", "x"), _source.user_words(path))

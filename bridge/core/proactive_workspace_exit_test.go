@@ -73,14 +73,14 @@ func TestProactiveWorkspaceExitSendScope(t *testing.T) {
 			e.interactiveMu.Lock()
 			e.interactiveStates[e.interactiveKeyForSessionKey(exitWSKey)] = state
 			e.interactiveMu.Unlock()
-			if _, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"); err != nil {
+			if _, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无"); err != nil {
 				t.Fatal(err)
 			}
 			posted := platform.sentTo("discord:chat1")
 			if (len(posted) > 0) != tc.allowSend {
 				t.Fatalf("workspace report output does not match message.send=%v: %q", tc.allowSend, posted)
 			}
-			backend.events <- Event{Type: EventResult, Done: true, Content: "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无"}
+			backend.events <- Event{Type: EventResult, Done: true, Content: "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无"}
 			close(backend.events)
 			select {
 			case <-done:

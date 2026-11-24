@@ -129,7 +129,7 @@ func (as *antigravitySession) putMidTurn(prompt string, images []core.ImageAttac
 	if as.inbox == nil {
 		return fmt.Errorf("antigravity: mid-turn input unavailable")
 	}
-	text, saved := as.attachRefs(prompt, images, files)
+	text, saved, _ := as.attachRefs(prompt, images, files)
 	core.ArchiveAttachments(append([]string(nil), saved...))
 	if err := as.inbox.Put(text); err != nil {
 		return fmt.Errorf("antigravity: mid-turn input: %w", err)

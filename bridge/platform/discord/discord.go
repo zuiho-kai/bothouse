@@ -2412,7 +2412,7 @@ func asTestPerson(m *discordgo.MessageCreate, hooks map[string]bool) {
 func isBotNotice(content string) bool {
 	c := strings.TrimSpace(content)
 	// ❌ and ⚠️ are not filtered (maomao fork): a teammate's error must reach the lead.
-	for _, prefix := range []string{"📬", "✅", "↪", "⏳", "🔄", "⏹", "⏸"} {
+	for _, prefix := range []string{"📬", "✅", "↪", "⏳", "🔄", "⏹", "⏸", "①", "②", "③"} {
 		if strings.HasPrefix(c, prefix) {
 			return true
 		}

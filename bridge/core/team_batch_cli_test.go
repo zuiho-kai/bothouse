@@ -100,7 +100,7 @@ func TestCUJ_WorkspaceBatchCLI(t *testing.T) {
 	state(TeamTaskDispatched, true)
 	report := func(phase, kind string) {
 		t.Helper()
-		body := fmt.Sprintf("[report] #46 背景：分批交回。\n%s\n要你做的：没有\n我加的：无\n细节：\n入口自验：\n```\nok\n```\n", phase)
+		body := fmt.Sprintf("[report] #46 背景：分批交回。\n%s\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n入口自验：\n```\nok\n```\n", phase)
 		if err := os.WriteFile(draft, []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}

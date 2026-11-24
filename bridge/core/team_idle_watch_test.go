@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -237,11 +239,11 @@ func TestWatchTurnEnded_WorkDoesNotReviveReportedWatch(t *testing.T) {
 		t.Fatalf("wakes = %d, want 2 (kept for the escalation already made)", h.Idle.Wakes)
 	}
 
-	// A watch that is still working keeps the old reset: progress clears the wake count.
+	// A turn the watch did not wake keeps the old reset: progress clears the wake count.
 	e2, p2 := idleWatchFixture(t)
 	idleWatchSeed(t, e2, key, true, TeamHandoff{
 		Chat: key, At: at, Due: at.Add(time.Minute), Owner: e2.name, Title: "还在做",
-		Idle: watchIdleState{Ended: at, Wakes: 1},
+		Idle: watchIdleState{Ended: at},
 	})
 	e2.watchTurnEnded(p2, key+":u1", "接着做，还在跑", true, false, false, false, time.Time{})
 	if got := idleWatchRows(t, e2, key, true)[0].Idle.Wakes; got != 0 {
@@ -310,6 +312,39 @@ func TestReconcileTeamWorkspacesKeepsWorkspaceOfInProgressRow(t *testing.T) {
 		freed := len(w.reconcileTeamWorkspaces(now)) > 0
 		if freed != tc.freed {
 			t.Fatalf("status %q: freed=%v, want %v", tc.status, freed, tc.freed)
+		}
+	}
+}
+
+// #1972: a turn the watch woke that ran tools but handed nothing back and started no background
+// command keeps the wake count, so the second wake escalates instead of waking every 27 seconds
+// (11-20 #1807: 35 wakes in 15 minutes, 176 of 184 wakes were first wakes). Starting a background
+// command in that turn is progress and clears it.
+func TestWatchTurnEnded_WokenTurnClearsOnlyWithBackground(t *testing.T) {
+	key := "discord:ws99"
+	at := time.Now().Add(-2 * time.Minute)
+	for _, bg := range []bool{false, true} {
+		e, p := idleWatchFixture(t)
+		idleWatchSeed(t, e, key, true, TeamHandoff{
+			Chat: key, At: at, Due: at.Add(time.Minute), Owner: e.name, Title: "被催过一次",
+			Idle: watchIdleState{Ended: at, Wakes: 1},
+		})
+		since := time.Now().Add(-time.Second)
+		if bg {
+			run := filepath.Join(e.backgroundRunsDir(), "1124-180000-build-1")
+			if err := os.MkdirAll(run, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.WriteFile(filepath.Join(run, "session"), []byte(key+"\n"), 0o600)
+			_ = os.WriteFile(filepath.Join(run, "cmd"), []byte("make\n"), 0o600)
+		}
+		e.watchTurnEnded(p, key+":u1", "看了下日志，还在查", true, false, false, false, since)
+		want := 1
+		if bg {
+			want = 0
+		}
+		if got := idleWatchRows(t, e, key, true)[0].Idle.Wakes; got != want {
+			t.Fatalf("background started=%v: wakes = %d, want %d", bg, got, want)
 		}
 	}
 }

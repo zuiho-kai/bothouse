@@ -114,7 +114,7 @@ class DataDir(unittest.TestCase):
 
     def test_ws_tests_in_one_process_never_touch_live_board(self):
         # #2077 隔离复现：环境带线上 BOARD_DIR/CC_DATA_DIR 时同进程跑两个 ws 测试——
-        # 改前 root_cause 加载就把 board 缓存到线上目录，drain_queue 的夹具整份覆盖线上任务板
+        # 改前 root_cause（11-24 已删，换 cooling_sprawl）加载就把 board 缓存到线上目录，drain_queue 的夹具整份覆盖线上任务板
         live = self.live_dir()
         team = live / "team"
         board = team / "board.jsonl"
@@ -123,7 +123,7 @@ class DataDir(unittest.TestCase):
         lead = HERE.parent / "lead"
         p = spawn(self.home,
                   f"import datadir, unittest; datadir._TEMP = (); sys.path.insert(0, {str(lead)!r});"
-                  " s = unittest.TestLoader().loadTestsFromNames(['test_ws_root_cause', 'test_ws_drain_queue']);"
+                  " s = unittest.TestLoader().loadTestsFromNames(['test_ws_cooling_sprawl', 'test_ws_drain_queue']);"
                   " sys.exit(0 if unittest.TextTestRunner(verbosity=1).run(s).wasSuccessful() else 1)",
                   BOARD_DIR=str(team), CC_DATA_DIR=str(live))
         self.assertEqual(p.returncode, 0, p.stderr)

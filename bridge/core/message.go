@@ -503,6 +503,12 @@ type Message struct {
 	cronJobID        string // the cron job a cron turn runs (its time limit when it starts queued)
 	resumeNoProgress int
 	resumeFallback   string
+
+	// capacityHeld: a capacity cooldown took this turn (held for re-delivery, or a cron/timer side
+	// run skipped), so it wrote no answer now; a cron job reads it instead of reporting an empty
+	// response (2026-11-24 bf8654ba: Sydney admission timed out, the run was held, the job said
+	// "produced an empty response").
+	capacityHeld bool
 }
 
 // EventType distinguishes different kinds of agent output.
