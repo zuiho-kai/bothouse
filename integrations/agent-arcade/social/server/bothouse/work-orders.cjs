@@ -78,35 +78,42 @@ function createWorkOrders(store,receiver){
     if(text)store.send(job.ai,job.chat,{clientId:'work_'+job.request+'_'+job.attempt+'_'+state,
       text:'任务 #'+job.prompt+' · '+text});
   }
+  function cancel(job){
+    receiver.cancel?.(job.request);
+    save(job,'cancelled');
+  }
   async function advance(job){
-    if(!current(job)){if(!closed)save(job,'cancelled');return;}
+    if(!current(job)){if(!closed)cancel(job);return;}
     let receipt;
     try{
       if(await receiver.identity(job.human,job.ai)!==job.identity||!current(job)){
-        if(!closed)save(job,'cancelled');
+        if(!closed)cancel(job);
         return;
       }
       job.direct=store.access(job.human,job.chat).type==='direct';
       receipt=await receiver.step(job.state==='queued'?(job.attempt>0?'retry':'submit'):'status',job,
-        store.one('SELECT body FROM messages WHERE id=?',job.prompt).body,()=>current(job),claim=>{
-          if(current(job)&&claim.boardId===job.board_id)store.transaction(()=>save(job,'running','正在处理',claim.boardId));
-        });
+        store.one('SELECT body FROM messages WHERE id=?',job.prompt).body,()=>current(job));
       if(receipt.key!==job.request||receipt.role!==job.identity||!Number.isSafeInteger(receipt.boardId)||receipt.boardId<=0||
-         (job.board_id!==null&&receipt.boardId!==job.board_id)||!['accepted','running','returned','failed'].includes(receipt.state))
+         (job.board_id!==null&&receipt.boardId!==job.board_id)||!['accepted','running','returned','failed','uncertain'].includes(receipt.state))
         throw Error('invalid receipt');
       if(receipt.state==='returned'&&(typeof receipt.text!=='string'||!receipt.text.trim()||Array.from(receipt.text).length>3000||
          createHash('sha256').update(receipt.text).digest('hex')!==receipt.sha256))throw Error('invalid artifact');
       if(closed)return;
       const identity=await receiver.identity(job.human,job.ai);
       if(closed)return;
-      if(identity!==job.identity||!current(job)){save(job,'cancelled');return;}
+      if(identity!==job.identity||!current(job)){cancel(job);return;}
     }catch{
       if(closed)return;
-      if(!current(job)){save(job,'cancelled');return;}
+      if(!current(job)){cancel(job);return;}
+      if(job.board_id!==null){
+        store.run('UPDATE bothouse_work_orders SET next_check=? WHERE prompt=?',Date.now()+3000,job.prompt);
+        return;
+      }
       store.transaction(()=>save(job,'failed','暂时无法核实任务板回执。请发送「重试任务 #'+job.prompt+'」。'));
       return;
     }
     const label={accepted:'已接单',running:'正在处理',failed:'执行失败。请发送「重试任务 #'+job.prompt+'」。',
+      uncertain:'暂时无法核实这项任务是否交回。原任务已保留。',
       returned:'已交回\n'+(receipt.text||'')};
     store.transaction(()=>save(job,receipt.state,job.state===receipt.state?null:label[receipt.state],receipt.boardId));
   }
@@ -132,6 +139,6 @@ function createWorkOrders(store,receiver){
     return store.one('SELECT prompt AS messageId,ai AS target,state,attempt,board_id AS boardId FROM bothouse_work_orders WHERE prompt=?',id);
   }
   return {prepare,stage,retry,view,start(){if(receiver)timer=setInterval(poll,500).unref();},
-    stop(){closed=true;clearInterval(timer);},wake(){setImmediate(poll);}};
+    stop(){closed=true;clearInterval(timer);receiver?.stop?.();},wake(){setImmediate(poll);}};
 }
 module.exports={createWorkOrders,isAssignment};

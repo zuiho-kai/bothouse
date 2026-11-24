@@ -232,7 +232,7 @@ def run(file, request):
                 "directoryReason": "no_roles" if instance is None else "not_shared"}
     if not any(r["configured"] for r in roles):
         return {"contacts": roles, "directoryStatus": "offline"} if listing else {"error": "unavailable"}
-    if not listing and (request["action"] != "chat" or len(roles) != 1):
+    if not listing and (request["action"] not in ("chat", "task") or len(roles) != 1):
         raise ValueError("invalid target")
 
     from websockets.sync.client import connect
@@ -261,18 +261,37 @@ def run(file, request):
         if not roles[0]["configured"]:
             return {"error": "unavailable"}
         session = "arcade:" + digest(json.dumps([instance, actor, target, request["scope"]]))[:48]
-        ws.send(json.dumps(dict(type="message", project=target, msg_id=str(request["messageId"]),
-                                user_id=upstream_user, session_key=session, reply_ctx=ref,
-                                direct=request["direct"], mentioned=not request["direct"],
-                                from_bot=False, content=request["text"])))
-        until = time.monotonic() + 60
-        while time.monotonic() < until:
-            row = json.loads(ws.recv(timeout=max(0.01, until - time.monotonic())))
-            if row.get("type") == "reply" and row.get("reply_ctx") == ref and row.get("session_key") == session:
-                text = row.get("content")
-                if isinstance(text, str) and text.strip() and len(text) <= 4000:
-                    return {"text": text}
-                break
+        task = request["action"] == "task"
+        # The board worker owns this adapter until handback or cancellation.
+        # Ordinary chat keeps its short observation deadline.
+        deadline = None if task else time.monotonic() + 60
+        try:
+            ws.send(json.dumps(dict(type="message", project=target, msg_id=str(request["messageId"]),
+                                    user_id=upstream_user, session_key=session, reply_ctx=ref,
+                                    direct=request["direct"], mentioned=not request["direct"],
+                                    from_bot=False, content=request["text"])))
+            heartbeat = time.monotonic() + 30
+            while deadline is None or time.monotonic() < deadline:
+                if task and time.monotonic() >= heartbeat:
+                    # Bothouse resets the adapter's read deadline on application frames.
+                    ws.send(json.dumps({"type": "ping", "ts": int(time.time() * 1000)}))
+                    heartbeat = time.monotonic() + 30
+                timeout = max(0.01, (heartbeat if task else deadline) - time.monotonic())
+                try:
+                    row = json.loads(ws.recv(timeout=timeout))
+                except TimeoutError:
+                    if not task:
+                        raise
+                    continue
+                if row.get("type") == "reply" and row.get("reply_ctx") == ref and row.get("session_key") == session:
+                    text = row.get("content")
+                    if isinstance(text, str) and text.strip() and len(text) <= 4000:
+                        return {"text": text}
+                    break
+        except Exception:
+            if task:
+                return {"error": "receipt_unknown"}
+            raise
     return {"error": "unavailable"}
 
 

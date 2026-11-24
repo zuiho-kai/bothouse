@@ -13,6 +13,7 @@ function scopeDirectory(root,number,chat){
 function boardReceiver({resolveMember,runTextTask,gate,boardDir,python=process.platform==='win32'?'python':'python3'}){
   if(typeof resolveMember!=='function'||!path.isAbsolute(gate)||!path.isAbsolute(boardDir))
     throw Error('Bothouse work requires the connected role directory and absolute board paths');
+  const workers=new Map();
   async function identity(account,number){
     const member=await resolveMember(account,number);
     return member?.number===number&&member.configured===true&&typeof member.id==='string'&&member.id||undefined;
@@ -33,25 +34,52 @@ function boardReceiver({resolveMember,runTextTask,gate,boardDir,python=process.p
       proc.stdin.end(JSON.stringify({sender:job.human,location:'arcade:'+job.chat+'/messages/'+job.prompt,text,claim}));
     });
   }
-  async function step(action,job,text,permitted,progress){
+  function run(job,transform,claim,permitted){
+    const controller=new AbortController();
+    const {signal}=controller;
+    let renewing=false;
+    const renewable=setInterval(async()=>{
+      if(!permitted()){controller.abort();return;}
+      if(renewing)return;
+      renewing=true;
+      try{await call('renew',job,undefined,claim);}catch{controller.abort();}
+      finally{renewing=false;}
+    },25000).unref();
+    const execute=async()=>{
+      let action='fail',result;
+      try{
+        if(!permitted()||await identity(job.human,job.ai)!==job.identity||!permitted())return;
+        const answer=await runTextTask({account:job.human,number:job.ai,chat:job.chat,direct:job.direct,
+          messageId:job.request+'-'+job.attempt,scope:[job.chat,job.scope,job.request],text:transform.prompt},signal);
+        if(signal.aborted||!permitted())return;
+        if(answer?.error==='receipt_unknown')action='uncertain';
+        else {result=transform.render(answer?.text);action='return';}
+      }catch{}
+      if(!signal.aborted&&permitted())await call(action,job,result,claim);
+    };
+    workers.set(job.request,controller);
+    void execute().catch(()=>{}).finally(()=>{
+      clearInterval(renewable);
+      workers.delete(job.request);
+    });
+  }
+  async function step(action,job,text,permitted){
     const member=await identity(job.human,job.ai);
     if(!member||member!==job.identity||!permitted())throw Error('Bothouse role binding changed');
     const receipt=await call(action,job,text);
-    if(action!=='status'||!runTextTask||receipt.state!=='accepted')return receipt;
+    if(action!=='status'||!runTextTask||receipt.state!=='accepted'||workers.size>=4||workers.has(job.request))return receipt;
     const transform=textTask(text);
     if(!transform||!permitted())return receipt;
     const claim=await call('claim',job);
     if(!claim.claimed)return claim;
-    try{
-      progress(claim);
-      if(!permitted()||await identity(job.human,job.ai)!==job.identity)throw Error('Role access revoked');
-      const answer=await runTextTask({account:job.human,number:job.ai,chat:job.chat,direct:job.direct,
-        messageId:job.request+'-'+job.attempt,scope:[job.chat,job.scope,job.request],text:transform.prompt});
-      if(!permitted()||await identity(job.human,job.ai)!==job.identity)throw Error('Role access revoked');
-      return await call('return',job,transform.render(answer?.text),claim.claimed);
-    }catch{return call('fail',job,undefined,claim.claimed);}
+    run(job,transform,claim.claimed,permitted);
+    return claim;
   }
-  return {identity,step};
+  return {
+    identity,step,
+    stop(){for(const controller of workers.values())controller.abort();},
+    cancel(request){workers.get(request)?.abort();}
+  };
 }
 function directoryBoardReceiver(directory,filename,env=process.env){
   if(!directory)return;

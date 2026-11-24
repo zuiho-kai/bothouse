@@ -19,16 +19,17 @@ function instanceSettings(env) {
 function localInstance(env = process.env) {
   const {config,python}=instanceSettings(env);
   let active = 0;
-  return async function request(data) {
+  return async function request(data,{signal} = {}) {
     if (active >= 24 || !path.isAbsolute(config) || !existsSync(config)) return {error:'unavailable'};
     active++;
     try {
       return await new Promise(resolve => {
         const child = execFile(python, ['-I','-B','-X','utf8',path.join(__dirname,'instance.py'),config],
-          {windowsHide:true, timeout:data.action === 'chat' ? 70000 : 9000,
+          {windowsHide:true, signal,
+            timeout:data.action === 'task' ? 0 : data.action === 'chat' ? 70000 : 9000,
             maxBuffer:data.action === 'portrait' ? 3 * 1024 * 1024 : 256 * 1024}, (error,out) => {
             if (!error) try {return resolve(JSON.parse(out));} catch {}
-            resolve({error:'unavailable'});
+            resolve({error:data.action === 'task' ? 'receipt_unknown' : 'unavailable'});
           });
         child.stdin.on('error',()=>{});
         child.stdin.end(JSON.stringify(data));
@@ -169,8 +170,8 @@ function bothouseDirectory(store, request) {
     return {reply,bothouseStatus:'replied'};
   }
   // The task board records progress and sends the result to the originating conversation.
-  function runTextTask(turn) {
-    return request({...turn, number:nativeNumber(turn.number), link:pairing.active(store,turn.account), action:'chat'});
+  function runTextTask(turn,signal) {
+    return request({...turn, number:nativeNumber(turn.number), link:pairing.active(store,turn.account), action:'task'},{signal});
   }
   return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
