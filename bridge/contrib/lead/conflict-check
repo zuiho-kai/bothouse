@@ -1,0 +1,245 @@
+#!/usr/bin/env -S python3 -I
+# 同一份产物上的检查互查冲突：列出手里管交接、交回、回复的每道检查（总表 ~/wiki/rules/house-rules.toml 的 [[check]]），
+# 用固定样例互相喂——一道检查要求写的写法，交给同产物的其它检查判，报出互相否定的组合。
+# 新增或修改交接/交回检查后必跑：python3 conflict-check（仓库或线上副本目录里跑都行）。
+# 来源：用户 11-23「这个不是修过么，规则统一管理，怎么还会冲突」；11-23 #1891 界面活的「用户视角走查」行
+#   是交接规则强制要写的，判官却判成多加的设定，来回退三次。按一类修：列出同一产物上的全部检查两两查冲突。
+# 只自动喂程序能判的检查（交接规则、判官放行表、交回格式、回复格式、提问自路由）；要模型的关卡
+# （对照原话、宣传闸、尺子）不在这里烧钱，实测在用户实际用的入口走一遍时覆盖，这里只列出来提醒。
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+HOUSE = Path(os.environ.get("HOUSE_RULES") or Path.home() / "wiki" / "rules" / "house-rules.toml")
+os.environ.setdefault("HOUSE_RULES", str(HOUSE))  # 判官（_added_judge）读同一份总表
+BIN = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
+
+# 交接样例：能过产品默认 + 严格档 + 本机叠加的必填项（非界面活，避免顺手触发界面类门槛）。
+BASE = """# 交接：冲突检查样例
+
+## 用户原话
+- [11-23] 用户：「把导出的表格改好」
+
+## 总目标
+把导出的表格改好。
+
+## 范围
+- 改：导出的表格
+- 不改：无
+- 复用盘点：查过 ~/.bothouse/gate/board.py:1，管不到导出，所以新建
+
+## 参照实现
+- 无（新建）
+
+## 已查过什么
+- ~/wiki/rules/house-rules.toml:1
+
+## 进度
+- 未开工
+
+## 总部判断
+- 要的效果：导出表格不再挤成两列，用户一眼能看清
+- 好的样子：和旧版一样一行一项，列不再合并
+- 教训和定案：默认格式以前被退回，定案在 ~/wiki/log.md:1
+
+## 相关改动
+冲突：无
+
+## 规矩
+- 照本机守则
+"""
+
+# 交回样例：五段 + 入口自验（要有 ``` 包住的输出或成品路径）+ 范围逐项。
+REPORT = """[report] #1893 背景：冲突检查样例
+
+做了一件事，检查都过。
+
+要你做的：没有
+
+我加的：无
+
+细节：
+
+入口自验：本机规则表
+```
+$ python3 rules.py check
+rules ok
+```
+
+交接范围逐项：
+- 改：导出的表格 —— 已改完
+"""
+
+# 回复样例：五段汇报，每段一到两句，不写文件名。
+REPLY = """【结论】表格导出现在按新格式走。
+
+【要紧吗】不影响手上别的活。
+
+【原因】旧格式把两列挤在一起。
+
+【接下来】等下一份导出再看一眼。
+
+【要你做的】没有。
+"""
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def registry():
+    import tomllib
+    try:
+        cfg = tomllib.loads(HOUSE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        sys.exit(f"conflict-check: 读不到总表 {HOUSE}（{e}）")
+    return [c for c in cfg.get("check", []) if c.get("id")]
+
+
+def static_rows(text):
+    """交接规则表的判定：[(规则 id, 报错)]。全部规则一起跑（不分档，宁可多看）。"""
+    hr = load("_handoff_rules", HERE / "_handoff_rules.py")
+    rules = hr.load()
+    lines, lead = text.splitlines(), rules["lead"]
+    out = []
+    for c in rules["checks"]:
+        err = hr._check(c, lines, lead)
+        if err:
+            out.append((c["id"], err))
+    return out
+
+
+def judge_view(text):
+    """判官会送去问模型的正文（规则表强制行已拿掉）和拿掉的行。"""
+    aj = load("_added_judge", HERE / "_added_judge.py")
+    got = aj.parts(text)
+    if not got:
+        return "", []
+    return aj.mandated(got[1])
+
+
+def with_scope(base, sample):
+    i = base.index("## 参照实现")
+    return base[:i] + sample.strip("\n") + "\n\n" + base[i:]
+
+
+def report_rows(text):
+    """交回检查（桥的 bothouse report check）：返回 [(检查名, 报错)]。没装命令行就返回 None。"""
+    if not BIN:
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        notes = Path(d) / "notes.md"
+        draft = Path(d) / "draft.md"
+        notes.write_text(BASE, encoding="utf-8")
+        draft.write_text(text, encoding="utf-8")
+        p = subprocess.run([BIN, "report", "check", "--notes", str(notes), str(draft)],
+                           capture_output=True, text=True, timeout=30)
+    return [] if p.returncode == 0 else [("report-check", (p.stdout or p.stderr).strip())]
+
+
+def reply_rows(text):
+    """回复检查（~/.claude/hooks/house-checks.py report-format）。"""
+    p = Path.home() / ".claude" / "hooks" / "house-checks.py"
+    if not p.is_file():
+        return None
+    hc = load("house_checks", p)
+    why = hc.report_format(text)
+    return [("report-format", why)] if why else []
+
+
+def self_route_rows(text):
+    if not BIN:
+        return None
+    p = subprocess.run([BIN, "report", "check", "--self-route", "-"], input=text,
+                       capture_output=True, text=True, timeout=30)
+    return [] if p.returncode == 0 else [("self-route", (p.stdout or p.stderr).strip())]
+
+
+def handoff_rows(entries, base=BASE):
+    """交接：对每道检查强制写的每行，喂同产物的其它检查。返回 (行结果, 冲突数)。
+    requires 的一条可以有 name、re、sample（字符串或逐行列表）；可选 quote/goal 换掉样例里的原话和总目标。"""
+    rows, bad = [], 0
+    for c in entries:
+        for req in c.get("requires", []):
+            sample = req.get("sample")
+            if not (req.get("re") and sample):
+                continue
+            if isinstance(sample, list):
+                sample = "\n".join(sample)
+            text = with_scope(base, sample)
+            if req.get("quote"):
+                text = re.sub(r"(?m)^- \[11-23\] 用户：「[^\n]*」$", f"- [11-23] 用户：「{req['quote']}」", text)
+            if req.get("goal"):
+                text = re.sub(r"(?ms)^## 总目标\n.*?(?=^## )", f"## 总目标\n{req['goal']}\n", text)
+            owner = req.get("handoff_rule") or ""
+            errs = [e for e in static_rows(text) if e[0] != owner]
+            left, dropped = judge_view(text)
+            must = [l.strip() for l in sample.splitlines() if re.search(req["re"], l)]
+            missed = [l for l in must if l not in dropped]
+            verdict = []
+            if errs:
+                verdict.append("静态规则拒：" + "；".join(f"{i}: {m.splitlines()[0][:80]}" for i, m in errs))
+            if missed:
+                verdict.append("判官还会看这行（可能判成加的）：" + "；".join(m[:60] for m in missed))
+            ok = not verdict
+            bad += 0 if ok else 1
+            rows.append({"check": c["id"], "needs": req.get("name", ""), "ok": ok,
+                         "why": "；".join(verdict) or "放行"})
+    return rows, bad
+
+
+def artifact_rows(entries, artifact):
+    group = [c for c in entries if c.get("artifact") == artifact]
+    if artifact == "交接":
+        return handoff_rows(group), group
+    builtin = {"report-check": REPORT, "reply-format": REPLY, "self-route": REPLY}
+    rows, bad = [], 0
+    for c in group:
+        sample = c.get("sample") or builtin.get(c.get("runner"))
+        if not sample:
+            continue
+        got_all = []
+        for o in group:  # 包括自己：样例先要过它自己这道检查
+            ver = {"report-check": report_rows, "reply-format": reply_rows, "self-route": self_route_rows}.get(o.get("runner"))
+            got = ver(sample) if ver else None
+            if got is None:
+                continue
+            for name, why in got:
+                got_all.append(f"{name}: {why.splitlines()[0][:80]}")
+        bad += 1 if got_all else 0
+        rows.append({"check": c["id"], "needs": "（整份样例）", "ok": not got_all,
+                     "why": "；".join(got_all) or "放行"})
+    return (rows, bad), group
+
+
+def main():
+    entries = registry()
+    arts = [a for a in ("交接", "交回", "回复", "提交") if any(c.get("artifact") == a for c in entries)]
+    total_bad = 0
+    print(f"冲突检查：总表 {HOUSE}，登记 {len(entries)} 道检查")
+    for a in arts:
+        (rows, bad), group = artifact_rows(entries, a)
+        total_bad += bad
+        auto = [c["id"] for c in group if c.get("runner") not in ("ai", "manual")]
+        manual = [c["id"] for c in group if c.get("runner") in ("ai", "manual")]
+        print(f"\n## {a}：{len(group)} 道（自动喂 {len(auto)}，要模型/手测 {len(manual)}）")
+        for r in rows:
+            print(f"- {'✗ 冲突' if not r['ok'] else '✓ 放行'} {r['check']} 要求「{r['needs']}」：{r['why']}")
+        if manual:
+            print(f"- 不自动喂：{'、'.join(manual)}（要模型的关卡，在用户实际用的入口实测覆盖）")
+    print(f"\n结果：{'有 ' + str(total_bad) + ' 组冲突' if total_bad else '没有冲突'}")
+    return 1 if total_bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
