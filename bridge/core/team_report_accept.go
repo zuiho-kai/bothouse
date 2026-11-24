@@ -48,7 +48,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 		slog.Info("team exit: report for a task already done; not held again", "board_item", hid, "workspace", ws)
 		return false
 	}
-	lead := e.reportLead(p.Name())
+	lead := e.reportAcceptor(p.Name(), item)
 	owner := e
 	if lead != nil {
 		owner = lead
@@ -94,6 +94,9 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			ScheduledAt: time.Now(), CreatedAt: time.Now(), Silent: &silent, ReplyBoard: hid, ReportID: rec.Key,
 			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
+		}
+		if !lead.isTeamLead() {
+			job.Prompt = "（这件活是你派的：验收归派活人，也就是你。照下面验收，放行或退回都由你来。）\n" + job.Prompt
 		}
 		job.Prompt += heldMediaPrompt(saveHeldMedia(e.dataDir, hid, heldImgs, heldFiles))
 		if refGated(item) {
@@ -171,6 +174,21 @@ func boundTime(item *teamTaskBoardItem) time.Time {
 	}
 	t, _ := time.Parse(time.RFC3339Nano, item.Bound)
 	return t
+}
+
+// reportAcceptor is who accepts a workspace's report of item: the dispatcher on the board row when
+// that role runs here and can speak on platform, else the team lead. User 11-24: 「验收权跟派活人走」
+// — #1921's reports (12:21, 12:57) went only to the configured lead (鲸鱼娘); the dispatcher (橘),
+// who had promised to look, was never woken.
+func (e *Engine) reportAcceptor(platform string, item *teamTaskBoardItem) *Engine {
+	if item != nil && item.Dispatcher != "" {
+		for _, x := range e.watchEngines() {
+			if x.name == item.Dispatcher && x.lookupReadyPlatform(platform) != nil && x.timerScheduler != nil {
+				return x
+			}
+		}
+	}
+	return e.reportLead(platform)
 }
 
 // reportLead is the team lead engine that can speak on platform; nil when there is none.
@@ -260,7 +278,7 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 // posted nor ended yet.
 func (e *Engine) reportHeldForLead(platform string, hid int) bool {
 	owner := e
-	if lead := e.reportLead(platform); lead != nil {
+	if lead := e.reportAcceptor(platform, e.boardItemByID(hid)); lead != nil {
 		owner = lead
 	}
 	return owner.heldReportFor(hid) != nil
