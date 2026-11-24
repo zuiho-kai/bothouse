@@ -64,7 +64,7 @@ class BlockContract(unittest.TestCase):
         (I.WORK / "misc/dest.md").write_text(PAGE, encoding="utf-8")
         with (I.WORK / "misc/README.md").open("a", encoding="utf-8") as f:
             f.write("- [dest](dest.md) — destination\n")
-        plan = dict(moves=[dict(block=row["id"], to="misc/dest.md", section="## 关键事实")], updates=[])
+        plan = dict(moves=[dict(block=row["ref"], to="misc/dest.md", section="## 关键事实")], updates=[])
         return True, c.PLAN_PREFIX + json.dumps(plan), 0
 
     def test_acceptance_rejects_losing_one_identical_occurrence(self):
@@ -147,6 +147,38 @@ class BlockContract(unittest.TestCase):
         self.assertEqual((self.repo / "misc/source.md").read_text(encoding="utf-8").count(FACT), 1)
         self.assertEqual((self.repo / "misc/dest.md").read_text(encoding="utf-8").count(FACT), 1)
         self.assertIsNotNone(I.block_contract.from_message(self.git("show", "-s", "--format=%B")))
+
+    def test_numbered_reference_resolves_to_frozen_id_before_persistence(self):
+        c = I.block_contract
+        coverage = c.freeze(self.repo, ["HEAD"], "USER: synthetic input")
+        refs = c.catalog(self.repo, self.repo, coverage)
+        catalog = json.loads((self.repo / c.CATALOG).read_text())
+        row, duplicate = catalog["blocks"]
+        self.assertNotEqual(row["ref"], duplicate["ref"])
+        plan = dict(moves=[dict(block=row["ref"], to=row["path"], section=row["section"])], updates=[])
+        coverage["plan"] = c.plan_output(c.PLAN_PREFIX + json.dumps(plan), refs)
+        self.assertEqual(coverage["plan"]["moves"][0]["block"], row["id"])
+        c.catalog(self.repo, self.repo, coverage)
+        self.assertEqual(json.loads((self.repo / c.CATALOG).read_text())["plan"], plan)
+        self.assertEqual(coverage["plan"]["moves"][0]["block"], row["id"])
+
+    def test_numbered_references_do_not_repair_unknown_or_malformed_ids(self):
+        c = I.block_contract
+        coverage = c.freeze(self.repo, ["HEAD"])
+        refs = c.catalog(self.repo, self.repo, coverage)
+        row = next(iter(c.inventory(self.repo, coverage["sources"])[0].values()))
+        for invalid in (len(refs) + 1, True, 1.0):
+            plan = dict(moves=[dict(block=invalid, to=row["path"], section=row["section"])], updates=[])
+            with self.subTest(block=invalid), self.assertRaisesRegex(ValueError, "reference"):
+                c.plan_output(c.PLAN_PREFIX + json.dumps(plan), refs)
+        for identity in (row["id"], row["id"][:40] + row["id"][43:]):
+            plan = dict(moves=[dict(block=identity, to=row["path"], section=row["section"])], updates=[])
+            coverage["plan"] = c.plan_output(c.PLAN_PREFIX + json.dumps(plan), refs)
+            if identity == row["id"]:
+                self.assertEqual(c.check(self.repo, coverage, c.working_tree(self.repo)), [])
+            else:
+                with self.assertRaisesRegex(ValueError, "unknown or duplicate"):
+                    c.render(self.repo, coverage, c.working_tree(self.repo), "ingest")
 
     def test_nested_topic_move_is_searchable_and_orphan_is_rejected(self):
         c = I.block_contract
@@ -307,7 +339,7 @@ class BlockContract(unittest.TestCase):
             c = I.block_contract
             catalog = json.loads((I.WORK / c.CATALOG).read_text(encoding="utf-8"))
             row = next(row for row in catalog["blocks"] if row["text"] == FACT.strip())
-            intent = dict(block=row["id"], to="misc/source.md", section="## 关键事实",
+            intent = dict(block=row["ref"], to="misc/source.md", section="## 关键事实",
                           text="- synthetic allocation: 23 units", source=dict(line=1, quote=original),
                           reason="Synthetic user explicitly replaces the current allocation.")
             return True, c.PLAN_PREFIX + json.dumps(dict(moves=[], updates=[intent])), 0
@@ -341,7 +373,7 @@ class BlockContract(unittest.TestCase):
             row = next(row for row in catalog["blocks"] if row["text"] == FACT.strip())
             with (I.WORK / "misc/source.md").open("a", encoding="utf-8") as f:
                 f.write("- synthetic color is blue\n")
-            intent = dict(block=row["id"], to=row["path"], section=row["section"],
+            intent = dict(block=row["ref"], to=row["path"], section=row["section"],
                           text="- synthetic allocation: 23 units", source=dict(line=1, quote=original),
                           reason="Synthetic user explicitly replaces allocation.")
             return True, c.PLAN_PREFIX + json.dumps(dict(moves=[], updates=[intent])), 0
