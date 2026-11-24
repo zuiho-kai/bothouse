@@ -112,10 +112,24 @@ if __name__ == "__main__":
     ap.add_argument("--offline",action="store_true",help="Use packages already present in your pnpm store. Combine with --source for a fully offline install.")
     ap.add_argument("--run",action="store_true",help="Start the installed loopback world in this terminal")
     ap.add_argument("--port",default=18746,type=int)
+    selection=ap.add_mutually_exclusive_group()
+    selection.add_argument("--friends-origin",help="Pair this save with your Friends service origin")
+    selection.add_argument("--desktop-service",type=Path,help="Use the service.json from your trusted Agent Arcade desktop build")
+    ap.add_argument("--world-origin",help="Origin configured in Friends, if different from the local listener")
     args=ap.parse_args()
+    if args.world_origin and not (args.friends_origin or args.desktop_service):
+        ap.error("--world-origin requires --friends-origin or --desktop-service")
     if not 1024<=args.port<=65535: ap.error("Choose a port from 1024 to 65535.")
     dest=args.destination.resolve()
     install(dest,args.source.resolve() if args.source else None,args.offline)
+    if args.friends_origin or args.desktop_service:
+        state=dest / ".data" / "resident-preview"
+        release=state / "releases" / SPEC["worldRevision"]
+        database=state / ("world.sqlite" if args.port==18746 else f"world-{args.port}.sqlite")
+        source=["--desktop-service",args.desktop_service.resolve()] if args.desktop_service else ["--friends-origin",args.friends_origin]
+        audience=args.world_origin or (None if args.desktop_service else f"http://127.0.0.1:{args.port}")
+        run([tool("node"),release/"scripts/configure-friends-world.ts","--database",database,
+             *(["--world-origin",audience] if audience else []),*source],dest)
     if args.run:
         sys.exit(subprocess.call([sys.executable,"-I","-B",str(dest/"serve.py"),"--port",str(args.port)]))
 

@@ -2,9 +2,9 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "d4eb34d971d0f385b56ae799f8fb8aa24c9a963f",
-  "worldTree": "c74a85bb713b036dff9b21996ce57331afdd53b8",
-  "patchSHA256": "71ab788b63e610c8a70231414b48bdd20d93264b2c026e97addaf9cfb69b383b",
+  "worldRevision": "5d14019acbfd5fb67a7d6055cac74fe3779c0442",
+  "worldTree": "82f92a95c50410c84f0f7994f193b1f21f631275",
+  "patchSHA256": "0b4caf95711d5f389b5a5eacc61eb79e049aa925fc9a0945ff4aaa7083a98616",
   "windowsPublisherSHA256": {
     "publish-residents.py": "9d2fe545dce6df02ebe4b24b708976acc614129e48c414b76a6db94195c87387",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
@@ -31,8 +31,14 @@
     {
       "action": "A",
       "path": "docs/integration/bothouse-residents.md",
-      "blob": "5914cb242d47421be5982e0ad18a18a894bca733",
-      "sha256": "262a503260641c99c0666a1949ae7b06cd34a8baea3cb498384b3da6eb61976d"
+      "blob": "af8d3f9a5d48b5929659612b20ee25ddd4e878f2",
+      "sha256": "55eeacc26d1fb24d568cc7eb9c1e504192bac28963b1b4f5630fc1d1c9067679"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/friends-home.md",
+      "blob": "34956da36e0d544fac5e0f1fc6473b5f93a1465d",
+      "sha256": "519e7d92d33a4625e0b7183d26f5e18ea0b2a1c089a8e69096fa4ebe33a4f7da"
     },
     {
       "action": "A",
@@ -51,6 +57,12 @@
       "path": "index.html",
       "blob": "cd197e7f474527ae5ee81ebf366be06379a42106",
       "sha256": "1ceab4c657f7aa9840b694b3b1c46a7c74f53ed7fc3374020cac4fd5acea6dab"
+    },
+    {
+      "action": "A",
+      "path": "scripts/configure-friends-world.ts",
+      "blob": "695375c747c6505c53553b2d36e2dde465775587",
+      "sha256": "25c4a726f25872eb63da57d66bba5d541cb65dd68017cb5201fad1685bed462f"
     },
     {
       "action": "A",
@@ -90,6 +102,12 @@
     },
     {
       "action": "A",
+      "path": "scripts/verify-friends-world.mjs",
+      "blob": "dece79c8a91d4e8d7e8d5a7896af6e1263963603",
+      "sha256": "9835ce5cdd725ae2c4ea01c9b4134ffc4c6ee128268b04faf01846cddf24bd03"
+    },
+    {
+      "action": "A",
       "path": "scripts/verify-resident-portrait.mjs",
       "blob": "70360b2de279221d9041fe241283635b266f486a",
       "sha256": "868a942292555ffc3da96f299e4db7645369790c494726408563c978cd240640"
@@ -99,6 +117,12 @@
       "path": "scripts/verify-residents.mjs",
       "blob": "822a239ded31e0e4f30b7842db1d7f5aa9590a2c",
       "sha256": "3a4fd00afc305928ab798abf736a33e629ee66567f0f54af1e28c0fca8942de6"
+    },
+    {
+      "action": "M",
+      "path": "spec/guide-interaction.test.ts",
+      "blob": "c846ef9b2e15b65dd66c59f0a7087c98595b0172",
+      "sha256": "52f735508d3e800f895c337ddfad34a74bf5f9982f5bf68f0c60419de5223ecd"
     },
     {
       "action": "A",
@@ -521,16 +545,34 @@
       "sha256": "125a0861057c12ef2cc61017ebc9847ad6b45a4f7a92eee404ec79c70ed8f168"
     },
     {
+      "action": "M",
+      "path": "src/client/world-guide.ts",
+      "blob": "09c90ecc99a84f5ff3568efc1a0d00c0626f3c59",
+      "sha256": "89a00754912b8d2fce2f42836fccde164a0704065a49fcc8a5a42f0ba5043f34"
+    },
+    {
       "action": "A",
       "path": "src/server/app-residents.ts",
       "blob": "8d4f37d69c9305c71d111d3468bd4c5f10c11443",
       "sha256": "c7d69f0a0440a5078dd74f71a9edbe1636013606037506becd083e026d5db631"
     },
     {
+      "action": "A",
+      "path": "src/server/friends-origins.ts",
+      "blob": "856387fc02726b45a89be7fccb97c156ddd751d4",
+      "sha256": "58f13c43b969993ac92d33b3dc759e8cb654e9e7bc1d9758ea4f8dee379f666c"
+    },
+    {
+      "action": "A",
+      "path": "src/server/friends-session.ts",
+      "blob": "4bcc4b9f693dfc0dc27d1389547595206790c5d6",
+      "sha256": "f0526942f6590f36b898205bdb5d2dc89e0f65e4c42cb7fbbfb958ae68138768"
+    },
+    {
       "action": "M",
       "path": "src/server/index.ts",
-      "blob": "28e577c1f7413a3a69b4a40d0c950049345eeec3",
-      "sha256": "3e8d9d3d4971740ff6928845d852bd44e4d8c26b3c819a98b18c1cd139c603bc"
+      "blob": "06fdd3ef811ca1eea0c49cfd60d5202c3bc9373c",
+      "sha256": "eeab8c8f3e4e66035952aded5406ba62e872037e2085ff7a243097369c0ceb09"
     },
     {
       "action": "A",
@@ -549,6 +591,12 @@
       "path": "src/server/resident-http.ts",
       "blob": "4d42a389990118b05466864342696d82c09cd039",
       "sha256": "361061fd2a9d60c57bb02542d96980819eec1ebe01a4b6372c2266aa96c3a569"
+    },
+    {
+      "action": "M",
+      "path": "src/server/store.ts",
+      "blob": "c5e2c769335fc38daa8d5677c5ad2b6691998497",
+      "sha256": "b41d2aeff6b54a7f0e028f8b951dcaf885a4e8689943b9d054ff2a1d7e42ac3a"
     },
     {
       "action": "A",
