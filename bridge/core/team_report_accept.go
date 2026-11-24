@@ -117,15 +117,14 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			owner.teamExit.mu.Unlock()
 		}
 	}
-	leadName := ""
+	acceptor := ""
 	if queued {
-		leadName = lead.name
+		acceptor = lead.name
 	}
-	// the event layer (cron_event.go): the dispatcher's session is woken too, and any
-	// `bothouse cron add --event workspace.report` job runs
+	// the event layer (cron_event.go): any `bothouse cron add --event workspace.report` job runs
 	e.fireTrigger(TriggerEvent{Name: EventWorkspaceReport, Text: body, Fields: map[string]string{
 		"board": fmt.Sprint(hid), "short": teamTaskBoardShort(*item), "dispatcher": item.Dispatcher,
-		"chat": p.Name() + ":" + parent, "workspace": ws, "lead": leadName, "batch": fmt.Sprint(batch),
+		"chat": p.Name() + ":" + parent, "workspace": ws, "acceptor": acceptor, "batch": fmt.Sprint(batch),
 	}})
 	if !batch {
 		e.endWorkspaceTask(p.Name()+":"+parent, sessionKey, team.ExitKindReport, hid, body)

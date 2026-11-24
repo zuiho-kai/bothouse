@@ -85,65 +85,24 @@ func TestFireEventRunsMatchingJobs(t *testing.T) {
 	}
 }
 
-// #1921: a held report wakes the lead and also the session that handed the work out.
-func TestHeldReportWakesDispatcher(t *testing.T) {
-	e, p, leadStore, item := heldFixture(t)
+// A held report fires workspace.report: an event job matching its board runs, and the event names
+// who accepts it.
+func TestHeldReportFiresWorkspaceReport(t *testing.T) {
+	e, p, _, item := heldFixture(t)
 	cstore, err := NewCronStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	cs := NewCronScheduler(cstore)
 	e.cronScheduler = cs
-	dstore, err := NewTimerStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := &Engine{name: "disp", timerScheduler: NewTimerScheduler(dstore)}
-	t.Cleanup(d.timerScheduler.Stop)
 	cs.RegisterEngine(e.name, e)
-	cs.RegisterEngine("disp", d)
 	if err := cs.AddJob(&CronJob{ID: "onrep", Project: "gone", SessionKey: "discord:c", Event: EventWorkspaceReport,
-		Match: map[string]string{"board": "46"}, Prompt: "x", Enabled: true, CreatedAt: time.Now()}); err != nil {
+		Match: map[string]string{"board": "46", "acceptor": e.name}, Prompt: "x", Enabled: true, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	item.Dispatcher = "disp"
-	writeReviewBoard(t, e, *item)
 	holdForTest(t, e, p, item, "")
-	if n := len(leadStore.List()); n != 1 {
-		t.Fatalf("lead wakes = %d", n)
-	}
-	jobs := dstore.List()
-	if len(jobs) != 1 {
-		t.Fatalf("dispatcher wakes = %d", len(jobs))
-	}
-	if jobs[0].SessionKey != "discord:chat1" || jobs[0].Project != "disp" || !jobs[0].InjectIfBusy {
-		t.Fatalf("dispatcher wake target = %+v", jobs[0])
-	}
-	for _, want := range []string{"#46", "交回已送主角色 " + e.name, "改好了，已上线"} {
-		if !strings.Contains(jobs[0].Prompt, want) {
-			t.Fatalf("dispatcher prompt misses %q:\n%s", want, jobs[0].Prompt)
-		}
-	}
 	cs.runs.Wait()
 	if cstore.Get("onrep").LastRun.IsZero() {
 		t.Fatal("workspace.report event job did not run")
-	}
-}
-
-// The dispatcher is the lead: the lead's acceptance wake is the only one.
-func TestHeldReportDispatcherIsLead(t *testing.T) {
-	e, p, leadStore, item := heldFixture(t)
-	cstore, err := NewCronStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs := NewCronScheduler(cstore)
-	e.cronScheduler = cs
-	cs.RegisterEngine(e.name, e)
-	item.Dispatcher = e.name
-	writeReviewBoard(t, e, *item)
-	holdForTest(t, e, p, item, "")
-	if n := len(leadStore.List()); n != 1 {
-		t.Fatalf("lead wakes = %d, want 1", n)
 	}
 }

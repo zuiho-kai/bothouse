@@ -119,7 +119,7 @@ func eventEnv(ev TriggerEvent) []string {
 	return env
 }
 
-// FireEvent runs the built-in reaction to ev and every enabled event job it matches, each in the
+// FireEvent runs every enabled event job ev matches, each in the
 // background; it returns how many jobs started. A job whose previous run is still going is not
 // started again, so a job woken by message.sent or cron.triggered cannot feed on its own run.
 func (cs *CronScheduler) FireEvent(ev TriggerEvent) int {
@@ -128,9 +128,6 @@ func (cs *CronScheduler) FireEvent(ev TriggerEvent) int {
 	}
 	if ev.Fields == nil {
 		ev.Fields = map[string]string{}
-	}
-	if ev.Name == EventWorkspaceReport {
-		cs.wakeReportDispatcher(ev)
 	}
 	n := 0
 	for _, job := range cs.store.List() {
