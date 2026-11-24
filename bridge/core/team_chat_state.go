@@ -150,7 +150,6 @@ func chatWaitRows(items []teamTaskBoardItem, chat string, now time.Time) []chatW
 	return out
 }
 
-
 // chatWaitLine: 「【名】<the question>」 — the whole stored question on one line (the lead's plain
 // rewrite carries its options and pick, e.g. 「……我推荐这个；二，……你回一个数字就行」), else its title.
 // Same text the pinned table shows in full (#1728); renderChatWaiting falls back to titles when long.
