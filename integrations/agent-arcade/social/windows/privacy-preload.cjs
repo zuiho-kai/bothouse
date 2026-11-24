@@ -15,10 +15,19 @@ if(process.isMainFrame&&location.pathname==='/'&&!location.search){
     document.documentElement.dataset.arcadePersonalCardPicker='direct-portrait';
     if(desktopVersion)document.documentElement.dataset.arcadeFeedbackDesktopVersion=desktopVersion;
   },{once:true});
+  let snipRequest=0;
   document.addEventListener('click',async event=>{
     const screenshot=event.target?.closest?.('button#chat-screenshot');
     if(screenshot && event.isTrusted && event.button===0 && !screenshot.disabled && !screenshot.hidden){
-      try{await ipcRenderer.invoke('arcade:startChatSnip');}catch{}
+      const request=String(++snipRequest),address=location.href;
+      screenshot.dataset.arcadeSnipRequest=request;
+      let started=false;
+      try{started=await ipcRenderer.invoke('arcade:startChatSnip')===true;}catch{}
+      // Let the initiating click open its preview even if IPC resolves immediately.
+      setTimeout(()=>{
+        if(screenshot.isConnected&&location.href===address)
+          screenshot.dispatchEvent(new CustomEvent('arcade-chat-snip-result',{detail:JSON.stringify({request,started})}));
+      },0);
       return;
     }
     const button=event.target?.closest?.('button[data-arcade-group-card-picker]');

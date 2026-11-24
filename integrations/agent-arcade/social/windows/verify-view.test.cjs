@@ -357,7 +357,7 @@ test('the visible social chat may request only its own top-frame microphone',asy
 
 test('Windows rectangle tool launch is fixed and limited to the active chat frame',{skip:process.platform!=='win32'},async()=>{
   const origin='https://social.arcade-example.com',frame={url:origin+'/#chat/12345678-1111-2222-3333-123456789abc'};
-  let active=true,launch,handler;
+  let active=true,missing=true,launch,handler;
   const isolated=Object.assign(new EventEmitter(),{webRequest:{onBeforeRequest(){}},setPermissionRequestHandler(){},setPermissionCheckHandler(){}});
   class Guest{
     constructor(){this.webContents=Object.assign(new EventEmitter(),{mainFrame:frame,isDestroyed:()=>false,setWindowOpenHandler(){},
@@ -367,12 +367,14 @@ test('Windows rectangle tool launch is fixed and limited to the active chat fram
     spawnSnip:(exe,args,options)=>{
       launch={exe,args,options};
       const child=Object.assign(new EventEmitter(),{unref(){}});
-      queueMicrotask(()=>child.emit('spawn'));return child;
+      queueMicrotask(()=>missing?child.emit('error',Object.assign(Error('fixture missing alias'),{code:'ENOENT'})):child.emit('spawn'));return child;
     }});
   const event={sender:view.webContents,senderFrame:frame};
   assert.equal(await handler({...event,senderFrame:{}}),false);
   active=false;assert.equal(await handler(event),false);active=true;
   assert.equal(launch,undefined);
+  assert.equal(await handler(event),false);
+  missing=false;
   assert.equal(await handler(event),true);
   assert.equal(require('node:path').win32.basename(launch.exe),'SnippingTool.exe');
   assert.deepEqual(launch.args,['/clip']);assert.equal(launch.options.shell,false);

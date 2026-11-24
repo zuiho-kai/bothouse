@@ -2698,8 +2698,13 @@ function fileDialog(droppedFile){
   if(droppedFile)selectFile(droppedFile);
 }
 $('#attach-image').addEventListener('click',()=>photoDialog(false));
-$('#chat-screenshot')?.addEventListener('click',()=>photoDialog(true));
-function photoDialog(screenshot,droppedFile){
+const screenshotControl=$('#chat-screenshot');
+screenshotControl?.addEventListener('click',event=>{
+  const request=event.isTrusted?screenshotControl.dataset.arcadeSnipRequest:undefined;
+  delete screenshotControl.dataset.arcadeSnipRequest;
+  photoDialog(true,undefined,request);
+});
+function photoDialog(screenshot,droppedFile,snipRequest){
   if(!canSendPhoto(conversation))return;
   const id=chat, visit=chatVisit, epoch=generation, account=user.number;
   const revision=membershipRevision;
@@ -2736,15 +2741,32 @@ function photoDialog(screenshot,droppedFile){
   };
   question.addEventListener('input',updateSendLabel);
   updateSendLabel();
+  const captureStatus=screenshot&&el('p',snipRequest
+    ? '正在请求打开系统截图工具。'
+    : '可选择已保存的截图，或按 Ctrl+V 粘贴截图。');
   if(screenshot){
-    label.firstChild.textContent='或选择已保存的截图';
-    form.prepend(el('p','选区后回到这里按 Ctrl+V 预览。也可以按 Win+Shift+S 开始新的选区。'));
+    label.firstChild.textContent='选择已保存的截图';
+    captureStatus.setAttribute('role','status');
+    form.prepend(captureStatus);
   }
   const scope=openDialog(screenshot?'发送截图':'发送图片',[form],id);
   const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation&&routeId()===id;
   let selected,latestFile;
   input.addEventListener('change',()=>void selectPhoto(input.files[0]));
   if(droppedFile)void selectPhoto(droppedFile);
+  if(snipRequest){
+    const result=event=>{
+      if(!current()||typeof event.detail!=='string')return;
+      let answer;
+      try{answer=JSON.parse(event.detail);}catch{return;}
+      if(answer?.request!==snipRequest)return;
+      captureStatus.textContent=answer.started===true
+        ? '完成系统框选后，回到这里按 Ctrl+V 粘贴。'
+        : '无法打开系统截图工具。可选择已保存的截图，或按 Ctrl+V 粘贴已有截图。';
+    };
+    screenshotControl.addEventListener('arcade-chat-snip-result',result);
+    dialogCleanup=()=>screenshotControl.removeEventListener('arcade-chat-snip-result',result);
+  }
   if(screenshot){
     form.tabIndex=-1;
     form.addEventListener('paste',onPaste);
