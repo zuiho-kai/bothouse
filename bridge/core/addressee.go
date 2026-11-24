@@ -47,10 +47,10 @@ func (e *Engine) addresseeOf(p Platform, msg *Message) Addressee {
 		return AddrSelf
 	case msg.FromBot:
 		return AddrOther // a teammate talking to someone else: never starts a turn here
-	case msg.Direct || msg.PrivateRoom:
-		return AddrSelf
 	case msg.AddressedOther:
 		return AddrOther
+	case msg.Direct || msg.PrivateRoom:
+		return AddrSelf
 	case e.runsWorkspaceChannel(p, msg):
 		return AddrSelf
 	}
