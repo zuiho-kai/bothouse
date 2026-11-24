@@ -1,0 +1,186 @@
+diff --git a/.gitignore b/.gitignore
+index 276fd324963f5d6c375d4fb5c7e71a2e85f9e047..de6a91eac554e31a505606b247481894c9293378 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -34 +34,4 @@ playwright-report/
+ * 2.*
++
++# Operator-installed Bothouse artwork has its own distribution terms.
++/public/bothouse-art/
+diff --git a/ASSET-CREDITS.md b/ASSET-CREDITS.md
+index 95c6d02a4c10b9de7c542f53fcf28eb916e30454..cd36cdb5dd0eab9d2849ac3d533d8879325f3c37 100644
+--- a/ASSET-CREDITS.md
++++ b/ASSET-CREDITS.md
+@@ -152 +152,20 @@ No terrain demo server patch or additional downloaded art was used.
+ The optional background music is an original procedural bell/pad miniature implemented for Little Worlds in `src/client/ambient-music.ts`. Web Audio oscillators synthesize its notes locally; there are no sampled recordings, downloaded tracks, external audio services or new asset licences. Messenger is an atmosphere reference only; its music was not copied.
++
++## Bothouse residents on visited planets
++
++The visitor sees articulated meshes in Little Worlds' village materials.
++The six modelled looks use Bothouse's public character designs as references.
++The buildings, landing pad and ground movement come from Little Worlds.
++For each character's references and modelled details, see the
++[resident model notes](docs/integration/bothouse-resident-models.md).
++
++Bothouse's [desk frame reference](https://github.com/zuiho-kai/bothouse/blob/8ec73a8f32573b5307922df3c79675a934cdefb7/dsh/collab/desk/index.html)
++and [avatar credits](https://github.com/zuiho-kai/bothouse/blob/8ec73a8f32573b5307922df3c79675a934cdefb7/dsh/collab/avatars/README.md)
++identify the artwork and its upstream authors. Copyright 2026 zuiho-kai and
++Bothouse contributors. Bothouse's Apache-2.0 code licence preserves the terms
++of third-party artwork. Check the applicable design rights for your deployment.
++
++A resident with a custom appearance uses the village's generic body. An avatar
++cleared for visitor display can appear on its badge and in the resident list.
++The list credits the pack, author and licence supplied by its publisher. The
++scene needs no sprite-sheet installation or desktop-pet animation files.
+diff --git a/src/client/main.ts b/src/client/main.ts
+index 0639a7b2e636be2963ca2599618308f12632025a..4336fa16be64e9da5ebcab5c26582bfd5010204f 100644
+--- a/src/client/main.ts
++++ b/src/client/main.ts
+@@ -32,2 +32,3 @@ import { createVillagePolish } from './village-polish.ts';
+ import { BOARD_RADIUS, portPoint } from '../shared/ports.ts';
++import { BothouseResidents } from './bothouse-residents.ts';
+ import { GroundPresence } from './presence.ts';
+@@ -319,2 +320,3 @@ worldMaterials().attachRenderer(renderer,textureFormat());
+ const scene = new T.Scene();
++const bothouseResidents=new BothouseResidents(scene,reduced);
+ const exteriorHomeDoor=createHomeDoor();scene.add(exteriorHomeDoor.root);exteriorHomeDoor.root.visible=false;
+@@ -734,2 +736,5 @@ function animate(now:number) {
+   mouseLook?.sync();lookButton.hidden=!canLook()||overview;paintLookHint();
++  const garden=colony?.universe?.currentPlanet;
++  const visitVisible=online&&colony?.syncing&&!document.hidden&&!graphicsLost&&!worldPending&&!state?.appearanceRequired&&state?.flight.mode==='ground'&&state.location?.kind!=='interior'&&!homeTransition&&garden?.id===activePlanet&&garden.claimed&&garden.kind==='garden';
++  bothouseResidents.frame(visitVisible?groundWorld:null,state?.location?.visitEpoch??0,now,!!garden?.mine&&garden.id===activePlanet&&online);
+   if(graphicsLost)return;
+@@ -910,2 +915,3 @@ function animate(now:number) {
+   const cutawayFrame=cameraLocalExceptionB&&!overview?committedCutawayFrame:activeTownCutaway&&groundWorld?activeTownCutaway.update({world:groundWorld,camera,feet,up:renderUp,dt,enabled:cameraCutawayB&&!overview,diagnostics:measureCamera}):null;
++  bothouseResidents.animate(dt,walker.up.toArray() as Vec3,renderCamera(),!scenePaused);
+   residents?.update({dt,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:renderCamera(),reducedMotion:reduced,enabled:!scenePaused});
+@@ -915,2 +921,3 @@ function animate(now:number) {
+   practical.update(scene,renderCamera(),dt);if(indoorRoomView.room)indoorRoomView.render();else drawing.render(new T.Vector3(),overview);readyWelcome();
++  if(measureCamera)renderer.domElement.dataset.companions=JSON.stringify(bothouseResidents.snapshot(renderCamera()));
+   // Opt-in, atomic evidence from this rendered frame. Reading this snapshot can
+@@ -1061,3 +1068,3 @@ photoMode=new PhotoMode({renderer,
+     view.updateProjectionMatrix();view.updateMatrixWorld(true);
+-    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
++    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');bothouseResidents.animate(0,walker.up.toArray() as Vec3,photo,false);residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
+   },notice,
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 9321f714cc1187e76b4445145ff9a6722db64e26..28e577c1f7413a3a69b4a40d0c950049345eeec3 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -3,3 +3,3 @@ import { createHash, randomBytes } from 'node:crypto';
+ import { readFile } from 'node:fs/promises';
+-import { resolve, extname } from 'node:path';
++import { resolve, extname, sep } from 'node:path';
+ import { marked } from 'marked';
+@@ -14,2 +14,6 @@ import {GuideLedger,createGuideAI,GuideAIError} from './guide-ai.ts';
+ import {guideConfiguration} from './guide-config.ts';
++import {serveResidentArt,withResidentArt} from './resident-art.ts';
++import {appResidents} from './app-residents.ts';
++import {planetResidents} from './planet-residents.ts';
++import {jsonBody,residentSettings} from './resident-http.ts';
+ import { businessLog } from './business-log.ts';
+@@ -27,2 +31,5 @@ if (store.migrationBackup) console.log(`Before migration, saved a consistent bac
+ const audit=businessLog(databasePath);
++const residentSources=planetResidents(store.db);
++const appResidentLinks=appResidents(store.db,residentSources);
++const residents=withResidentArt(store.db,{...residentSources,read:appResidentLinks.read});
+ const guideHelp=createGuideHelp();
+@@ -55,3 +62,3 @@ const server = createServer(async (req, res) => {
+     if (url.pathname === '/healthz') { send(200, { ok: true, profile:homeSample?'home-sample':store.integratedWorld?'integrated':'legacy-test' }); return; }
+-    if (url.pathname.startsWith('/api/')) {
++    if (url.pathname.startsWith('/api/')||url.pathname==='/resident-settings') {
+       auditRoute=url.pathname.slice(5);
+@@ -61,2 +68,51 @@ const server = createServer(async (req, res) => {
+       if(id&&store.has(id))auditIdentity=id;
++      if(url.pathname.startsWith('/api/resident-feed/art/') || url.pathname.includes('/residents/') && url.pathname.includes('/art/')){
++        auditRoute=undefined;
++        if(await serveResidentArt(req,res,url.pathname,id,residents))return;
++        throw new RequestError(404,'Unknown resident portrait.');
++      }
++      if(url.pathname==='/resident-settings'){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        await residentSettings(req,res,residents,id);return;
++      }
++      const appOwnerRoute=url.pathname==='/api/app-residents';
++      if(appOwnerRoute){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        if(req.method==='GET'){send(200,appResidentLinks.status(id));return;}
++        if(req.headers.origin){
++          const protocol=req.headers['x-forwarded-proto']==='https'?'https:':'http:';
++          if(req.headers.origin!==protocol+'//'+req.headers.host)throw new RequestError(403,'Use this world’s own page.');
++        }
++      }
++      if(url.pathname==='/api/resident-feed/check'||url.pathname==='/api/resident-feed/pause'){
++        auditRoute=undefined;
++        if(req.method!=='POST'||req.headers.origin||req.headers['content-type']?.split(';')[0]!=='application/json')
++          throw new RequestError(403,'Use the bound App publisher.');
++        const token=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization??'')?.[1]??'';
++        residents.authorize(token);
++        const body=await jsonBody(req,2048);
++        if(url.pathname.endsWith('/check'))send(200,appResidentLinks.check(token,body));
++        else{
++          if(Object.keys(body).length)throw new RequestError(400,'Unexpected pause fields.');
++          send(200,appResidentLinks.pause(token));
++        }
++        return;
++      }
++      if(url.pathname==='/api/resident-feed'){
++        auditRoute=undefined;
++        if(req.method!=='POST')throw new RequestError(405,'Method not allowed.');
++        if(req.headers.origin||!req.headers['content-type']?.startsWith('application/json'))throw new RequestError(403,'Use the resident publisher.');
++        const token=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization??'')?.[1]??'';
++        residents.authorize(token);
++        const data=await jsonBody(req,1_048_576);
++        send(200,residents.publish(token,data));return;
++      }
++      const residentRoute=/^\/api\/planets\/(hub|p-[a-f0-9-]{36})\/residents(?:\/(connect|disconnect))?$/.exec(url.pathname);
++      if(residentRoute){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        if(req.method==='GET'&&!residentRoute[2]){send(200,residents.read(id,residentRoute[1]));return;}
++      }
+       if (url.pathname === '/api/state' && req.method === 'GET') {
+@@ -97,8 +153,9 @@ const server = createServer(async (req, res) => {
+       const bodyLimit = ['/api/blueprints/save','/api/home/save'].includes(url.pathname) ? BLUEPRINT_BODY_LIMIT : 2048;
+-      const chunks: Buffer[] = []; let byteLength = 0;
+-      for await (const chunk of req) { const bytes = Buffer.from(chunk); byteLength += bytes.length; if (byteLength > bodyLimit) throw new RequestError(413, 'Request too large.'); chunks.push(bytes); }
+-      const text = Buffer.concat(chunks).toString('utf8');
+-      let body: Record<string, unknown>;
+-      try { body = JSON.parse(text); } catch { throw new RequestError(400, 'Invalid JSON.'); }
+-      if (!body || Array.isArray(body) || typeof body !== 'object') throw new RequestError(400, 'Expected an object.');
++      const body=await jsonBody(req,bodyLimit);
++      if(appOwnerRoute){send(200,appResidentLinks.change(id,body));return;}
++      if(residentRoute){
++        if(residentRoute[2]==='connect'&&!Object.keys(body).length){send(200,residents.connect(id,residentRoute[1]));return;}
++        if(residentRoute[2]==='disconnect'&&Object.keys(body).length===1){send(200,residents.disconnect(id,residentRoute[1],body.sourceId));return;}
++        throw new RequestError(400,'Choose a resident connection action.');
++      }
+       auditContext=url.pathname.startsWith('/api/guide/')?{}:body;
+@@ -170,3 +227,3 @@ const server = createServer(async (req, res) => {
+       const path = resolve(root, '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
+-      if (!path.startsWith(root + '/')) throw new RequestError(404, 'Not found.');
++      if (!path.startsWith(root + sep)) throw new RequestError(404, 'Not found.');
+       try { body = await readFile(path); } catch { throw new RequestError(404, 'Not found.'); }
+diff --git a/src/shared/town-resident-motion.ts b/src/shared/town-resident-motion.ts
+index 30b342267729476ac36ece59318dd512aa98f329..94b75240f14c96ad09b58f5c04055881778d43bc 100644
+--- a/src/shared/town-resident-motion.ts
++++ b/src/shared/town-resident-motion.ts
+@@ -6,2 +6,4 @@ import type { Vec3 } from './world.ts';
+ 
++type MotionDefinition = Pick<TownResidentDefinition, 'position'|'route'|'facing'|'activity'|'phase'|'speed'>;
++
+ /** Ephemeral scenery motion; shares the player's capsule, supports and sweeps.
+@@ -9,4 +11,4 @@ import type { Vec3 } from './world.ts';
+  * recover(), which could silently move an authored resident to another place. */
+-export class TownResidentMotion {
+-  readonly definition: TownResidentDefinition;
++export class TownResidentMotion<D extends MotionDefinition = MotionDefinition> {
++  readonly definition: D;
+   readonly valid: boolean;
+@@ -23,3 +25,3 @@ export class TownResidentMotion {
+ 
+-  constructor(world: GroundWorld, definition: TownResidentDefinition) {
++  constructor(world: GroundWorld, definition: D) {
+     this.world = world; this.definition = definition;
