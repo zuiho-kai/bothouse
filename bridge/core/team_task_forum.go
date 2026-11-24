@@ -1136,6 +1136,11 @@ func (e *Engine) taskForumFailed(ctx context.Context, p Platform, chat string, i
 		slog.Warn("task forum: missing permission told in the chat channel", "chat", chat, "board_item", it.ID, "error", err)
 		return
 	}
+	if errors.Is(err, ErrPlatformNotReady) {
+		// Not connected yet: every item fails alike until it is; the next sync retries.
+		slog.Debug("task forum: sync waits for the platform", "chat", chat, "board_item", it.ID, "error", err)
+		return
+	}
 	slog.Warn("task forum: sync failed", "chat", chat, "board_item", it.ID, "error", err)
 }
 

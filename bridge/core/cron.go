@@ -740,7 +740,13 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		}
 	}
 
-	slog.Info("cron: executing job", "id", job.ID, "project", job.Project, "manual", manual, "prompt", truncateStr(job.Prompt, 60))
+	// Shell jobs run every minute or so; their routine start/finish lines
+	// filled a quarter of the log. Failures stay at Error below.
+	runLog := slog.Info
+	if job.IsShellJob() {
+		runLog = slog.Debug
+	}
+	runLog("cron: executing job", "id", job.ID, "project", job.Project, "manual", manual, "prompt", truncateStr(job.Prompt, 60))
 
 	done := make(chan error, 1)
 	go func() {
@@ -772,7 +778,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		slog.Error("cron: job failed", "id", job.ID, "manual", manual, "error", err)
 		cs.notifyFailure(job, err)
 	} else {
-		slog.Info("cron: job completed", "id", job.ID, "manual", manual)
+		runLog("cron: job completed", "id", job.ID, "manual", manual)
 	}
 }
 
