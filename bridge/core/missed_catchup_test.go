@@ -39,6 +39,7 @@ type missedPlatform struct {
 	posts  []*Message
 	reads  int
 	afters []string
+	sinces []time.Time
 }
 
 func (p *missedPlatform) MissedMessages(channelID, afterID string, since time.Time) ([]*Message, error) {
@@ -46,6 +47,7 @@ func (p *missedPlatform) MissedMessages(channelID, afterID string, since time.Ti
 	defer p.mu.Unlock()
 	p.reads++
 	p.afters = append(p.afters, afterID)
+	p.sinces = append(p.sinces, since)
 	var out []*Message
 	for _, m := range p.posts {
 		if m.ChannelID == channelID && snowflakeAfter(m.MessageID, afterID) {
@@ -116,6 +118,13 @@ func TestRestartCatchUp_QueuedOnDiskAndMissedAnsweredOnce(t *testing.T) {
 	}
 	if strings.Contains(got[0], "排队的话") {
 		t.Fatalf("message held by the journal answered again: %q", got[0])
+	}
+	if !strings.Contains(got[0], "桥停机时发来") {
+		t.Fatalf("turn does not say it was posted while down: %q", got[0])
+	}
+	// 11-24: down 00:42 to 11:32, the @s from 01:54 must still be read.
+	if since := p.sinces[0]; time.Since(since) < 10*time.Hour {
+		t.Fatalf("catch-up window starts %v ago, a night's downtime is not covered", time.Since(since))
 	}
 	waitCatchUp(t, "last-seen advanced", func() bool { return s.GetLastSeenMsgID() == "203" })
 
