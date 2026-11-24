@@ -6,6 +6,9 @@
 #   ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"   发到这件活的来源聊天频道
 #   ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
 #     用户「我都说工作群返回你要看一眼，结果你他妈就图片跟视频，你看一眼文字你不看」；桥 core/team_report_accept.go）。
+#     工作区随交回带上的成品（ws-up --report --file/--image；ws-up 会把汇报里写了路径、这件活期间写出的成品文档自动当 --file 带上）
+#     由桥跟在文字后面一并贴出，汇报里有链接的文档不发。「要你做的」要用户审/看东西、却既没有随交回的文件也没有链接时，
+#     桥拒绝只放行文字并报错（#1097，11-24「你没发我定稿啊 为什么会这样」；桥 heldReportReviewProblem）。
 #   封面/宣传活（交接提到封面、宣传片、B 站、投稿）：--stitch 顺带出手机大小缩略图并打印 bili-playbook 规则，发送要加 --cover-checked。
 #   交接里有参考材料（参考链接或 ~/work/ref/ 下的图/视频）时必须带 --compare，没有就拦。不合格用 ws-forward 打回。
 #   对照件（#1904）：这件活登记过成品（board stage）时，放行前要有和现在这份成品一致的对照件（board compare <任务号>），
@@ -23,7 +26,7 @@ import board  # noqa: E402
 
 USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
          '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
-         '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
+         '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报，随交回的成品桥一并贴出）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
 MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
@@ -239,7 +242,8 @@ def close_text(rec, path, verdict, nid=0):
     nid = nid or board_id(rec, path)
     if not nid:
         return
-    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
+    # --with-files：这次放行自己带着成品，桥不再拦「要用户审却没东西」（#1097）
+    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict, "--with-files"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode == 0:
         print(f"ws-pass: #{nid} 挂着的文字汇报一并放行，桥已照原文贴出", file=sys.stderr)

@@ -259,6 +259,46 @@ class WsUpTest(unittest.TestCase):
         self.assertNotIn("已报回聊天频道", said)
         self.assertIn("转出", said)
 
+    def test_report_auto_attaches_named_deliverables(self):
+        """#1097（11-24「你没发我定稿啊 为什么会这样」）：汇报正文写了路径、这件活期间写出的成品自动当 --file 带上，
+        不看正文怎么措辞；交接副产物、绑定前的旧文件、git 仓库里的、临时目录里的不带。"""
+        import time
+        notes = self.tmp / "rlt.handoff.md"
+        notes.write_text("# task\n")
+        scratch = self.tmp / "scratch"
+        repo = self.tmp / "repo"
+        for d in (scratch, repo / ".git", self.tmp / "out"):
+            d.mkdir(parents=True)
+        old = self.tmp / "out" / "old.md"
+        old.write_text("旧")
+        os.utime(old, (time.time() - 3600, time.time() - 3600))
+        bound = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - 60))
+        final, raw, tmpdoc, wiki = (self.tmp / "out" / "final-drafts.md", self.tmp / "rlt.handoff.原话.md",
+                                    scratch / "log.md", repo / "page.md")
+        for f in (final, raw, tmpdoc, wiki):
+            f.write_text("x")
+        team = self.setup / "team"
+        team.mkdir()
+        (team / "board.jsonl").write_text(json.dumps(dict(id=1095, where=str(notes), ws="test:900", chat="test:100",
+                                                          bound=bound)) + "\n")
+        self.write_last({str(notes): dict(channel="900", chat="test:100", board=[1095])})
+        draft = self.tmp / "report.md"
+        draft.write_text(f"[report] #1095 背景：两份英文定稿和中文对照已写好。\n细节：\n- 定稿：{final}\n"
+                         f"- 原话 {raw}\n- 旧稿 {old}\n- 草稿 {tmpdoc}\n- wiki {wiki}\n")
+        self.env["TMPDIR"] = str(scratch)
+        r = self.run_tool("ws-up", "--notes", str(notes), "--report", str(draft), key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        send = next(c for c in self.timers() if c[:1] == ["send"] and "📎 随交回带上的成品" in c)
+        self.assertEqual([send[i + 1] for i, a in enumerate(send) if a == "--file"], [str(final)])
+        self.assertIn("自动随交回带上", r.stderr)
+
+        # 话里有链接：沿用 11-10 规则，文档不发
+        draft.write_text(f"[report] #1095 背景：定稿在 https://example.com/pr/1 。\n细节：\n- {final}\n")
+        self.calls.unlink()
+        r = self.run_tool("ws-up", "--notes", str(notes), "--report", str(draft), key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse([c for c in self.timers() if c[:1] == ["send"] and "--file" in c])
+
     def test_ask_handing_user_a_command_goes_back(self):
         """11-10 #1359：提问让用户在终端跑 sudo，桥的同一份规则（report check --self-route）判退回，不交出去。"""
         fake = Path(self.env["CC_BIN"])
