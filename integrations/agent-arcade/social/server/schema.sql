@@ -72,6 +72,19 @@ CREATE TABLE IF NOT EXISTS friend_posts (
   UNIQUE(author,nonce)
 );
 CREATE INDEX IF NOT EXISTS visible_friend_posts ON friend_posts(author,id DESC) WHERE removed_at IS NULL;
+CREATE TABLE IF NOT EXISTS friend_post_images (
+  post INTEGER NOT NULL REFERENCES friend_posts(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 3),
+  mime TEXT NOT NULL CHECK(mime IN ('image/png','image/jpeg')),
+  digest TEXT NOT NULL,
+  bytes BLOB NOT NULL CHECK(length(bytes) BETWEEN 1 AND 4194304),
+  PRIMARY KEY(post,position)
+);
+CREATE TRIGGER IF NOT EXISTS clear_removed_post_images AFTER UPDATE OF removed_at ON friend_posts
+WHEN NEW.removed_at IS NOT NULL
+BEGIN
+  DELETE FROM friend_post_images WHERE post=NEW.id;
+END;
 CREATE TABLE IF NOT EXISTS friend_post_comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   post INTEGER NOT NULL REFERENCES friend_posts(id) ON DELETE CASCADE,

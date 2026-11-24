@@ -262,6 +262,11 @@ function textError(error) {
   if (error.message === 'feed_role_unavailable') return '这位角色暂时无法发表新动态。请稍后再试。';
   if (error.message === 'feed_removed') return '这条动态已删除。再次发布会创建新动态。';
   if (error.message === 'feed_conflict') return '发布编号冲突，请重新打开发布窗口。';
+  if (error.message === 'feed_image_limit') return '每条动态最多 3 张图片，每张不超过 4 MB。';
+  if (error.message === 'feed_upload_busy') return '动态图片上传正忙，请稍后重试。';
+  if (error.message === 'image_format') return '请选择静态 PNG 或 JPEG。';
+  if (error.message === 'image_too_large') return '图片文件或分辨率过大，请选择较小的图片。';
+  if (error.message === 'image_invalid') return '图片损坏、格式不符或含动画，请重新选择。';
   if (error.message === 'ai_cloud_off') return '本段私聊的云聊天已关闭。';
   if (error.message === 'ai_consent_changed') return '云聊天设置已改变，请查看当前状态后再操作。';
   if (error.message === 'ai_provider_confirmation') return '请刷新好友页面或使用新版，再确认 OpenAI（GPT）授权。';
@@ -293,14 +298,15 @@ function textError(error) {
 async function api(route, body, {session = true, expectedAccount, image, voice, fileUpload, timeoutMs=12000} = {}) {
   const epoch = generation;
   const attachment = image || voice || fileUpload;
+  const formData = body instanceof FormData;
   const response = await fetch('./api/v1' + route, {
     method:body === undefined ? 'GET' : 'POST',
     headers:{'X-Social-Claude-UI':'1','X-Social-AI-Friend-Roles':'1',...(expectedAccount && {'X-Social-Account':expectedAccount}),
-      ...(body !== undefined && {'Content-Type':attachment?.mime||'application/json',
+      ...(body !== undefined && !formData && {'Content-Type':attachment?.mime||'application/json',
       ...(attachment && {'X-Social-Client-Id':attachment.clientId}),
       ...(attachment?.revision && {'X-Social-Member-Revision':attachment.revision}),
       ...(fileUpload && {'X-Social-File-Name':encodeURIComponent(fileUpload.name)})})},
-    ...(body !== undefined && {body:attachment?body:JSON.stringify(body)}),
+    ...(body !== undefined && {body:attachment||formData?body:JSON.stringify(body)}),
     credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(timeoutMs)
   });
   const payload = await response.json().catch(() => null);
@@ -727,6 +733,20 @@ async function openFeed(scope) {
   await loadFeed();
 }
 
+const feedImageUrl=(post,position)=>'./api/v1/friend-feed/'+post.id+'/images/'+position;
+
+function openFeedImage(post,position) {
+  const image=el('img',null,'original-image');
+  image.alt='动态原图 '+position;
+  const status=el('p',null,'minor');status.setAttribute('role','status');
+  image.addEventListener('error',()=>{
+    image.hidden=true;
+    status.textContent='这张动态原图已不可查看，请刷新动态。';
+  },{once:true});
+  openDialog('动态原图',[image,status]);
+  image.src=feedImageUrl(post,position);
+}
+
 function feedPost(post) {
   const entry=el('article',null,'feed-post');
   entry.dataset.author=post.author.number;
@@ -738,10 +758,23 @@ function feedPost(post) {
   head.append(avatar(post.author.displayName,post.author.number),identity);
   if(post.author.number===user.number)head.append(button('删除',()=>confirmDeletePost(post),'report-action'));
   else head.append(button('举报动态',()=>showContentReport({
-    kind:'动态',text:post.text,author:post.author,path:'/friend-feed/'+post.id+'/report',
+    kind:'动态',text:post.text||'含 '+(post.images?.length??0)+' 张图片',author:post.author,path:'/friend-feed/'+post.id+'/report',
     available:()=>tab==='feed'&&entry.isConnected,
+    ...(post.images?.length&&{guidance:'举报会保存这条动态的正文和你填写的原因。请在原因里注明涉及的图片编号。'}),
   }),'report-action'));
-  entry.append(head,el('p',post.text,'feed-post__body'));
+  entry.append(head);
+  if(post.text)entry.append(el('p',post.text,'feed-post__body'));
+  if(post.images?.length){
+    const gallery=el('div',null,'feed-images');
+    for(const {position} of post.images){
+      const view=button('',()=>openFeedImage(post,position),'feed-image-button');
+      view.setAttribute('aria-label','查看第 '+position+' 张原图');
+      const thumbnail=el('img');
+      thumbnail.alt='';thumbnail.loading='lazy';thumbnail.src=feedImageUrl(post,position);
+      view.append(thumbnail);gallery.append(view);
+    }
+    entry.append(gallery);
+  }
   if(Array.isArray(post.recentComments)){
     const comments=el('div',null,'post-comments');
     for(const row of post.recentComments){
@@ -856,33 +889,119 @@ function showPostComposer() {
   const account=user.number, epoch=generation;
   const form=el('form'), label=el('label','动态正文'), input=el('textarea');
   const author=el('p','发布账号 '+user.displayName+'（'+account+'）','feed-composer-author');
-  const note=el('p','你和当前好友可见。以后互加的好友也能查看仍保留的动态。最多 1000 字。','minor');
+  const note=el('p','文字和图片可以单独发。最多 1000 字、3 张静态 PNG 或 JPEG，每张不超过 4 MB。'+
+    '你和当前好友可见。以后互加的好友也能查看仍保留的动态原图；原图可能含拍摄时间或位置。','minor');
+  const files=el('input');files.type='file';files.multiple=true;files.accept='image/png,image/jpeg';
+  const fileLabel=el('label','添加图片');fileLabel.append(files);
+  const gallery=el('div',null,'feed-images');
   const submit=el('button','发布动态','primary');submit.type='submit';
-  input.id='post-content';input.required=true;input.maxLength=2000;
+  const cancel=button('取消',closeDialog);
+  const actions=el('div',null,'actions');actions.append(cancel,submit);
+  input.id='post-content';input.maxLength=2000;
   note.id='post-visibility';
   input.setAttribute('aria-describedby',note.id);
-  input.addEventListener('input',()=>input.setCustomValidity(Array.from(input.value.trim()).length>1000?'动态最多 1000 字。':''));
   input.value=postAttemptFor(account)?.text||'';
   label.htmlFor=input.id;
-  form.append(author,label,input,note,submit);
+  form.append(author,label,input,fileLabel,note,gallery,actions);
   const scope=openDialog('发动态',[form]);
+  const current=()=>scope===dialogGeneration&&epoch===generation;
+  const status=$('#dialog-error');
+  let selected=[], imageAttempt, reading=false;
   input.focus();
+
+  function renderPreviews(){
+    gallery.replaceChildren();
+    selected.forEach(({url},index)=>{
+      const tile=el('div',null,'feed-image-preview'), preview=el('img');
+      preview.alt='所选图片 '+(index+1);preview.src=url;
+      const remove=button('移除',()=>{
+        if(reading||files.disabled)return;
+        selected=selected.filter((_,position)=>position!==index);
+        status.textContent='';
+        renderPreviews();
+        (gallery.children[index]?.querySelector('button')??files).focus();
+      });
+      remove.setAttribute('aria-label','移除第 '+(index+1)+' 张图片');
+      tile.append(preview,remove);gallery.append(tile);
+    });
+  }
+
+  input.addEventListener('input',()=>input.setCustomValidity(Array.from(input.value.trim()).length>1000?'动态最多 1000 字。':''));
+  files.addEventListener('change',async()=>{
+    const picked=[...files.files];files.value='';
+    if(!picked.length)return;
+    status.textContent='';
+    if(selected.length+picked.length>3){
+      status.textContent='每条动态最多 3 张图片。';
+      return;
+    }
+    reading=files.disabled=submit.disabled=true;
+    try{
+      const additions=[];
+      for(const file of picked){
+        if(!file.size||file.size>4*1024*1024)throw Error('图片须在 4 MB 以内。');
+        if(!['image/png','image/jpeg'].includes(file.type))throw Error('请选择静态 PNG 或 JPEG。');
+        const url=await readImageData(file);
+        if(!current())return;
+        const image=new Image();image.src=url;
+        try{await image.decode();}catch{throw Error('无法打开所选图片，请重新选择。');}
+        if(!current())return;
+        additions.push({file,url});
+      }
+      selected=[...selected,...additions];
+      renderPreviews();
+      files.disabled=false;
+      files.focus();
+    }catch(error){
+      if(current())status.textContent=error.message;
+    }finally{
+      reading=files.disabled=submit.disabled=false;
+    }
+  });
+
   form.addEventListener('submit',event=>{
     event.preventDefault();
+    if(!current()||submit.disabled)return;
     const text=input.value.trim();
-    if(!text||scope!==dialogGeneration||epoch!==generation||submit.disabled)return;
+    if(!text&&!selected.length){
+      status.textContent='请填写正文或添加图片。';
+      return;
+    }
     const draft=postAttemptFor(account);
-    const attempt=draft?.text===text?draft:{text,expectedAccount:account,clientId:clientNonce()};
-    savePostAttempt(attempt);
+    const attempt=selected.length?
+      imageAttempt?.selection===selected&&imageAttempt.text===text?imageAttempt:
+        {text,selection:selected,expectedAccount:account,clientId:clientNonce()}:
+      draft?.text===text?draft:{text,expectedAccount:account,clientId:clientNonce()};
+    if(selected.length)imageAttempt=attempt;
+    else savePostAttempt(attempt);
+    input.readOnly=files.disabled=cancel.disabled=true;
+    const removals=gallery.querySelectorAll('button');
+    removals.forEach(control=>control.disabled=true);
     void perform(async()=>{
-      try { await api('/friend-feed',attempt); }
-      catch(error) {
-        if(epoch===generation&&pendingPost===attempt&&['feed_removed','feed_conflict'].includes(error.message))savePostAttempt(null);
+      try{
+        if(attempt.selection){
+          const upload=new FormData();
+          upload.append('text',text);
+          upload.append('expectedAccount',account);
+          upload.append('clientId',attempt.clientId);
+          for(const {file} of attempt.selection)
+            upload.append('images',file,file.type==='image/png'?'image.png':'image.jpg');
+          await api('/friend-feed',upload,{expectedAccount:account,timeoutMs:60000});
+        }else await api('/friend-feed',attempt);
+      }catch(error){
+        if(epoch===generation&&['feed_removed','feed_conflict'].includes(error.message)){
+          if(pendingPost===attempt)savePostAttempt(null);
+          if(imageAttempt===attempt)imageAttempt=undefined;
+        }
         throw error;
+      }finally{
+        input.readOnly=files.disabled=cancel.disabled=false;
+        removals.forEach(control=>control.disabled=false);
       }
       if(epoch!==generation)return;
-      if(pendingPost===attempt)savePostAttempt(null);
-      if(scope===dialogGeneration)closeDialog();
+      if(pendingPost===attempt||attempt.selection&&draft&&postAttemptFor(account)?.clientId===draft.clientId)
+        savePostAttempt(null);
+      if(current())closeDialog();
       if(tab==='feed')await loadFeed(null,'动态已发布。');
     },submit,scope);
   });
@@ -3200,7 +3319,7 @@ function showMessageReport(message) {
   showContentReport({kind:'消息',text:message.text,available,path:thread(id)+'/messages/'+message.id+'/report',
     context:{chatId:id,messageId:message.id},attachmentType:message.attachment?.type});
 }
-function showContentReport({kind,text,author,path,available,context,attachmentType}) {
+function showContentReport({kind,text,author,path,available,context,attachmentType,guidance}) {
   if(!user||!available())return;
   const account=user.number, epoch=generation;
   const form=el('form'), label=el('label','举报原因'), input=el('textarea');
@@ -3224,7 +3343,7 @@ function showContentReport({kind,text,author,path,available,context,attachmentTy
     form.append(option,description);
   }
   form.append(submit);
-  const guidance=author?'运营方会审核这条动态和你填写的原因。举报副本将留作审核。':
+  guidance??=author?'运营方会审核这条动态和你填写的原因。举报副本将留作审核。':
     '运营方会审核这条消息和你填写的原因。普通问题或建议请用「意见反馈」。';
   const items=[policyLink('内容准则','./conduct.html#reporting')];
   if(author)items.push(el('p',author.displayName+'（'+author.number+'）','minor'));

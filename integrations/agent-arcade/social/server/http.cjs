@@ -22,7 +22,7 @@ const {createAiFeed} = require('./ai-feed.cjs');
 
 const {createAiProactive} = require('./ai-proactive.cjs');
 const {readFileUpload}=require('./file-upload.cjs');
-const {readImageUpload,readAvatarUpload} = require('./image-upload.cjs');
+const {readImageUpload,readAvatarUpload,readFeedPostUpload} = require('./image-upload.cjs');
 const {bundledSticker,bundledStickerOptions}=require('./bundled-stickers.cjs');
 const {readVoiceUpload} = require('./voice-upload.cjs');
 const {createAiVoice} = require('./ai-voice.cjs');
@@ -464,6 +464,24 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
         if(req.headers['x-social-account']!==account)fail(409,'voice_session','账号已切换，请重新打开会话');
         const file=store.messageVoice(account,chat,message);
         res.setHeader('Content-Type','audio/wav');
+        res.setHeader('Content-Length',file.bytes.byteLength);
+        res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+        return res.end(file.bytes);
+      }
+      if(key==='friend-feed'&&req.method==='POST'&&
+          req.headers['content-type']?.split(';')[0].trim().toLowerCase()==='multipart/form-data'){
+        const account=current(store,req);
+        if(req.headers['x-social-account']!==account)fail(409,'feed_session','账号已切换，请重新打开好友动态');
+        const {body,images}=await readFeedPostUpload(req);
+        if(current(store,req)!==account)fail(409,'feed_session','账号已切换，请重新打开好友动态');
+        const post=store.transaction(()=>store.publishFriendPost(account,body,images));
+        res.setHeader('Content-Type','application/json; charset=utf-8');
+        return res.end(JSON.stringify({post}));
+      }
+      if(collection==='friend-feed'&&parts.length===4&&action==='images'&&req.method==='GET'){
+        const account=current(store,req);
+        const file=store.friendPostImage(account,chat,message);
+        res.setHeader('Content-Type',file.mime);
         res.setHeader('Content-Length',file.bytes.byteLength);
         res.setHeader('Cross-Origin-Resource-Policy','same-origin');
         return res.end(file.bytes);

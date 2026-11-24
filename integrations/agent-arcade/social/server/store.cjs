@@ -269,7 +269,7 @@ class SocialStore {
       ORDER BY p.id DESC LIMIT $limit`,{$viewer:a,$includeOthers:Number(scope==='friends'),$cursor:cursor,$limit:feedPageSize+1});
     return {
       account:a,
-      posts:rows.slice(0,feedPageSize).map(({id,body,created,...author})=>({id,text:body,createdAt:created,author})),
+      posts:rows.slice(0,feedPageSize).map(({id,body,created,...author})=>this.friendPostView(id,body,created,author)),
       nextBefore:rows.length>feedPageSize?rows[feedPageSize-1].id:null,
     };
   }
@@ -278,24 +278,38 @@ class SocialStore {
       WHERE p.id=$id AND p.removed_at IS NULL`,{$viewer:viewer,$includeOthers:1,$id:id});
     return row&&{id:row.id,author:{number:row.number,kind:row.kind}};
   }
-  publishFriendPost(a,body) {
+  friendPostView(id,text,createdAt,author) {
+    const images=this.all('SELECT position FROM friend_post_images WHERE post=? ORDER BY position',id);
+    return {id,text,createdAt,author,...(images.length&&{images})};
+  }
+  friendPostImage(viewer,id,position) {
+    const visible=isPostId(id)&&/^[1-3]$/.test(position)&&this.visibleFriendPost(viewer,id);
+    const image=visible&&this.one('SELECT mime,bytes FROM friend_post_images WHERE post=? AND position=?',id,position);
+    if(!image)fail(404,'unknown_post_image','这张动态原图已不可查看');
+    return image;
+  }
+  publishFriendPost(a,body,images=[]) {
     if(body.expectedAccount!==a)fail(409,'feed_session','账号已切换，请重新打开好友动态');
     const author=this.user(a);
     if(author.kind!=='human')fail(403,'feed_human_only','此入口仅供真人账号发布');
     if(Object.keys(body).some(key=>!['clientId','text','expectedAccount'].includes(key))||
         typeof body.clientId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/u.test(body.clientId))
       fail(400,'feed_request','发布请求无效');
-    const text=string(body.text,1000,'动态');
+    const text=images.length&&typeof body.text==='string'&&!body.text.trim()?'':string(body.text,1000,'动态');
     const existing=this.one('SELECT id,body,created,removed_at FROM friend_posts WHERE author=? AND nonce=?',a,body.clientId);
     if(existing) {
       if(existing.removed_at)fail(409,'feed_removed','这条动态已经删除');
-      if(existing.body!==text)fail(409,'feed_conflict','此编号已用于另一条动态');
-      return {id:existing.id,text,createdAt:existing.created,author};
+      const saved=this.all('SELECT digest FROM friend_post_images WHERE post=? ORDER BY position',existing.id);
+      if(existing.body!==text||saved.length!==images.length||saved.some(({digest},index)=>digest!==images[index].digest))
+        fail(409,'feed_conflict','此编号已用于另一条动态');
+      return this.friendPostView(existing.id,text,existing.created,author);
     }
     const createdAt=now();
     const {lastInsertRowid:id}=this.run('INSERT INTO friend_posts(author,nonce,body,created) VALUES(?,?,?,?)',
       a,body.clientId,text,createdAt);
-    return {id,text,createdAt,author};
+    images.forEach(({mime,bytes,digest},index)=>this.run(
+      'INSERT INTO friend_post_images(post,position,mime,digest,bytes) VALUES(?,?,?,?,?)',id,index+1,mime,digest,bytes));
+    return this.friendPostView(id,text,createdAt,author);
   }
   deleteFriendPost(a,id,body) {
     if(body.expectedAccount!==a)fail(409,'feed_session','账号已切换，请重新打开好友动态');

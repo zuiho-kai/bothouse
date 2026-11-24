@@ -207,6 +207,13 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 .post-comments button{margin-top:4px}
 @media(max-width:600px){.post-comments{margin-inline-start:0}}
 .feed-post__body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;padding-inline-start:52px}
+.feed-images{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.feed-post .feed-images{margin-inline-start:52px;max-width:450px}
+.feed-image-button,.feed-image-preview{min-width:0}
+.feed-image-button{padding:2px;display:block}
+.feed-images img{display:block;width:100%;aspect-ratio:1;object-fit:contain;border-radius:6px}
+.feed-image-preview button{width:100%;margin-top:4px}
+@media(max-width:680px){.feed-post .feed-images{margin-inline-start:0}}
 #older-posts{margin-top:16px}
 .feed-composer-author{color:var(--muted);font-size:.85rem;overflow-wrap:anywhere}
 #post-content{min-height:7rem;resize:vertical}
