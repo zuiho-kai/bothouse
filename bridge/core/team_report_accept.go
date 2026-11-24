@@ -167,6 +167,7 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 	if mentionUser != "" {
 		e.recordHumanMention(chatKey, mentionUser, rec.Board)
 	}
+	e.postChatItems(sendCtx, p, rc, rec.Body) // #1949: same rule when the record could not be kept
 	if !refGated(item) {
 		e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
 	}
@@ -502,6 +503,9 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	if mentionUser != "" {
 		e.recordHumanMention(chatKey, mentionUser, cp.Board)
 	}
+	// #1949: both posting paths (the lead's pass and the unchecked timeout copy) go through here;
+	// the 「材料逐条：」 block is read in the channel, right after the four parts.
+	e.postChatItems(sendCtx, p, rc, cp.Body)
 	heldReportImages.mu.Lock()
 	imgs, files := heldReportImages.m[key], heldReportImages.files[key]
 	delete(heldReportImages.m, key)
