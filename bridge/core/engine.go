@@ -1900,7 +1900,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
 	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
 	var proactiveIDs []string
-	if ob := e.outbox(); !job.IsShellJob() && ob != nil {
+	if ob := e.outbox(); !job.IsShellJob() && !job.IsEventJob() && ob != nil {
 		if ok, why := ob.admit(job, proactiveChat(job.SessionKey)); !ok {
 			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
 			return nil
@@ -1912,7 +1912,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		job, proactiveIDs = merged, ids
 	}
 	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2299,7 +2299,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		slog.Info("timer: test job runs muted", "job", job.ID, "desc", job.Description)
 	}
 	check := !job.Mute && !job.Handoff && job.resume == nil && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2913,6 +2913,9 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	if e.dataDir != "" {
 		// Shell jobs need the same authoritative storage root as interactive role sessions.
 		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
+	if len(job.eventEnv) > 0 {
+		shellCmd.Env = append(shellCmd.Environ(), job.eventEnv...)
 	}
 
 	stdout, err := shellCmd.StdoutPipe()
@@ -3866,7 +3869,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	if e.checkTurnAuthorization(msg.authorization, "tool.execute") == nil {
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventMessageReceived,
 			SessionKey: msg.SessionKey,
 			Platform:   msg.Platform,
@@ -5960,7 +5963,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	if err != nil {
 		slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventError,
 			SessionKey: sessionKey,
 			Platform:   p.Name(),
@@ -6035,7 +6038,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionStarted,
 		SessionKey: sessionKey,
 		Platform:   p.Name(),
@@ -6498,7 +6501,7 @@ func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSessio
 	agentID := agentSession.CurrentSessionID()
 	// maomao fork: tell hooks once the process is gone (sub bots export + ingest their wiki here, like 橘's
 	// SessionEnd hook; user 2026-10-20 「让他们和你一样的待遇，不要区分」)
-	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
+	defer e.emitEvent(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
 	done := closed
@@ -8207,7 +8210,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if event.Error != nil {
 				errMsg := event.Error.Error()
 				slog.Error("agent error", "error", event.Error)
-				e.hooks.Emit(HookEvent{
+				e.emitEvent(HookEvent{
 					Event:      HookEventError,
 					SessionKey: turn.sessionKey,
 					Platform:   p.Name(),
@@ -8397,7 +8400,7 @@ channelClosed:
 		}
 
 		if turn.input == nil {
-			e.hooks.Emit(HookEvent{
+			e.emitEvent(HookEvent{
 				Event:      HookEventMessageSent,
 				SessionKey: turn.sessionKey,
 				Platform:   p.Name(),
@@ -13083,7 +13086,7 @@ func (e *Engine) stopInteractiveStateWithQueue(sessionKey string, want *interact
 		slog.Info("agent session turn cancelled, session kept alive",
 			"session_key", sessionKey)
 
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventSessionEnded,
 			SessionKey: sessionKey,
 		})
@@ -13128,7 +13131,7 @@ normalCleanup:
 		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 	}
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionEnded,
 		SessionKey: sessionKey,
 	})
@@ -14536,7 +14539,7 @@ func (e *Engine) resolveOutboundSessionTarget(sessionKey string, hasAttachments 
 // sendPermissionPrompt sends a permission prompt with interactive buttons when
 // the platform supports them. Fallback chain: InlineButtonSender → CardSender → plain text.
 func (e *Engine) sendPermissionPrompt(p Platform, replyCtx any, prompt, toolName, toolInput string) {
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:    HookEventPermissionRequested,
 		Platform: p.Name(),
 		Content:  prompt,

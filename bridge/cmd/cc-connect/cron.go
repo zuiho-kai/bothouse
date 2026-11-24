@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -32,6 +33,8 @@ func runCron(args []string) {
 		runCronExec(args[1:])
 	case "del", "delete", "rm", "remove":
 		runCronDel(args[1:])
+	case "fire":
+		runCronFire(args[1:])
 	case "--help", "-h", "help":
 		printCronUsage()
 	default:
@@ -57,7 +60,7 @@ func closeCronResponseBody(body io.Closer) {
 }
 
 func runCronAdd(args []string) {
-	var project, sessionKey, cronExpr, prompt, execCmd, desc, dataDir, sessionMode string
+	var project, sessionKey, cronExpr, prompt, execCmd, desc, dataDir, sessionMode, event, match string
 	var timeoutMins *int
 	var silent, mute, poll bool
 
@@ -83,6 +86,16 @@ func runCronAdd(args []string) {
 			if i+1 < len(args) {
 				i++
 				prompt = args[i]
+			}
+		case "--event", "-e":
+			if i+1 < len(args) {
+				i++
+				event = args[i]
+			}
+		case "--match":
+			if i+1 < len(args) {
+				i++
+				match = args[i]
 			}
 		case "--exec":
 			if i+1 < len(args) {
@@ -137,7 +150,7 @@ func runCronAdd(args []string) {
 	}
 
 	// If cron expr not provided via --cron, try positional: first 5 fields are cron, rest is prompt/exec
-	if cronExpr == "" && len(positional) >= 6 {
+	if event == "" && cronExpr == "" && len(positional) >= 6 {
 		cronExpr = strings.Join(positional[:5], " ")
 		if prompt == "" && execCmd == "" {
 			prompt = strings.Join(positional[5:], " ")
@@ -146,8 +159,8 @@ func runCronAdd(args []string) {
 		prompt = strings.Join(positional, " ")
 	}
 
-	if cronExpr == "" || (prompt == "" && execCmd == "") {
-		fmt.Fprintln(os.Stderr, "Error: cron expression and either --prompt or --exec are required")
+	if (cronExpr == "" && event == "") || (prompt == "" && execCmd == "") {
+		fmt.Fprintln(os.Stderr, "Error: a cron expression or --event, and either --prompt or --exec, are required")
 		printCronAddUsage()
 		os.Exit(1)
 	}
@@ -170,9 +183,18 @@ func runCronAdd(args []string) {
 		"project":     project,
 		"session_key": sessionKey,
 		"cron_expr":   cronExpr,
+		"event":       event,
 		"prompt":      prompt,
 		"exec":        execCmd,
 		"description": desc,
+	}
+	if match != "" {
+		m, err := parseMatchArg(match)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		body["match"] = m
 	}
 	if silent {
 		body["silent"] = true
@@ -210,7 +232,11 @@ func runCronAdd(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Cron job created: %s\n", result["id"])
-	fmt.Printf("Schedule: %s\n", result["cron_expr"])
+	if ev, _ := result["event"].(string); ev != "" {
+		fmt.Printf("On event: %s\n", ev)
+	} else {
+		fmt.Printf("Schedule: %s\n", result["cron_expr"])
+	}
 	if execCmd != "" {
 		fmt.Printf("Command: %s\n", result["exec"])
 	} else {
@@ -290,6 +316,19 @@ func runCronList(args []string) {
 		}
 		id, _ := j["id"].(string)
 		expr, _ := j["cron_expr"].(string)
+		if ev, _ := j["event"].(string); ev != "" {
+			expr = "on " + ev
+			if m, ok := j["match"].(map[string]any); ok && len(m) > 0 {
+				keys := make([]string, 0, len(m))
+				for k := range m {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					expr += fmt.Sprintf(" %s=%v", k, m[k])
+				}
+			}
+		}
 		prompt, _ := j["prompt"].(string)
 		execCmd, _ := j["exec"].(string)
 		desc, _ := j["description"].(string)
@@ -654,7 +693,10 @@ Examples:
   bothouse cron add --cron "0 6 * * *" --prompt "Collect GitHub trending data" --desc "Daily Trending"
   bothouse cron add --cron "*/30 * * * *" --exec "df -h" --desc "Disk usage check"
   bothouse cron add --cron "0 9 * * *" --prompt "Daily standup reminder" --silent
-  bothouse cron add 0 6 * * * Collect GitHub trending data and send me a summary`)
+  bothouse cron add 0 6 * * * Collect GitHub trending data and send me a summary
+  bothouse cron add --event workspace.report --match board=1937 --prompt "Look at the report"
+
+Events fire with "bothouse cron fire <name> [k=v ...] [--text <text>]" or POST /events.`)
 }
 
 func printCronExecUsage() {
@@ -707,4 +749,78 @@ Examples:
   bothouse cron edit abc123 description "Daily standup reminder"
   bothouse cron edit abc123 timeout_mins 60
   bothouse cron edit abc123 mute true`)
+}
+
+func parseMatchArg(s string) (map[string]string, error) {
+	m := map[string]string{}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			return nil, fmt.Errorf("--match wants k=v pairs, got %q", part)
+		}
+		m[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	return m, nil
+}
+
+// runCronFire fires an event: every event job it matches runs now (core/cron_event.go).
+func runCronFire(args []string) {
+	var name, text, dataDir string
+	fields := map[string]any{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--text":
+			if i+1 < len(args) {
+				i++
+				text = args[i]
+			}
+		case "--data-dir":
+			if i+1 < len(args) {
+				i++
+				dataDir = args[i]
+			}
+		case "--help", "-h":
+			fmt.Println("Usage: bothouse cron fire <event> [k=v ...] [--text <text>]\n\nFire an event now: every `cron add --event` job it matches runs.")
+			return
+		default:
+			if k, v, ok := strings.Cut(args[i], "="); ok && name != "" {
+				fields[k] = v
+			} else if name == "" {
+				name = args[i]
+			}
+		}
+	}
+	if name == "" {
+		fmt.Fprintln(os.Stderr, "Error: event name is required")
+		os.Exit(1)
+	}
+	sockPath := resolveSocketPath(dataDir)
+	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: bothouse is not running (socket not found: %s)\n", sockPath)
+		os.Exit(1)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"type": name, "project": os.Getenv("CC_PROJECT"), "session_key": envSessionKey(),
+		"source": "cli", "text": text, "data": fields,
+	})
+	resp, err := apiPost(sockPath, "/events", payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeCronResponseBody(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", strings.TrimSpace(string(body)))
+		os.Exit(1)
+	}
+	var r struct {
+		Triggered int `json:"triggered"`
+	}
+	_ = json.Unmarshal(body, &r)
+	fmt.Printf("Event %s fired; %d job(s) started\n", name, r.Triggered)
 }

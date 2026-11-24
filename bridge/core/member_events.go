@@ -125,7 +125,7 @@ func (e *Engine) OnPlatformEvent(p Platform, ev PlatformEvent) {
 		text += " " + ev.GuildName
 	}
 	e.emitStreamEvent(StreamEventPlatform, ev.SessionKey, text, data)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event: ev.Name, Timestamp: time.Now(), SessionKey: ev.SessionKey, Platform: p.Name(),
 		UserID: ev.UserID, UserName: who, GuildID: ev.GuildID, GuildName: ev.GuildName,
 		ChannelID: ev.ChannelID, ChannelName: ev.ChannelName, Extra: data,

@@ -80,10 +80,13 @@ const PermSendMessages = "发送消息 (Send Messages)"
 // TaskForum identifies a category's forum. Empty CategoryID is a legacy
 // server-wide mapping, retained only for already published posts.
 type TaskForum struct {
-	ID         string            `json:"id"`
-	GuildID    string            `json:"guild"`
-	CategoryID string            `json:"category,omitempty"`
-	Tags       map[string]string `json:"tags"`
+	ID         string `json:"id"`
+	GuildID    string `json:"guild"`
+	CategoryID string `json:"category,omitempty"`
+	// Channel: a private chat channel's posts are threads in that channel (ID is the channel),
+	// so only people who can see the channel see them (user 11-24「如果是那种私人频道的话」变私密帖).
+	Channel string            `json:"channel,omitempty"`
+	Tags    map[string]string `json:"tags"`
 }
 
 var ErrTaskForumCategoryRequired = errors.New("task forum: source chat must belong to a category")
@@ -96,6 +99,9 @@ func (f TaskForum) scopeKey(platform string) string {
 	key := platform + ":" + f.GuildID
 	if f.CategoryID != "" {
 		key += ":" + f.CategoryID
+	}
+	if f.Channel != "" {
+		key += ":" + f.Channel
 	}
 	return key
 }
@@ -182,6 +188,41 @@ type taskForumRuntime struct {
 	checkedForums map[string]bool // reconciled once per process, including forums remembered before this version
 	mu            sync.Mutex
 	state         taskForumState
+	// failedOpen: chat → its last failed post open. A chat whose posts cannot be opened waits
+	// 1, 2, 4 … up to 60 minutes before the next try, so it does not hit Discord every pass and
+	// never holds up the other chats (user 11-24「人多了迟早会炸」).
+	failedOpen map[string]taskForumOpenFailure
+}
+
+type taskForumOpenFailure struct {
+	at    time.Time
+	times int
+}
+
+func (t *taskForumRuntime) openBackoff(chat string, now time.Time) bool {
+	f, ok := t.failedOpen[chat]
+	return ok && now.Before(f.at.Add(taskForumOpenWait(f.times)))
+}
+
+func (t *taskForumRuntime) openFailed(chat string, now time.Time) {
+	if t.failedOpen == nil {
+		t.failedOpen = map[string]taskForumOpenFailure{}
+	}
+	f := t.failedOpen[chat]
+	t.failedOpen[chat] = taskForumOpenFailure{at: now, times: f.times + 1}
+}
+
+func (t *taskForumRuntime) openOK(chat string) { delete(t.failedOpen, chat) }
+
+func taskForumOpenWait(times int) time.Duration {
+	wait := time.Minute
+	for i := 1; i < times && wait < time.Hour; i++ {
+		wait *= 2
+	}
+	if wait > time.Hour {
+		wait = time.Hour
+	}
+	return wait
 }
 
 // taskForumRuntimes: team dir → its runtime, shared by every engine of the team in this process.
@@ -231,15 +272,13 @@ func (e *Engine) taskForumLoadLocked() *taskForumState {
 	return s
 }
 
-// taskForumSnapshot reads the team's state file without the forum lock, for readers that must
-// never wait behind a sync talking to the platform. Saves replace the file atomically.
-func (e *Engine) taskForumSnapshot() *taskForumState {
-	s := &taskForumState{}
+// taskForumReadSaved reads the post map as last saved, without the lock (the file is replaced
+// atomically, so a reader sees one whole version).
+func (e *Engine) taskForumReadSaved() taskForumState {
+	var s taskForumState
 	if path := e.taskForumPath(); path != "" {
 		if raw, err := os.ReadFile(path); err == nil {
-			if err := json.Unmarshal(raw, s); err != nil {
-				slog.Warn("task forum: bad state file", "path", path, "error", err)
-			}
+			_ = json.Unmarshal(raw, &s)
 		}
 	}
 	return s
@@ -698,11 +737,6 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 	remembered := s.Forums[g].ID
 	f, err := poster.EnsureTaskForum(ctx, id, remembered, taskForumTags)
 	if err != nil {
-		if f.ID != "" && f.ID != remembered { // created, but its tags failed: remember it, never create a second
-			s.Forums[f.scopeKey(plat)] = f
-			s.Chats[chat] = f.scopeKey(plat)
-			e.taskForumSaveLocked()
-		}
 		return TaskForum{}, err
 	}
 	g = f.scopeKey(plat)
@@ -884,6 +918,9 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 			return true, false
 		}
 	} else {
+		if e.taskForumRT().openBackoff(chat, now) {
+			return adopted, false // this chat failed to open a post a moment ago: other chats go on
+		}
 		forum, err = e.taskForumForumLocked(ctx, s, poster, plat, chat, false)
 		if main := chatOf(teamMainChat(e.dataDir)); errors.Is(err, ErrTaskForumWorkspaceCategory) && main != "" && main != chat {
 			// No source chat recorded, only its workspace: post in the main chat's category forum.
@@ -892,6 +929,9 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 		}
 	}
 	if err != nil {
+		if ps == nil || ps.Thread == "" {
+			e.taskForumRT().openFailed(chat, now)
+		}
 		e.taskForumFailed(ctx, p, chat, it, err)
 		return adopted, false
 	}
@@ -902,9 +942,11 @@ func (e *Engine) taskForumApplyLocked(s *taskForumState, it teamTaskBoardItem, t
 	if ps == nil || ps.Thread == "" {
 		id, err := poster.OpenTaskPost(ctx, forum, post)
 		if err != nil {
+			e.taskForumRT().openFailed(chat, now)
 			e.taskForumFailed(ctx, p, chat, it, err)
 			return false, false
 		}
+		e.taskForumRT().openOK(chat)
 		// The post was just opened with this card and tag; edit once to apply them on a found post.
 		if err := poster.UpdateTaskPost(ctx, forum, id, post); err != nil {
 			slog.Warn("task forum: first edit failed", "board_item", it.ID, "thread", id, "error", err)

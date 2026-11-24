@@ -216,37 +216,50 @@ func TestTaskForumReplyQueueKeepsPostReceiptsSeparate(t *testing.T) {
 	}
 }
 
-// One channel's forum sync stuck on the platform (it holds the forum lock, agentm 11-24: 6 hours)
-// must not hold up another channel's messages: the reply lookup never takes that lock.
-func TestTaskForumReplyLookupDoesNotWaitForStuckSync(t *testing.T) {
+// A sync pass holds the task-post lock while it waits on Discord; a message in a post must still
+// be routed (agentm 11-24: every message stalled behind a pass waiting on a closed bucket).
+func TestTaskForumReplyLookupDoesNotWaitOnSync(t *testing.T) {
 	e, _, dir := forumTestEngine(t)
-	state := taskForumState{Forums: map[string]TaskForum{"discord:g": {ID: "forum", GuildID: "g"}}, Posts: map[string]*taskForumPostState{"779": {Platform: "discord", Guild: "g", Thread: "post"}}}
+	state := taskForumState{Forums: map[string]TaskForum{"discord:g:C:priv": {ID: "priv", GuildID: "g", CategoryID: "C", Channel: "priv"}}, Posts: map[string]*taskForumPostState{"5": {Platform: "discord", Guild: "g", Forum: "priv", Thread: "post", Chat: "discord:priv"}}}
 	raw, _ := json.Marshal(state)
 	if err := os.WriteFile(filepath.Join(dir, taskForumFile), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 5, Chat: "discord:priv"})
 	rt := e.taskForumRT()
-	rt.mu.Lock() // the sync of another channel's forum, asleep on the platform
+	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	type res struct {
-		r     *TaskForumReply
-		known bool
-	}
-	done := make(chan res, 2)
-	go func() {
-		r, k := e.ResolveTaskForumReply("discord", "g", "", "plain-channel-message")
-		done <- res{r, k}
-	}()
-	go func() { r, k := e.ResolveTaskForumReply("discord", "g", "forum", "post"); done <- res{r, k} }()
-	for i := 0; i < 2; i++ {
-		select {
-		case got := <-done:
-			if got.known && (got.r == nil || got.r.Board != 779) {
-				t.Fatalf("route=%+v", got.r)
-			}
-		case <-time.After(3 * time.Second):
-			t.Fatal("a message waited for the stuck forum sync")
+	done := make(chan bool, 1)
+	go func() { _, known := e.ResolveTaskForumReply("discord", "g", "priv", "post"); done <- known }()
+	select {
+	case known := <-done:
+		if !known {
+			t.Fatal("a thread in a private channel must route to its task")
 		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reply lookup waited on the sync lock")
+	}
+}
+
+// One chat that cannot open posts waits 1, 2, 4 … 60 minutes; another chat is not held up.
+func TestTaskForumOpenBackoffPerChat(t *testing.T) {
+	rt := &taskForumRuntime{}
+	now := time.Now()
+	rt.openFailed("discord:a", now)
+	if !rt.openBackoff("discord:a", now.Add(30*time.Second)) || rt.openBackoff("discord:a", now.Add(61*time.Second)) {
+		t.Fatal("first failure waits one minute")
+	}
+	if rt.openBackoff("discord:b", now) {
+		t.Fatal("another chat must not wait")
+	}
+	for i := 0; i < 10; i++ {
+		rt.openFailed("discord:a", now)
+	}
+	if !rt.openBackoff("discord:a", now.Add(59*time.Minute)) || rt.openBackoff("discord:a", now.Add(61*time.Minute)) {
+		t.Fatal("wait is capped at an hour")
+	}
+	rt.openOK("discord:a")
+	if rt.openBackoff("discord:a", now) {
+		t.Fatal("a success clears the wait")
 	}
 }

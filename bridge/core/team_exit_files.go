@@ -324,8 +324,11 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []
 	slog.Info("team exit: documents posted with the exit", "files", sent, "of", len(files))
 }
 
-// reportDocClaimRe: the user-facing part says a document was produced.
-var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|report|document)|(报告|文档|文稿|纪要|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
+// reportDocClaimRe: the user-facing part says a document was produced. #1097 (11-24): #1095
+// said 「两份英文定稿和中文对照已写好」 and named the file in its details; 定稿 was not a document
+// word here, so the lead's `ws-pass --verdict` released the text alone and the user asked
+// 「你没发我定稿啊 为什么会这样」. Drafts (定稿, 初稿, 终稿, 稿子, 稿件) count as documents.
+var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|定稿|初稿|终稿|稿子|稿件|report|document)|(报告|文档|文稿|纪要|定稿|初稿|终稿|稿子|稿件|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
 
 // reportDeliverableProblems: a report that says it produced a document must carry it — a local
 // file (named, sent, or found through its handoff) or a link. Only when the bridge finds none
@@ -341,4 +344,30 @@ func reportDeliverableProblems(sessionKey, body string, item *teamTaskBoardItem)
 		return nil
 	}
 	return []string{"汇报说「" + m + "」，但没带上成品：本机文件写出完整路径（桥会作为附件一起发到聊天频道），已发到 PR 或网页的写出链接"}
+}
+
+// reportReviewAskRe: the 「要你做的」 part asks the user to look at something (a draft to review, a
+// cut to watch, a sample to pick).
+var reportReviewAskRe = regexp.MustCompile(`审|看|过目|挑|试听|试玩|读一?下|核对`)
+
+// heldReportReviewProblem: why the lead may not pass held report key as text alone, "" when it may.
+// #1097 (11-24): #1095's 「要你做的：审两份定稿」 went out as text, the drafts stayed with the lead
+// (「你没发我定稿啊 为什么会这样」). When 「要你做的」 asks the user to review or look at something, the
+// post must carry it: a file or image that goes out with the text, or a link. The lead attaching
+// files on the same pass (ws-pass <files> --verdict) carries it itself.
+func (e *Engine) heldReportReviewProblem(rec *pendingReport) string {
+	head, _ := team.ExitSplit(rec.Body)
+	todo := team.UserTodo(head)
+	m := reportReviewAskRe.FindString(todo)
+	if m == "" || exitURLRe.MatchString(rec.Body) {
+		return ""
+	}
+	heldReportImages.mu.Lock()
+	n := len(heldReportImages.m[rec.Key]) + len(heldReportImages.files[rec.Key])
+	heldReportImages.mu.Unlock()
+	if n+len(reportNamedImages(rec.Body))+len(exitFilesFor(rec.Session, rec.Body, e.boardItemByID(rec.Board), nil, false)) > 0 {
+		return ""
+	}
+	return "汇报「要你做的」要用户" + m + "（" + truncateStr(todo, 80) + "），但这份汇报没有随交回的文件、图片，也没有链接，只放行文字用户收不到要" + m +
+		"的东西：成品在手就带上放行（ws-pass <成品> \"<给用户的话>\" --verdict ...），否则 ws-forward 打回让工作区用 --file 交回成品或写出链接"
 }

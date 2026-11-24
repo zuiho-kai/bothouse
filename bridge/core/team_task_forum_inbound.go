@@ -40,10 +40,9 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if e.team == nil || thread == "" {
 		return nil, false
 	}
-	// Every incoming message of the bot passes here, so it reads the state file (written by
-	// atomic rename) instead of waiting for the forum lock: a sync stuck on one channel's forum
-	// must not stop the other channels' messages (agentm 11-24: 6 hours, every channel).
-	s := e.taskForumSnapshot()
+	// Read the saved post map without the task-post lock: every guild message comes through here,
+	// and a sync pass holds that lock while it waits on Discord (agentm 11-24: messages stalled).
+	s := e.taskForumReadSaved()
 	board := 0
 	chat := ""
 	for id, post := range s.Posts {

@@ -48,6 +48,38 @@ class AddedJudgeTest(unittest.TestCase):
         r, verdict = self.run_judge(0, json.dumps({'result': '{"added": [{"line": "英文圈", "what": "换受众"}]}'}))
         self.assertEqual((len(r['added']), verdict), (1, 'added'))
 
+    def test_rule_mandated_line_is_not_added(self):
+        # #1893 11-23：界面活的「用户视角走查」行是交接规则逼着写的，判官以前判成「自己加的」，来回退三次
+        notes = ('# 修页面\n## 用户原话\n「记忆论坛还是旧版」\n## 范围\n'
+                 '- 用户视角走查：按第一次打开的用户逐页截图，交回附修前修后截图和还有哪三处不满意\n')
+        with patch.object(aj.subprocess, 'run') as run, patch.object(aj, '_log'):
+            r = aj.judge(notes)
+        self.assertFalse(run.called, '全是规则表强制要写的行，不该再调模型')
+        self.assertEqual((r['added'], r['error']), ([], ''))
+
+    def test_mandated_lines_are_told_to_the_model(self):
+        notes = ('# 修页面\n## 用户原话\n「记忆论坛还是旧版」\n## 总目标\n把论坛页改新，换成英文圈爆款\n## 范围\n'
+                 '- 改：论坛页\n- 用户视角走查：按第一次打开的用户逐页截图，交回附修前修后截图和还有哪三处不满意\n')
+        with patch.object(aj.subprocess, 'run', return_value=NS(
+                returncode=0, stdout=json.dumps({'result': '{"added": []}'}))) as run, patch.object(aj, '_log'):
+            aj.judge(notes)
+        prompt = run.call_args.kwargs['input']
+        self.assertNotIn('用户视角走查：', prompt.split('## 规则表强制写进交接')[0])
+        self.assertIn('用户视角走查：', prompt.split('## 规则表强制写进交接')[1])
+        self.assertIn('换成英文圈爆款', prompt)  # 别的行照旧要判
+
+    def test_local_rule_table_lines_are_mandated_too(self):
+        # 本机 [[check]] 登记的行（别的机器没有这张表，所以登记是本机的事）
+        old = aj.HOUSE_RULES
+        try:
+            aj.HOUSE_RULES = Path(__file__).with_name('test-house-rules.toml')
+            with patch.object(aj, '_log'), patch.object(aj.subprocess, 'run') as run:
+                r = aj.judge('# x\n## 用户原话\n「x」\n## 范围\n- 本机规矩：照本机守则\n')
+        finally:
+            aj.HOUSE_RULES = old
+        self.assertFalse(run.called)
+        self.assertEqual(r['added'], [])
+
 
 if __name__ == '__main__':
     unittest.main()
