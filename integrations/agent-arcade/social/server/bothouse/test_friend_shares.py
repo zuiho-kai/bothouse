@@ -8,12 +8,15 @@ resolve = runpy.run_path(str(Path(__file__).with_name("instance.py")))["upstream
 class FriendSharesTest(unittest.TestCase):
     def test_exact_grant_and_independent_authority(self):
         actor = "arcade:river"
-        access = {"configured": True, "arcade_friends": ["river"], "roles": {"member": {"user_ids": ["work-15"]}}}
+        access = {"configured": True, "arcade_friend_accounts": ["river:db-account-1"], "roles": {"member": {"user_ids": ["work-15"]}}}
         link = {"instance": "host", "identity": "work-15"}
-        self.assertEqual(resolve(access, actor, {}, "host", "paper"), actor)
+        self.assertEqual(resolve(access, actor, {}, "host", "paper", "db-account-1"), actor)
+        self.assertIsNone(resolve(access, actor, {}, "host", "paper", "different-account"))
+        self.assertIsNone(resolve(access, actor, {}, "host", "paper"))
+        self.assertIsNone(resolve({"arcade_friends": ["river"]}, actor, {}, "host", "paper", "db-account-1"))
         self.assertIsNone(resolve(access, "arcade:river2", {}, "host", "paper"))
         self.assertEqual(resolve(access, actor, link, "host", "paper"), "work-15")
-        del access["arcade_friends"]
+        del access["arcade_friend_accounts"]
         self.assertIsNone(resolve(access, actor, {}, "host", "paper"))
         self.assertEqual(resolve(access, actor, link, "host", "paper"), "work-15")
         self.assertIsNone(resolve(access, actor, link, "elsewhere", "paper"))

@@ -48,8 +48,9 @@ function bothouseDirectory(store, request) {
   function nativeNumber(number) {
     return store.one('SELECT native FROM bothouse_native_numbers WHERE legacy=?',number)?.native || number;
   }
+  const accountIdentity=account=>store.one('SELECT identity FROM bothouse_share_accounts WHERE account=?',account)?.identity;
   async function list(account, number) {
-    const data = await request({action:'list',account,link:pairing.active(store,account),...(number && {number:nativeNumber(number)})});
+    const data = await request({action:'list',account,accountIdentity:accountIdentity(account),link:pairing.active(store,account),...(number && {number:nativeNumber(number)})});
     if (!Array.isArray(data?.contacts)) return {contacts:[],directoryStatus:'offline'};
     const contacts=data.contacts.filter(role=>{
       if (role.legacyNumber) {
@@ -129,7 +130,7 @@ function bothouseDirectory(store, request) {
     const number = peer(chat);
     if (!targetNumber.test(number) || store.user(number).kind !== 'ai') return null;
     const link = pairing.active(store,account);
-    const result = await request({action:'portrait',account,number:nativeNumber(number),link});
+    const result = await request({action:'portrait',account,accountIdentity:accountIdentity(account),number:nativeNumber(number),link});
     if (pairing.active(store,account)?.revision !== link?.revision) return null;
     const current = store.access(account,chatId);
     if (current.type !== 'direct' || peer(current) !== number || current.membershipRevision !== chat.membershipRevision)
@@ -166,7 +167,7 @@ function bothouseDirectory(store, request) {
   async function finish(turn) {
     if (!current(turn)) return {};
     if (/^\s*\//u.test(turn.text)) return {bothouseStatus:'chat_text_only'};
-    const data=await request({...turn,number:nativeNumber(turn.number),action:'chat'});
+    const data=await request({...turn,accountIdentity:accountIdentity(turn.account),number:nativeNumber(turn.number),action:'chat'});
     if (!data?.text) return {bothouseStatus:'unavailable'};
     // Re-read live visibility after the turn; a removed/replaced role cannot answer for its successor.
     const role=await resolveMember(turn.account,turn.number);
@@ -179,7 +180,7 @@ function bothouseDirectory(store, request) {
     return request(taskRequest(turn,'text_capability'));
   }
   function taskRequest(turn,action='text_task') {
-    return {...turn,number:nativeNumber(turn.number),link:pairing.active(store,turn.account),action};
+    return {...turn,accountIdentity:accountIdentity(turn.account),number:nativeNumber(turn.number),link:pairing.active(store,turn.account),action};
   }
   function runTextTask(turn,signal) {
     return request(taskRequest(turn),{signal});

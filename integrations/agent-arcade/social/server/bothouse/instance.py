@@ -94,7 +94,7 @@ def role_portrait(get, port, project):
         conn.close()
 
 
-def upstream_identity(access, actor, link, instance, project):
+def upstream_identity(access, actor, link, instance, project, identity=None):
     ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
     if actor in ids:
         return actor
@@ -103,7 +103,7 @@ def upstream_identity(access, actor, link, instance, project):
             return link["identity"]
         if access.get("configured") is False and project in link.get("projects", []):
             return actor
-    if actor and actor.startswith("arcade:") and actor[7:] in access.get("arcade_friends", []):
+    if actor and identity and actor.startswith("arcade:") and (actor[7:] + ":" + identity) in access.get("arcade_friend_accounts", []):
         return actor
     return None
 
@@ -180,6 +180,7 @@ def run(file, request):
     actor = "arcade:" + account if account else None
     authority = request["action"] == "authority"
     link = request.get("link") or {}
+    account_identity = request.get("accountIdentity")
     def get(route):
         return read_json(mgmt.get("port") or 9820, mgmt["token"], "/api/v1/" + route)
     bridge = cfg.get("bridge", {})
@@ -211,7 +212,7 @@ def run(file, request):
             roles.append(dict(id=project, displayName=label,
                               selectable=access.get("configured") is False, matches=request.get("identity") in ids))
             continue
-        authorized = upstream_identity(access, actor, link, instance, project)
+        authorized = upstream_identity(access, actor, link, instance, project, account_identity)
         if authorized is None:
             continue
         upstream_user = authorized
@@ -221,7 +222,7 @@ def run(file, request):
             if not request.get("number") or not ready:
                 return {}
             portrait = role_portrait(get, mgmt.get("port") or 9820, project)
-            if portrait and upstream_identity(get(access_route), actor, link, instance, project) is not None:
+            if portrait and upstream_identity(get(access_route), actor, link, instance, project, account_identity) is not None:
                 return portrait
             return {}
         roles.append(dict(id=project, number=number, displayName=label,

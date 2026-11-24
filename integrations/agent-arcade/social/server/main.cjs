@@ -18,7 +18,7 @@ try{drawingProvider=cloudDrawingProvider({accountId:process.env.SOCIAL_CLOUDFLAR
   apiToken:process.env.SOCIAL_CLOUDFLARE_API_TOKEN?.trim(),
   dailyLimit:Number(process.env.SOCIAL_CLOUDFLARE_DRAW_DAILY||12)});}
 catch{console.warn('Group cloud drawing is unavailable. Check Cloudflare image configuration.');}
-const server = createServer(store,{...options,bothouse,voiceEngine,drawingProvider});
+const server = createServer(store,{...options,bothouse,voiceEngine,drawingProvider,friendLookupToken:process.env.SOCIAL_BOTHOUSE_FRIEND_LOOKUP_TOKEN});
 server.listen(options.port,options.host,() => {
   const port = server.address().port;
   console.log('Social listening:', options.publicOrigin || ('http://'+(options.host.includes(':') ? '['+options.host+']' : options.host)+':'+port));

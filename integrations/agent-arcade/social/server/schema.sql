@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS users (
   number TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('human','ai')),
   password TEXT, CHECK ((kind='human') = (password IS NOT NULL))
 );
+CREATE TABLE IF NOT EXISTS bothouse_share_accounts (
+  account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
+  identity TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS human_avatars (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   revision TEXT NOT NULL,

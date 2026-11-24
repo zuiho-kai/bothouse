@@ -9,6 +9,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const net = require('node:net');
 const {createHash} = require('node:crypto');
+const {friendShareLookup}=require('./bothouse/friend-share-lookup.cjs');
 const {fail,number} = require('./store.cjs');
 const {current,makeAuth,sessionDigest} = require('./auth.cjs');
 const {planetPublishers}=require('./bothouse/planet-residents.cjs');
@@ -305,7 +306,7 @@ async function serveClient(client,url,req,res,privacyContact,publicSource,client
   res.end(req.method === 'HEAD' ? undefined : bytes);
 }
 function createServer(store,{publicOrigin,client = path.join(__dirname,'../client'),aiProvider,claudeProvider,openaiProvider,
-  groupAiProviders=[aiProvider,openaiProvider,claudeProvider].filter(Boolean),privacyContact,publicSource,voiceEngine,drawingProvider,feedClock,appointmentClock,webSearchFetch,personalAiFetch,bothouse,filename,taskReceiver=directoryBoardReceiver(bothouse,filename)} = {}) {
+  groupAiProviders=[aiProvider,openaiProvider,claudeProvider].filter(Boolean),privacyContact,publicSource,voiceEngine,drawingProvider,feedClock,appointmentClock,webSearchFetch,personalAiFetch,bothouse,filename,friendLookupToken,taskReceiver=directoryBoardReceiver(bothouse,filename)} = {}) {
   let loadedClient;
   const clientRelease=()=>loadedClient??=loadClientRelease(client);
   const auth = makeAuth(store,Boolean(publicOrigin));
@@ -350,6 +351,11 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     res.setHeader('Permissions-Policy','microphone=(self), camera=(), display-capture=()');
     try {
+      if(req.method==='GET' && req.url?.startsWith('/api/v1/bothouse-share-recipient?')){
+        const recipient=friendShareLookup(store,req,friendLookupToken);
+        res.setHeader('Content-Type','application/json; charset=utf-8');
+        return res.end(JSON.stringify(recipient));
+      }
       let origin;
       try { origin = new URL((publicOrigin ? 'https://' : 'http://') + req.headers.host); } catch { fail(400,'host','主机名无效'); }
       const host = origin.hostname.replace(/^\[|\]$/g,'');
