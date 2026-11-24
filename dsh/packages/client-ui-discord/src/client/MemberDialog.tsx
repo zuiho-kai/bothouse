@@ -85,6 +85,9 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
   const [cli, setCli] = useState<string>(member?.cli ?? '')
   const [preset, setPreset] = useState<PermissionPreset>(member?.permissionPreset ?? DEFAULT_PRESET)
   const [avatar, setAvatar] = useState(member?.avatar ?? '')
+  const persistedAvatar = useRef(member?.avatar ?? '')
+  const savedBody = member?.worldBody ?? AVATARS.find(slug => slug === member?.avatar) ?? 'auto'
+  const [worldBody, setWorldBody] = useState(savedBody)
   const [pendingPng, setPendingPng] = useState<string | undefined>()
   const [preview, setPreview] = useState<string | undefined>()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -104,7 +107,8 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     try {
       if (member) {
         const updated = await uploadAvatar(member.id, png, collabUrl)
-        setAvatar(updated.avatar ?? '')
+        persistedAvatar.current = updated.avatar ?? ''
+        setAvatar(persistedAvatar.current)
       } else { setPendingPng(png); setAvatar('') }
       setPreview(png ? `data:image/png;base64,${png}` : undefined)
     } catch (reason) {
@@ -159,10 +163,14 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
     const [provider, model] = modelKey === '' ? [] : modelKey.split(SEP)
     setBusy(true)
     setError(undefined)
-    const identity = nameCustomized === undefined ? {} : { nameCustomized }
+    const identity = {
+      ...(!member || avatar !== persistedAvatar.current ? { avatar } : {}),
+      ...(nameCustomized === undefined ? {} : { nameCustomized }),
+      ...(member && (worldBody !== savedBody || (!member.worldBody && avatar !== persistedAvatar.current)) ? { worldBody } : {}),
+    }
     const input: MemberInput = type === 'cli'
-      ? { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset, ...(cli === 'claude' && (member?.cli !== 'claude' || claudeModelChanged) ? { model: claudeModel.trim() || null } : {}) }
-      : { name: name.trim(), ...identity, persona, avatar, ...(pendingPng ? { avatarPng: pendingPng } : {}), model: provider !== undefined && model !== undefined ? { provider, model } : null }
+      ? { name: name.trim(), ...identity, persona, ...(pendingPng ? { avatarPng: pendingPng } : {}), cli, permissionPreset: preset, ...(cli === 'claude' && (member?.cli !== 'claude' || claudeModelChanged) ? { model: claudeModel.trim() || null } : {}) }
+      : { name: name.trim(), ...identity, persona, ...(pendingPng ? { avatarPng: pendingPng } : {}), model: provider !== undefined && model !== undefined ? { provider, model } : null }
     onSubmit(input).then(onClose).catch((reason: unknown) => {
       setError(errorText(reason, t, 'member', input.name))
     }).finally(() => { setBusy(false) })
@@ -231,7 +239,7 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
               </button>
             ))}
           </span>
-          {(preview || avatar.startsWith('upload:')) && <span>{preview ? <img src={preview} width={64} height={64} alt={t('memberAvatarCustom')} /> : <Avatar id={member?.id ?? 'new'} name={name} avatar={avatar} />}</span>}
+          {(preview || avatar.startsWith('upload:')) && <span>{preview ? <img src={preview} width={64} height={64} alt={t('memberAvatarCustom')} /> : <Avatar id={member?.id ?? 'new'} name={name} avatar={avatar} avatarVersion={member?.avatarVersion} />}</span>}
           <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label={t('memberAvatarUpload')} onChange={event => {
             const file = event.target.files?.[0]
             event.target.value = ''
@@ -241,6 +249,14 @@ export function MemberDialog({ member, members = NO_MEMBERS, listModels, listCli
           {(preview || avatar.startsWith('upload:')) && <button type="button" disabled={busy} className={css.secondaryButton} onClick={() => { void changeAvatar() }}>{t('memberAvatarReset')}</button>}
           <span>{t('memberAvatarHint')}</span>
         </div>
+        <label className={css.field}>
+          <span>{t('memberWorldBody')}</span>
+          <select className={css.fieldInput} value={worldBody} onChange={event => setWorldBody(event.target.value)}>
+            <option value="auto">{t('memberWorldBodyAuto')}</option>
+            {AVATARS.map(slug => <option key={slug} value={slug}>{t(`memberWorldBody_${slug}`)}</option>)}
+          </select>
+          <span>{t('memberWorldBodyHint')}</span>
+        </label>
         <label className={css.field}><span><input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} />{t('memberKeepName')}</span></label>
         <select className={css.fieldInput} aria-label={t('memberPersonaLibrary')} value={personaSlug} onChange={e => {
           setPersonaSlug(e.target.value)

@@ -59,6 +59,26 @@ test('avatar upload: owner stores PNG locally, emits members, replaces, survives
   assert.deepEqual(restored.read('coder.png'), avatarImage('whale'));
 });
 
+test('a previous preset survives the first private photo and an independent body survives replacement and reset', async () => {
+  const f = fixture();
+  try {
+    await f.roster.create({ name: 'coder', cli: 'codex', avatar: 'whale' });
+    assert.equal(f.store.member('coder').world_body, null);
+    await f.call('POST', avatarImage('orange').toString('base64'));
+    assert.equal(f.hub.memberView()[0].worldBody, 'whale');
+    await f.roster.update('coder', { worldBody: 'lanxi' });
+    assert.equal(f.store.member('coder').avatar, 'upload:coder.png');
+    await f.call('POST', avatarImage('dragon').toString('base64'));
+    await f.call('DELETE');
+    f.roster.load([]);
+    assert.equal(f.hub.memberView()[0].worldBody, 'lanxi');
+    assert.equal(f.hub.memberView()[0].avatar, undefined);
+    await assert.rejects(f.roster.update('coder', { worldBody: 'upload:coder.png' }), /unknown world body/);
+    await f.roster.update('coder', { worldBody: 'auto', avatar: 'dragon' });
+    assert.equal(f.store.member('coder').world_body, 'auto');
+  } finally { f.store.close(); }
+});
+
 test('avatar upload: invalid images, sizes, base64, missing members and non-owner are refused', async () => {
   const f = fixture();
   await f.roster.create({ name: 'coder' });

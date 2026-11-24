@@ -11,12 +11,12 @@ const models = async () => []
 const member: ChannelMember = { id: 'claude', name: 'Claude', kind: 'dsh', online: true, cli: 'claude', persona: 'Keep this persona', permissionPreset: 'read-only', avatar: 'dragon' }
 afterEach(cleanup)
 
-it('edits a Claude model, preserving identity, persona, avatar and permissions', async () => {
+it('edits a Claude model with its original identity and permissions, omitting unchanged appearance', async () => {
   const submit = vi.fn(async (_input: MemberInput) => {})
   render(<MemberDialog member={member} listModels={models} listClis={clis} onSubmit={submit} onClose={() => {}} t={t} />)
   fireEvent.change(screen.getByRole('textbox', { name: zh.memberModel }), { target: { value: '  claude-custom-model[1M]  ' } })
   fireEvent.click(screen.getByRole('button', { name: zh.save }))
-  await waitFor(() => expect(submit).toHaveBeenCalledWith({ name: 'Claude', persona: member.persona, avatar: 'dragon', cli: 'claude', permissionPreset: 'read-only', model: 'claude-custom-model[1M]' }))
+  await waitFor(() => expect(submit).toHaveBeenCalledWith({ name: 'Claude', persona: member.persona, cli: 'claude', permissionPreset: 'read-only', model: 'claude-custom-model[1M]' }))
 })
 
 it('reopens the saved Claude model and clears it to the CLI default', async () => {

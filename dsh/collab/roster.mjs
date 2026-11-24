@@ -5,7 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { CollabError } from './store.mjs';
-import { checkAvatar } from './avatars.mjs';
+import { AVATARS, checkAvatar } from './avatars.mjs';
 // DSH's permission preset names (@deepseek-ai/dsh-base cordis.patch.yml presets), kept on the member for the panel.
 const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'];
 
@@ -32,6 +32,8 @@ export function rowToMember(row) {
     ...(row.cli && row.permission_preset ? { permissionPreset: row.permission_preset } : {}),
     persona: row.persona ?? '',
     ...(row.avatar ? { avatar: row.avatar } : {}),
+    // A pre-upgrade preset is evidence of a chosen costume. An uploaded portrait alone is not.
+    ...(row.world_body ? { worldBody: row.world_body } : AVATARS.includes(row.avatar) ? { worldBody: row.avatar } : {}),
     ...(row.rooms && row.rooms !== '[]' ? { rooms: JSON.parse(row.rooms) } : {}),
     source: row.source,
   };
@@ -250,6 +252,8 @@ export class Roster {
     if (existing.source !== 'ui') throw new CollabError('read-only', `member ${id} comes from the config file and cannot be edited here`);
     if (existing.kind === 'external') throw new CollabError('read-only', `external member ${id} is changed by removing it and adding it again`);
     // Both PATCH endpoints preserve omitted fields. A backend change drops the old backend's model/config.
+    const editsAvatar = Object.hasOwn(input, 'avatar');
+    const editsBody = Object.hasOwn(input, 'worldBody');
     const old = rowToMember(existing);
     const changedCli = Object.hasOwn(input, 'cli') && (input.cli ?? undefined) !== old.cli;
     input = { ...old, ...(changedCli ? { model: undefined, cliConfig: undefined, permissionPreset: undefined } : {}), ...input };
@@ -263,6 +267,10 @@ export class Roster {
     if (m.cli !== undefined && input?.permissionPreset === undefined && existing.cli && existing.permission_preset) {
       m.permissionPreset = existing.permission_preset;
     }
+    // Model validation can await a provider. Keep appearance changes from the immediate photo route or another editor.
+    const latest = rowToMember(this.store.member(id));
+    if (!editsAvatar) m.avatar = latest.avatar;
+    if (!editsBody) m.worldBody = latest.worldBody;
     const row = this.store.updateMember(id, m);
     const member = rowToMember(row);
     this.dsh.putMember(member);
@@ -330,6 +338,10 @@ export class Roster {
     if (persona.length > MAX_PERSONA) throw new CollabError('invalid', `persona exceeds ${MAX_PERSONA} characters`);
     let avatar;
     try { avatar = checkAvatar(input?.avatar); } catch (error) { throw new CollabError('invalid', error.message); }
+    const worldBody = input?.worldBody;
+    if (worldBody !== undefined && worldBody !== 'auto' && !AVATARS.includes(worldBody)) {
+      throw new CollabError('invalid', 'unknown world body');
+    }
     if (input?.cli != null) {
       // A local CLI member brings its own model; no provider route to check.
       const cli = String(input.cli);
@@ -353,7 +365,7 @@ export class Roster {
         if (typeof input.model !== 'string' || !input.model.trim()) throw new CollabError('invalid', 'Claude model must be a non-empty model id');
         model = input.model.trim();
       }
-      return { name, persona, avatar, nameCustomized, rooms, cli, model, cliConfig, cliConfigManaged: input.cliConfig !== undefined, ...(preset === undefined ? {} : { permissionPreset: preset }) };
+      return { name, persona, avatar, worldBody, nameCustomized, rooms, cli, model, cliConfig, cliConfigManaged: input.cliConfig !== undefined, ...(preset === undefined ? {} : { permissionPreset: preset }) };
     }
     if (input?.cliConfig != null) throw new CollabError('invalid', 'cliConfig requires a Codex member');
     let model;
@@ -370,7 +382,7 @@ export class Roster {
       }
       model = { provider, model: id };
     }
-    return { name, persona, avatar, nameCustomized, rooms, ...(model === undefined ? {} : { model }) };
+    return { name, persona, avatar, worldBody, nameCustomized, rooms, ...(model === undefined ? {} : { model }) };
   }
 
   /** A stable, unused member id derived from the name (ASCII) or a short random suffix. */
