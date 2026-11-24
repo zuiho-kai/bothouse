@@ -236,6 +236,7 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 #privacy-contact-value{display:block;width:100%;margin:.35rem 0;overflow-wrap:anywhere}
 
 .composer #mention-target{grid-column:1/-1}
+.composer .friend-reconnect{grid-column:1/-1}
 #mention-suggestions{grid-column:1/-1;display:grid;max-height:min(28vh,14rem);overflow:auto;padding:4px;border:1px solid var(--line);border-radius:12px}
 #mention-suggestions button{text-align:left;overflow-wrap:anywhere;border-color:transparent}
 #mention-suggestions [aria-selected=true]{background:var(--select);color:var(--plum)}
@@ -340,6 +341,7 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 .row[data-chat-id][aria-current=true] {background:#f1e0e9; box-shadow:none;}
 .conversation-copy {min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:3px 6px;}
 .conversation-copy > small {grid-column:1/-1; font-size:13px;}
+.conversation-copy > .row-identity {grid-column:1/-1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .conversation-copy strong {font-size:15px; font-weight:650;}
 .conversation-copy .row-heading {flex-wrap:nowrap; overflow:hidden;}
 .conversation-copy time {white-space:nowrap; padding:0; font-variant-numeric:tabular-nums;}

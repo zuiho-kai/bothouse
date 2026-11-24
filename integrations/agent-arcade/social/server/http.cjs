@@ -115,7 +115,11 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     }
     case 'POST friend-requests': {
       const target=store.user(number(body.number));
-      if(target.kind==='human')return {request:store.request(a,target.number)};
+      if(target.kind==='human'){
+        if(body.expectedAccount!==undefined&&body.expectedAccount!==a)
+          fail(409,'friend_session','账号已变更，请重新打开好友申请');
+        return {request:store.request(a,target.number)};
+      }
       if(body.expectedAccount!==a)fail(403,'ai_friend_account','请在当前账号添加 AI 好友');
       const availability=personal.friendAvailability(a,target.number);
       if(availability==='private')fail(403,'personal_ai_private_friend','这位个人 AI 仅主人可添加好友');

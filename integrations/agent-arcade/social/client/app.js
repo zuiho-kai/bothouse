@@ -602,6 +602,11 @@ function renderDirectory() {
       const content=node.children[1], stamp=node.querySelector('time');
       content.classList.add('conversation-copy');
       if(stamp)content.insertBefore(stamp,content.lastElementChild);
+      if(identity&&peer?.kind==='human'){
+        const accountLabel=content.querySelector('.row-identity');
+        accountLabel.title=identity;
+        content.insertBefore(accountLabel,content.lastElementChild);
+      }
       node.dataset.chatId=item.id;
       node.setAttribute('aria-current',String(chat===item.id));
       return node;
@@ -1123,8 +1128,63 @@ removeFriendControl?.addEventListener('click',()=>{
     actions,
   ],id);
 });
+const reconnectArea=el('div',null,'actions friend-reconnect');
+const reconnectStatus=el('span','已发送好友申请，等待对方接受。','minor');
+reconnectStatus.setAttribute('role','status');
+const reconnectAction=button('重新添加好友',()=>void reconnectFriend(),'primary');
+reconnectArea.append(reconnectAction,reconnectStatus);
+$('#send-error').after(reconnectArea);
+function renderReconnectAction() {
+  const peer=conversation?.friendRemoved&&conversation.members.find(member=>member.number!==user?.number);
+  reconnectArea.hidden=!peer;
+  const request=peer&&incoming.find(item=>item.from.number===peer.number&&item.to.number===user?.number);
+  const pending=peer&&!request&&outgoing.some(item=>item.to.number===peer.number);
+  reconnectStatus.hidden=!pending;
+  reconnectAction.hidden=Boolean(pending);
+  reconnectAction.textContent=request?'接受好友申请':'重新添加好友';
+}
+async function reconnectFriend(){
+  const id=chat, account=user?.number, visit=chatVisit;
+  const peer=conversation?.friendRemoved&&conversation.members.find(member=>member.number!==account&&member.kind==='human');
+  if(!peer||reconnectAction.disabled)return;
+  const current=()=>user?.number===account&&chatVisit===visit&&chat===id&&conversation?.friendRemoved;
+  const review=request=>{
+    const actions=el('div');
+    const scope=openDialog('好友申请',[el('p',peer.displayName+'（'+peer.number+'）发来了好友申请。'),actions],id);
+    actions.append(friendRequestActions(request,scope,node=>{node.replaceWith(el('p','已拒绝这条好友申请。','minor'));renderReconnectAction();}));
+  };
+  const existing=incoming.find(item=>item.from.number===peer.number&&item.to.number===account);
+  if(existing){review(existing);return;}
+  if(outgoing.some(item=>item.to.number===peer.number))return;
+  const feedback=$('#send-error');
+  reconnectAction.disabled=true;
+  feedback.textContent='';
+  try {
+    const {request}=await api('/friend-requests',{number:peer.number,expectedAccount:account},{expectedAccount:account});
+    if(!current())return;
+    if(request?.to.number===peer.number&&request.from.number===account&&!outgoing.some(item=>item.id===request.id))
+      outgoing.push(request);
+  }catch(error){
+    if(!current())return;
+    if(error.message==='incoming_request'){
+      try {
+        const requests=await api('/friend-requests');
+        if(!current())return;
+        const request=requests.incoming.find(item=>item.from.number===peer.number&&item.to.number===account);
+        if(request)review(request);
+        else feedback.textContent='这条申请已处理，请稍后重试。';
+      }catch(refreshError){if(current())feedback.textContent=textError(refreshError);}
+    }else if(error.message==='already_connected')await openChat(id,account,true);
+    else feedback.textContent=textError(error);
+  }finally{
+    reconnectAction.disabled=false;
+    renderReconnectAction();
+    if(user?.number===account)void sync();
+  }
+}
 function showChatHeader() {
   showReplyTarget();
+  renderReconnectAction();
   const available=!!conversation, meta=conversation;
   $('#no-chat').hidden=!!chat;
   $('#chat-head').hidden=!available;
@@ -1179,7 +1239,7 @@ function showChatHeader() {
   $('#chat-settings-toggle').hidden=!hasSettings;
   if(!hasSettings)chatSettings.hidePopover();
   messageBox.readOnly=Boolean(meta.friendRemoved)||legacyPersonal||paused||awaitingAiConsent;
-  messageBox.placeholder=meta.friendRemoved?'请从通讯录重新添加好友后发送':legacyPersonal?'这段原有私聊仅供查看':awaitingAiConsent?'开启云聊天后才能发送':paused?'恢复云聊天后才能发送':'写消息…';
+  messageBox.placeholder=meta.friendRemoved?'重新成为好友后可发送消息':legacyPersonal?'这段原有私聊仅供查看':awaitingAiConsent?'开启云聊天后才能发送':paused?'恢复云聊天后才能发送':'写消息…';
   composer.querySelector('button[type="submit"]').disabled=Boolean(meta.friendRemoved)||legacyPersonal||paused||awaitingAiConsent||sending.has(meta.id)||
     !mentionAvailable(drafts.get(meta.id)?.target);
   $('#composer-media').hidden=!canSendPhoto(meta);
@@ -1884,6 +1944,7 @@ async function sync() {
     const changed=JSON.stringify([friends,incoming,outgoing,conversations])!==JSON.stringify([people.friends,requests.incoming,requests.outgoing,threads.conversations]);
     const removedFriend=tab==='feed'&&friends.some(friend=>friend.kind==='human'&&!people.friends.some(next=>next.number===friend.number));
     friends=people.friends;incoming=requests.incoming;outgoing=requests.outgoing;conversations=threads.conversations;
+    renderReconnectAction();
     const accessible=new Set(conversations.map(item=>item.id));
     const removedDrafts=[...drafts.keys()].filter(id=>!accessible.has(id));
     for(const id of removedDrafts){
@@ -3559,8 +3620,11 @@ function friendRequestActions(request,scope,afterDecline){
       const response=await api('/friend-requests/'+encodeURIComponent(request.id)+'/'+action,{});
       incoming=incoming.filter(item=>item.id!==request.id);
       if(scope===dialogGeneration){
-        if(action==='accept'){closeDialog();goChat(response.conversation.id);}
-        else afterDecline(actions);
+        if(action==='accept'){
+          closeDialog();
+          if(response.conversation.id===chat&&conversation?.friendRemoved)void openChat(chat,user.number,true);
+          else goChat(response.conversation.id);
+        }else afterDecline(actions);
       }
       renderDirectory();void sync();
     },control,scope),action==='accept'?'primary':'outline');
