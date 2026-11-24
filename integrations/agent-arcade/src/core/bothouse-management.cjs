@@ -289,12 +289,17 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       wc.on('render-process-gone',()=>{if(current()){close();window.webContents.send('arcade:storeBothouseUnavailable');}});
       view.setVisible(false);window.contentView.addChildView(view);fit();
       const deadline=world?setTimeout(()=>{if(current()&&!wc.isDestroyed())wc.stop();},15000):undefined;
-      try { await wc.loadURL(target.planet?origin+'/?visit='+target.planet:origin+'/'); } finally { clearTimeout(deadline); }
+      const destination = new URL('/', origin);
+      if (world) {
+        if (target.planet) destination.searchParams.set('visit', target.planet);
+        destination.searchParams.set('appLang', language() === 'zh' ? 'zh' : 'en');
+      }
+      try { await wc.loadURL(destination.href); } finally { clearTimeout(deadline); }
       if(!current())fail('cancelled');
       // The SPA may finish its lazy route after did-finish-load. Wait for a
       // real login form or dashboard navigation instead of accepting a spinner.
       const rendered=world
-        ? await wc.executeJavaScript("document.title.startsWith('Little Worlds') && !!document.querySelector('#welcome-start,canvas')")
+        ? await wc.executeJavaScript("(document.title.startsWith('Little Worlds') || document.title === '小小世界 · 一起点亮星空') && !!document.querySelector('#welcome-start,#world canvas')")
         : await wc.executeJavaScript(`new Promise(resolve=>{
         const ready=()=>document.title.toLowerCase().includes('bothouse') &&
           !!document.querySelector('#root input[type=password], #root a[href="/roles"]');
