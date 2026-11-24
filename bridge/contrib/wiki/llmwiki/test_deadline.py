@@ -177,13 +177,16 @@ else:
         Its model child and that child's own child must both stop when the deadline cuts the call."""
         root = Path(tempfile.mkdtemp(prefix="dsh-", dir=ROOT))
         beat = root / "beat"
+        grandchild_src = repr("import time\nend = time.monotonic() + 15\nwhile time.monotonic() < end: open("
+                              + repr(str(root / "grandchild")) + ", 'a').write('x'); time.sleep(0.05)")
+        beat_path = repr(str(beat))
         child = f"""import subprocess, sys, time
 # the grandchild keeps no pipe of its own (a shared stdout would hide the EOF) and stops by itself at 15s, so a
 # run that fails to reap it cannot hang the suite
-p = subprocess.Popen([sys.executable, "-c", {repr("import time\nend = time.monotonic() + 15\nwhile time.monotonic() < end: open(" + repr(str(root / "grandchild")) + ", 'a').write('x'); time.sleep(0.05)")}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+p = subprocess.Popen([sys.executable, "-c", {grandchild_src}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 end = time.monotonic() + 15
 while time.monotonic() < end:
-    open({repr(str(beat))}, 'a').write('x')
+    open({beat_path}, 'a').write('x')
     time.sleep(0.05)
 """
         started = time.monotonic()
@@ -297,7 +300,8 @@ else:
                     patch.object(threading, "Timer", side_effect=timer), patch.object(os, "killpg", side_effect=killpg), \
                     patch.object(threading, "excepthook", side_effect=lambda args: thread_errors.append(str(args.exc_value))), \
                     patch.object(sys, "argv", [str(Path(I.__file__)), "--pending"]), \
-                    patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 3), WIKI_STOP_AT="", WIKI_INGEST=""):
+                    patch.object(I, "ROUND_SECONDS", 2), \
+                    patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 6), WIKI_STOP_AT="", WIKI_INGEST=""):
                 I.main()  # real ingest entry, dsh runner, stream and failed-pass path; no live data/model
                 snapshot("ingest_return")
                 with (root / ".ingest.lock").open("a") as lock:

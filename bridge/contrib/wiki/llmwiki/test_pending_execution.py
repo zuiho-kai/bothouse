@@ -22,7 +22,8 @@ class PendingExecution(unittest.TestCase):
                 return False, "interrupted correction", 0, None
             kwargs = {key: value for key, value in kwargs.items() if key not in ("effort", "model", "resume")}
             return (*self.move_model(*args, **kwargs), "synthetic-thread")
-        with patch.object(I, "codex", side_effect=call), patch.object(I, "CODEX_CHAIN", ["fixture-model"]):
+        with patch.object(I, "codex", side_effect=call), patch.object(I, "CODEX_CHAIN", ["fixture-model"]), \
+                patch.object(I, "AFTER_CODEX", []):
             self.assertFalse(I.model_pass("codex resume", "move", engine="codex:high",
                                           checkpoint=checkpoint, check=lambda: "unfinished correction"))
         key = I.block_contract.digest(["codex resume", "ingest", checkpoint])

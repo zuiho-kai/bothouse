@@ -120,7 +120,8 @@ class BlockContract(unittest.TestCase):
 
         def model(instruction, *args, **kwargs):
             seen.append([page for page in pages if page + ": 100/100" in instruction])
-            if len(seen) == 2:
+            # the retry policy gives a failed batch three more calls from the round baseline before the pass fails
+            if any(page + ": 100/100" in instruction for page in pages[3:6]):
                 return False, "synthetic upstream failure", 0
             with (I.WORK / "log.md").open("a") as stream:
                 stream.write(f"\naccepted split batch {len(seen)}\n")
@@ -134,10 +135,10 @@ class BlockContract(unittest.TestCase):
             db = I.state()
             I.split_pass(db)
             db.close()
-        self.assertEqual(seen, [pages[:3], pages[3:6], pages[6:]])
+        self.assertEqual(seen, [pages[:3]] + [pages[3:6]] * 4 + [pages[6:]])
         text = (self.repo / "log.md").read_text()
         self.assertIn("accepted split batch 1", text)
-        self.assertIn("accepted split batch 3", text)
+        self.assertIn("accepted split batch 6", text)
         self.assertNotIn("accepted split batch 2", text)
 
     def test_program_moves_one_occurrence_and_delivery_has_contract(self):

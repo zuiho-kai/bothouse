@@ -9,10 +9,12 @@ Python 写的，Mac / Linux / Windows 同一份（用户 2026-10-22「那mac和w
   sub-wiki.py hook      cc-connect 的 agent.closed 钩子（对应主角色的 SessionEnd hook）：
                         环境变量 CC_HOOK_PROJECT / CC_HOOK_AGENT_SESSION_ID，立刻返回，后台导出并整理那一个会话
 
-各位串行跑（串行是为了同一时间只占一份 Codex 额度）。锁和主角色一样：白天（pending、hook）不等锁，夜里（nightly、lint）等锁。
+夜间各角色并行跑，各用自己的目录、Git 和断点；白天仍按各角色的整理入口运行。
+锁和主角色一样：白天（pending、hook）不等锁，夜里（nightly、lint）等锁。
 日志：本目录 sub-wiki.log（本脚本）+ 各 wiki 的 .ingest.log（ingest 自己的）。
 """
-import glob, os, subprocess, sys, time
+import glob, os, signal, subprocess, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -20,6 +22,8 @@ SELF = Path(__file__).resolve()
 LOG = HERE / "sub-wiki.log"
 PY = os.environ.get("WIKI_PYTHON") or sys.executable
 MAIN_MARK = ".bothouse-main"  # setup_wiki.py: a main wiki (the lead's, when bots.json gives her that wiki)
+ROLE_PROCESSES = {}  # Nightly children, registered before they may leave the scheduler's process group.
+STOPPING = threading.Event()
 sys.path.insert(0, str(HERE / "llmwiki"))  # -I omits the script directory
 try:
     import budget
@@ -54,14 +58,51 @@ def run_one(rows, b, *args):
         # default is ~/wiki (wrong when the main wiki is at $WIKI_DIR; the hook's env has no WIKI_DIR at all)
         # Ingest owns model cleanup/checkpoints. Do not race it with another
         # timeout at this parent; the shell's hard cancellation remains the guard.
-        rc = subprocess.run([PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args], stderr=err,
-                            # rolewiki.go installs this scheduler at <data_dir>/wiki.
-                            # Shell cron jobs need that root even without an agent turn environment.
-                            env=dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
-                                     BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
-                                                        os.environ.get("CC_DATA_DIR") or str(HERE.parent)))).returncode
+        env = dict(os.environ, WIKI_DIR=str(d), MANUALS_ROLE=project,
+                   BOTHOUSE_DATA_DIR=(os.environ.get("BOTHOUSE_DATA_DIR") or
+                                      os.environ.get("CC_DATA_DIR") or str(HERE.parent)))
+        # Wiki jobs use the user's CLI login, like hook_env(); an invoking agent's private home is unrelated.
+        env.pop("CODEX_HOME", None)
+        if "--nightly" in args:
+            env.pop("WIKI_NEWEST_FIRST", None)  # Source: user #852: nightly drains older backlog first.
+        cmd = [PY, "-X", "utf8", "-I", str(Path(d) / "bin" / "ingest.py"), *args]
+        if "--nightly" in args and os.name != "nt":
+            # budget.run may reap orphans in its scheduler group. Each parallel role must own that group.
+            # The handshake prevents a child escaping the scheduler before the parent can forward cancellation.
+            with subprocess.Popen([PY, "-I", str(SELF), "role-exec", *cmd], stdin=subprocess.PIPE,
+                                  stderr=err, env=env) as child:
+                ROLE_PROCESSES[b] = child
+                try:
+                    if not STOPPING.is_set():
+                        child.stdin.write(b"run\n")
+                        child.stdin.flush()
+                    child.stdin.close()
+                    rc = child.wait()
+                finally:
+                    stop_role(child, signal.SIGKILL)  # Also reap any remaining orphan from this role only.
+                    ROLE_PROCESSES.pop(b, None)
+        else:
+            rc = subprocess.run(cmd, stderr=err, env=env).returncode
     if rc:
         say(f"{b} ingest {' '.join(args)} exited {rc}")
+
+
+def stop_role(child, sig):
+    try:
+        os.killpg(child.pid, sig)
+    except ProcessLookupError:
+        if child.poll() is None:  # Handshake child has not made its own group yet.
+            try:
+                os.kill(child.pid, sig)
+            except ProcessLookupError:
+                pass
+
+
+def cancel_roles(sig, _frame):
+    STOPPING.set()
+    for child in tuple(ROLE_PROCESSES.values()):
+        stop_role(child, sig)
+    raise SystemExit(128 + sig)
 
 
 def export(*args):
@@ -117,6 +158,11 @@ def detach(argv, env):
 
 def main(argv):
     mode = argv[1] if len(argv) > 1 else ""
+    if mode == "role-exec":
+        if not sys.stdin.buffer.readline():
+            return 0
+        os.setpgrp()
+        os.execvpe(argv[2], argv[2:], os.environ)
     if budget:  # 兜底：装了新版调度器才有 CC_JOB_DEADLINE；没传时按这两个任务现有的外层时限自设，见 budget.py
         budget.window(budget.FALLBACK_NIGHT_WINDOW if mode in ("nightly", "lint") else None)
     if budget and budget.stopped():
@@ -127,12 +173,23 @@ def main(argv):
         say(f"start {mode}")
         if export(*(["--no-wait"] if mode == "pending" else [])):
             say("export failed (ingest still runs on what is there)")
-        for b, _p, d in rows:
-            if budget and budget.stopped():
-                break
-            if (Path(d) / MAIN_MARK).exists():
-                continue  # the lead's main wiki: the same cron job runs it already (setup_wiki.go wikiExec)
-            run_one(rows, b, "--" + mode)
+        roles = [b for b, _p, d in rows if not (Path(d) / MAIN_MARK).exists()]
+        if mode == "nightly" and roles and not (budget and budget.stopped()):
+            # Source: user #852 requests all roles concurrently; worker count follows configured role count.
+            previous = {sig: signal.signal(sig, cancel_roles) for sig in (signal.SIGTERM, signal.SIGINT)}
+            try:
+                with ThreadPoolExecutor(max_workers=len(roles)) as pool:
+                    futures = [pool.submit(run_one, rows, b, "--nightly") for b in roles]
+                    for future in futures:
+                        future.result()
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+        else:
+            for b in roles:
+                if budget and budget.stopped():
+                    break
+                run_one(rows, b, "--" + mode)
         say(f"done {mode}")
         return 0
     if mode == "hook":
