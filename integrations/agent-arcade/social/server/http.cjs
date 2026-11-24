@@ -487,6 +487,10 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       if(req.method==='POST'&&key==='world-session-ticket/redeem'){
         if(req.headers.origin!==undefined||req.headers.cookie!==undefined)fail(403,'planet_binding','此入口供世界服务核验登录。');
         result=residents.redeemTicket(body);
+      } else if(req.method==='POST'&&key==='world-visit-status'){
+        if(req.headers.origin!==undefined||req.headers.cookie!==undefined)fail(403,'planet_binding','此入口供世界服务核验来访。');
+        const access=/^Bearer ([a-f0-9]{64})$/u.exec(req.headers.authorization||'')?.[1]||'';
+        result=residents.visitStatus(access,body);
       } else if (req.method === 'POST' && ['register','login'].includes(key)) {
         result = await auth.enter(key === 'register',body,req,res);
         residents.endSession(sessionDigest(req));

@@ -1,6 +1,6 @@
 'use strict';
 const {spawn}=require('node:child_process');
-const {randomBytes,randomUUID}=require('node:crypto');
+const {createHash,randomBytes,randomUUID}=require('node:crypto');
 const {existsSync}=require('node:fs');
 const path=require('node:path');
 const {fail}=require('../store.cjs');
@@ -75,7 +75,9 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     tickets.set(ticket,{account,session,expires:now+60000});
     return {ticket};
   }
-  function redeemTicket({ticket,worldOrigin}){
+  const hash=value=>createHash('sha256').update(value).digest('hex');
+  function redeemTicket({ticket,worldOrigin,visitorCheck}){
+    if(visitorCheck!==undefined&&visitorCheck!==true)problem('binding');
     const grant=tickets.get(ticket);
     if(!grant||worldOrigin!==origin||!origin)problem('binding');
     tickets.delete(ticket);
@@ -86,7 +88,10 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       instance=store.one('SELECT id FROM world_friends_instance WHERE singleton=1');
     }
     const row=homeRow(grant.account);
-    return {account:grant.account,worldOrigin,instanceId:instance.id,
+    // Only the configured world receives this separate, read-only capability.
+    const visitAccess=visitorCheck?hash('friends-world-visit/v1\0'+grant.session):undefined;
+    if(visitAccess)store.run('INSERT OR IGNORE INTO world_visit_checks VALUES(?,?)',hash(visitAccess),grant.session);
+    return {account:grant.account,worldOrigin,instanceId:instance.id,visitAccess,
       legacy:row?.resident_source?{sourceId:row.resident_source,planetId:row.planet}:null};
   }
   function visits(account){
@@ -126,6 +131,15 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       fail(403,'friends_only','请从真人好友的私聊打开。');
     const row=homeRow(number);
     return {account,number,worldOrigin:origin,planetId:row&&row.visits!=='closed'?row.planet:null};
+  }
+  function visitStatus(access,{worldOrigin,planetId}){
+    if(!origin||worldOrigin!==origin||!validPlanet(planetId)||!/^[a-f0-9]{64}$/u.test(access))problem('binding');
+    const session=store.one(`SELECT s.account FROM world_visit_checks v JOIN sessions s ON s.digest=v.session
+      WHERE v.access=? AND s.expires>?`,hash(access),Date.now());
+    if(!session)problem('session');
+    const home=store.one('SELECT account,visits FROM friend_world_homes WHERE issuer=? AND world=? AND planet=?',
+      socialOrigin(),origin,planetId);
+    return {allowed:!!home&&home.visits!=='closed'&&home.account!==session.account&&!!store.direct(session.account,home.account)};
   }
   function stop(job){
     if(jobs.get(job.account)===job)jobs.delete(job.account);
@@ -271,7 +285,7 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     store.run(`UPDATE friend_world_homes SET visits='closed',revision=revision+1
       WHERE account=? AND issuer=? AND world=? AND visits='residents'`,account,socialOrigin(),origin);
   }
-  return {view,change,friendPlanet,issueTicket,redeemTicket,visits,shareVisits,unpair,
+  return {view,change,friendPlanet,issueTicket,redeemTicket,visits,shareVisits,visitStatus,unpair,
     endSession:d=>{if(d)cancel(j=>j.session===d);},close:()=>{closed=true;tickets.clear();cancel(()=>true);}};
 }
 module.exports={planetPublishers};

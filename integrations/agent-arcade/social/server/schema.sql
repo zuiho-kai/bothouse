@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS human_avatars (
 CREATE TABLE IF NOT EXISTS sessions (
   digest TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES users, expires INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS world_visit_checks (
+  access TEXT PRIMARY KEY, session TEXT NOT NULL UNIQUE REFERENCES sessions(digest) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS world_friends_instance (
   singleton INTEGER PRIMARY KEY CHECK(singleton=1), id TEXT NOT NULL
 );
@@ -23,6 +26,7 @@ CREATE TABLE IF NOT EXISTS friend_world_homes (
   visits TEXT NOT NULL CHECK(visits IN ('residents','allowed','closed')), revision INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY(account,issuer,world)
 );
+CREATE INDEX IF NOT EXISTS friend_world_homes_planet ON friend_world_homes(issuer,world,planet);
 CREATE TABLE IF NOT EXISTS bothouse_pair_codes (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   digest TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL

@@ -330,9 +330,19 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       isolated.on('will-download',denyDownload);
       wc.once('destroyed',()=>isolated.removeListener('will-download',denyDownload));
       const aiChatUrl=world ? origin+'/.well-known/agent-arcade-ai-contacts' : undefined;
+      const returnChatUrl=world ? origin+'/.well-known/agent-arcade-return-chat' : undefined;
       let aiChatReady=false;
       for(const event of ['will-navigate','will-frame-navigate','will-redirect'])wc.on(event,(e,url)=>{
         const destination=typeof url==='string'?url:e.url;
+        if(returnChatUrl && destination===returnChatUrl){
+          e.preventDefault();
+          const frame=wc.mainFrame?.url;
+          if(value.friend && event==='will-frame-navigate' && e.isMainFrame && current() &&
+              belongs(frame,origin) && new URL(frame).pathname==='/'){
+            window.webContents.send('arcade:storeBothouseReturn');
+          }
+          return;
+        }
         if(aiChatUrl && (destination===aiChatUrl || destination?.startsWith(aiChatUrl+'?') ||
             destination?.startsWith(aiChatUrl+'#'))){
           e.preventDefault();
@@ -351,7 +361,10 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       const deadline=world?setTimeout(()=>{if(current()&&!wc.isDestroyed())wc.stop();},15000):undefined;
       const destination = new URL('/', origin);
       if (world) {
-        if (target.planet) destination.searchParams.set('visit', target.planet);
+        if (target.planet) {
+          destination.searchParams.set('visit', target.planet);
+          destination.searchParams.set('appReturn', 'chat');
+        }
         destination.searchParams.set('appChat', 'bothouse');
         destination.searchParams.set('appLang', language() === 'zh' ? 'zh' : 'en');
       }
