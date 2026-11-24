@@ -57,7 +57,15 @@ func (a *Agent) GetUsage(ctx context.Context) (*core.UsageReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseClaudeUsageReport(screen, time.Now())
+	report, err := parseClaudeUsageReport(screen, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	// Use the CLI's account query in the same environment as the usage probe.
+	if status, err := readAuthStatus(core.MergeEnv(os.Environ(), a.usageProbeEnv()), claudeUsageProbeDir(a.ccDataDir)); err == nil && status.LoggedIn {
+		report.Email = status.Email
+	}
+	return report, nil
 }
 
 func (a *Agent) runClaudeUsageProbe(ctx context.Context) (string, error) {
@@ -453,7 +461,10 @@ func parseClaudeUsageReport(text string, now time.Time) (*core.UsageReport, erro
 		if err != nil {
 			return nil, err
 		}
-		windows = append(windows, window)
+		// An expired measurement says nothing about the new window's balance.
+		if window.ResetAtUnix == 0 || window.ResetAtUnix > now.Unix() {
+			windows = append(windows, window)
+		}
 	}
 	if !hasSession || !hasWeek {
 		return nil, fmt.Errorf("claudecode: missing Current session or Current week block in Claude Code /usage output")
@@ -519,7 +530,7 @@ func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (c
 	}
 
 	if resetRaw != "" {
-		resetAt, err := parseClaudeUsageResetTime(resetRaw, now)
+		resetAt, err := parseClaudeUsageResetTime(resetRaw, now, windowSeconds)
 		if err == nil {
 			resetAfter := int(resetAt.Sub(now).Round(time.Second).Seconds())
 			if resetAfter < 0 {
@@ -533,7 +544,7 @@ func parseClaudeUsageWindow(lines []string, windowSeconds int, now time.Time) (c
 	return window, nil
 }
 
-func parseClaudeUsageResetTime(raw string, now time.Time) (time.Time, error) {
+func parseClaudeUsageResetTime(raw string, now time.Time, windowSeconds int) (time.Time, error) {
 	label := strings.TrimSpace(raw)
 	loc := now.Location()
 	if m := claudeUsageParenTZRe.FindStringSubmatch(label); len(m) == 3 {
@@ -553,8 +564,13 @@ func parseClaudeUsageResetTime(raw string, now time.Time) (time.Time, error) {
 			continue
 		}
 		resetAt := time.Date(nowInLoc.Year(), nowInLoc.Month(), nowInLoc.Day(), parsed.Hour(), parsed.Minute(), 0, 0, loc)
-		if !resetAt.After(nowInLoc) {
-			resetAt = resetAt.Add(24 * time.Hour)
+		// Source: the provider panel's window length disambiguates a clock
+		// without a date. Tomorrow is possible only within that window.
+		window := time.Duration(windowSeconds) * time.Second
+		if !resetAt.After(nowInLoc) && resetAt.AddDate(0, 0, 1).Sub(nowInLoc) <= window {
+			resetAt = resetAt.AddDate(0, 0, 1)
+		} else if resetAt.Sub(nowInLoc) > window {
+			resetAt = resetAt.AddDate(0, 0, -1)
 		}
 		return resetAt, nil
 	}
@@ -565,7 +581,8 @@ func parseClaudeUsageResetTime(raw string, now time.Time) (time.Time, error) {
 			continue
 		}
 		resetAt := time.Date(nowInLoc.Year(), parsed.Month(), parsed.Day(), parsed.Hour(), parsed.Minute(), 0, 0, loc)
-		if !resetAt.After(nowInLoc) {
+		// Source: a weekly panel may cross New Year, but cannot reset a year away.
+		if !resetAt.After(nowInLoc) && resetAt.AddDate(1, 0, 0).Sub(nowInLoc) <= time.Duration(windowSeconds)*time.Second {
 			resetAt = resetAt.AddDate(1, 0, 0)
 		}
 		return resetAt, nil
