@@ -483,6 +483,11 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       }
       else {
         const account = current(store,req);
+        if(req.method==='GET'&&req.headers['x-social-account']!==undefined&&
+           req.headers['x-social-account']!==account&&
+           (['ai-contacts','ai-contacts/pair','personal-ai','conversations'].includes(key)||
+            collection==='conversations'&&(!action||action==='messages')))
+          fail(409,'account_changed','请回到当前账号');
         if(req.method==='GET'&&key==='friend-planet'){
           if(req.headers['x-social-account']!==undefined&&req.headers['x-social-account']!==account)
             fail(409,'planet_session','账号已切换，请重新打开好友私聊。');

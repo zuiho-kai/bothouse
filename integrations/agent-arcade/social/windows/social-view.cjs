@@ -251,6 +251,17 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
         );
       } catch { /* The user can return to the preview and retry. */ }
     },
+    async openWorldAiChat(account,current) {
+      if(typeof account!=='string'||!/^[a-z0-9_]{4,24}$/u.test(account))return;
+      const onAppPage=()=>!contents.isDestroyed()&&isTrusted(contents.mainFrame?.url)&&
+        new URL(contents.mainFrame.url).pathname==='/';
+      try {
+        if (!onAppPage()&&current()&&isActive())await this.load();
+        if (onAppPage()&&current()&&isActive())await contents.executeJavaScript(
+          'window.dispatchEvent(new CustomEvent("arcade-world-ai-chat",{detail:'+JSON.stringify(account)+'}))'
+        );
+      }catch { /* The service or page may have closed while returning. */ }
+    },
     activate() {
       publishSendShortcut();
       if(!contents.isDestroyed())

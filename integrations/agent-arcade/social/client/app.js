@@ -545,11 +545,11 @@ function routeId() {
   if(!location.hash.startsWith('#chat/')) return undefined;
   try { return decodeURIComponent(location.hash.slice(6)) || undefined; } catch {return undefined;}
 }
-async function goChat(id,focusEditor=false) {
+async function goChat(id,focusEditor=false,expectedAccount) {
   tab='messages';
   const route='#chat/'+encodeURIComponent(id);
   if(location.hash!==route) window.history.pushState(null,'',route);
-  await openChat(id);
+  await openChat(id,expectedAccount);
   const active=document.activeElement;
   if(focusEditor&&chat===id&&conversation&&!dialog.open&&
      (active===document.body||active.id==='back'||active.dataset.chatId===id)){
@@ -1327,7 +1327,7 @@ $('#ai-proactive').addEventListener('click',async()=>{
     if(current())body.textContent=textError(error);
   }
 });
-async function openChat(id) {
+async function openChat(id,expectedAccount) {
   if(!user) return;
   if(id===chat && (conversation||!id)) {renderDirectory();showChatHeader();return;}
   stopVoicePlayback();
@@ -1354,7 +1354,9 @@ async function openChat(id) {
   if(!id) return;
   historyView.append(empty('正在打开会话…',button('返回消息',()=>goTab('messages'))));
   try {
-    const [meta, data]=await Promise.all([api(thread(id)),api(thread(id)+'/messages?limit='+pageSize+'&removedAfter=latest')]);
+    const options={expectedAccount};
+    const [meta, data]=await Promise.all([api(thread(id),undefined,options),
+      api(thread(id)+'/messages?limit='+pageSize+'&removedAfter=latest',undefined,options)]);
     if(generation!==epoch||chatVisit!==visit) return;
     conversation=meta.conversation;
     messages=data.messages;
@@ -3308,24 +3310,51 @@ function showBothousePair(account,paired) {
   });
   if(!paired)input.focus();
 }
+async function openWorldAiChat(account) {
+  await initialSession;
+  if(!socialVisible||user?.number!==account)return;
+  const epoch=generation, route=location.hash, visit=chatVisit, dialogVisit=dialogGeneration;
+  const current=()=>socialVisible&&generation===epoch&&location.hash===route&&
+    chatVisit===visit&&dialogGeneration===dialogVisit;
+  const options={expectedAccount:account};
+  try {
+    const [{contacts},{conversations:threads}]=await Promise.all([
+      api('/ai-contacts',undefined,options),api('/conversations',undefined,options),
+    ]);
+    if(!current())return;
+    const available=new Set(contacts.filter(contact=>contact.kind==='ai'&&
+      contact.source==='bothouse'&&contact.configured===true)
+      .flatMap(contact=>[contact.number,contact.legacyNumber].filter(Boolean)));
+    const existing=threads.filter(meta=>available.has(directAiPeer(meta)?.number));
+    const match=existing.find(meta=>meta.id===chat)||(existing.length===1?existing[0]:undefined);
+    if(match){
+      closeDialog();
+      await goChat(match.id,true,account);
+      return;
+    }
+  } catch(error) {
+    if(!current()||error.status===409)return;
+  }
+  if(current())showAiContacts();
+}
 function showAiContacts() {
   const account=user.number, epoch=generation;
   const list=el('div',null,'ai-role-library');
   const legacy=el('div'),pairing=el('div');
   const scope=openDialog('AI 联系人',[list,pairing,legacy]);
   void perform(async()=>{
-    const {identity}=await api('/personal-ai');
+    const {identity}=await api('/personal-ai',undefined,{expectedAccount:account});
     if(identity&&generation===epoch&&dialogGeneration===scope){
       legacy.append(button('原有 AI 的授权与资料',()=>showLegacyAiSettings(identity)));
     }
   },null,scope);
   void perform(async()=>{
-    const {contacts,directoryStatus,directoryReason}=await api('/ai-contacts');
+    const {contacts,directoryStatus,directoryReason}=await api('/ai-contacts',undefined,{expectedAccount:account});
     if(generation!==epoch||dialogGeneration!==scope)return;
     const roles=contacts.filter(contact=>contact.kind==='ai'&&contact.source==='bothouse'&&contact.configured===true);
     if(directoryStatus)void perform(async()=>{
       let state;
-      try{state=await api('/ai-contacts/pair');}
+      try{state=await api('/ai-contacts/pair',undefined,{expectedAccount:account});}
       catch(error){if(error.status===404)return;throw error;}
       if(generation!==epoch||dialogGeneration!==scope)return;
       if(state.paired===true)pairing.append(button('解除角色配对',()=>showBothousePair(account,true)));
@@ -3872,6 +3901,7 @@ async function restoreInitialSession() {
   }
 }
 const initialSession=restoreInitialSession();
+window.addEventListener('arcade-world-ai-chat',event=>void openWorldAiChat(event.detail));
 let imageFeedbackVisit=0;
 window.addEventListener('arcade-social-deactivate',()=>{imageFeedbackVisit++;});
 window.addEventListener('arcade-social-image-feedback',async()=>{

@@ -282,8 +282,21 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       const denyDownload=event=>event.preventDefault();
       isolated.on('will-download',denyDownload);
       wc.once('destroyed',()=>isolated.removeListener('will-download',denyDownload));
+      const aiChatUrl=world ? origin+'/.well-known/agent-arcade-ai-contacts' : undefined;
+      let aiChatReady=false;
       for(const event of ['will-navigate','will-frame-navigate','will-redirect'])wc.on(event,(e,url)=>{
         const destination=typeof url==='string'?url:e.url;
+        if(aiChatUrl && (destination===aiChatUrl || destination?.startsWith(aiChatUrl+'?') ||
+            destination?.startsWith(aiChatUrl+'#'))){
+          e.preventDefault();
+          const frame=wc.mainFrame?.url;
+          if(destination===aiChatUrl && event==='will-frame-navigate' && e.isMainFrame &&
+              aiChatReady && current() && belongs(frame,origin) && new URL(frame).pathname==='/'){
+            aiChatReady=false;
+            window.webContents.send('arcade:storeBothouseReturn',{aiChatAccount:target.account});
+          }
+          return;
+        }
         if(!belongs(destination,origin))e.preventDefault();
       });
       wc.on('render-process-gone',()=>{if(current()){close();window.webContents.send('arcade:storeBothouseUnavailable');}});
@@ -292,6 +305,7 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       const destination = new URL('/', origin);
       if (world) {
         if (target.planet) destination.searchParams.set('visit', target.planet);
+        destination.searchParams.set('appChat', 'bothouse');
         destination.searchParams.set('appLang', language() === 'zh' ? 'zh' : 'en');
       }
       try { await wc.loadURL(destination.href); } finally { clearTimeout(deadline); }
@@ -311,6 +325,7 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       })`);
       if(!current())fail('cancelled');
       if(!rendered)fail(world?'offline':'dashboard');
+      aiChatReady=world;
       view.setVisible(true);wc.focus();
       return 'ready';
     }catch(error){

@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('arcade', platformBridge({
   platform,
   ...(startupArgs.includes('--arcade-store-shell') && {
     storeBothouse: value => ipcRenderer.invoke('arcade:storeBothouse', value),
-    onStoreBothouseReturn: callback => { ipcRenderer.on('arcade:storeBothouseReturn', () => callback()); },
+    onStoreBothouseReturn: callback => { ipcRenderer.on('arcade:storeBothouseReturn', (_event, intent) => callback(intent)); },
     onStoreBothouseUnavailable: callback => { ipcRenderer.on('arcade:storeBothouseUnavailable', () => callback()); },
     storeSocial: value => ipcRenderer.invoke('arcade:storeSocial', value),
     storeSupport: () => ipcRenderer.invoke('arcade:storeSupport'),

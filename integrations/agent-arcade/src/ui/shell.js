@@ -249,7 +249,9 @@
       bothousePanel.append(bothouseCopy,bothouseRetry,bothouseChoose);document.body.append(bothousePanel);
       window.arcade.onStoreBothouseUnavailable?.(()=>{if(bothouseActive){residentStrip.hidden=true;delete bar.dataset.worldResidents;paintBothouse('offline');}});
       window.arcade.onStoreFriendVisit?.(friend=>{if(socialActive&&!imageFeedbackReturn)void showBothouse('world',friend);});
-      window.arcade.onStoreBothouseReturn?.(()=>{if(bothouseActive)void showSocial(true);});
+      window.arcade.onStoreBothouseReturn?.(intent=>{
+        if(bothouseActive)void showSocial(true,worldActive?intent?.aiChatAccount:undefined);
+      });
     }
     imageReturn=el('button','shell-ws-button');
     imageReturn.type='button';imageReturn.id='store-image-feedback-return';imageReturn.hidden=true;
@@ -311,7 +313,7 @@
     resize.observe(bar);
     resize.observe(socialMenu);
   }
-  async function showSocial(focus=false){
+  async function showSocial(focus=false,aiChatAccount){
     leaveBothouse();
     toggleSocialMenu(false,{focus:false});
     const epoch=++socialEpoch;
@@ -323,7 +325,7 @@
     paintSocialButtons();
     socialState('loading');
     let loaded=false;
-    try{loaded=await storeSocial({active:true,headerBottom:socialHeaderBottom(),focus,...(imageFeedbackReturn&&{imageFeedback:true})});}catch{}
+    try{loaded=await storeSocial({active:true,headerBottom:socialHeaderBottom(),focus,aiChatAccount,...(imageFeedbackReturn&&{imageFeedback:true})});}catch{}
     if(epoch===socialEpoch){
       socialState(loaded?'ready':'error');
       if(focus&&!loaded)socialRetry.focus({preventScroll:true});
