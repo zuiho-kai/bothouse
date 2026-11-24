@@ -26,7 +26,7 @@ python install.py .\LittleWorlds --desktop-service .\desktop\resources\app\servi
 
 自建服务也可用 `--friends-origin` 与 `--world-origin` 指定两个完整 HTTPS 原点，好友服务的 `LITTLE_WORLDS_ORIGIN` 应与游戏原点相同。回环开发可用 HTTP。游戏监听在回环，异地访问使用部署者自己的 HTTPS 反向代理。独立课程游戏继续使用上方无服务参数的安装命令。
 
-换设备登录同一好友账号后，已核实的存档会恢复原玩家。旧存档若只留在旧设备，请先在原 App 档案打开一次。允许好友拜访和连接居民分别设置；没有 AI 的房主也能分享，撤回后好友重新打开时不再获得目的地。详见 [双端部署](additions/docs/integration/friends-home.md)。
+换设备登录同一好友账号后，已核实的存档会恢复原玩家。旧存档若只留在旧设备，请先在原 App 档案打开一次。允许好友拜访和连接居民分别设置；没有 AI 的房主也能分享，撤回后，已着陆的访客会看到来访已关闭，可直接返回原聊天。居民活动随访问权限收回，未发草稿保留。升级时若旧访客看到重进提示，可返回原聊天，再从同一好友的会话设置打开星球。详见 [双端部署](additions/docs/integration/friends-home.md)。
 
 ## How the installation works
 

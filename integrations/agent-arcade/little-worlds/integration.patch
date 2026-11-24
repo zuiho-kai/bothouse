@@ -310,10 +310,10 @@ index 09549aaf6fa80e4da5e025d2cea68daff88c3d4a..5f7c7a4814b9f5624b84e0042dc90d5a
 +    addTownExterior(model.object,parts,worldMaterials(),slots);
      const transform=placedTransform({dir:obj.position,yaw:obj.rotation},fit);
 diff --git a/src/client/flight.css b/src/client/flight.css
-index e56a89e92190efaab22096861abb75c51ac8688a..318a042e5ab90c50dfce093ddc7eb210f9e1047d 100644
+index e56a89e92190efaab22096861abb75c51ac8688a..044eb69124dbd394fcdf96bfbdd5145f969e5101 100644
 --- a/src/client/flight.css
 +++ b/src/client/flight.css
-@@ -36 +36,28 @@
+@@ -36 +36,44 @@
  #trip-preview::before{content:'';display:block;width:54px;height:54px;border-radius:50%;margin:0 12px 0 0;float:left;background:radial-gradient(circle at 32% 25%,#fff8,transparent 55%),var(--destination-color,#73ad80);box-shadow:inset -9px -8px 0 #17354133}#trip-preview{min-height:54px;display:flow-root}
 +
 +#friend-visit-route{position:fixed;top:76px;left:16px;z-index:4;max-width:min(24rem,80vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f2ead6;color:#173541;border:1px solid #8aa89b;border-radius:8px;padding:8px 12px}
@@ -342,6 +342,22 @@ index e56a89e92190efaab22096861abb75c51ac8688a..318a042e5ab90c50dfce093ddc7eb210
 +    left: 12px;
 +  }
 +}
++
++#friend-visit-closure {
++  position: fixed;
++  z-index: 26;
++  inset: 126px 16px auto auto;
++  max-width: calc(100vw - 32px);
++  padding: 12px 16px;
++  border: 1px solid var(--ui-dialog-border);
++  border-radius: 14px;
++  background: var(--ui-dialog-surface);
++  color: var(--ui-dialog-text);
++}
++#friend-visit-closure p { margin: 0; }
++#friend-visit-closure a:not([hidden]) { display: inline-block; margin-top: 8px; }
++.scene-loading-overlay #friend-visit-closure { position: static; margin: 12px auto 0; }
++#welcome-panel #friend-visit-closure { position: static; width: fit-content; margin: 0 auto 12px; }
 diff --git a/src/client/flight.ts b/src/client/flight.ts
 index eeb7d88eabbcb938873d370abbcf3434b7202330..7b499e2157dd600fbcbf208a63b09c652cb61e55 100644
 --- a/src/client/flight.ts
@@ -476,7 +492,7 @@ index 7a870819b29ebed6159a71a69de0600400265e76..bf706cd6fa139b03cabbd15bbdea1995
 +  language = saved === 'en' || saved === 'zh' ? saved : fallback;
    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
 diff --git a/src/client/main.ts b/src/client/main.ts
-index 0639a7b2e636be2963ca2599618308f12632025a..9d123673205298a2cb914a36845074180cc2f09a 100644
+index 0639a7b2e636be2963ca2599618308f12632025a..ffb8c32abd0966eaf53a3dc1cb93ceda554095c4 100644
 --- a/src/client/main.ts
 +++ b/src/client/main.ts
 @@ -32,2 +32,3 @@ import { createVillagePolish } from './village-polish.ts';
@@ -487,26 +503,27 @@ index 0639a7b2e636be2963ca2599618308f12632025a..9d123673205298a2cb914a3684507418
  const scene = new T.Scene();
 +const bothouseResidents=new BothouseResidents(scene,reduced);
  const exteriorHomeDoor=createHomeDoor();scene.add(exteriorHomeDoor.root);exteriorHomeDoor.root.visible=false;
-@@ -734,2 +736,5 @@ function animate(now:number) {
+@@ -734,2 +736,6 @@ function animate(now:number) {
    mouseLook?.sync();lookButton.hidden=!canLook()||overview;paintLookHint();
 +  const garden=colony?.universe?.currentPlanet;
 +  const visitVisible=online&&colony?.syncing&&!document.hidden&&!graphicsLost&&!worldPending&&!state?.appearanceRequired&&state?.flight.mode==='ground'&&state.location?.kind!=='interior'&&!homeTransition&&garden?.id===activePlanet&&garden.claimed&&garden.kind==='garden';
-+  bothouseResidents.frame(visitVisible?groundWorld:null,state?.location?.visitEpoch??0,now,!!garden?.mine&&garden.id===activePlanet&&online);
++  const landedGarden=online&&colony?.syncing&&state?.flight.mode==='ground'&&garden?.kind==='garden'&&garden.claimed?garden.id:null;
++  bothouseResidents.frame(visitVisible?groundWorld:null,landedGarden,state?.location?.visitEpoch??0,now,!!garden?.mine&&garden.id===activePlanet&&online);
    if(graphicsLost)return;
-@@ -910,2 +915,3 @@ function animate(now:number) {
+@@ -910,2 +916,3 @@ function animate(now:number) {
    const cutawayFrame=cameraLocalExceptionB&&!overview?committedCutawayFrame:activeTownCutaway&&groundWorld?activeTownCutaway.update({world:groundWorld,camera,feet,up:renderUp,dt,enabled:cameraCutawayB&&!overview,diagnostics:measureCamera}):null;
 +  bothouseResidents.animate(dt,walker.up.toArray() as Vec3,renderCamera(),!scenePaused);
    residents?.update({dt,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:renderCamera(),reducedMotion:reduced,enabled:!scenePaused});
-@@ -915,2 +921,3 @@ function animate(now:number) {
+@@ -915,2 +922,3 @@ function animate(now:number) {
    practical.update(scene,renderCamera(),dt);if(indoorRoomView.room)indoorRoomView.render();else drawing.render(new T.Vector3(),overview);readyWelcome();
 +  if(measureCamera)renderer.domElement.dataset.companions=JSON.stringify(bothouseResidents.snapshot(renderCamera()));
    // Opt-in, atomic evidence from this rendered frame. Reading this snapshot can
-@@ -1032,3 +1039,3 @@ function ensureColony() {
+@@ -1032,3 +1040,3 @@ function ensureColony() {
      apply:next=>{if(colony?.universe!==next)colony?.accept(next);},notice});
 -  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
 +  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,findShip:()=>worldGuide.findShip(),apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
    flight.setDesign((state.ship??defaultShip()).design);flight.receive(state.flight);scene.environment=flight.scene.environment;scene.environmentIntensity=groundPresentation(activePlanet,activeRadius).environmentIntensity;
-@@ -1061,3 +1068,3 @@ photoMode=new PhotoMode({renderer,
+@@ -1061,3 +1069,3 @@ photoMode=new PhotoMode({renderer,
      view.updateProjectionMatrix();view.updateMatrixWorld(true);
 -    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
 +    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');bothouseResidents.animate(0,walker.up.toArray() as Vec3,photo,false);residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
@@ -941,7 +958,7 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..1cc0782009230650b88263a8406b1380
 +    paint();return {mode:talking?'talking':selected?'route':'idle',position:actor.root.visible?actor.root.position.toArray():null,topic,selected,route:route.root.visible?route.diagnostics.reason:'hidden',routeVisible:route.root.visible,aiEnabled:ai?.enabled??false,actorVisible:actor.root.visible};
    }};
 diff --git a/src/server/index.ts b/src/server/index.ts
-index 9321f714cc1187e76b4445145ff9a6722db64e26..06fdd3ef811ca1eea0c49cfd60d5202c3bc9373c 100644
+index 9321f714cc1187e76b4445145ff9a6722db64e26..30d045c4d67d7fb9675a0123e8f41e9bd526f053 100644
 --- a/src/server/index.ts
 +++ b/src/server/index.ts
 @@ -3,3 +3,3 @@ import { createHash, randomBytes } from 'node:crypto';
@@ -972,7 +989,7 @@ index 9321f714cc1187e76b4445145ff9a6722db64e26..06fdd3ef811ca1eea0c49cfd60d5202c
 -    if (url.pathname.startsWith('/api/')) {
 +    if (url.pathname.startsWith('/api/')||url.pathname==='/resident-settings') {
        auditRoute=url.pathname.slice(5);
-@@ -59,4 +71,69 @@ const server = createServer(async (req, res) => {
+@@ -59,4 +71,80 @@ const server = createServer(async (req, res) => {
        const cookie = new RegExp('(?:^|;\\s*)'+cookieName+'=([a-f0-9]{64})(?:;|$)').exec(req.headers.cookie ?? '')?.[1];
 -      let id = cookie ? hash(cookie) : '';
 +      const cookieDigest=cookie ? hash(cookie) : '';
@@ -986,16 +1003,23 @@ index 9321f714cc1187e76b4445145ff9a6722db64e26..06fdd3ef811ca1eea0c49cfd60d5202c
 +        const destination=url.pathname==='/api/friends-home';
 +        if((destination && req.headers.cookie) || (req.headers.origin && (destination || req.headers.origin!==friendsAuthority.audience)))
 +          throw new RequestError(403,'Use the bound Friends service.');
-+        const identity=await friendsAuthority.verify(await jsonBody(req,1024));
++        const identity=await friendsAuthority.verify(await jsonBody(req,1024),!destination);
 +        if(destination){send(200,friendsWorld.destination(identity));return;}
 +        const token=await friendsWorld.open(identity,cookieDigest);
 +        if(token)setSession(token,friendsAuthority.audience?.startsWith('https://')===true);
 +        send(200,{ok:true,account:identity.account});return;
 +      }
        if(id&&store.has(id))auditIdentity=id;
++      const residentVisitAccess=async(planet:string)=>{
++        residentSources.requireLanded(id,planet);
++        const check=friendsWorld.visitCheck(id,cookieDigest,planet);
++        if(!check)return 'allowed';
++        if(!check.access)return 'reopen';
++        return await friendsAuthority.canReadVisit(check.access,planet)?'allowed':'closed';
++      };
 +      if(url.pathname.startsWith('/api/resident-feed/art/') || url.pathname.includes('/residents/') && url.pathname.includes('/art/')){
 +        auditRoute=undefined;
-+        if(await serveResidentArt(req,res,url.pathname,id,residents))return;
++        if(await serveResidentArt(req,res,url.pathname,id,residents,async planet=>await residentVisitAccess(planet)==='allowed'))return;
 +        throw new RequestError(404,'Unknown resident portrait.');
 +      }
 +      if(url.pathname==='/resident-settings'){
@@ -1040,16 +1064,20 @@ index 9321f714cc1187e76b4445145ff9a6722db64e26..06fdd3ef811ca1eea0c49cfd60d5202c
 +      if(residentRoute){
 +        auditRoute=undefined;
 +        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
-+        if(req.method==='GET'&&!residentRoute[2]){send(200,residents.read(id,residentRoute[1]));return;}
++        if(req.method==='GET'&&!residentRoute[2]){
++          const planet=residentRoute[1],access=await residentVisitAccess(planet);
++          send(200,access==='allowed'?residents.read(id,planet):
++            access==='reopen'?{residents:[],visitReopen:true}:{residents:[],visitClosed:true});return;
++        }
 +      }
        if (url.pathname === '/api/state' && req.method === 'GET') {
-@@ -65,4 +142,3 @@ const server = createServer(async (req, res) => {
+@@ -65,4 +153,3 @@ const server = createServer(async (req, res) => {
            auditIdentity=id;auditCreated=true;
 -          const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
 -          res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`);
 +          setSession(token,req.headers['x-forwarded-proto']==='https');
            send(200, created); return;
-@@ -97,8 +173,9 @@ const server = createServer(async (req, res) => {
+@@ -97,8 +184,9 @@ const server = createServer(async (req, res) => {
        const bodyLimit = ['/api/blueprints/save','/api/home/save'].includes(url.pathname) ? BLUEPRINT_BODY_LIMIT : 2048;
 -      const chunks: Buffer[] = []; let byteLength = 0;
 -      for await (const chunk of req) { const bytes = Buffer.from(chunk); byteLength += bytes.length; if (byteLength > bodyLimit) throw new RequestError(413, 'Request too large.'); chunks.push(bytes); }
@@ -1065,7 +1093,7 @@ index 9321f714cc1187e76b4445145ff9a6722db64e26..06fdd3ef811ca1eea0c49cfd60d5202c
 +        throw new RequestError(400,'Choose a resident connection action.');
 +      }
        auditContext=url.pathname.startsWith('/api/guide/')?{}:body;
-@@ -170,3 +247,3 @@ const server = createServer(async (req, res) => {
+@@ -170,3 +258,3 @@ const server = createServer(async (req, res) => {
        const path = resolve(root, '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
 -      if (!path.startsWith(root + '/')) throw new RequestError(404, 'Not found.');
 +      if (!path.startsWith(root + sep)) throw new RequestError(404, 'Not found.');

@@ -13,7 +13,7 @@ const year = 365 * 24 * 60 * 60 * 1000;
 export function friendsIdentity({issuer,audience}:{issuer:string|null;audience:string|null}) {
   return {
     audience,
-    async verify(body: Record<string, unknown>) {
+    async verify(body: Record<string, unknown>, visitorCheck=false) {
       if (!issuer || !audience) throw unavailable();
       if (Object.keys(body).length !== 2 || typeof body.ticket !== 'string' || !/^[a-f0-9]{64}$/.test(body.ticket) ||
           typeof body.expectedAccount !== 'string' || !accountPattern.test(body.expectedAccount)) throw denied();
@@ -21,7 +21,7 @@ export function friendsIdentity({issuer,audience}:{issuer:string|null;audience:s
       let record;
       try {
         const response = await fetch(url, {method:'POST', redirect:'error', signal:AbortSignal.timeout(5000),
-          headers:{'Content-Type':'application/json'}, body:JSON.stringify({ticket:body.ticket,worldOrigin:audience})});
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({ticket:body.ticket,worldOrigin:audience,...(visitorCheck?{visitorCheck:true}:{})})});
         if (!response.ok) {
           await response.body?.cancel();
           if ([400,401,403,409,410].includes(response.status)) throw denied();
@@ -38,7 +38,22 @@ export function friendsIdentity({issuer,audience}:{issuer:string|null;audience:s
       if (legacy !== null && (!legacy || typeof legacy.sourceId !== 'string' || !uuid.test(legacy.sourceId) ||
           typeof legacy.planetId !== 'string' || !legacy.planetId.startsWith('p-') || !uuid.test(legacy.planetId.slice(2)))) throw denied();
       return {account:body.expectedAccount, issuer, instance:record.instanceId as string,
-        legacy: legacy as {sourceId:string;planetId:string} | null};
+        legacy: legacy as {sourceId:string;planetId:string} | null,
+        visitAccess:typeof record.visitAccess==='string'&&/^[a-f0-9]{64}$/.test(record.visitAccess)?record.visitAccess:null};
+    },
+    async canReadVisit(access:string,planetId:string) {
+      if(!issuer||!audience||!access)throw unavailable();
+      try{
+        const response=await fetch(issuer+'/api/v1/world-visit-status',{
+          method:'POST',redirect:'error',signal:AbortSignal.timeout(3500),
+          headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},
+          body:JSON.stringify({worldOrigin:audience,planetId})
+        });
+        if(!response.ok){await response.body?.cancel();throw unavailable();}
+        const {allowed}=await response.json();
+        if(typeof allowed!=='boolean')throw unavailable();
+        return allowed;
+      }catch{throw unavailable();}
     },
   };
 }
@@ -53,13 +68,22 @@ export function friendsPlayers(db:DatabaseSync, enroll:(player:string)=>void, pr
     player TEXT NOT NULL UNIQUE REFERENCES players(id), PRIMARY KEY(issuer,instance,account));
     CREATE TABLE IF NOT EXISTS friends_world_sessions (
     digest TEXT PRIMARY KEY, player TEXT NOT NULL REFERENCES friends_players(player), expires INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS friends_world_sessions_expiry ON friends_world_sessions(expires);`);
+    CREATE INDEX IF NOT EXISTS friends_world_sessions_expiry ON friends_world_sessions(expires);
+    CREATE TABLE IF NOT EXISTS friends_world_visit_checks (
+      digest TEXT PRIMARY KEY REFERENCES friends_world_sessions(digest) ON DELETE CASCADE, access TEXT NOT NULL
+    );`);
   const binding = db.prepare('SELECT player FROM friends_players WHERE issuer=? AND instance=? AND account=?');
   const bindingOf = db.prepare('SELECT issuer,instance,account FROM friends_players WHERE player=?');
   const oldLinks = `FROM app_resident_links l JOIN planet_resident_sources s ON s.id=l.source AND s.planet=l.planet
     JOIN planets p ON p.id=s.planet AND p.owner_id=s.owner AND p.kind='garden'`;
   const activeSession=db.prepare('SELECT player FROM friends_world_sessions WHERE digest=? AND expires>?');
   const legacyPlayer=db.prepare('SELECT id FROM players WHERE id=?');
+  const visitAccess=db.prepare(`SELECT c.access FROM friends_world_visit_checks c
+    JOIN friends_world_sessions s ON s.digest=c.digest WHERE c.digest=? AND s.expires>?`);
+  const managedHome=db.prepare(`SELECT p.owner_id FROM planets p WHERE p.id=? AND
+    (EXISTS (SELECT 1 FROM friends_players f WHERE f.player=p.owner_id)
+     OR EXISTS (SELECT 1 FROM app_resident_links l
+       JOIN planet_resident_sources s ON s.id=l.source AND s.owner=p.owner_id WHERE l.planet=p.id))`);
   function resolve(cookieDigest:string) {
     if (!cookieDigest) return '';
     const session = activeSession.get(cookieDigest,Date.now());
@@ -70,6 +94,10 @@ export function friendsPlayers(db:DatabaseSync, enroll:(player:string)=>void, pr
   const insert=db.prepare('INSERT INTO friends_players(issuer,instance,account,player) VALUES(?,?,?,?)');
   return {
     resolve,
+    visitCheck(viewer:string,cookieDigest:string,planet:string) {
+      const owner=managedHome.get(planet)?.owner_id;
+      return owner&&owner!==viewer ? {access:String(visitAccess.get(cookieDigest,Date.now())?.access??'')} : null;
+    },
     destination(identity:Identity) {
       const home=db.prepare(`SELECT p.id FROM friends_players f JOIN planets p ON p.owner_id=f.player AND p.kind='garden'
         WHERE f.issuer=? AND f.instance=? AND f.account=?`).get(identity.issuer,identity.instance,identity.account);
@@ -132,6 +160,12 @@ export function friendsPlayers(db:DatabaseSync, enroll:(player:string)=>void, pr
           const now=Date.now();
           db.prepare('DELETE FROM friends_world_sessions WHERE expires<=?').run(now);
           db.prepare('INSERT INTO friends_world_sessions VALUES(?,?,?)').run(digest(token),player,now+year);
+        }
+        if(identity.visitAccess){
+          const key=token?digest(token):cookieDigest;
+          db.prepare('INSERT OR IGNORE INTO friends_world_sessions VALUES(?,?,?)').run(key,player,Date.now()+year);
+          db.prepare('INSERT INTO friends_world_visit_checks VALUES(?,?) ON CONFLICT(digest) DO UPDATE SET access=excluded.access')
+            .run(key,identity.visitAccess);
         }
         db.exec('COMMIT');
         return token;

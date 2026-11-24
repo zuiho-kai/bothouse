@@ -158,24 +158,41 @@ export class BothouseResidents {
   private figures=new Map<string,ResidentFigure>();
   private summary=document.createElement('p');
   private settings=document.createElement('a');
+  private closure=document.createElement('aside');
+  private closureText=document.createElement('p');
+  private back=document.createElement('a');
   constructor(private scene:T.Scene,private reduced:boolean) {
     this.summary.className='presence-summary';this.summary.id='bothouse-residents';
     this.summary.dataset.i18nVerbatim='';this.summary.hidden=true;
     document.querySelector('#presence-summary')!.after(this.summary);
+    this.closure.id='friend-visit-closure';this.closure.hidden=true;this.closure.dataset.i18nVerbatim='';
+    this.closureText.setAttribute('role','status');
+    this.back.href='/.well-known/agent-arcade-return-chat';this.back.className='quiet';
+    this.back.hidden=new URLSearchParams(location.search).get('appReturn')!=='chat';
+    this.closure.append(this.closureText,this.back);
+    document.querySelector('.minimal-bar')!.after(this.closure);
     this.settings.href='/resident-settings';this.settings.className='quiet';this.settings.hidden=true;
     document.querySelector('#planet-card .planet-actions')!.append(this.settings);
   }
-  frame(world:GroundWorld|null,epoch:number,now:number,owner:boolean) {
+  frame(world:GroundWorld|null,planet:string|null,epoch:number,now:number,owner:boolean) {
     this.settings.hidden=!owner;
     const settingsText=zh()?'连接星球搭档':'Connect planet companions';
     if(owner&&this.settings.textContent!==settingsText)this.settings.textContent=settingsText;
-    const visit=world?world.planetId+'/'+epoch+'/'+world.revision:'';
-    if(visit!==this.visit){
-      this.visit=visit;this.request?.abort();this.request=null;this.clear();this.next=0;
+    if(!this.closure.hidden){
+      const welcome=document.querySelector('#welcome-panel[open] .welcome-card');
+      const host=document.querySelector('.scene-loading-overlay[open]')??welcome??document.body;
+      if(this.closure.parentElement!==host){
+        if(host===welcome)host.prepend(this.closure);
+        else host.append(this.closure);
+      }
     }
-    if(!world||now<this.next||this.request)return;
+    const visit=planet?planet+'/'+epoch+'/'+(world?.revision??'loading'):'';
+    if(visit!==this.visit){
+      this.visit=visit;this.request?.abort();this.request=null;this.clear();this.closure.hidden=true;this.next=0;
+    }
+    if(!planet||now<this.next||this.request)return;
     const request=this.request=new AbortController();
-    void this.refresh(world,request);
+    void this.refresh(planet,world,request);
   }
   animate(dt:number,viewer:Vec3,camera:T.Camera,enabled:boolean) {
     if(!this.figures.size)return;
@@ -217,14 +234,33 @@ export class BothouseResidents {
     for(const figure of this.figures.values())figure.dispose();
     this.seats=[];this.figures.clear();this.summary.hidden=true;this.summary.replaceChildren();
   }
-  private async refresh(world:GroundWorld,request:AbortController) {
-    const planet=world.planetId;
+  private async refresh(planet:string,world:GroundWorld|null,request:AbortController) {
     try{
       const signal=AbortSignal.any([request.signal,AbortSignal.timeout(5000)]);
       const response=await fetch('/api/planets/'+encodeURIComponent(planet)+'/residents',{cache:'no-store',signal});
       if(!response.ok)throw Error('Roster unavailable');
-      const {residents}=await response.json() as {residents:Resident[]};
+      const {residents,visitClosed,visitReopen}=await response.json() as {
+        residents:Resident[];visitClosed?:boolean;visitReopen?:boolean
+      };
       if(request!==this.request)return;
+      this.closure.hidden=!visitClosed&&!visitReopen;
+      if(visitClosed||visitReopen){
+        this.clear();
+        if(visitClosed){
+          this.closureText.textContent=zh()?'好友来访已关闭。':'This friend visit has closed.';
+        }else if(this.back.hidden){
+          this.closureText.textContent=zh()
+            ?'请用上方的「返回消息」回到原聊天，再打开好友星球。'
+            :'Use Return to messages above, then reopen your friend’s planet from the original chat.';
+        }else{
+          this.closureText.textContent=zh()
+            ?'请返回原聊天，再打开好友星球。'
+            :'Return to the original chat, then reopen your friend’s planet.';
+        }
+        this.back.textContent=zh()?'返回原聊天':'Return to chat';
+        return;
+      }
+      if(!world)return;
       const ids=new Set(residents.map(r=>r.id));
       for(const [id,figure] of this.figures)if(!ids.has(id)){figure.dispose();this.figures.delete(id);}
       const used=new Set(Array.from(this.figures.values(),f=>f.slot));
@@ -248,7 +284,9 @@ export class BothouseResidents {
       this.summary.replaceChildren(...cards);this.summary.hidden=!cards.length;
     }catch{
       if(request!==this.request)return;
-      this.clear();this.summary.textContent=zh()?'暂时看不到搭档的动态。':'Companion activity is unavailable.';this.summary.hidden=false;
+      this.clear();
+      if(new URLSearchParams(location.search).get('visit')===planet&&!this.closure.hidden)return;
+      this.summary.textContent=zh()?'暂时看不到搭档的动态。':'Companion activity is unavailable.';this.summary.hidden=false;
     }finally{if(request===this.request){this.request=null;this.next=performance.now()+3000;}}
   }
 }

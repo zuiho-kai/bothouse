@@ -138,7 +138,7 @@ export function withResidentArt(db:DatabaseSync, base:ReturnType<typeof planetRe
     }
   };
 }
-export async function serveResidentArt(req:IncomingMessage,res:ServerResponse,path:string,viewer:string,service:ReturnType<typeof withResidentArt>){
+export async function serveResidentArt(req:IncomingMessage,res:ServerResponse,path:string,viewer:string,service:ReturnType<typeof withResidentArt>,canReadVisit?: (planet:string)=>Promise<boolean>){
   const upload=/^\/api\/resident-feed\/art\/(bh_[a-f0-9]{21})\/([a-f0-9]{64})$/.exec(path);
   const read=/^\/api\/planets\/(p-[a-f0-9-]{36})\/residents\/(bh_[a-f0-9]{21})\/art\/([a-f0-9]{64})\.png$/.exec(path);
   if(!upload&&!read)return false;
@@ -156,6 +156,7 @@ export async function serveResidentArt(req:IncomingMessage,res:ServerResponse,pa
   }else if(read){
     if(req.method!=='GET')throw new RequestError(405,'Use GET.');
     if(!viewer)throw new RequestError(401,'Open your world first.');
+    if(canReadVisit&&!await canReadVisit(read[1]))throw new RequestError(403,'This friend visit has closed.');
     const bytes=service.image(viewer,read[1],read[2],read[3]);
     res.writeHead(200,{'Content-Type':'image/png'});res.end(bytes);
   }

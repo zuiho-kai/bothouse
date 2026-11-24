@@ -30,7 +30,13 @@ export function planetResidents(db:DatabaseSync, now=Date.now){
     if(!row)throw unavailable();
     return row;
   }
+  function requireLanded(viewer:string,planet:string) {
+    const player=db.prepare('SELECT planet_id,flight FROM players WHERE id=?').get(viewer);
+    if(!player||player.planet_id!==planet||(player.flight&&JSON.parse(String(player.flight)).mode==='space'))
+      throw new RequestError(403,'Land on this planet to see its residents.');
+  }
   return {
+    requireLanded,
     owned(owner:string){return db.prepare('SELECT id FROM planets WHERE owner_id=?').get(owner)?.id as string|undefined;},
     connections(owner:string,planet:string){
       requireOwner(owner,planet);
@@ -73,9 +79,7 @@ export function planetResidents(db:DatabaseSync, now=Date.now){
       return {ok:true};
     },
     read(viewer:string,planet:string){
-      const player=db.prepare('SELECT planet_id,flight FROM players WHERE id=?').get(viewer);
-      if(!player||player.planet_id!==planet||(player.flight&&JSON.parse(String(player.flight)).mode==='space'))
-        throw new RequestError(403,'Land on this planet to see its residents.');
+      requireLanded(viewer,planet);
       const residents:PlanetResident[]=[];
       for(const row of db.prepare(`SELECT s.roster,s.sampled FROM planet_resident_sources s JOIN planets p ON p.id=s.planet
         WHERE s.planet=? AND s.owner=p.owner_id ORDER BY s.rowid`).all(planet)){

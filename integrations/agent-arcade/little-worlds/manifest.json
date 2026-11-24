@@ -2,9 +2,9 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "587e017970fc10976fd41a71bbfc69cd500698ca",
-  "worldTree": "b3bfac97c0790d76521768ae8bf2e5f17c3dcdfb",
-  "patchSHA256": "84bc8838914b87274a262f752b00abffead9ce9fbcda0e5d81b0c4429f3b57a3",
+  "worldRevision": "7c60785848bc9440ceb4122c683a5d3dc362e716",
+  "worldTree": "a4667f787bd08759f4d0c2d90d7c5fc3074f373b",
+  "patchSHA256": "0df0292ad78360df437f9ddfe0a42140806e58b1118a7d9bb9d8f95c2184e799",
   "windowsPublisherSHA256": {
     "publish-residents.py": "5b921bc405941feef45d9cd9459571c534dc0ff5e19ceebd3af1ba2e4e62fe8b",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
@@ -37,8 +37,8 @@
     {
       "action": "A",
       "path": "docs/integration/friends-home.md",
-      "blob": "34956da36e0d544fac5e0f1fc6473b5f93a1465d",
-      "sha256": "519e7d92d33a4625e0b7183d26f5e18ea0b2a1c089a8e69096fa4ebe33a4f7da"
+      "blob": "f77f32ae21c8681f9d001c9751075946b482fc9d",
+      "sha256": "0c0980f061519dd40d7d746370b5e6677b28732d7710be9045a3fdb1aa4aaff9"
     },
     {
       "action": "A",
@@ -415,8 +415,8 @@
     {
       "action": "A",
       "path": "src/client/bothouse-residents.ts",
-      "blob": "e88b57185ef186f7aa91ee1fc4e32b6fa0a64426",
-      "sha256": "5aa60b840c5669b4f103ffa172c92d9e07567102c33cdb584e71af3d06e71d39"
+      "blob": "cab6e5fa94d325d2863197d09aa52193a19eb467",
+      "sha256": "529660dc2d1755cca8a45c91296370f07c3e8c43294fc31628cb1b281e48bcc7"
     },
     {
       "action": "A",
@@ -445,8 +445,8 @@
     {
       "action": "M",
       "path": "src/client/flight.css",
-      "blob": "318a042e5ab90c50dfce093ddc7eb210f9e1047d",
-      "sha256": "27e6d2f4f529d7e059fbcc7e4c66c1ebc1e7a9560eae3c341b2dec119e011dc6"
+      "blob": "044eb69124dbd394fcdf96bfbdd5145f969e5101",
+      "sha256": "4aa4c1bfba67e1297c36af80d721cf12bce75cb562cd788f91629c9ce19d54f9"
     },
     {
       "action": "M",
@@ -481,8 +481,8 @@
     {
       "action": "M",
       "path": "src/client/main.ts",
-      "blob": "9d123673205298a2cb914a36845074180cc2f09a",
-      "sha256": "7e1d26b6bf814d477a7a8b4db9c4768021e8a4570fa566d15807f67115508fb8"
+      "blob": "ffb8c32abd0966eaf53a3dc1cb93ceda554095c4",
+      "sha256": "37ee9ce2354b3b660603cacd411c9e023ae90d94449c061694f37dfc310097dc"
     },
     {
       "action": "M",
@@ -577,26 +577,26 @@
     {
       "action": "A",
       "path": "src/server/friends-session.ts",
-      "blob": "4bcc4b9f693dfc0dc27d1389547595206790c5d6",
-      "sha256": "f0526942f6590f36b898205bdb5d2dc89e0f65e4c42cb7fbbfb958ae68138768"
+      "blob": "986ea594b03eb325dc0b00be582d9d45b492f7cc",
+      "sha256": "54aac812a80ce1486c4f5bc0069e3b99969c56dccd595019d0a208f2435b58b1"
     },
     {
       "action": "M",
       "path": "src/server/index.ts",
-      "blob": "06fdd3ef811ca1eea0c49cfd60d5202c3bc9373c",
-      "sha256": "eeab8c8f3e4e66035952aded5406ba62e872037e2085ff7a243097369c0ceb09"
+      "blob": "30d045c4d67d7fb9675a0123e8f41e9bd526f053",
+      "sha256": "407829db4e23010dd3758e43e9c032edb5d50079ef8461a0fc12c7322ebe97bd"
     },
     {
       "action": "A",
       "path": "src/server/planet-residents.ts",
-      "blob": "22d4ce2ea187f3b648c023ebe305cc904a8ee85c",
-      "sha256": "ace86cb5e07be0272383b220519bb765842fc7a42ea0d022e35ecc2072eaf79e"
+      "blob": "77ee8a3eda04736565ab716580c0c3c1aa0c8bf6",
+      "sha256": "8b96f30e977b4f5724d63dcaf2957c1988e85eb6bbb375622e0ae03c5ffca7c1"
     },
     {
       "action": "A",
       "path": "src/server/resident-art.ts",
-      "blob": "347b2ed25e7dd894750e8dd0dc9b7db8b779b3af",
-      "sha256": "2487591aa3be21e2831460c408d5d5e37afa27a4acea358d67ebe8b68a6484b5"
+      "blob": "6a172f086459b39b309d5c1d8772b99562cdfe6f",
+      "sha256": "2fe3405bab7f26dea21c9d08b1b2f6556d57830e77fc0dc2395ab5674f01e039"
     },
     {
       "action": "A",
