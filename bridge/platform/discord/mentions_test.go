@@ -1,6 +1,10 @@
 package discord
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/bwmarrin/discordgo"
+)
 
 func TestReplaceMentions(t *testing.T) {
 	alias := map[string]string{"Claude橘": "1", "橘": "1", "龙娘": "2"}
@@ -69,5 +73,42 @@ func TestNameCalled(t *testing.T) {
 		if got := nameCalled(c.text, "Claude橘", team...); got != c.want {
 			t.Errorf("nameCalled(%q) = %v, want %v", c.text, got, c.want)
 		}
+	}
+}
+
+func TestLinkTeamMentionsPerson(t *testing.T) {
+	personNames.Store("zzzx0757", "1498889779377602672")
+	personNames.Store("小翟", "1498889779377602672")
+	defer personNames.Delete("zzzx0757")
+	defer personNames.Delete("小翟")
+	cases := map[string]string{
+		"@zzzx0757 ③做完了":              "<@1498889779377602672> ③做完了",
+		"请 @小翟 拍板":                    "请 <@1498889779377602672> 拍板",
+		"@zzzx07578 别人":               "@zzzx07578 别人",
+		"```\n@zzzx0757 in code\n```": "```\n@zzzx0757 in code\n```",
+		"@陌生人 保持原样":                   "@陌生人 保持原样",
+		"zzzx0757 开头不带 @ 不转":          "zzzx0757 开头不带 @ 不转",
+	}
+	for in, want := range cases {
+		if got := linkTeamMentions(in, "self"); got != want {
+			t.Errorf("%q → %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNotePersonNames(t *testing.T) {
+	defer personNames.Delete("alice")
+	defer personNames.Delete("爱丽丝")
+	notePersonNames(&discordgo.MessageCreate{Message: &discordgo.Message{
+		Author: &discordgo.User{ID: "42", Username: "alice", GlobalName: "爱丽丝"}}})
+	notePersonNames(&discordgo.MessageCreate{Message: &discordgo.Message{
+		Author: &discordgo.User{ID: "7", Username: "somebot", Bot: true}}})
+	for n, want := range map[string]string{"alice": "42", "爱丽丝": "42"} {
+		if v, _ := personNames.Load(n); v != want {
+			t.Errorf("%s → %v, want %s", n, v, want)
+		}
+	}
+	if _, ok := personNames.Load("somebot"); ok {
+		t.Error("bot recorded as a person")
 	}
 }
