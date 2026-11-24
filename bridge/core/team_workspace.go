@@ -2438,19 +2438,19 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 	return n
 }
 
-// retryTeamWorkspaceReleases asks the platform of chat ("<platform>:<id>") to release every
+// retryTeamWorkspaceReleases (true when it released any) asks the platform of chat ("<platform>:<id>") to release every
 // workspace of that platform whose release is pending (ReleasePending), naming the claim being
 // ended, and drops the record of each one the platform released (or that it says was claimed
 // again since, ErrTeamWorkspaceStaleClaim: that claim is over). A busy or failed release keeps
 // the record for the next try. Caller holds teamWorkspaceOpMu.
-func (e *Engine) retryTeamWorkspaceReleases(chat string) {
+func (e *Engine) retryTeamWorkspaceReleases(chat string) (released bool) {
 	if e == nil || e.dataDir == "" {
-		return
+		return false
 	}
 	plat, _, _ := strings.Cut(chat, ":")
 	r, ok := e.platformForName(plat).(TeamWorkspaceReleaser)
 	if !ok {
-		return
+		return false
 	}
 	path := teamWorkspacePath(e.dataDir)
 	type pending struct {
@@ -2463,7 +2463,7 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 	if err != nil {
 		teamWorkspaceStore.mu.Unlock()
 		slog.Error("team workspace: state unreadable; releases not retried", "chat", chat, "error", err)
-		return
+		return false
 	}
 	for parent, list := range st0.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != plat {
@@ -2506,10 +2506,12 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 		}
 		teamWorkspaceStore.mu.Unlock()
 		slog.Info("team workspace: released after its last task", "workspace", key, "owner", x.owner, "stale_claim", err != nil)
+		released = true
 		if err == nil {
 			e.shelveTeamWorkspace(plat, x.id)
 		}
 	}
+	return released
 }
 
 // TeamWorkspacePool returns every workspace in the server/category of chat, 「工作区n」 lowest
@@ -2526,14 +2528,21 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	if !ok {
 		return nil, fmt.Errorf("team workspace: %s: no platform with workspaces", chat)
 	}
-	teamWorkspaceOpMu.Lock()
-	defer teamWorkspaceOpMu.Unlock()
-	e.retryTeamWorkspaceReleases(chat)
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
+	// The listing is read before teamWorkspaceOpMu, so a slow platform holds up only this call,
+	// not every claim, park and turn-end release on the bridge; it is read again under the lock
+	// only when a pending release changed the channels.
 	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))
 	if err != nil {
 		return nil, err
+	}
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
+	if e.retryTeamWorkspaceReleases(chat) {
+		if self, guild, err = plat.TeamGuildChannels(ctx, teamChannelID(chat)); err != nil {
+			return nil, err
+		}
 	}
 	self, _ = teamWorkspacePoolHome(self, guild)
 	if e.dataDir != "" {

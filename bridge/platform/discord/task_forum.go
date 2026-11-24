@@ -34,7 +34,7 @@ type taskForumAPI interface {
 
 func (p *Platform) taskForumSession() (taskForumAPI, error) {
 	if s := p.boardSession(); s != nil {
-		return s, nil
+		return rateGuardedSession{s}, nil
 	}
 	return nil, errors.New("discord: task forum: not connected")
 }
@@ -192,6 +192,20 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 		}
 	}
 	forum := findTaskForum(list, scope.CategoryID, remembered)
+	if forum == nil && remembered != "" {
+		// A forum the bot cannot view is left out of GuildChannels. Creating another one then
+		// repeats every round until the category is full (agentm 11-23: 47 forums in one
+		// category), so the remembered forum is asked for by ID and only a deleted one is replaced.
+		c, err := api.Channel(remembered, options...)
+		switch {
+		case err == nil:
+			if c.Type == discordgo.ChannelTypeGuildForum && c.ParentID == scope.CategoryID {
+				forum = c
+			}
+		case !isUnknownChannel(err):
+			return core.TaskForum{}, err
+		}
+	}
 	if forum == nil {
 		forum, err = api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
 			Name: taskForumName, Type: discordgo.ChannelTypeGuildForum, ParentID: scope.CategoryID,
@@ -203,9 +217,16 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	}
 	ids, err := ensureForumTags(api, forum, tags, options...)
 	if err != nil {
-		return core.TaskForum{}, err
+		// The forum exists even when its tags cannot be set; return it so it is remembered
+		// and not created again next round.
+		return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID}, err
 	}
 	return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID, Tags: ids}, nil
+}
+
+func isUnknownChannel(err error) bool {
+	var rest *discordgo.RESTError
+	return errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound
 }
 
 // Only adopt forums in the source category, even if a legacy remembered ID

@@ -5239,7 +5239,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		endTurnFact()
 		// #699 design §4 row 12: the workspace goes back to the pool because its task's state
 		// says handed back, when the last turn there has ended — not on a timer after a reply.
-		e.releaseReturnedWorkspace(msg.SessionKey)
+		// In its own goroutine: the release talks to the platform under teamWorkspaceOpMu, and
+		// a turn's end (and the cron/timer run waiting on it) must not wait behind that
+		// (agentm 11-24: cron turns that had replied were recorded as 30-minute timeouts).
+		go e.releaseReturnedWorkspace(msg.SessionKey)
 	}()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
