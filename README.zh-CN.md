@@ -16,7 +16,7 @@
 
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/readme/demo-flow.zh.webp" width="800" alt="9 秒循环动画：你在群里说一句「给登录页加个忘记密码，顺手把测试补上」，组长拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，两边同时做完，组长带着结果回到聊天，你点合并"></p>
+<p align="center"><img src="docs/assets/readme/demo-flow.zh.webp" width="800" alt="9 秒循环动画：你在群里说一句「给登录页加个忘记密码，顺手把测试补上」，组长拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，两边同时做完，组长带着结果回到聊天，你回「合吧」，组长回「已合并」"></p>
 
 <a id="install"></a>
 
