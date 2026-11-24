@@ -25,7 +25,7 @@ func observeManagementConnections(server *http.Server) {
 		return context.WithValue(ctx, managementConnectionKey{}, fmt.Sprintf("%p", conn))
 	}
 	server.ConnState = func(conn net.Conn, state http.ConnState) {
-		slog.Info("management api connection state", "connection", fmt.Sprintf("%p", conn), "state", state.String(), "pid", os.Getpid())
+		slog.Debug("management api connection state", "connection", fmt.Sprintf("%p", conn), "state", state.String(), "pid", os.Getpid())
 		if previousState != nil {
 			previousState(conn, state)
 		}

@@ -22,6 +22,7 @@ type threadArchiveTestPlatform struct {
 	activityErr    error
 	threadArchived map[string]bool
 	reopened       []string
+	reads          int
 }
 
 func newThreadArchivePlatform() *threadArchiveTestPlatform {
@@ -50,7 +51,14 @@ func (p *threadArchiveTestPlatform) ReopenTaskThread(_ context.Context, task *Ta
 func (p *threadArchiveTestPlatform) TaskThreadLastActivity(_ context.Context, _ *Task) (time.Time, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.reads++
 	return p.activity, p.activityErr
+}
+
+func (p *threadArchiveTestPlatform) readCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.reads
 }
 
 func (p *threadArchiveTestPlatform) PublishTaskFact(ctx context.Context, task *Task, ev TaskEvent, lang Language) error {
@@ -578,5 +586,61 @@ func TestTaskThreadAcceptAfterArchiveKeepsFactPendingOnRetryableFailure(t *testi
 	p.mu.Unlock()
 	if pending {
 		t.Fatal("pending acceptance was not cleared after successful retry")
+	}
+}
+
+// An archived thread is re-read only to notice a reply. 2026-11-24 the sweep
+// read all 1,655 archived threads every minute; now each is read at most
+// hourly and not at all a week after archiving.
+func TestTaskThreadArchiveRereadsArchivedThreadAtMostHourly(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	id := makeCardInState(t, p, platform, "result_ready")
+	at := time.Now().UTC()
+	setTaskUpdatedAt(t, p, id, at)
+	wait := defaultResultReadyThreadArchiveAfter
+	first := at.Add(wait)
+	p.archiveFinishedThreads(context.Background(), first)
+	if got := platform.archivedTasks(); len(got) != 1 {
+		t.Fatalf("first archive = %v", got)
+	}
+	base := platform.readCount()
+
+	start := first.Add(wait)
+	for m := 0; m < 59; m++ {
+		p.archiveFinishedThreads(context.Background(), start.Add(time.Duration(m)*time.Minute))
+	}
+	if got := platform.readCount() - base; got != 1 {
+		t.Fatalf("reads in the first hour = %d, want 1", got)
+	}
+	p.archiveFinishedThreads(context.Background(), start.Add(time.Hour))
+	if got := platform.readCount() - base; got != 2 {
+		t.Fatalf("reads after an hour = %d, want 2", got)
+	}
+	before := platform.readCount()
+	p.archiveFinishedThreads(context.Background(), first.Add(archivedThreadRecheckFor+time.Hour))
+	if got := platform.readCount() - before; got != 0 {
+		t.Fatalf("read a thread archived over a week ago: %d reads", got)
+	}
+	_ = id
+}
+
+// While the platform is not connected every read fails alike: the sweep stops
+// at the first one instead of failing (and logging) once per card.
+func TestTaskThreadArchiveSweepStopsWhenPlatformNotReady(t *testing.T) {
+	p, platform := newArchiveProgress(t)
+	at := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		id := makeCardInState(t, p, platform, "result_ready")
+		setTaskUpdatedAt(t, p, id, at)
+	}
+	platform.mu.Lock()
+	platform.activityErr = fmt.Errorf("discord session is not ready: %w", ErrPlatformNotReady)
+	platform.mu.Unlock()
+	p.archiveFinishedThreads(context.Background(), at.Add(defaultResultReadyThreadArchiveAfter))
+	if got := platform.readCount(); got != 1 {
+		t.Fatalf("reads while not ready = %d, want 1 (sweep stops)", got)
+	}
+	if got := platform.archivedTasks(); len(got) != 0 {
+		t.Fatalf("archived while not ready: %v", got)
 	}
 }

@@ -36,7 +36,7 @@ func (p *Platform) taskForumSession() (taskForumAPI, error) {
 	if s := p.boardSession(); s != nil {
 		return rateGuardedSession{s}, nil
 	}
-	return nil, errors.New("discord: task forum: not connected")
+	return nil, fmt.Errorf("discord: task forum: not connected: %w", core.ErrPlatformNotReady)
 }
 
 // TaskForumScope reads gateway state first, which follows channel moves. It
@@ -44,7 +44,7 @@ func (p *Platform) taskForumSession() (taskForumAPI, error) {
 func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskForum, error) {
 	session := p.boardSession()
 	if session == nil {
-		return core.TaskForum{}, errors.New("discord: task forum: not connected")
+		return core.TaskForum{}, fmt.Errorf("discord: task forum: not connected: %w", core.ErrPlatformNotReady)
 	}
 	ch, err := session.State.Channel(chat)
 	if err != nil {
