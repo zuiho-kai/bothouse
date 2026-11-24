@@ -67,9 +67,10 @@ function boardReceiver({resolveMember,runTextTask,gate,boardDir,python=process.p
     const member=await identity(job.human,job.ai);
     if(!member||member!==job.identity||!permitted())throw Error('Bothouse role binding changed');
     const receipt=await call(action,job,text);
-    if(action!=='status'||!runTextTask||receipt.state!=='accepted'||workers.size>=4||workers.has(job.request))return receipt;
-    const transform=textTask(text);
-    if(!transform||!permitted())return receipt;
+    if(receipt.state!=='accepted')return receipt;
+    const transform=runTextTask&&textTask(text);
+    if(!transform)return {...receipt,awaitingWorker:true};
+    if(action!=='status'||workers.size>=4||workers.has(job.request)||!permitted())return receipt;
     const claim=await call('claim',job);
     if(!claim.claimed)return claim;
     run(job,transform,claim.claimed,permitted);

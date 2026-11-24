@@ -6,7 +6,8 @@ const {assignmentLead}=require('./text-delivery.cjs');
 // Only addressed imperatives qualify. In groups the renderer sends the selected account
 // separately from the text. Never infer a recipient by scanning a display name.
 function isAssignment(text){
-  return (assignmentLead.test(text.trim())||/^(?:(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)?(?:把|将)[^？?]{1,160}(?:整理(?:成|好)?|分(?:好)?类|分组|汇总|列成|归纳|排序)|(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)(?:整理|归类|汇总|分组|起草|拟一份|制作|编写|写一份|列出)\S)/u.test(text.trim())) &&
+  if(assignmentLead.test(text.trim()))return true;
+  return /^(?:(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)?(?:把|将)[^？?]{1,160}(?:整理(?:成|好)?|分(?:好)?类|分组|汇总|列成|归纳|排序)|(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)(?:翻译|总结|概括|改写|润色|提取|排序|整理|归类|汇总|分组|起草|拟一份|制作|编写|写一份|列出)\S)/u.test(text.trim()) &&
     !/[？?]\s*$/u.test(text);
 }
 
@@ -112,7 +113,10 @@ function createWorkOrders(store,receiver){
       store.transaction(()=>save(job,'failed','暂时无法核实任务板回执。请发送「重试任务 #'+job.prompt+'」。'));
       return;
     }
-    const label={accepted:'已接单',running:'正在处理',failed:'执行失败。请发送「重试任务 #'+job.prompt+'」。',
+    const label={
+      accepted:receipt.awaitingWorker?'已登记到看板，等待执行者接手。这项任务无法在聊天里自动执行。':'已接单',
+      running:'正在处理',
+      failed:'执行失败。请发送「重试任务 #'+job.prompt+'」。',
       uncertain:'暂时无法核实这项任务是否交回。原任务已保留。',
       returned:'已交回\n'+(receipt.text||'')};
     store.transaction(()=>save(job,receipt.state,job.state===receipt.state?null:label[receipt.state],receipt.boardId));

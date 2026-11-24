@@ -30,17 +30,22 @@ function partitionArtifact(items,answer){
 function textTask(text){
   // Keep the submitted chat and board entry intact. Only the executor parses the instruction body.
   text=text.trim().replace(assignmentLead,'');
+  // The text after a colon or newline can be the passage to translate or summarize.
+  const instruction=text.split(/[：:\n]/u,1)[0];
+  if(/(?:读取文件|访问网站|运行命令|执行脚本|发给|转发给|发送给|上传到|下载到|打开网页|删除文件)/u.test(instruction))return;
   const list=partitionRequest(text);
   if(list)return {prompt:list.prompt,render:answer=>partitionArtifact(list.items,answer)};
-  if(!/(?:起草|拟一份|写一份|列出)[^？?]*(?:稿|文案|提纲|计划|清单|通知|安排)/u.test(text))return;
-  return {prompt:'只交付文字草案本身。返回 JSON 对象 {"title":"标题","paragraphs":["正文段落"]}。任务如下。\n'+text,
+  const operation=instruction.replace(/^(?:请帮我|请你|请|帮我|麻烦你?)\s*/u,'');
+  if(!/^(?:(?:把|将|按|按照|根据|对)[^，。；？?]{1,180})?(?:排序|排列|翻译|译成|译为|摘要|总结|概括|归纳|提取|提炼|改写|润色|校对|分组|分类|归类|列出|起草|拟一份|写一份)/u.test(operation))return;
+  return {
+    prompt:'只根据这条消息提供的文字完成任务，直接交回正文。不要调用工具、访问文件或外部服务。材料不足或需要实际操作时只回复 [NEEDS_INPUT]。\n'+text,
     render(answer){
-      const {title,paragraphs}=JSON.parse(answer);
-      if(typeof title!=='string'||!title.trim()||!Array.isArray(paragraphs)||!paragraphs.length||
-        !paragraphs.every(p=>typeof p==='string'&&p.trim()))throw Error('Missing draft');
-      const result=[title,...paragraphs].join('\n');
-      if(Array.from(result).length>3000)throw Error('Draft is too long');
+      const result=typeof answer==='string'?answer.trim():'';
+      if(!result||Array.from(result).length>3000||result.includes('[NEEDS_INPUT]')||
+          /^(?:好的[，,。 ]*)?(?:任务)?(?:已(?:经)?完成|完成了)[。！! ]*$/u.test(result))
+        throw Error('Missing text deliverable');
       return result;
-    }};
+    },
+  };
 }
 module.exports={textTask,assignmentLead};

@@ -23,6 +23,9 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
   const release=Promise.withResolvers();
   const directory={async runTextTask(turn){
     requests.push(turn);
+    if(turn.text.includes('梨和苹果'))return {text:'梨、苹果'};
+    if(turn.text.includes('早安朋友'))return {text:'Good morning, friend.'};
+    if(turn.text.includes('两班船'))return {text:'今天有两班船。'};
     if(requests.length===1)return {text:'我已经全部执行完成了。'};
     await release.promise;
     const input=JSON.parse(turn.text.split('\n').at(-1));
@@ -179,6 +182,25 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
     {input:JSON.stringify({text:late}),encoding:'utf8',windowsHide:true});
   const hidden=await state(dm,directRequest.id,'cancelled');
   assert(!hidden.some(message=>message.text.includes(late)));
+  assert((await a(route(dm))).messages.some(row=>row.text.includes('等待执行者接手')));
+  ids.set('arcade_whale','fixture-whale');
+  for(const [chat,role,text,result,nonce] of [
+    [dm,'arcade_whale','给你一个任务：按拼音给梨和苹果排序','梨、苹果','sort-test'],
+    [group,'arcade_dragon','请翻译成英文：早安朋友','Good morning, friend.','translate-test'],
+    [group,'arcade_dragon','给你一个任务：总结下面这段：两班船分别上午和下午开。','今天有两班船。','summary-test'],
+  ]){
+    const count=requests.length;
+    const target=chat===group?role:undefined;
+    const {message}=await send(chat,text,nonce,target);
+    assert.equal((await send(chat,text,nonce,target)).message.id,message.id);
+    const history=await state(chat,message.id,'returned',chat===group?b:a);
+    const hits=history.filter(row=>row.text==='任务 #'+message.id+' · 已交回\n'+result);
+    assert.equal(hits.length,1);
+    assert.equal(hits[0].sender.number,role);
+    assert.equal(requests.length,count+1);
+    assert.equal(requests.at(-1).chat,chat);
+    assert.equal(requests.at(-1).number,role);
+  }
   const evidence={passed:true,revokedLateResultDelivered:false,roleDirectoryScopedBySender:true,chat:group,sourceMessage:groupRequest.id,resultMessage:results[0].id,
     browserComposer:Boolean(page),boardId:taken.id,member:taken.who,request:key,artifact,sha256:createHash('sha256').update(output).digest('hex'),
     boardEvents:(await fs.readFile(path.join(groupBoard,'board-events.jsonl'),'utf8')).trim().split(/\r?\n/).map(JSON.parse),
