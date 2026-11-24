@@ -312,6 +312,7 @@ func TestVerdictPassCarriesDeliverables(t *testing.T) {
 				t.Fatal(err)
 			}
 			inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+			t.Logf("chat post:\n%s", p.sentTo("discord:chat1")[0])
 			// #1982: what 「给你的」 names reaches the user in the post itself, not only the forum details.
 			if _, give, ok := strings.Cut(c.body, "给你的："); ok {
 				if u := exitURLRe.FindString(strings.SplitN(give, "\n", 2)[0]); u != "" && !strings.Contains(p.sentTo("discord:chat1")[0], u) {
