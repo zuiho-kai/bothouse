@@ -150,3 +150,59 @@ func TestTaskForumWorkspaceCategoryOpensNoForum(t *testing.T) {
 		t.Fatalf("workspace category got a forum: %v created=%v", err, api.created)
 	}
 }
+
+// hiddenForumAPI hides forums the bot cannot view: GuildChannels leaves them out and Channel
+// answers 403, as Discord does for a category whose overwrites deny the bot (agentm 11-23).
+type hiddenForumAPI struct {
+	categoryForumAPI
+	hidden map[string]bool
+}
+
+func (a *hiddenForumAPI) GuildChannels(guild string, o ...discordgo.RequestOption) ([]*discordgo.Channel, error) {
+	all, _ := a.categoryForumAPI.GuildChannels(guild, o...)
+	var seen []*discordgo.Channel
+	for _, ch := range all {
+		if !a.hidden[ch.ID] {
+			seen = append(seen, ch)
+		}
+	}
+	return seen, nil
+}
+func (a *hiddenForumAPI) Channel(id string, o ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	if a.hidden[id] {
+		return nil, &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: 50001, Message: "Missing Access"}}
+	}
+	if a.channels[id] == nil {
+		return nil, &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: 10003, Message: "Unknown Channel"}}
+	}
+	return a.categoryForumAPI.Channel(id, o...)
+}
+func (a *hiddenForumAPI) ChannelEdit(id string, e *discordgo.ChannelEdit, o ...discordgo.RequestOption) (*discordgo.Channel, error) {
+	a.hidden[id] = true // the new forum inherits the category's overwrites; the bot loses sight of it
+	return nil, &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: 50001, Message: "Missing Access"}}
+}
+
+func TestTaskForumHiddenForumIsNotCreatedAgain(t *testing.T) {
+	api := &hiddenForumAPI{categoryForumAPI: categoryForumAPI{channels: map[string]*discordgo.Channel{
+		"chat": {ID: "chat", GuildID: "g", ParentID: "C"},
+	}}, hidden: map[string]bool{}}
+	p := &Platform{}
+	f, err := p.ensureTaskForum(api, "chat", "", []string{core.TaskForumTagRunning})
+	if err == nil || f.ID == "" {
+		t.Fatalf("a created forum whose tags failed must come back with its ID: %+v %v", f, err)
+	}
+	for round := 0; round < 3; round++ {
+		if _, err := p.ensureTaskForum(api, "chat", f.ID, []string{core.TaskForumTagRunning}); err == nil {
+			t.Fatalf("round %d: a hidden forum must report its error", round)
+		}
+	}
+	if len(api.created) != 1 {
+		t.Fatalf("created %d forums, want 1", len(api.created))
+	}
+	// Only a deleted remembered forum is replaced.
+	delete(api.channels, f.ID)
+	delete(api.hidden, f.ID)
+	if _, err := p.ensureTaskForum(api, "chat", f.ID, []string{core.TaskForumTagRunning}); len(api.created) != 2 {
+		t.Fatalf("deleted forum not replaced: created %d, err %v", len(api.created), err)
+	}
+}

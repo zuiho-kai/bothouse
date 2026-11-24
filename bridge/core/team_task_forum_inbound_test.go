@@ -215,3 +215,38 @@ func TestTaskForumReplyQueueKeepsPostReceiptsSeparate(t *testing.T) {
 		}
 	}
 }
+
+// One channel's forum sync stuck on the platform (it holds the forum lock, agentm 11-24: 6 hours)
+// must not hold up another channel's messages: the reply lookup never takes that lock.
+func TestTaskForumReplyLookupDoesNotWaitForStuckSync(t *testing.T) {
+	e, _, dir := forumTestEngine(t)
+	state := taskForumState{Forums: map[string]TaskForum{"discord:g": {ID: "forum", GuildID: "g"}}, Posts: map[string]*taskForumPostState{"779": {Platform: "discord", Guild: "g", Thread: "post"}}}
+	raw, _ := json.Marshal(state)
+	if err := os.WriteFile(filepath.Join(dir, taskForumFile), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "discord:source"})
+	rt := e.taskForumRT()
+	rt.mu.Lock() // the sync of another channel's forum, asleep on the platform
+	defer rt.mu.Unlock()
+	type res struct {
+		r     *TaskForumReply
+		known bool
+	}
+	done := make(chan res, 2)
+	go func() {
+		r, k := e.ResolveTaskForumReply("discord", "g", "", "plain-channel-message")
+		done <- res{r, k}
+	}()
+	go func() { r, k := e.ResolveTaskForumReply("discord", "g", "forum", "post"); done <- res{r, k} }()
+	for i := 0; i < 2; i++ {
+		select {
+		case got := <-done:
+			if got.known && (got.r == nil || got.r.Board != 779) {
+				t.Fatalf("route=%+v", got.r)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("a message waited for the stuck forum sync")
+		}
+	}
+}

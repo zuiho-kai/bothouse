@@ -40,9 +40,10 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if e.team == nil || thread == "" {
 		return nil, false
 	}
-	rt := e.taskForumRT()
-	rt.mu.Lock()
-	s := e.taskForumLoadLocked()
+	// Every incoming message of the bot passes here, so it reads the state file (written by
+	// atomic rename) instead of waiting for the forum lock: a sync stuck on one channel's forum
+	// must not stop the other channels' messages (agentm 11-24: 6 hours, every channel).
+	s := e.taskForumSnapshot()
 	board := 0
 	chat := ""
 	for id, post := range s.Posts {
@@ -52,7 +53,6 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 				forum = s.Forums[platform+":"+guild].ID
 			}
 			if forum == "" || (parent != "" && parent != forum) {
-				rt.mu.Unlock()
 				return nil, false
 			}
 			board, _ = strconv.Atoi(id)
@@ -60,7 +60,6 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 			break
 		}
 	}
-	rt.mu.Unlock()
 	if board <= 0 {
 		return nil, false
 	}

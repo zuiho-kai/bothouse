@@ -231,6 +231,20 @@ func (e *Engine) taskForumLoadLocked() *taskForumState {
 	return s
 }
 
+// taskForumSnapshot reads the team's state file without the forum lock, for readers that must
+// never wait behind a sync talking to the platform. Saves replace the file atomically.
+func (e *Engine) taskForumSnapshot() *taskForumState {
+	s := &taskForumState{}
+	if path := e.taskForumPath(); path != "" {
+		if raw, err := os.ReadFile(path); err == nil {
+			if err := json.Unmarshal(raw, s); err != nil {
+				slog.Warn("task forum: bad state file", "path", path, "error", err)
+			}
+		}
+	}
+	return s
+}
+
 func (e *Engine) taskForumSaveLocked() {
 	path := e.taskForumPath()
 	if path == "" {
@@ -684,6 +698,11 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 	remembered := s.Forums[g].ID
 	f, err := poster.EnsureTaskForum(ctx, id, remembered, taskForumTags)
 	if err != nil {
+		if f.ID != "" && f.ID != remembered { // created, but its tags failed: remember it, never create a second
+			s.Forums[f.scopeKey(plat)] = f
+			s.Chats[chat] = f.scopeKey(plat)
+			e.taskForumSaveLocked()
+		}
 		return TaskForum{}, err
 	}
 	g = f.scopeKey(plat)
