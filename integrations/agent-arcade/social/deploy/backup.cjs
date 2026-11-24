@@ -10,6 +10,7 @@ function prepareRestoredDatabase(file) {
   try {
     store.transaction(() => {
       store.run('DELETE FROM sessions');
+      store.run("UPDATE bothouse_work_orders SET state='cancelled' WHERE state NOT IN ('returned','cancelled')");
       store.run('DELETE FROM bothouse_pair_codes');
       store.run('DELETE FROM bothouse_links');
       // Other role preferences cascade from these same legacy rows.

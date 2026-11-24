@@ -451,3 +451,12 @@ CREATE TABLE IF NOT EXISTS personal_voice_pauses (
 CREATE TABLE IF NOT EXISTS personal_voice_offers (
   prompt INTEGER PRIMARY KEY REFERENCES messages ON DELETE CASCADE, revision TEXT NOT NULL
 );
+
+-- One durable Bothouse request per committed social message. Workers receive only this message.
+CREATE TABLE IF NOT EXISTS bothouse_work_orders (
+  prompt INTEGER PRIMARY KEY REFERENCES messages(id), request TEXT UNIQUE NOT NULL,
+  chat TEXT NOT NULL REFERENCES chats, human TEXT NOT NULL REFERENCES users, ai TEXT NOT NULL REFERENCES users,
+  scope TEXT NOT NULL, identity TEXT NOT NULL, board_id INTEGER, state TEXT NOT NULL DEFAULT 'queued',
+  attempt INTEGER NOT NULL DEFAULT 0, next_check INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS bothouse_work_due ON bothouse_work_orders(state,next_check);

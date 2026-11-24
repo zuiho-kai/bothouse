@@ -1,4 +1,6 @@
 'use strict';
+const {directoryBoardReceiver}=require('./bothouse/board-receiver.cjs');
+const {createWorkOrders}=require('./bothouse/work-orders.cjs');
 const {chatFeedbackReview} = require('./chat-feedback-review.cjs');
 
 const http = require('node:http');
@@ -60,7 +62,7 @@ function legacyConversation(conversation) {
       {...member,displayName:member.displayName+'（'+hint+'）'}:member)};
 }
 const bothousePairing = require('./bothouse/pairing.cjs');
-function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proactive,aiFriends,appointments,web,personal,bothouse) {
+function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proactive,aiFriends,appointments,web,personal,bothouse,workOrders) {
   const {method, parts:[root,id,action,msg,sub], parts, claudeUi, friendRolesUi} = route;
   const visibleRole=role=>claudeUi||role.number!==AI_JU_NUMBER;
   const conversationView=conversation=>claudeUi?conversation:legacyConversation(conversation);
@@ -180,6 +182,10 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
         if(!bothouse&&!claudeUi)guard(store.directAiConsent(a,id)?.ai);
         let directTurn=false,groupTurn,personalTurn,abortProactive,bothouseTurn;
         const message=store.send(a,id,body,row=>{
+          if(workOrders.stage(a,row,body,route.preparedTask)){
+            guard(row.mention?.number);
+            return;
+          }
           if(bothouse){bothouseTurn=bothouse.stage(a,row);return;}
           markPrivateWebLookup(store,id,row.id,row.text);
           abortProactive=proactive.cancelPending(id);
@@ -191,6 +197,8 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
         return {message,directTurn,groupTurn,personalTurn,abortProactive,bothouseTurn};
       }
     }
+    if(parts.length===5&&action==='messages'&&sub==='task-retry'&&method==='POST'&&/^[1-9]\d*$/u.test(msg))
+      return workOrders.retry(a,id,Number(msg),body);
     if(parts.length===5&&action==='messages'&&sub==='drawing-resend'&&/^[1-9]\d*$/u.test(msg))
       return (store.access(a,id).type==='group'?aiGroup:ai).drawingResend(a,id,msg,body);
     if(parts.length===5&&action==='messages'&&sub==='personal-voice'&&method==='POST'&&/^[1-9]\d*$/u.test(msg))
@@ -262,10 +270,11 @@ async function serveClient(client,url,req,res,privacyContact,publicSource,client
   res.end(req.method === 'HEAD' ? undefined : bytes);
 }
 function createServer(store,{publicOrigin,client = path.join(__dirname,'../client'),aiProvider,claudeProvider,openaiProvider,
-  groupAiProviders=[aiProvider,openaiProvider,claudeProvider].filter(Boolean),privacyContact,publicSource,voiceEngine,drawingProvider,feedClock,appointmentClock,webSearchFetch,personalAiFetch,bothouse} = {}) {
+  groupAiProviders=[aiProvider,openaiProvider,claudeProvider].filter(Boolean),privacyContact,publicSource,voiceEngine,drawingProvider,feedClock,appointmentClock,webSearchFetch,personalAiFetch,bothouse,filename,taskReceiver=directoryBoardReceiver(bothouse,filename)} = {}) {
   let loadedClient;
   const clientRelease=()=>loadedClient??=loadClientRelease(client);
   const auth = makeAuth(store,Boolean(publicOrigin));
+  const workOrders=createWorkOrders(store,taskReceiver);
   const web=createConversationWeb(store,webSearchFetch);
   const voiceReplies = createAiVoice(store,voiceEngine);
   const personal=createPersonalAi(store,personalAiFetch,voiceReplies);
@@ -487,7 +496,10 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           res.setHeader('Content-Type','application/json; charset=utf-8');
           return res.end(JSON.stringify(output));
         }
-        const handle = () => dispatch(store,account,{method:req.method,parts,claudeUi,friendRolesUi:req.headers['x-social-ai-friend-roles']==='1'},body,url.searchParams,build,ai,aiGroup,aiFeed,proactive,aiFriends,appointments,web,personal,bothouse);
+        const preparedTask=req.method==='POST'&&collection==='conversations'&&action==='messages'&&parts.length===3
+          ? await workOrders.prepare(account,chat,body):undefined;
+        if(preparedTask&&current(store,req)!==account)fail(409,'message_session','账号已切换，请重新打开会话');
+        const handle = () => dispatch(store,account,{method:req.method,parts,claudeUi,preparedTask,friendRolesUi:req.headers['x-social-ai-friend-roles']==='1'},body,url.searchParams,build,ai,aiGroup,aiFeed,proactive,aiFriends,appointments,web,personal,bothouse,workOrders);
         result = req.method === 'POST' ? store.transaction(handle) : handle();
         if(result.cancelWebChat){
           web.cancel(result.cancelWebChat);
@@ -510,6 +522,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
         if(result.message){
           const {message,directTurn,groupTurn,personalTurn,bothouseTurn}=result;
           aiGroup.cancelStale();
+          if(message.task||workOrders.view(message.id))workOrders.wake();
           const delivered=bothouseTurn?await bothouse.finish(bothouseTurn):null;
           let reply;
           try {
@@ -530,6 +543,8 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       res.end(JSON.stringify({error:{code:error.status ? error.code : 'internal',message:error.status ? error.message : '服务器暂时无法处理请求'}}));
     }
   });
+  server.once('listening',workOrders.start);
+  server.once('close',workOrders.stop);
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   server.once('listening',aiFeed.start);

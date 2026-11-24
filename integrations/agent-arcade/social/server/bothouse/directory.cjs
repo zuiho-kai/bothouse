@@ -134,6 +134,10 @@ function bothouseDirectory(store, request) {
     const reply=store.send(turn.number,turn.chat,{text:data.text,clientId:'bothouse-'+turn.messageId});
     return {reply,bothouseStatus:'replied'};
   }
-  return {list,resolveMember,start,group,portrait,stage,finish,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
+  // The task board records progress and sends the result to the originating conversation.
+  function runTextTask(turn) {
+    return request({...turn, link:pairing.active(store,turn.account), action:'chat'});
+  }
+  return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
 module.exports = {localInstance,bothouseDirectory};

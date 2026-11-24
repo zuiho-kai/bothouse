@@ -360,6 +360,7 @@ class SocialStore {
     return person;
   }
   message(r) {
+    const task=!r.removed&&this.one('SELECT prompt AS messageId,ai AS target,state,attempt,board_id AS boardId FROM bothouse_work_orders WHERE prompt=?',r.id);
     const pictureQuestion=this.one('SELECT state,image,ai FROM ai_image_turns WHERE prompt=?',r.id);
     const aiReply = pictureQuestion?.state??this.one('SELECT state FROM ai_direct_turns WHERE prompt=? UNION ALL SELECT state FROM ai_group_turns WHERE prompt=?',r.id,r.id)?.state;
     const mentioned = this.one('SELECT account FROM message_mentions WHERE message=?',r.id)?.account;
@@ -380,7 +381,7 @@ class SocialStore {
       ...(webResults&&{webResults:JSON.parse(webResults)}),
       text:r.removed ? '[已移除]' : image?(drawing!==null?'[AI 绘图]':label?'[表情图]':'[图片]'):voice?'[语音]':r.body,
       createdAt:r.created, removed:Boolean(r.removed),
-      ...(aiReply && {aiReply}),
+      ...(aiReply && {aiReply}), ...(task&&{task}),
       ...(!r.removed&&pictureQuestion&&{imageQuestion:{image:pictureQuestion.image,role:this.user(pictureQuestion.ai)}}),
       ...(!r.removed&&mentioned&&{mention:this.messagePerson(mentioned)}), ...(attachment&&{attachment})};
   }

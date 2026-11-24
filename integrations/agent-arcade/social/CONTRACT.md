@@ -205,3 +205,11 @@ Run the local, headless acceptance with `node social/client/.qa/verify-web-searc
 已有文字授权的成员第一次点名索取语音时，可在原消息旁选择「仅本群允许并继续」「记住 Azure 选择并继续」或「仅回文字」。只有发送者能操作，等待选择期间不会请求聊天或语音服务。记住的许可按真人账号和 Azure 保存，适用于该成员可访问且已授权该角色接话的群。它只自动用于明确的语音请求。角色音色仍由主人选，群内单独暂停与本人停用记住的选择优先。正常重启保留许可，恢复旧备份前会清除有效的全局许可与待继续请求。
 
 消息返回仅向发送者提供 `personalVoiceOffer:{revision,provider}`。相同群消息下的 `POST /api/v1/conversations/:id/messages/:message/personal-voice` 接收 `{expectedAccount,revision,action}`，动作是 `room`、`remember` 或 `text`。待续请求各自绑定原消息，提前允许语音或继续其中一条不会领走另一条。角色、成员或音色变化和许可撤回会使受影响的旧请求失效。群语音设置可继续暂停当前角色，也可停用或恢复本人的 Azure 选择。
+
+### Bothouse 聊天派工
+
+在原 messages POST 中发送明确的任务。私聊取本会话的 AI 对端，群聊使用结构化 mentionAccount。按已认证发信账号在当前 Bothouse 目录解析项目。客户端沿用原 clientId，草稿不提交。同一条已提交消息只建一个任务。历史中原消息的 task 包含 messageId、target、state、attempt 和 boardId；板号在 Bothouse 实际收单后可用。queued 表示本机已登记，accepted、running、returned 分别表示任务板已接单、执行器在处理和已交回交付物。交回供用户核对。状态和文本交付物来自同会话内被派角色。
+
+失败的发起人可在原私聊发送「重试任务 #消息号」，在群内选择同一角色再发送。按钮可 POST `/api/v1/conversations/:id/messages/:messageId/task-retry`，提供当前 expectedAccount 和原消息上显示的 attempt，返回 task。重复同次重试沿用原订单。
+
+服务端对接同一 Bothouse 目录的异步 resolveMember(account,number)。已安装的 Bothouse gate 使用 `bridge/contrib/gate/board.py` 的 add、update 和 returned。板目录按项目及会话隔离，默认位于社交 SQLite 旁的 bothouse-work。已有部署可用 SOCIAL_BOTHOUSE_GATE 指定已安装的 gate，用 SOCIAL_BOTHOUSE_WORK_DIR 指定该服务的专用板根。角色已获准的文本执行适配可以提供 runTextTask(turn)，复用普通聊天所用的 Bothouse 实例与项目绑定。对带清单的分类任务，它返回与条目一一对应的类别；工作进程保留原条目，写入并校验实际交付物。其他任务由该角色获准的执行器通过任务板接单和交回。浏览器只发送消息与重试，不提供执行器指令、路径或凭据。
