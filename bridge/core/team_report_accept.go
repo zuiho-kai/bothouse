@@ -167,9 +167,7 @@ func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingR
 	if mentionUser != "" {
 		e.recordHumanMention(chatKey, mentionUser, rec.Board)
 	}
-	if !refGated(item) {
-		e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item)
-	}
+	e.postExitImages(ctx, p, rc, rec.Chat, rec.Session, rec.Body, item) // unchecked: shown even on a reference task (#1951)
 	if !rec.Batch {
 		e.exitMarkPosted(team.ExitKindReport, rec.Board, rec.Headline)
 		e.markExitReported(rec.Board)
@@ -470,14 +468,20 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	}
 	text := spaceExitLines(heldHeadlineText(name, cp.Headline, unchecked))
 	// #1897: a reference task's attachments go out only through ws-pass's judge against the original.
-	withhold := refGated(item)
-	if withhold {
+	// #1951: at timeout nobody judged; the attachments still go out, marked not judged yet.
+	ref := refGated(item)
+	withhold := ref && !unchecked
+	if ref {
 		heldReportImages.mu.Lock()
 		n := len(heldReportImages.m[key]) + len(heldReportImages.files[key])
 		heldReportImages.mu.Unlock()
 		if n += len(reportNamedImages(cp.Body)) + len(exitFilesFor(cp.Session, cp.Body, item, nil, false)); n > 0 {
-			text += "\n" + fmt.Sprintf(refWithheldNote, n)
-			slog.Info("report accept: reference task; attachments withheld until judged against the original", "board_item", cp.Board, "attachments", n)
+			note := refWithheldNote
+			if unchecked {
+				note = refUncheckedNote
+			}
+			text += "\n" + fmt.Sprintf(note, n)
+			slog.Info("report accept: reference task attachments", "board_item", cp.Board, "attachments", n, "withheld", withhold)
 		}
 	}
 	_, detail := team.ExitSplit(cp.Body)
