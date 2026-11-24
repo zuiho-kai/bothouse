@@ -1,0 +1,24 @@
+[Unit]
+Description=Agent Arcade Social
+After=network.target
+
+[Service]
+Type=simple
+User=agent-arcade-social
+Group=agent-arcade-social
+StateDirectory=agent-arcade-social
+StateDirectoryMode=0700
+WorkingDirectory=/opt/agent-arcade-social/current/social
+EnvironmentFile=/etc/agent-arcade-social/service.env
+ExecStart=/usr/local/bin/node server/main.cjs
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

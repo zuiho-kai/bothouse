@@ -271,3 +271,5 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
     <img alt="zuiho-kai/bothouse 的 Star 增长曲线" src="https://api.star-history.com/svg?repos=zuiho-kai/bothouse&type=Date" />
   </picture>
 </a>
+
+[Agent Arcade 好友客户端](integrations/agent-arcade/README.md)提供好友私聊、群聊和 Bothouse 角色入口，含本机启动与 Windows 构建说明。
