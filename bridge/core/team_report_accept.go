@@ -487,6 +487,11 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	}
 	_, detail := team.ExitSplit(cp.Body)
 	chatText, forumRC := e.taskForumExitText(ctx, p, cp.Session, cp.Board, text, detail, false)
+	// #1965 ③做完: the chat gets the result first, without the background; the forum post and
+	// task thread keep the whole four parts.
+	if done := chatDoneText(name, text, unchecked, cp.Waiting); done != "" && strings.HasPrefix(chatText, text) {
+		chatText = done + chatText[len(text):]
+	}
 	inForum := forumRC != nil
 	// The result reaches the person who set the task: the chat post opens with their mention (#988);
 	// the task thread and forum keep the text without it.
@@ -632,4 +637,52 @@ func heldMediaPrompt(paths []string) string {
 		}
 	}
 	return b.String()
+}
+
+// chatDoneText: the chat copy of a released report (#1965 ③, mock 「③做完【事件触发】第一步上线了……还差一步没做」):
+// 「③做完【名】<做了什么>」, 「③做了一半」 for a report still waiting outside, then 要你做的 and 我加的 only
+// when they say something, then any lines after the four parts (attachment notes). full is the
+// spaced four-part post (spaceExitLines); "" when it has no 【做了什么】 to lead with.
+func chatDoneText(name, full string, unchecked, waiting bool) string {
+	var did, ask, added string
+	var rest []string
+	for _, l := range strings.Split(full, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "" || strings.HasPrefix(t, exitPrefix) || strings.HasPrefix(t, "【背景】"):
+		case strings.HasPrefix(t, "【做了什么】"):
+			did = strings.TrimSpace(strings.TrimPrefix(t, "【做了什么】"))
+		case strings.HasPrefix(t, "【要你做的】"):
+			ask = strings.TrimSpace(strings.TrimPrefix(t, "【要你做的】"))
+		case strings.HasPrefix(t, "【我加的】"):
+			added = strings.TrimSpace(strings.TrimPrefix(t, "【我加的】"))
+		default:
+			rest = append(rest, t)
+		}
+	}
+	if did == "" {
+		return ""
+	}
+	head := "③做完"
+	if waiting {
+		head = "③做了一半"
+	}
+	out := head + "【" + name + "】" + did
+	if unchecked {
+		out = head + "【" + name + "】（" + leadUncheckedMark + "）" + did
+	}
+	nothing := func(s string) bool {
+		s = strings.Trim(strings.TrimSpace(s), "。.！!")
+		return s == "" || s == "没有" || s == "无"
+	}
+	if !nothing(ask) {
+		out += "\n要你做的：" + ask
+	}
+	if !nothing(added) {
+		out += "\n我加的：" + added
+	}
+	for _, r := range rest {
+		out += "\n" + r
+	}
+	return out
 }

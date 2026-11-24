@@ -79,7 +79,7 @@ func TestHeldReportPassPostsChatItems(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("pass posted %d messages: %q", len(got), got)
 	}
-	if !strings.HasPrefix(got[0], "📬「验证报告」\n") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") ||
+	if !strings.HasPrefix(got[0], "③做完【验证报告】") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") ||
 		!strings.Contains(got[1], "3. 免疫系统") {
 		t.Fatalf("pass post = %q", got)
 	}
@@ -98,7 +98,7 @@ func TestHeldReportTimeoutPostsChatItems(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("timeout posted %d messages: %q", len(got), got)
 	}
-	if !strings.HasPrefix(got[0], "📬「验证报告」（"+leadUncheckedMark+"）\n") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") {
+	if !strings.HasPrefix(got[0], "③做完【验证报告】（"+leadUncheckedMark+"）") || !strings.HasPrefix(got[1], "材料逐条：\n1. 知乎") {
 		t.Fatalf("timeout post = %q", got)
 	}
 }

@@ -97,7 +97,7 @@ func TestHeldReportPassPosts(t *testing.T) {
 		t.Fatalf("pass = %d %s", w.Code, w.Body)
 	}
 	got := p.sentTo("discord:chat1")
-	if len(got) != 1 || !strings.HasPrefix(got[0], "📬「验证报告」\n") || strings.Contains(got[0], leadUncheckedMark) || !strings.Contains(got[0], "改好了，已上线") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "③做完【验证报告】改好了") || strings.Contains(got[0], leadUncheckedMark) || !strings.Contains(got[0], "改好了，已上线") {
 		t.Fatalf("passed post = %q", got)
 	}
 	if w := verdictCall(t, e, 46, "pass", "逐条：修汇报做到了，线上日志有 report posted"); w.Code != http.StatusNotFound {
@@ -142,7 +142,7 @@ func TestHeldReportTimeoutPostsUnchecked(t *testing.T) {
 	e.teamExit.mu.Unlock()
 	e.recoverPendingReports(true)
 	got := p.sentTo("discord:chat1")
-	if len(got) != 1 || !strings.HasPrefix(got[0], "📬「验证报告」（"+leadUncheckedMark+"）\n") || !strings.Contains(got[0], "改好了，已上线") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], "③做完【验证报告】（"+leadUncheckedMark+"）") || !strings.Contains(got[0], "改好了，已上线") {
 		t.Fatalf("timeout post = %q", got)
 	}
 	e.recoverPendingReports(true)

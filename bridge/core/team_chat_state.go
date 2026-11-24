@@ -1,0 +1,338 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Task states in the chat itself (#1965, user 11-24 「感觉任务可视化有强力需求……人脑也切换不过来」,
+// approved mock task-vis-mock.pages.dev 「之前改动也要上，但是除了秘书频道不显示其他频道东西」):
+//
+//	① 等你定 — one message per chat listing what waits on the user there, numbered so a reply of
+//	  numbers answers it. A new question moves it to the bottom (old one deleted, renumbered);
+//	  an answered one is struck through in place; empty, it says so.
+//	② 停了   — said once when an item of this chat stops for another reason (paused waiting
+//	  outside, released, or an hour without progress), with what happens next.
+//	③ 做完   — the released report itself, one result first (team_report_accept.go chatDoneText).
+//	④ 在跑   — nothing is posted; the lead answers 「什么进度」 from its own board block.
+//
+// Only the chat's own items (shownIn); nothing from other chats. Only on platforms with
+// ChatNotePoster (Discord: 「我现在说的只限于discord」).
+
+const teamChatStateExt = ".chatstate"
+
+type chatWaitRow struct {
+	ID   int    `json:"id"`
+	Line string `json:"line"`
+}
+
+type chatWaitNote struct {
+	SessionKey string        `json:"session_key"`
+	MessageID  string        `json:"message_id"`
+	Content    string        `json:"content"`
+	Rows       []chatWaitRow `json:"rows"`
+}
+
+type teamChatState struct {
+	// Since: the first pass of this feature; stops older than this are not announced (the
+	// channels would otherwise get every item paused before the feature at once).
+	Since   time.Time                `json:"since"`
+	Waiting map[string]*chatWaitNote `json:"waiting"`
+	Stopped map[string]time.Time     `json:"stopped"` // "<id>@<stamp>" → when ② was posted
+}
+
+func (e *Engine) teamChatStatePath() string {
+	if e.team == nil {
+		return ""
+	}
+	return filepath.Join(e.team.dir, e.name+teamChatStateExt)
+}
+
+func loadTeamChatState(path string) *teamChatState {
+	st := &teamChatState{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, st)
+	}
+	if st.Waiting == nil {
+		st.Waiting = map[string]*chatWaitNote{}
+	}
+	if st.Stopped == nil {
+		st.Stopped = map[string]time.Time{}
+	}
+	return st
+}
+
+// updateTeamChatStates runs in the board pass (runTeamBoard), on the lead.
+func (e *Engine) updateTeamChatStates(now time.Time) {
+	path := e.teamChatStatePath()
+	if path == "" {
+		return
+	}
+	st := loadTeamChatState(path)
+	changed := false
+	if st.Since.IsZero() {
+		st.Since, changed = now, true
+	}
+	items := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
+	chats := map[string]bool{}
+	for _, it := range items {
+		for _, c := range it.chats() {
+			chats[c] = true
+		}
+	}
+	for c := range st.Waiting {
+		chats[c] = true
+	}
+	for chat := range chats {
+		if e.teamBoardKindOf(chat) != teamBoardSummary {
+			continue
+		}
+		platform, _, _ := strings.Cut(chat, ":")
+		poster, ok := e.platformForName(platform).(ChatNotePoster)
+		if !ok {
+			continue
+		}
+		if e.syncChatWaiting(poster, st, chat, items, now) {
+			changed = true
+		}
+		if e.announceChatStops(poster, st, chat, items, now) {
+			changed = true
+		}
+	}
+	for k, at := range st.Stopped {
+		if now.Sub(at) > 14*24*time.Hour {
+			delete(st.Stopped, k)
+			changed = true
+		}
+	}
+	if changed {
+		if b, err := json.MarshalIndent(st, "", "  "); err == nil {
+			if err := AtomicWriteFile(path, b, 0o600); err != nil {
+				slog.Warn("team chat state: save failed", "error", err)
+			}
+		}
+	}
+}
+
+// chatWaitRows: this chat's items waiting on the user, oldest question first.
+func chatWaitRows(items []teamTaskBoardItem, chat string, now time.Time) []chatWaitRow {
+	type row struct {
+		at time.Time
+		r  chatWaitRow
+	}
+	var rows []row
+	for _, it := range items {
+		if !it.shownIn(chat) || it.Backlog != "" || !it.waitsUser() {
+			continue
+		}
+		at, _ := teamTaskTableAsked(it, now)
+		rows = append(rows, row{at, chatWaitRow{ID: it.ID, Line: chatWaitLine(it)}})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].at.Before(rows[j].at) })
+	out := make([]chatWaitRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.r)
+	}
+	return out
+}
+
+func chatAskRecommendOf(text string) string {
+	at := -1
+	for _, w := range []string{"推荐", "建议"} {
+		if i := strings.LastIndex(text, w); i > at {
+			at = i + len(w)
+		}
+	}
+	if at < 0 {
+		return ""
+	}
+	rec, _, _ := strings.Cut(text[at:], "\n")
+	return strings.TrimSpace(strings.TrimLeft(rec, "：: "))
+}
+
+// chatWaitLine: 「【名】问题。建议：…」 — the question's title and the asker's recommendation.
+func chatWaitLine(it teamTaskBoardItem) string {
+	q := it.askTitle()
+	if q == "" {
+		q = teamTaskBoardReason(it.PauseWhy, teamTaskBoardHumanStatus(it.Status))
+	}
+	line := "【" + teamTaskBoardShort(it) + "】" + shortLabel(q, 80)
+	// the last 推荐/建议 in the question: 「选项与推荐：A 或 B；推荐 A」 names the pick after the label
+	if rec := chatAskRecommendOf(it.askText); rec != "" {
+		line += " 建议：" + shortLabel(rec, 60)
+	}
+	return line
+}
+
+func renderChatWaiting(rows []chatWaitRow, open map[int]bool) string {
+	n := 0
+	for _, r := range rows {
+		if open[r.ID] {
+			n++
+		}
+	}
+	if n == 0 {
+		return "①等你定：都定了，没有等你的"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "①等你定 %d 件（回数字就行）", n)
+	for i, r := range rows {
+		if open[r.ID] {
+			fmt.Fprintf(&b, "\n%d. %s", i+1, r.Line)
+		} else {
+			fmt.Fprintf(&b, "\n~~%d. %s~~ 已定", i+1, r.Line)
+		}
+	}
+	return b.String()
+}
+
+// syncChatWaiting keeps chat's ① message. A new question renumbers and moves it to the bottom;
+// answers only strike rows through, so a number the user already read keeps its meaning.
+func (e *Engine) syncChatWaiting(poster ChatNotePoster, st *teamChatState, chat string, items []teamTaskBoardItem, now time.Time) bool {
+	cur := chatWaitRows(items, chat, now)
+	note := st.Waiting[chat]
+	if note == nil && len(cur) == 0 {
+		return false
+	}
+	if note == nil {
+		note = &chatWaitNote{SessionKey: chat}
+	}
+	open := map[int]bool{}
+	for _, r := range cur {
+		open[r.ID] = true
+	}
+	shown := map[int]bool{}
+	for _, r := range note.Rows {
+		shown[r.ID] = true
+	}
+	move := false
+	for _, r := range cur {
+		if !shown[r.ID] {
+			move = true
+		}
+	}
+	rows := note.Rows
+	if move || note.MessageID == "" {
+		rows = cur
+	} else {
+		// keep the numbers; refresh lines of rows still open
+		line := map[int]string{}
+		for _, r := range cur {
+			line[r.ID] = r.Line
+		}
+		rows = append([]chatWaitRow(nil), note.Rows...)
+		for i := range rows {
+			if l, ok := line[rows[i].ID]; ok {
+				rows[i].Line = l
+			}
+		}
+	}
+	if note.MessageID == "" && len(cur) == 0 {
+		return false
+	}
+	content := renderChatWaiting(rows, open)
+	if !move && content == note.Content {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+	id, err := poster.PostChatNote(ctx, chat, note.MessageID, content, move && note.MessageID != "")
+	cancel()
+	if err != nil {
+		slog.Warn("team chat state: ① update failed", "chat", chat, "error", err)
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
+			delete(st.Waiting, chat)
+			return true
+		}
+		return false
+	}
+	note.MessageID, note.Content, note.Rows = id, content, rows
+	if len(cur) == 0 {
+		// all answered: the cleared message stays; the next question posts a new one at the bottom
+		note.Rows = nil
+	}
+	st.Waiting[chat] = note
+	return true
+}
+
+// chatStopOf: why item it is stopped and what happens next; "" when it is not a ② stop. The
+// stamp keys the stop so it is said once.
+func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time, text string) {
+	// a stop the user ordered (「用户 22:2x「不要并行太多」…」) is not news to the user
+	if it.Backlog != "" || it.Probe || it.waitsAnswer() || strings.HasPrefix(strings.TrimSpace(it.PauseWhy), "用户") {
+		return "", time.Time{}, ""
+	}
+	name := "【" + teamTaskBoardShort(it) + "】"
+	state, why := teamTaskBoardStateOf(it, now)
+	switch state {
+	case teamTaskPaused:
+		at, ok := teamTaskTableAsked(it, now)
+		if !ok {
+			// released by its workspace without a pause: since its last activity
+			at = teamTaskBoardLastActive(it, now)
+		}
+		if at.IsZero() {
+			return "", time.Time{}, ""
+		}
+		if r := strings.TrimSpace(it.PauseWhy); r != "" {
+			why = r
+		}
+		if why == "" {
+			why = "没写原因"
+		}
+		next := "没有自动接着做的安排，你说接着做就接着派。"
+		if it.WaitUntil > 0 {
+			next = time.Unix(it.WaitUntil, 0).In(now.Location()).Format("15:04") + " 自动交回工作区接着做。"
+		}
+		stamp = "p" + it.PausedAt + it.Paused
+		if it.Paused == "" {
+			stamp = "r" + at.Format(time.RFC3339)
+		}
+		return stamp, at, fmt.Sprintf("②停了%s%s 起停着，卡在：%s\n接下来：%s", name, at.Format("15:04"), shortLabel(why, 120), next)
+	case teamTaskStuck:
+		where := ""
+		if it.wsName != "" {
+			where = "（" + it.wsName + "）"
+		}
+		return "s" + it.Bound, now, fmt.Sprintf("②停了%s%s%s\n接下来：系统每 10 分钟自动催它一次；你要换人做就说一声。", name, where, why)
+	}
+	return "", time.Time{}, ""
+}
+
+// announceChatStops posts ② once for each stop of this chat's items that began after Since.
+func (e *Engine) announceChatStops(poster ChatNotePoster, st *teamChatState, chat string, items []teamTaskBoardItem, now time.Time) bool {
+	changed := false
+	for _, it := range items {
+		if !it.shownIn(chat) {
+			continue
+		}
+		stamp, at, text := chatStopOf(it, now)
+		if stamp == "" || at.Before(st.Since) {
+			continue
+		}
+		key := strconv.Itoa(it.ID) + "@" + stamp
+		if _, said := st.Stopped[key]; said {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
+		_, err := poster.PostChatNote(ctx, chat, "", text, false)
+		cancel()
+		if err != nil {
+			slog.Warn("team chat state: ② post failed", "chat", chat, "board_item", it.ID, "error", err)
+			if !errors.Is(err, ErrDeliveryUnrecoverable) {
+				continue
+			}
+		}
+		st.Stopped[key] = now
+		changed = true
+	}
+	return changed
+}
