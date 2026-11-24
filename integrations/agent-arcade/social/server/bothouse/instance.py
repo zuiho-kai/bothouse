@@ -3,6 +3,7 @@ import base64
 import hashlib
 import http.client
 import json
+import re
 import secrets
 import socket
 import sys
@@ -61,6 +62,46 @@ def instance_id(cfg, file):
     return digest(public[1])
 
 
+# Bothouse records avatar choices by exact Bridge project in the wizard teams.
+# Ambiguous choices fall back to the standard avatar.
+def role_portrait(get, port, project):
+    setup = get("setup/state").get("setup", {})
+    matches = {entry.get("avatar") or "" for key in ("team", "cloud_web_team")
+               for entry in (setup.get(key) or []) if entry.get("project") == project}
+    if len(matches) != 1:
+        return {}
+    slug = matches.pop()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", slug):
+        return {}
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    try:
+        conn.request("GET", "/api/v1/library/avatar-image/" + slug)
+        res = conn.getresponse()
+        mime = res.getheader("Content-Type")
+        if res.status != 200 or mime not in ("image/png", "image/jpeg"):
+            return {}
+        limit = 2 * 1024 * 1024
+        data = res.read(limit + 1)
+        if not data or len(data) > limit:
+            return {}
+        return {"mime": mime, "portrait": base64.b64encode(data).decode("ascii")}
+    finally:
+        conn.close()
+
+
+def upstream_identity(access, actor, link, instance, project):
+    ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
+    if actor in ids:
+        return actor
+    if link.get("instance") != instance:
+        return None
+    if link.get("identity") is not None and link["identity"] in ids:
+        return link["identity"]
+    if access.get("configured") is False and project in link.get("projects", []):
+        return actor
+    return None
+
+
 def run(file, request):
     with file.open("rb") as stream:
         cfg = tomllib.load(stream)
@@ -86,21 +127,25 @@ def run(file, request):
         number = "bh_" + digest(instance + "\0" + project)[:21]
         if request.get("number", number) != number:
             continue
-        access = get("projects/" + quote(project, safe="") + "/users")
-        ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
-        selectable = access.get("configured") is False
+        access_route = "projects/" + quote(project, safe="") + "/users"
+        access = get(access_route)
         if authority:
+            ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
             roles.append(dict(id=project, displayName=item.get("display_name") or project,
-                              selectable=selectable, matches=request.get("identity") in ids))
+                              selectable=access.get("configured") is False, matches=request.get("identity") in ids))
             continue
-        linked = link.get("instance") == instance
-        inherited = linked and link.get("identity") is not None and link["identity"] in ids
-        selected = linked and selectable and project in link.get("projects", [])
-        if actor not in ids and not inherited and not selected:
+        authorized = upstream_identity(access, actor, link, instance, project)
+        if authorized is None:
             continue
-        if inherited and actor not in ids:
-            upstream_user = link["identity"]
+        upstream_user = authorized
         ready = bool(bridge.get("enabled") and bridge.get("token") and not item.get("paused"))
+        if request["action"] == "portrait":
+            if not request.get("number") or not ready:
+                return {}
+            portrait = role_portrait(get, mgmt.get("port") or 9820, project)
+            if portrait and upstream_identity(get(access_route), actor, link, instance, project) is not None:
+                return portrait
+            return {}
         roles.append(dict(id=project, number=number, displayName=item.get("display_name") or project,
                           configured=ready, kind="ai", source="bothouse"))
     if authority:

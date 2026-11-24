@@ -18,6 +18,10 @@ npm --prefix integrations/agent-arcade/social start
 
 In **Contacts → AI contacts**, find an available Bothouse role by name and user ID and choose **打开私聊** (Open direct chat). A group owner can add a role under **Group members → Group AI**. In the group composer, select that member with @. If no roles are available, open **More → Bothouse management** in the desktop app.
 
+如果这是首次使用且还没有可用角色，管理员可在好友服务主机确认账号归属并签发一次性配对码。登录对应好友账号，在 **通讯录 → AI 联系人 → 使用角色配对码** 兑换。已获授权的角色会一起出现，普通用户可以直接聊天。[管理员操作](server/bothouse/README.md)
+
+For a first-time account with no shared roles, the service host operator can verify the account and issue a one-time pairing code. Sign in to that Friends account and redeem it under **Contacts → AI contacts → 使用角色配对码** (Use a role pairing code). All roles shared with the account then appear together. [Host operator instructions](server/bothouse/README.md)
+
 已有个人 AI 的聊天记录可从消息列表打开。曾保存过角色资料的账号，可在「通讯录 → AI 联系人 → 原有 AI 的授权与资料」查看和撤回。
 
 ## 合成验收与同网手机入口

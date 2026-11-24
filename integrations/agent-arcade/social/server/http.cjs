@@ -392,6 +392,13 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
         if(req.method==='POST'&&collection==='conversations'&&action==='messages'&&parts.length===3&&
             req.headers['x-social-account']!==undefined&&req.headers['x-social-account']!==account)
           fail(409,'message_session','账号已切换，请重新打开会话');
+        if(req.method==='GET'&&collection==='conversations'&&action==='role-portrait'&&parts.length===3){
+          if(req.headers['x-social-account']!==account)fail(409,'portrait_session','账号已切换，请重新打开会话');
+          const portrait=await bothouse?.portrait(account,chat);
+          if(current(store,req)!==account)fail(409,'portrait_session','账号已切换，请重新打开会话');
+          res.setHeader('Content-Type','application/json; charset=utf-8');
+          return res.end(JSON.stringify({portrait:portrait??null}));
+        }
         if(bothouse){
           let answer;
           if(key==='ai-contacts/pair'){

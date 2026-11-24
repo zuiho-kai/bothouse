@@ -17,7 +17,7 @@ const aiService=provider=>aiProviderNames[provider]||'云服务';
 const pageSize = 50;
 const date = new Intl.DateTimeFormat('zh-CN', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 const reportDate = new Intl.DateTimeFormat('zh-CN', {dateStyle:'medium',timeStyle:'short'});
-let user, generation = 0, tab = 'messages', chat, conversation, messages = [], older = false;
+let user, generation = 0, tab = 'messages', chat, conversation, chatPortrait, messages = [], older = false;
 let friends = [], incoming = [], outgoing = [], conversations = [], syncFlight, historyFlight, olderFlight, dialogGeneration = 0;
 let chatVisit=0, moderationCursor=0, historyFloor=0, historyAfter=0, dialogMessage, dialogGroup, dialogCleanup;
 let membershipRevision, historyContext, historyFinder;
@@ -156,7 +156,11 @@ function avatar(name, seed = name, artwork) {
   if(artwork){
     const portrait=el('img');
     portrait.alt='';
-    portrait.src='./art/'+artwork+'.png';
+    portrait.src=artwork;
+    portrait.addEventListener('error',()=>{
+      node.classList.remove('role-avatar');
+      node.textContent=Array.from(name?.trim()||'聊')[0];
+    },{once:true});
     node.classList.add('role-avatar');
     node.replaceChildren(portrait);
   }
@@ -205,8 +209,8 @@ async function api(route, body, {session = true, expectedAccount, image, voice, 
   const attachment = image || voice;
   const response = await fetch('./api/v1' + route, {
     method:body === undefined ? 'GET' : 'POST',
-    headers:{'X-Social-Claude-UI':'1','X-Social-AI-Friend-Roles':'1',...(body !== undefined && {'Content-Type':attachment?.mime||'application/json',
-      ...(expectedAccount && {'X-Social-Account':expectedAccount}),
+    headers:{'X-Social-Claude-UI':'1','X-Social-AI-Friend-Roles':'1',...(expectedAccount && {'X-Social-Account':expectedAccount}),
+      ...(body !== undefined && {'Content-Type':attachment?.mime||'application/json',
       ...(attachment && {'X-Social-Client-Id':attachment.clientId})})},
     ...(body !== undefined && {body:attachment?body:JSON.stringify(body)}),
     credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(timeoutMs)
@@ -244,6 +248,7 @@ function leaveSession({discardFeedback=false,expired=false}={}) {
   stopVoicePlayback();
   ++generation;
   user = null;
+  chatPortrait=undefined;
   chat = conversation = historyContext = historyFinder = undefined;
   friends = incoming = outgoing = conversations = messages = [];
   readThrough.clear();
@@ -856,6 +861,10 @@ function pickMention(person,id,scope) {
 const canAttach = meta => Boolean(meta && (meta.type==='group'||meta.members.every(member=>member.kind==='human')));
 const canSendPhoto=meta=>canAttach(meta)||!meta?.personalAi&&meta?.cloudChat?.enabled===true;
 const imageUrl = row => './api/v1'+thread(row.conversationId)+'/messages/'+row.id+'/image';
+
+const directAiPeer = meta => meta?.type==='direct'
+  ? meta.members.find(person=>person.number!==user?.number&&person.kind==='ai')
+  : undefined;
 function showChatHeader() {
   const available=!!conversation, meta=conversation;
   $('#no-chat').hidden=!!chat;
@@ -880,14 +889,16 @@ function showChatHeader() {
   $('#chat-detail').textContent=meta.type==='group'?groupDetail:
     legacyPersonal?'原有 AI 私聊 · 可查看历史':
       cloud?cloudService+(paused?'云聊天已关闭':'云聊天已开启'):awaitingAiConsent?cloudService+'未开启云聊天':peer?.kind==='ai'?'AI 联系人':peer?.number||'';
-  const aiPeer=meta.type==='direct'&&peer?.kind==='ai'?peer:null;
+  const aiPeer=directAiPeer(meta);
   const avatarSeed=aiPeer?.number??meta.id;
-  const artwork=roleArt.get(aiPeer?.number);
+  const builtinArt=roleArt.get(aiPeer?.number);
+  const artwork=builtinArt?'./art/'+builtinArt+'.png':
+    aiPeer&&chatPortrait?.visit===chatVisit&&chatPortrait.number===aiPeer.number?chatPortrait.data:undefined;
   if(!chatAvatar.firstElementChild||chatAvatar.dataset.seed!==avatarSeed||
-    chatAvatar.dataset.name!==meta.title||chatAvatar.dataset.artwork!==(artwork??'')){
+    chatAvatar.dataset.name!==meta.title||chatAvatar.dataset.hasArtwork!==String(!!artwork)){
     chatAvatar.dataset.seed=avatarSeed;
     chatAvatar.dataset.name=meta.title;
-    chatAvatar.dataset.artwork=artwork??'';
+    chatAvatar.dataset.hasArtwork=String(!!artwork);
     chatAvatar.replaceChildren(avatar(meta.title,avatarSeed,artwork));
   }
   $('#members').hidden=meta.type!=='group';
@@ -1167,6 +1178,7 @@ async function openChat(id) {
   stopVoicePlayback();
   if(dialogMessage||chat&&dialogGroup===chat)closeDialog();
   const epoch=generation, visit=++chatVisit;
+  chatPortrait=undefined;
   chatSettings.hidePopover();
   messageActions.hidePopover();
   chat=id;
@@ -1205,6 +1217,7 @@ async function openChat(id) {
     readThrough.set(id,Math.max(readThrough.get(id)??0,conversation.readThrough??0));
     showChatHeader();
     renderHistory('end');
+    void loadChatPortrait(id,visit);
     if(matchMedia('(max-width: 680px)').matches&&document.activeElement===document.body)
       $('#back').focus({preventScroll:true});
     void acknowledgeRead();
@@ -1217,6 +1230,20 @@ async function openChat(id) {
     }
     historyView.replaceChildren(empty(textError(error),button('返回消息',()=>goTab('messages'))),
       button('重新打开',()=>void openChat(id)));
+  }
+}
+async function loadChatPortrait(id,visit) {
+  const number=directAiPeer(conversation)?.number;
+  if(!/^bh_[a-f0-9]{21}$/.test(number||''))return;
+  const expectedAccount=user.number;
+  try {
+    const {portrait}=await api(thread(id)+'/role-portrait',undefined,{expectedAccount});
+    if(chatVisit!==visit||chat!==id||user?.number!==expectedAccount||directAiPeer(conversation)?.number!==number)return;
+    if(typeof portrait!=='string'||!/^data:image\/(png|jpeg);base64,/.test(portrait))return;
+    chatPortrait={visit,number,data:portrait};
+    showChatHeader();
+  } catch {
+    // An unavailable portrait leaves the regular avatar in place.
   }
 }
 async function acknowledgeRead() {

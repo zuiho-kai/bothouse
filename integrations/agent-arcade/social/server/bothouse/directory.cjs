@@ -5,6 +5,9 @@ const os = require('node:os');
 const path = require('node:path');
 const {fail} = require('../store.cjs');
 const pairing = require('./pairing.cjs');
+const {dimensions,modelPhoto} = require('../../../src/core/static-image.cjs');
+
+const portraitLimit = 2 * 1024 * 1024;
 
 function localInstance(env = process.env) {
   const preferred = path.join(os.homedir(), '.bothouse');
@@ -18,7 +21,8 @@ function localInstance(env = process.env) {
     try {
       return await new Promise(resolve => {
         const child = execFile(python, ['-I','-B','-X','utf8',path.join(__dirname,'instance.py'),config],
-          {windowsHide:true, timeout:data.action === 'list' ? 9000 : 70000, maxBuffer:256 * 1024}, (error,out) => {
+          {windowsHide:true, timeout:data.action === 'chat' ? 70000 : 9000,
+            maxBuffer:data.action === 'portrait' ? 3 * 1024 * 1024 : 256 * 1024}, (error,out) => {
             if (!error) try {return resolve(JSON.parse(out));} catch {}
             resolve({error:'unavailable'});
           });
@@ -78,6 +82,29 @@ function bothouseDirectory(store, request) {
       });
     return {groupAi:{joined,canManage,available:canManage?contacts:[],directoryStatus}};
   }
+  async function portrait(account, chatId) {
+    const peer = chat => chat.first_user === account ? chat.second_user : chat.first_user;
+    const chat = store.access(account,chatId);
+    if (chat.type !== 'direct') return null;
+    const number = peer(chat);
+    if (!targetNumber.test(number) || store.user(number).kind !== 'ai') return null;
+    const link = pairing.active(store,account);
+    const result = await request({action:'portrait',account,number,link});
+    if (pairing.active(store,account)?.revision !== link?.revision) return null;
+    const current = store.access(account,chatId);
+    if (current.type !== 'direct' || peer(current) !== number || current.membershipRevision !== chat.membershipRevision)
+      return null;
+    const {mime,portrait} = result || {};
+    if (!['image/png','image/jpeg'].includes(mime) || typeof portrait !== 'string' ||
+        portrait.length > Math.ceil(portraitLimit / 3) * 4) return null;
+    try {
+      const source = Buffer.from(portrait,'base64');
+      if (source.length > portraitLimit || source.toString('base64') !== portrait) return null;
+      const {width,height} = dimensions(source,mime === 'image/png' ? '.png' : '.jpg');
+      if (width > 4096 || height > 4096) return null;
+      return 'data:'+mime+';base64,'+modelPhoto(source,mime).toString('base64');
+    } catch { return null; }
+  }
   function stage(account,message) {
     const chat=store.access(account,message.conversationId);
     const direct=chat.type==='direct';
@@ -107,6 +134,6 @@ function bothouseDirectory(store, request) {
     const reply=store.send(turn.number,turn.chat,{text:data.text,clientId:'bothouse-'+turn.messageId});
     return {reply,bothouseStatus:'replied'};
   }
-  return {list,resolveMember,start,group,stage,finish,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
+  return {list,resolveMember,start,group,portrait,stage,finish,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
 module.exports = {localInstance,bothouseDirectory};
