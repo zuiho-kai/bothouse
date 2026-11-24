@@ -67,12 +67,16 @@ def run(file, request):
     mgmt = cfg["management"]
     if not mgmt.get("enabled") or not mgmt.get("token"):
         raise ValueError("unavailable")
-    actor = "arcade:" + request["account"]
+    account = request.get("account")
+    actor = "arcade:" + account if account else None
+    authority = request["action"] == "authority"
+    link = request.get("link") or {}
     def get(route):
         return read_json(mgmt.get("port") or 9820, mgmt["token"], "/api/v1/" + route)
     bridge = cfg.get("bridge", {})
     roles = []
     instance = None
+    upstream_user = actor
     for item in get("roles")["roles"]:
         project = item["name"]
         if item.get("source") or not project or "/" in project or project in (".", ".."):
@@ -83,11 +87,24 @@ def run(file, request):
         if request.get("number", number) != number:
             continue
         access = get("projects/" + quote(project, safe="") + "/users")
-        if not any(actor in rule.get("user_ids", []) for rule in access.get("roles", {}).values()):
+        ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
+        selectable = access.get("configured") is False
+        if authority:
+            roles.append(dict(id=project, displayName=item.get("display_name") or project,
+                              selectable=selectable, matches=request.get("identity") in ids))
             continue
+        linked = link.get("instance") == instance
+        inherited = linked and link.get("identity") is not None and link["identity"] in ids
+        selected = linked and selectable and project in link.get("projects", [])
+        if actor not in ids and not inherited and not selected:
+            continue
+        if inherited and actor not in ids:
+            upstream_user = link["identity"]
         ready = bool(bridge.get("enabled") and bridge.get("token") and not item.get("paused"))
         roles.append(dict(id=project, number=number, displayName=item.get("display_name") or project,
                           configured=ready, kind="ai", source="bothouse"))
+    if authority:
+        return {"instance": instance, "projects": roles}
     listing = request["action"] == "list"
     if not roles:
         return {"contacts": [], "directoryStatus": "empty"} if listing else {"error": "unavailable"}
@@ -123,7 +140,7 @@ def run(file, request):
             return {"error": "unavailable"}
         session = "arcade:" + digest(json.dumps([instance, actor, target, request["scope"]]))[:48]
         ws.send(json.dumps(dict(type="message", project=target, msg_id=str(request["messageId"]),
-                                user_id=actor, session_key=session, reply_ctx=ref,
+                                user_id=upstream_user, session_key=session, reply_ctx=ref,
                                 direct=request["direct"], mentioned=not request["direct"],
                                 from_bot=False, content=request["text"])))
         until = time.monotonic() + 60

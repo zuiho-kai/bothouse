@@ -59,6 +59,7 @@ function legacyConversation(conversation) {
     members:conversation.members.map(member=>member.number===AI_JU_NUMBER?
       {...member,displayName:member.displayName+'（'+hint+'）'}:member)};
 }
+const bothousePairing = require('./bothouse/pairing.cjs');
 function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proactive,aiFriends,appointments,web,personal,bothouse) {
   const {method, parts:[root,id,action,msg,sub], parts, claudeUi, friendRolesUi} = route;
   const visibleRole=role=>claudeUi||role.number!==AI_JU_NUMBER;
@@ -393,6 +394,14 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           fail(409,'message_session','账号已切换，请重新打开会话');
         if(bothouse){
           let answer;
+          if(key==='ai-contacts/pair'){
+            if(req.method==='GET') answer={paired:!!bothousePairing.active(store,account)};
+            if(req.method==='POST') answer=bothousePairing.redeem(store,account,body);
+          }
+          if(req.method==='POST' && key==='ai-contacts/unpair'){
+            bothousePairing.checkAccount(account,body.expectedAccount);
+            answer=bothousePairing.revoke(store,account);
+          }
           if(req.method==='GET'&&key==='ai-contacts')answer=await bothouse.list(account);
           if(req.method==='POST'&&key==='ai-contacts/start')answer=await bothouse.start(account,body);
           if(req.method==='POST'&&key==='personal-ai'&&body.action!=='withdraw')

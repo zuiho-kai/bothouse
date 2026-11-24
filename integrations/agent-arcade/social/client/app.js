@@ -166,6 +166,8 @@ function time(value, format=date) {
   return value && !Number.isNaN(Date.parse(value)) ? format.format(new Date(value)) : '';
 }
 function textError(error) {
+  if(error.message==='invalid_pair')return '这个配对码已过期、已使用或属于其他好友账号。请向分享者索取新码。';
+  if(error.message==='pair_code')return '请粘贴分享者给你的完整配对码。';
   if(error.message==='bothouse_unavailable')return '这位角色暂不可用。请到桌面 App 的「更多 → Bothouse」查看。';
   if (error.message === 'feed_session') return '账号已切换，请重新打开好友动态。';
   if (error.message === 'feed_role_unavailable') return '这位角色暂时无法发表新动态。请稍后再试。';
@@ -2295,9 +2297,6 @@ $('#attach-image').addEventListener('click',()=>{
           const response=await api(route,selected.attempt);
           if(!current())return;
           merge([response.message,...(response.reply?[response.reply]:[])],'end');
-      if(response.bothouseStatus==='unavailable')$('#send-error').textContent='消息已保存，角色暂时无法回复。';
-      if(response.bothouseStatus==='chat_text_only')$('#send-error').textContent='消息已保存，角色没有执行这条命令。';
-      if(response.bothouseStatus==='cancelled')$('#send-error').textContent='消息已保存，角色状态已变更，本次未回复。';
           if(previousDraft.trim()===chosenQuestion&&messageBox.value===previousDraft){
             messageBox.value='';
             updateChatDraft(id,{floor:historyFloor,text:''});
@@ -2390,9 +2389,6 @@ async function askAboutPhoto(message){
       const response=await api(route+'/vision',attempt);
       if(!current())return;
       merge([response.message,...(response.reply?[response.reply]:[])],'end');
-      if(response.bothouseStatus==='unavailable')$('#send-error').textContent='消息已保存，角色暂时无法回复。';
-      if(response.bothouseStatus==='chat_text_only')$('#send-error').textContent='消息已保存，角色没有执行这条命令。';
-      if(response.bothouseStatus==='cancelled')$('#send-error').textContent='消息已保存，角色状态已变更，本次未回复。';
       if(response.visionError){$('#dialog-error').textContent=response.visionError;return;}
       closeDialog();
       void sync();
@@ -2852,11 +2848,38 @@ function showPersonalGroupAi(group){
   }
   void perform(async()=>render(await api(route)),null,scope);
 }
+function showBothousePair(account,paired) {
+  const title=paired?'解除角色配对':'使用角色配对码';
+  const form=el('form'),input=el('input');
+  const scope=openDialog(title,[form]);
+  if(paired){
+    form.append(el('p','解除好友账号 '+account+' 的这次配对？已有聊天记录会保留，通过其他方式获准使用的角色仍可联系。'));
+  }else{
+    const label=el('label','一次性配对码');
+    input.type='text';input.autocomplete='off';input.spellcheck=false;input.required=true;
+    label.append(input);
+    form.append(el('p','向分享角色的人索取为好友账号 '+account+' 生成的配对码。'),label);
+  }
+  const submit=el('button',paired?'确认解除':'使用配对码','primary');
+  submit.type='submit';
+  form.append(submit,button('返回角色目录',showAiContacts));
+  form.addEventListener('submit',event=>{
+    event.preventDefault();
+    if(dialogGeneration!==scope||user?.number!==account)return;
+    void perform(async()=>{
+      const body=paired?{expectedAccount:account}:{expectedAccount:account,code:input.value.trim()};
+      const result=await api('/ai-contacts/'+(paired?'unpair':'pair'),body,{expectedAccount:account});
+      if(result.paired!==!paired)throw Error('request_failed');
+      if(dialogGeneration===scope&&user?.number===account)showAiContacts();
+    },submit,scope);
+  });
+  if(!paired)input.focus();
+}
 function showAiContacts() {
   const account=user.number, epoch=generation;
   const list=el('div',null,'ai-role-library');
-  const legacy=el('div');
-  const scope=openDialog('AI 联系人',[list,legacy]);
+  const legacy=el('div'),pairing=el('div');
+  const scope=openDialog('AI 联系人',[list,pairing,legacy]);
   void perform(async()=>{
     const {identity}=await api('/personal-ai');
     if(identity&&generation===epoch&&dialogGeneration===scope){
@@ -2867,6 +2890,15 @@ function showAiContacts() {
     const {contacts,directoryStatus}=await api('/ai-contacts');
     if(generation!==epoch||dialogGeneration!==scope)return;
     const roles=contacts.filter(contact=>contact.kind==='ai'&&contact.source==='bothouse'&&contact.configured===true);
+    if(directoryStatus)void perform(async()=>{
+      let state;
+      try{state=await api('/ai-contacts/pair');}
+      catch(error){if(error.status===404)return;throw error;}
+      if(generation!==epoch||dialogGeneration!==scope)return;
+      if(state.paired===true)pairing.append(button('解除角色配对',()=>showBothousePair(account,true)));
+      else if(state.paired===false&&directoryStatus==='empty'&&!contacts.length)
+        pairing.append(button('使用角色配对码',()=>showBothousePair(account,false)));
+    },null,scope);
     if(!roles.length){
       const notice=directoryStatus==='offline'?'暂时无法连接 Bothouse 角色目录。':
         directoryStatus?'目前没有可用的 AI 角色。':'当前好友服务没有提供 Bothouse 角色目录。';

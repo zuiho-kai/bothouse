@@ -4,6 +4,7 @@ const {existsSync} = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {fail} = require('../store.cjs');
+const pairing = require('./pairing.cjs');
 
 function localInstance(env = process.env) {
   const preferred = path.join(os.homedir(), '.bothouse');
@@ -31,7 +32,7 @@ function localInstance(env = process.env) {
 function bothouseDirectory(store, request) {
   const targetNumber = /^bh_[a-f0-9]{21}$/;
   async function list(account, number) {
-    const data = await request({action:'list',account,...(number && {number})});
+    const data = await request({action:'list',account,link:pairing.active(store,account),...(number && {number})});
     if (!Array.isArray(data?.contacts)) return {contacts:[],directoryStatus:'offline'};
     return {contacts:data.contacts, directoryStatus:data.directoryStatus};
   }
@@ -83,12 +84,14 @@ function bothouseDirectory(store, request) {
     const number=direct ? (chat.first_user===account ? chat.second_user : chat.first_user) : message.mention?.number;
     if (!targetNumber.test(number) || store.user(number).kind !== 'ai') return null;
     const role=store.access(number,chat.id);
-    return {account,number,direct,messageId:message.id,text:message.text,chat:chat.id,
-      scope:[chat.id,chat.membershipRevision,role.membershipRevision]};
+    const link=pairing.active(store,account);
+    return {account,number,direct,messageId:message.id,text:message.text,chat:chat.id,link,
+      scope:[chat.id,chat.membershipRevision,role.membershipRevision,...(link ? [link.revision] : [])]};
   }
   function current(turn) {
     try {
-      return store.access(turn.account,turn.chat).membershipRevision===turn.scope[1] &&
+      return pairing.active(store,turn.account)?.revision===turn.scope[3] &&
+        store.access(turn.account,turn.chat).membershipRevision===turn.scope[1] &&
         store.access(turn.number,turn.chat).membershipRevision===turn.scope[2] &&
         store.one('SELECT removed FROM messages WHERE id=?',turn.messageId)?.removed===0;
     } catch (error) {if(error.status===404)return false;throw error;}

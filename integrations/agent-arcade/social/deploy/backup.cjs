@@ -10,6 +10,8 @@ function prepareRestoredDatabase(file) {
   try {
     store.transaction(() => {
       store.run('DELETE FROM sessions');
+      store.run('DELETE FROM bothouse_pair_codes');
+      store.run('DELETE FROM bothouse_links');
       // Other role preferences cascade from these same legacy rows.
       store.run('DELETE FROM ai_friend_preferences');
       store.run("UPDATE requests SET state='declined' WHERE state='pending' AND sender IN (SELECT number FROM users WHERE kind='ai')");

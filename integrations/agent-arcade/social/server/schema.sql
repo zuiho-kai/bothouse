@@ -8,6 +8,14 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
   digest TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES users, expires INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bothouse_pair_codes (
+  account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
+  digest TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bothouse_links (
+  account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
+  scope TEXT NOT NULL, revision TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS session_expiry ON sessions(expires);
 CREATE TABLE IF NOT EXISTS requests (
   id TEXT PRIMARY KEY, sender TEXT NOT NULL REFERENCES users, recipient TEXT NOT NULL REFERENCES users,
