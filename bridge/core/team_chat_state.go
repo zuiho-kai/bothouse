@@ -302,7 +302,15 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if it.wsName != "" {
 			where = "（" + it.wsName + "）"
 		}
-		return "s" + it.Bound, now, fmt.Sprintf("②停了%s%s%s\n接下来：系统每 10 分钟自动催它一次；你要换人做就说一声。", name, where, why)
+		// at: when it went quiet (its last activity), so a stall from before the feature is not said
+		at := teamTaskBoardLastActive(it, now)
+		if it.WS != "" {
+			at = teamTaskBoardWorkspaceActive(it, now)
+		}
+		if at.IsZero() {
+			at = now
+		}
+		return "s" + it.Bound, at, fmt.Sprintf("②停了%s%s%s\n接下来：系统每 10 分钟自动催它一次；你要换人做就说一声。", name, where, why)
 	}
 	return "", time.Time{}, ""
 }
