@@ -573,7 +573,7 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 		}
 	}
 
-	if ts.holdForUser(engine, job) {
+	if ts.holdForUser(engine, job) || ts.holdGuardWhileWorking(engine, job) {
 		return
 	}
 	if !ts.deliverToTask(engine, job) {

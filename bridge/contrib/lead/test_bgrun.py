@@ -140,6 +140,33 @@ class BgrunTest(unittest.TestCase):
         self.assertEqual(self.wait_file(self.run_dir() / "exit").strip(), "0")
         self.wait_file(self.calls)
 
+    def wait_calls(self, n):
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            if self.calls.exists() and len(self.calls.read_text().splitlines()) >= n:
+                return [json.loads(l) for l in self.calls.read_text().splitlines()]
+            time.sleep(0.05)
+        self.fail(f"expected {n} wake calls")
+
+    def test_two_successes_in_one_session_wake_once(self):
+        # #1972: the first success waits for the other run of the same session; the last one wakes for both.
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 0.3").returncode, 0)
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 1.5").returncode, 0)
+        calls = self.wait_calls(1)
+        time.sleep(1.0)
+        calls = [json.loads(l) for l in self.calls.read_text().splitlines()]
+        self.assertEqual(len(calls), 1)
+        prompt = calls[0][calls[0].index("--prompt") + 1]
+        self.assertIn("先结束的", prompt)
+        self.assertFalse(list((self.home / ".bothouse/runs").glob("*/wake-held")))
+
+    def test_failure_wakes_at_once(self):
+        # A non-zero exit is not held even while another run of the session is still going.
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 2").returncode, 0)
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 0.3; exit 4").returncode, 0)
+        calls = self.wait_calls(1)
+        self.assertIn("退出码 4", calls[0][calls[0].index("--prompt") + 1])
+        self.assertEqual(len(self.wait_calls(2)), 2)
 
 if __name__ == "__main__":
     unittest.main()
