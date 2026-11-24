@@ -66,10 +66,12 @@ async function assertBoundary(app,visible) {
     const windows=BrowserWindow.getAllWindows(),w=windows[0];
     const child=w.contentView.children.find(v=>v.webContents&&v.webContents!==w.webContents);
     const wc=child.webContents,p=wc.getLastWebPreferences();
+    const preloadReady = await wc.executeJavaScript(
+      "document.documentElement.dataset.arcadeGroupCardPicker==='available' && typeof window.arcade==='undefined'");
     const compactStoreShell=await w.webContents.executeJavaScript("!!document.getElementById('store-more')");
     return {count:windows.length,desktopVisible:w.isVisible(),guestVisible:child.getVisible(),bounds:child.getBounds(),compactStoreShell,
       url:wc.getURL(),localUrl:w.webContents.getURL(),preload:p.preload?.split(/[\\/]/).at(-1),preloads:wc.session.getPreloadScripts().length,
-      sandbox:p.sandbox,nodeIntegration:p.nodeIntegration,contextIsolation:p.contextIsolation,
+      sandbox:p.sandbox,nodeIntegration:p.nodeIntegration,contextIsolation:p.contextIsolation,preloadReady,
       separatePartition:wc.session!==w.webContents.session,profile:app.getPath('userData')};
   });
   assert.equal(view.count,1);
@@ -79,8 +81,10 @@ async function assertBoundary(app,visible) {
   assert.equal(view.bounds.y,view.compactStoreShell?44:56);
   assert.equal(new URL(view.url).origin,origin.origin);
   assert.match(view.localUrl,/\/src\/ui\/index.html/);
-  assert.deepEqual([view.preload,view.preloads,view.sandbox,view.nodeIntegration,view.contextIsolation,view.separatePartition],
-    ['privacy-preload.cjs',0,true,false,true,true]);
+  if(view.preload!==undefined)assert.equal(view.preload,'privacy-preload.cjs');
+  assert.equal(view.preloadReady,true);
+  assert.deepEqual([view.preloads,view.sandbox,view.nodeIntegration,view.contextIsolation,view.separatePartition],
+    [0,true,false,true,true]);
 }
 async function settings(page) {
   await page.locator('#store-more').click();
@@ -101,7 +105,7 @@ async function peer() {
   let cookie='';
   return async(route,body)=>{
     const response=await fetch(origin.origin+'/api/v1'+route,{method:body===undefined?'GET':'POST',
-      headers:{Cookie:cookie,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+      headers:{Cookie:cookie,'Content-Type':'application/json','X-Social-Claude-UI':'1','X-Social-AI-Friend-Roles':'1'},body:body===undefined?undefined:JSON.stringify(body)});
     assert.equal(response.status,200,route);
     cookie=response.headers.getSetCookie()[0]?.split(';')[0]||cookie;
     return response.json();
@@ -134,7 +138,7 @@ async function main(){
     const image=await app.evaluate(async({BrowserWindow})=>{
       const w=BrowserWindow.getAllWindows()[0];
       const v=w.contentView.children.find(c=>c.webContents&&c.webContents!==w.webContents);
-      return (await v.webContents.capturePage()).toPNG().toString('base64');
+      return (await v.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');
     });
     fs.writeFileSync(path.join(evidence,'friends.png'),Buffer.from(image,'base64'));
     await guest(app,"document.querySelector('#message').value='未发送的合成草稿';document.querySelector('#message').dispatchEvent(new Event('input',{bubbles:true}))");
@@ -142,7 +146,11 @@ async function main(){
     await assertBoundary(app,false);
     await page.locator('#settings-nav-devices').click();
     await page.locator('#robot-device-card').waitFor();
-    await page.screenshot({path:path.join(evidence,'devices.png')});
+    const devices=await app.evaluate(async({BrowserWindow})=>{
+      const w=BrowserWindow.getAllWindows()[0];
+      return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');
+    });
+    fs.writeFileSync(path.join(evidence,'devices.png'),Buffer.from(devices,'base64'));
     await page.locator('#settings-back').click();
     await assertBoundary(app,true);
     assert.equal(await guest(app,"document.querySelector('#message').value"),'未发送的合成草稿');
@@ -153,7 +161,7 @@ async function main(){
     await until(()=>guest(app,`!!document.querySelector('#feedback-text')`),'feedback form');
     await guest(app,`document.querySelector('#feedback-text').value='合成商店包意见反馈';
       document.querySelector('#feedback-text').form.querySelector('button[type=submit]').click()`);
-    await until(()=>guest(app,`document.querySelector('.feedback-history').textContent.includes('合成商店包意见反馈')`),'feedback receipt');
+    await until(()=>guest(app,`[...document.querySelectorAll('.feedback-history')].some(section=>section.textContent.includes('合成商店包意见反馈'))`),'feedback receipt');
     checks.push('同源意见反馈实际提交并回读');
     await app.close();running=null;
     running=await launch();
