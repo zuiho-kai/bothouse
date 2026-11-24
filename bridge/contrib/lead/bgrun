@@ -135,6 +135,10 @@ def main():
     if args and args[0] == "--supervise":
         supervise(Path(args[1]), int(args[2]), int(args[3]), args[4:])
         return 0
+    if args[:1] == ["--wake"] and len(args) == 3:
+        # 别的启动器（本机 zsh 版 bgrun）结束时只借这里的叫醒：同会话攒着、最后一条叫一次（#1972）
+        wake_session(Path(args[1]), int(args[2]))
+        return 0
     # The bridge resolves this once for both the runner and the idle watcher.
     # Outside a bridge session, use the collaboration tools' existing resolver.
     root = Path(os.environ["CC_RUNS_DIR"]) if os.environ.get("CC_RUNS_DIR") else data_dir() / "runs"

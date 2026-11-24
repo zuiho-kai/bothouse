@@ -168,5 +168,24 @@ class BgrunTest(unittest.TestCase):
         self.assertIn("退出码 4", calls[0][calls[0].index("--prompt") + 1])
         self.assertEqual(len(self.wait_calls(2)), 2)
 
+    def test_wake_entry_for_other_launchers(self):
+        # #1972：本机 zsh 版 bgrun 结束时调 bgrun --wake <运行目录> <退出码>，同样按会话攒着
+        root = self.home / ".bothouse/runs"
+        live, done = root / "a", root / "b"
+        for d in (live, done):
+            d.mkdir(parents=True)
+            (d / "session").write_text("test:workspace\n")
+            (d / "log").write_text("")
+        (live / "pid").write_text(f"{os.getpid()}\n")
+        (done / "exit").write_text("0\n")
+        env = dict(self.env, CC_SESSION_KEY="test:workspace")
+        subprocess.run([str(HERE / "bgrun"), "--wake", str(done), "0"], env=env, check=True, timeout=10)
+        self.assertTrue((done / "wake-held").exists())
+        self.assertFalse(self.calls.exists())
+        (live / "exit").write_text("0\n")
+        subprocess.run([str(HERE / "bgrun"), "--wake", str(live), "0"], env=env, check=True, timeout=10)
+        calls = self.wait_calls(1)
+        self.assertIn("先结束的：运行号 b", calls[0][calls[0].index("--prompt") + 1])
+
 if __name__ == "__main__":
     unittest.main()
