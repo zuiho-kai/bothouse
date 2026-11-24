@@ -14,6 +14,8 @@ On that same instance, the operator opens **全部功能 → 功能开关 → �
 
 Contacts are live Bridge projects from `GET /api/v1/roles`. Existing explicit `arcade:<Friends account>` assignments work directly. For a first-time Friends user without one, the Bothouse host operator can pair the account once. The operator must verify whose upstream identity or projects are being authorized. Friends numbers and display names alone do not establish this.
 
+On a Bothouse host with project friend sharing, open **Projects → project details → Settings → Share with an Agent Arcade friend**. Copy the exact account number from the friend’s Me page and save it for this project. The friend can open the role in AI Contacts directly. The host can withdraw this grant from the same list. Independent existing project assignments and pairings keep their scope and identity. Both sides must support the optional `arcade_friends` field of the authenticated project users response. Older deployments can keep using pairing.
+
 Run the following on the trusted service host with its normal database and Bothouse configuration. The real local entry is `node social/server/bothouse/pair.cjs`. The examples use synthetic names.
 
 - `projects` lists exact project IDs and whether they are selectable. The host's management listener must authenticate successfully.

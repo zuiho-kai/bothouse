@@ -98,11 +98,12 @@ def upstream_identity(access, actor, link, instance, project):
     ids = {value for rule in access.get("roles", {}).values() for value in rule.get("user_ids", [])}
     if actor in ids:
         return actor
-    if link.get("instance") != instance:
-        return None
-    if link.get("identity") is not None and link["identity"] in ids:
-        return link["identity"]
-    if access.get("configured") is False and project in link.get("projects", []):
+    if link.get("instance") == instance:
+        if link.get("identity") is not None and link["identity"] in ids:
+            return link["identity"]
+        if access.get("configured") is False and project in link.get("projects", []):
+            return actor
+    if actor and actor.startswith("arcade:") and actor[7:] in access.get("arcade_friends", []):
         return actor
     return None
 
