@@ -19,14 +19,41 @@ func (p *Platform) privateRoom(s *discordgo.Session, guildID, channelID, authorI
 	if ch == nil {
 		return false
 	}
-	return privateOverwrites(ch.PermissionOverwrites, guildID, authorID, func(id string) bool {
+	return privateOverwrites(ch.PermissionOverwrites, guildID, authorID, p.selfID(), func(id string) bool {
 		return p.isBotUser(s, guildID, id)
+	}, func(userID string) bool {
+		return p.userCanViewChannel(s, ch, userID)
 	})
 }
 
-func privateOverwrites(ows []*discordgo.PermissionOverwrite, guildID, authorID string, isBot func(string) bool) bool {
+// userCanViewChannel checks if a user has ViewChannel permission in ch.
+// It checks s.State.UserChannelPermissions if available, or session API, or falls back.
+func (p *Platform) userCanViewChannel(s *discordgo.Session, ch *discordgo.Channel, userID string) bool {
+	if s == nil || ch == nil || userID == "" {
+		return false
+	}
+	const view = int64(discordgo.PermissionViewChannel)
+	if s.State != nil {
+		if perms, err := s.State.UserChannelPermissions(userID, ch.ID); err == nil {
+			return perms&view != 0
+		}
+	}
+	if perms, err := s.UserChannelPermissions(userID, ch.ID); err == nil {
+		return perms&view != 0
+	}
+	return false
+}
+
+func privateOverwrites(
+	ows []*discordgo.PermissionOverwrite,
+	guildID, authorID, selfID string,
+	isBot func(string) bool,
+	canBotView ...func(string) bool,
+) bool {
 	const view = int64(discordgo.PermissionViewChannel)
 	hidden, author := false, false
+	var allowedBotID string
+	botsCount := 0
 	for _, o := range ows {
 		if o == nil {
 			continue
@@ -39,11 +66,46 @@ func privateOverwrites(ows []*discordgo.PermissionOverwrite, guildID, authorID s
 			return false // a role is let in: more than one person may read it
 		case o.ID == authorID:
 			author = true
-		case !isBot(o.ID):
+		case isBot(o.ID):
+			botsCount++
+			allowedBotID = o.ID
+		default:
 			return false
 		}
 	}
-	return hidden && author
+	if !hidden || !author {
+		return false
+	}
+	// Case 1: overwrites explicitly name multiple bots -> not a 1-on-1 private room.
+	if botsCount > 1 {
+		return false
+	}
+	// Case 2: overwrites explicitly allow exactly 1 bot, but it's a different bot -> not this bot's room.
+	if botsCount == 1 {
+		return selfID == "" || allowedBotID == selfID
+	}
+	// Case 3: botsCount == 0: no bot has an explicit allow overwrite (e.g. bots have Admin/Guild view permissions).
+	// If teamPlatforms has multiple bots or another bot can view this channel, it is not a 1-on-1 private room.
+	var checker func(string) bool
+	if len(canBotView) > 0 && canBotView[0] != nil {
+		checker = canBotView[0]
+	}
+	peerBotsCanView := 0
+	teamPlatforms.Range(func(key, val any) bool {
+		botID, ok := key.(string)
+		if !ok || botID == selfID {
+			return true
+		}
+		if checker != nil {
+			if checker(botID) {
+				peerBotsCanView++
+			}
+		} else {
+			peerBotsCanView++
+		}
+		return true
+	})
+	return peerBotsCanView == 0
 }
 
 func (p *Platform) lookupChannel(s *discordgo.Session, id string) *discordgo.Channel {

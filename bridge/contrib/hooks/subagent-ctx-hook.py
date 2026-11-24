@@ -79,10 +79,18 @@ def _is_stop(rec):
     return r is not None and r != "tool_use"
 
 
+# 被停后续用：上一次运行被桥重启或进程退出打断时，转录里没有停止标志，续用的 coordinator 消息
+# （SendMessage）前面隔着一大段空白。空白够长就从续用那条起算（#1894：11-23 Fable 13:12 随桥重启被停，
+# 13:54 续用后按 13:09 首派起算，跑 155 秒就被拦）。来源：前台命令最长 10 分钟，运行中的子 agent
+# 两条记录之间不会空这么久，取 15 分钟留余量。
+RESUME_GAP_S = 15 * 60
+
+
 def start_ts(path, now):
     """本次激活的起点（epoch 秒）：最近一次交付或停止之后的第一条 type=user 记录的 timestamp。
     取 user 而不是“下一条记录”：同一条 assistant 消息会拆成几条记录（thinking/text 各一条，stop_reason 相同），
     停止标志后面紧跟的可能是同一消息的另一块（抽查 206 次）。
+    没有停止标志、但 coordinator 消息和它前一条记录隔了 RESUME_GAP_S 以上 → 上一次运行被停了，从这条续用起算。
     转录里没有停止标志 → 还是第一次激活，用第一行 timestamp。
     有停止标志但后面还没有 user 记录 → 当作刚开始的新激活，返回 now（放行）。读不到返回 None。"""
     size = os.path.getsize(path)
@@ -96,17 +104,25 @@ def start_ts(path, now):
             if start > 0:
                 lines = lines[1:]  # 第一行可能被截断
             cand = None  # 往回扫时最早看到的 user 记录时间 = 停止标志之后的第一条 user
+            coord = None  # 往回扫时刚看到的 coordinator 消息时间，等它前一条记录来比间隔
             for line in reversed(lines):
-                if b'"stop_reason"' not in line and b'"user"' not in line:
+                if b'"stop_reason"' not in line and b'"user"' not in line and b'"timestamp"' not in line:
                     continue
                 try:
                     rec = json.loads(line)
                 except ValueError:
                     continue
+                t = _ts(rec)
+                if coord is not None and t is not None:
+                    if coord - t >= RESUME_GAP_S:
+                        return coord
+                    coord = None
                 if _is_stop(rec):
                     return cand if cand is not None else now
-                if rec.get("type") == "user" and _ts(rec) is not None:
-                    cand = _ts(rec)
+                if rec.get("type") == "user" and t is not None:
+                    cand = t
+                    if (rec.get("origin") or {}).get("kind") == "coordinator":
+                        coord = t
             if start == 0:
                 break
             chunk *= 4

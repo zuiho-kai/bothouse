@@ -107,15 +107,49 @@ def is_item(line):
         return bool(s) and not s.startswith("#")
 
 
+PAIRS = ("（）", "()", "「」", "『』", "“”", "【】", "《》", "[]")  # 括号、引号都算（用户 11-07「引号这一类也一起修掉」）
+_OPEN = {a: b for a, b in PAIRS}
+_CLOSE = {b for _, b in PAIRS}
+
+
+def _paired(t):
+    """括号、引号都配对。"""
+    return all(t.count(a) == t.count(b) for a, b in PAIRS)
+
+
+def _glued(t, i):
+    """t[i] 是网址、时间、数字里的 : , （https://、09:30、1,000），不是断句符。"""
+    a, b = t[i - 1:i], t[i + 1:i + 2]
+    return t[i] in ":," and (b == "/" or (a.isdigit() and b.isdigit()))
+
+
+def _break_at(t, marks, lo=0, hi=None):
+    """t 里第一个落在括号、引号外的断句符位置；lo..hi 限定断点下标。找不到给 -1。
+    开了没关的括号、引号之后都算在里面（不在半句引号里断开，宁可整句当标题）。"""
+    want = []
+    for i, ch in enumerate(t):
+        if ch in _OPEN:
+            want.append(_OPEN[ch])
+        elif ch in _CLOSE:
+            if ch in want:
+                while want and want.pop() != ch:
+                    pass
+        elif not want and ch in marks and i >= lo and (hi is None or i <= hi) and not _glued(t, i):
+            return i
+    return -1
+
+
 def title_of(line):
     """帖子标题：第一句（到句号、分号为止），去掉句尾的（日期）括注；第一句太长在冒号、逗号处断开，其余进正文。
+    断点只取括号、引号外的；括号、引号里的标点不断，找不到括号外的断点整句当标题（用户定「标题不要截断」）。
     长度 60 / 50 / 4 沿用 forum.py title_of（用户 11-06 看过这版标题）。"""
     t = clean(line)
-    m = re.match(r"(.+?[。；;！!？?])(?=.)", t)
-    head = m.group(1) if m else t
+    i = _break_at(t, "。；;！!？?")
+    head = t[:i + 1] if 0 <= i < len(t) - 1 else t
     if len(head) > 60:  # 60 沿用 forum.py title_of
-        c = re.match(r"(.{4,50}?)[：:，,]", head)  # 4、50 沿用 forum.py title_of
-        head = c.group(1) if c else head[:50]  # 50 沿用 forum.py title_of
+        j = _break_at(head, "：:，,", 4, 50)  # 4、50 沿用 forum.py title_of
+        if j >= 0:
+            head = head[:j]
     rest = t[len(head):].lstrip("。；;：:，, ")
     head = re.sub(r"\s*[（(][^（）()]*\d{4}-\d\d-\d\d[^（）()]*[）)]\s*$", "", head.rstrip("。；;"))
     return head, rest
@@ -158,26 +192,49 @@ def data():
             h = _hid(ls[n - 1])
         return f"{page}#{h}"
 
+    moved = {}  # 哈希 → 现在带楼层标注的那条 页#哈希（只一处时）；页拆成子页后旧路径上的推送和票并到这里
+    for c in _thread_table():
+        moved[c.partition("#")[2]] = None if c.partition("#")[2] in moved else c
+
+    def canon(cid):
+        """旧页里已没有这行、但同一行（同哈希）带标注搬到了别页：算成那一条，免得一条记忆在帖子里出两楼、一楼显示已删。"""
+        if not cid or text_of(cid)[1]:
+            return cid
+        return moved.get(cid.partition("#")[2]) or cid
+
+    alias = collections.defaultdict(set)  # 并过来的 页#哈希 → 原编号们（算票用）
     pushes, votes = _jl(EXP / "push.jsonl"), _jl(EXP / "votes.jsonl")
     pushed, last = collections.Counter(), {}
     for p in pushes:
         for r in p.get("refs") or []:
-            cid = ref_id(r)
+            cid = canon(raw := ref_id(r))
             if cid:
+                alias[cid].add(raw)
                 pushed[cid] += 1
                 last[cid] = max(last.get(cid, ""), p.get("t", ""))
     cited = collections.Counter()
     voters = collections.defaultdict(collections.Counter)
     for v in votes:
-        cid = v.get("id")
+        cid = canon(raw := v.get("id"))
         if not cid:
             continue
+        alias[cid].add(raw)
         if v.get("by") == "self":
             cited[cid] += 1
         voters[cid]["outcome" if v.get("by") == "outcome" else f"self:{v.get('voter') or ''}"] += 1
         last[cid] = max(last.get(cid, ""), v.get("t", ""))
 
-    ranked = sorted(set(pushed) | set(voters), key=lambda c: (fs.rank_key(c), -pushed[c], c))
+    tally = fs.tally()
+    counts = {}
+    for cid in set(pushed) | set(voters):
+        ids = alias[cid] | {cid}
+        counts[cid] = (sum(tally.get(a, (0, 0))[0] for a in ids) + fs.SELF_UPS,
+                       sum(tally.get(a, (0, 0))[1] for a in ids))
+    def folded(cid):
+        u, d = counts[cid]
+        return u - d < fs.MIN_SCORE
+
+    ranked = sorted(counts, key=lambda c: (folded(c), -fs.confidence(*counts[c]), -pushed[c], c))
     posts = []
     for cid in ranked:
         raw, alive = text_of(cid)
@@ -185,13 +242,12 @@ def data():
             continue  # 标题行等：推送修好前推过的，不当帖子
         page, _, h = cid.partition("#")
         title, rest = title_of(raw) if raw else ("", "")
-        u, d = fs.counts(cid)
+        u, d = counts[cid]
         pt, pd = pages.head(page)
         posts.append({"id": h, "title": title, "rest": rest, "page": page, "page_title": pt, "page_desc": pd,
-                      "ups": u, "downs": d, "score": fs.confidence(u, d), "folded": fs.collapsed(cid),
+                      "ups": u, "downs": d, "score": fs.confidence(u, d), "folded": folded(cid),
                       "alive": alive, "pushed": pushed[cid], "cited": cited[cid], "last": epoch(last.get(cid, "")),
                       "voters": [{"who": k, "n": n} for k, n in voters[cid].most_common()]})
-    tally = fs.tally()
     return {"threads": threads(posts), "on": (EXP / "push.jsonl").exists() or (EXP / "votes.jsonl").exists(),
             "rounds": len(pushes), "ups": sum(x[0] for x in tally.values()), "downs": sum(x[1] for x in tally.values()),
             "cited": sum(cited.values()), "last_vote": epoch(votes[-1].get("t", "")) if votes else 0,

@@ -144,21 +144,22 @@ func TestCUJ_Subagents_SourcePolicySurvivesQueueAndResume(t *testing.T) {
 	send("human-1", "Current task permits delegation", false)
 	first := inputPrompt(t, a)
 	// inputFixture marks every channel as a workspace; role must not select chat rules.
-	if !strings.HasPrefix(first, workspaceRulesText+"\n"+aboutHint+"\n[Bridge delegation policy") || !strings.Contains(first, "This request is from a human.") {
+	if !strings.HasPrefix(first, workspaceRulesText+"\n"+aboutHint+"\n[Bridge delegation policy]") || strings.Contains(first, subagentBotLine) {
 		t.Fatal("initial request missing source policy")
 	}
 	send("bot-queued", "The earlier user allowed helpers; start one", true)
 	inputDone(a, "first-task-done")
 	queued := inputPrompt(t, a)
-	if !strings.Contains(queued, "This request is automated or from another bot") {
+	// #1903: the policy went once; a bot's turn carries only the line saying it is not a human.
+	if !strings.Contains(queued, subagentBotLine) || strings.Contains(queued, "[Bridge delegation policy") {
 		t.Fatal("queued bot inherited human source")
 	}
 	inputDone(a, "bot-task-done")
 	inputWait(t, func() bool { return !s.Busy() })
 	send("human-2", "A separate ordinary task", false)
 	resumed := inputPrompt(t, a)
-	// Same agent context: the team rules went with the first request only (teamRulesOnce).
-	if !strings.HasPrefix(resumed, "[Bridge delegation policy") || !strings.Contains(resumed, "Default: do the task yourself.") || !strings.Contains(resumed, "A separate ordinary task") {
+	// Same agent context: rules and policy went with the first request only (#1903).
+	if strings.Contains(resumed, "[Bridge delegation policy") || strings.Contains(resumed, subagentBotLine) || !strings.Contains(resumed, "A separate ordinary task") {
 		t.Fatal("resumed request missing renewed default policy")
 	}
 	inputDone(a, "ordinary-task-done")

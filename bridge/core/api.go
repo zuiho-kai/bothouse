@@ -155,8 +155,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
-	s.mux.HandleFunc("/member", s.handleMember) // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
-	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
+	s.mux.HandleFunc("/member", s.handleMember)            // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
+	s.mux.HandleFunc("/wake", s.handleWake)                // run one turn from a hook/script (api_wake.go)
 	s.mux.HandleFunc("/stop-blocked", s.handleStopBlocked) // a Stop hook blocked a reply draft (api_stop_draft.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
@@ -172,8 +172,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/task/transition", s.handleTeamTaskTransition)
 	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
 	s.mux.HandleFunc("/team/report/verdict", s.handleTeamReportVerdict) // ws-pass / ws-forward on a held [report] (team_report_accept.go)
-	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
-	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
+	s.mux.HandleFunc("/version", handleSocketVersion)                   // update self-check probe without management
+	s.mux.HandleFunc("/update", handleSocketUpdate)                     // `bothouse update` while bothouse is running
 	// `bothouse features list` (management_features.go)
 	s.mux.HandleFunc("/features", s.handleFeatures)
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
@@ -563,19 +563,21 @@ func (s *APIServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 // CronAddRequest is the JSON body for POST /cron/add.
 type CronAddRequest struct {
-	Project     string `json:"project"`
-	SessionKey  string `json:"session_key"`
-	CronExpr    string `json:"cron_expr"`
-	Prompt      string `json:"prompt"`
-	Exec        string `json:"exec"`
-	WorkDir     string `json:"work_dir"`
-	Description string `json:"description"`
-	Silent      *bool  `json:"silent,omitempty"`
-	Mute        bool   `json:"mute,omitempty"` // post nothing (start notice and output)
-	Poll        bool   `json:"poll,omitempty"` // exec is a check script; prompt (optional) is what the agent gets on a change
-	SessionMode string `json:"session_mode,omitempty"`
-	Mode        string `json:"mode,omitempty"`
-	TimeoutMins *int   `json:"timeout_mins,omitempty"`
+	Project     string            `json:"project"`
+	SessionKey  string            `json:"session_key"`
+	CronExpr    string            `json:"cron_expr"`
+	Event       string            `json:"event,omitempty"` // event trigger instead of a schedule (cron_event.go)
+	Match       map[string]string `json:"match,omitempty"`
+	Prompt      string            `json:"prompt"`
+	Exec        string            `json:"exec"`
+	WorkDir     string            `json:"work_dir"`
+	Description string            `json:"description"`
+	Silent      *bool             `json:"silent,omitempty"`
+	Mute        bool              `json:"mute,omitempty"` // post nothing (start notice and output)
+	Poll        bool              `json:"poll,omitempty"` // exec is a check script; prompt (optional) is what the agent gets on a change
+	SessionMode string            `json:"session_mode,omitempty"`
+	Mode        string            `json:"mode,omitempty"`
+	TimeoutMins *int              `json:"timeout_mins,omitempty"`
 }
 
 func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
@@ -593,8 +595,8 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.CronExpr == "" {
-		http.Error(w, "cron_expr is required", http.StatusBadRequest)
+	if req.CronExpr == "" && strings.TrimSpace(req.Event) == "" {
+		http.Error(w, "cron_expr or event is required", http.StatusBadRequest)
 		return
 	}
 	if req.Prompt == "" && req.Exec == "" {
@@ -650,6 +652,8 @@ func (s *APIServer) handleCronAdd(w http.ResponseWriter, r *http.Request) {
 		Project:     project,
 		SessionKey:  sessionKey,
 		CronExpr:    req.CronExpr,
+		Event:       strings.TrimSpace(req.Event),
+		Match:       req.Match,
 		Prompt:      req.Prompt,
 		Exec:        req.Exec,
 		WorkDir:     req.WorkDir,
@@ -854,6 +858,7 @@ type TimerAddRequest struct {
 	InjectIfBusy bool   `json:"inject_if_busy,omitempty"`
 	Handoff      bool   `json:"handoff,omitempty"`
 	Forward      bool   `json:"forward,omitempty"`
+	Guard        bool   `json:"guard,omitempty"`
 	// TaskHandoff: the workspace task the caller was started for (CC_HANDOFF), sent with a timer
 	// for the caller's own session; the job follows that task (TimerJob.TaskHandoff).
 	TaskHandoff string `json:"task_handoff,omitempty"`
@@ -945,6 +950,7 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		InjectIfBusy: req.InjectIfBusy,
 		Handoff:      req.Handoff,
 		Forward:      req.Forward,
+		Guard:        req.Guard,
 		TaskHandoff:  req.TaskHandoff,
 		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),

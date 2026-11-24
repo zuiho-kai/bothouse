@@ -22,7 +22,6 @@ MarkdownTableSplitter cloud-web
 MarkdownTableSplitter discord
 MessageRecallDetector cloud-web
 MessageRecallDetector discord
-OptionsReloader feishu
 PermissionDelegationPlatform cloud-web
 PermissionDelegationPlatform feishu
 PreviewFinishPreference cloud-web
@@ -46,7 +45,6 @@ StatusFooterSender cloud-web
 StatusFooterSender discord
 StatusFooterUpdater cloud-web
 StatusFooterUpdater discord
-SubTaskTablePayloadSupport feishu
 SystemNoticeMarker cloud-web
 SystemNoticeMarker feishu
 TaskThreadActivityReader cloud-web

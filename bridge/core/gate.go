@@ -866,7 +866,8 @@ func (e *Engine) injectIntoRunningTurn(interactiveKey, content string, replyCtx 
 	if m, ok := as.(MidTurnSender); ok {
 		send = m.SendMidTurn // never starts a turn of its own (a blocking Send would)
 	}
-	if err := send(e.withAgentIdentity(content), "", images, files); err != nil {
+	// The running turn's context already has the standing blocks (inject.go).
+	if err := send(content, "", images, files); err != nil {
 		slog.Warn("gate: mid-turn inject failed", "error", err)
 		state.mu.Lock()
 		for i, r := range state.injectedReplyCtxs {
@@ -1095,7 +1096,12 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	// could say what was injected). One log line per turn that injected anything: "turn blocks injected".
 	var sizes []any
 	total := 0
+	// Every block goes through here: events pass (injectEvents), everything else is once per agent
+	// context or in the short per-turn list (injectBlock, inject.go).
 	add := func(name, c string) {
+		if _, event := injectEvents[name]; !event {
+			c = e.injectBlock(session, name, c)
+		}
 		if c == "" {
 			return
 		}
@@ -1119,9 +1125,12 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	// Measured 11-11 (#1469) and 11-14 (#1625): Fable 5.2 reads every block it gets, so this noise cost it most.
 	ws := e.isTeamWorkspaceChat(sessionKey)
 	if !ws {
-		add("life_page", e.lifePageBlock())   // every turn, cron and timer included (lifepage.go)
-		add("member", e.memberBlock(session)) // once per context, with or without the gate (member_workspace.go)
+		add("life_page", e.lifePageBlock())   // once per context, cron and timer included (lifepage.go)
+		add("member", e.memberBlock(session)) // once per context and note kind, with or without the gate
 	}
+	// What the user approved in this chat's open tasks: once per context, a workspace too, since that is
+	// where the approved product gets changed (deliver_approved.go).
+	add("approved", e.deliverApprovedBlock(session, sessionKey))
 	if !turnCtx {
 		return content
 	}
@@ -1133,24 +1142,15 @@ func (e *Engine) withTurnBlocksRef(session *Session, sessionKey, query, sender, 
 	return content
 }
 
-// teamBlock returns the teammate status when it changed since the agent's
-// context last got it (maomao fork).
+// teamBlock returns the teammate status once per agent context (maomao fork; #1903: not again
+// when it changes, the lead looks at the board for the latest).
 func (e *Engine) teamBlock(session *Session, sessionKey string) string {
 	if !e.isTeamLead() {
 		return ""
 	}
-	sum, key := e.teamSummary(sessionKey)
+	sum, _ := e.teamSummary(sessionKey)
 	if sum == "" {
 		sum = "（队友状态，系统自动附上，不用回应）\n现在都没有在忙或刚做完的事"
 	}
-	send := false
-	session.UpdateTurnCtx(func(t *TurnCtxSent) {
-		if t.Team != key {
-			t.Team, send = key, true
-		}
-	})
-	if !send {
-		return ""
-	}
-	return sum
+	return sum + "\n（只在会话第一轮附；之后要看最新进度跑 board）" // once: withTurnBlocksRef → injectBlock
 }

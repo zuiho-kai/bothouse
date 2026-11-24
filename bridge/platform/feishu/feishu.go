@@ -9,6 +9,7 @@ import (
 	"html"
 	"io"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -151,9 +152,11 @@ type Platform struct {
 	doneEmoji                  string
 	allowFrom                  string
 	allowChat                  string
-	allowBots                  string   // maomao fork: bot sender ids whose @-mentions of this bot are accepted (lead_return.go)
-	teamLead                   string   // maomao fork: team_lead_bot, the primary role's id
-	leadReturned               sync.Map // maomao fork: trigger message ID → time the reply was routed back to the lead
+	allowBots                  string         // maomao fork: bot sender ids whose @-mentions of this bot are accepted (lead_return.go)
+	teamLead                   string         // maomao fork: team_lead_bot, the primary role's id
+	liveMu                     sync.RWMutex   // guards allowBots, teamLead and startOpts (live_options.go)
+	startOpts                  map[string]any // the options this bot runs with
+	leadReturned               sync.Map       // maomao fork: trigger message ID → time the reply was routed back to the lead
 	groupOnly                  bool
 	groupReplyAll              bool
 	respondToAtEveryoneAndHere bool
@@ -447,6 +450,7 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 		allowChat:                  allowChat,
 		allowBots:                  allowBots,
 		teamLead:                   teamLead,
+		startOpts:                  maps.Clone(opts),
 		groupOnly:                  groupOnly,
 		groupReplyAll:              groupReplyAll,
 		respondToAtEveryoneAndHere: respondToAtEveryoneAndHere,
@@ -1529,7 +1533,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
 		fromBot:   fromBot,
 		direct:    chatType == "p2p", replyTo: parentID,
-		stopAll:   chatType == "group" && isBareStopEvent(sender, msg)}
+		stopAll: chatType == "group" && isBareStopEvent(sender, msg)}
 	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
 		"message_id", messageID,
@@ -4602,6 +4606,9 @@ func buildPreviewCardJSON(content string) string {
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
 		return buildProgressCardJSONFromPayload(payload)
 	}
+	if payload, ok := core.ParseSubTaskTablePayload(content); ok {
+		return buildFeishuSubTaskCardJSON(payload)
+	}
 	return buildCardJSON(sanitizeMarkdownURLs(content))
 }
 
@@ -4848,6 +4855,8 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 		h.mu.Unlock()
 	} else if payload, ok := core.ParseProgressCardPayload(content); ok {
 		cardJSON = buildProgressCardJSONFromPayload(payload)
+	} else if payload, ok := core.ParseSubTaskTablePayload(content); ok {
+		cardJSON = buildFeishuSubTaskCardJSON(payload)
 	} else {
 		processed := content
 		if containsMarkdown(content) {

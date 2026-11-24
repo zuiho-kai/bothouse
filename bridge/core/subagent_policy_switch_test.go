@@ -32,15 +32,15 @@ func TestSubagentPolicySwitchOff_FreshAndQueuedTurnsCarryNoPolicy(t *testing.T) 
 func TestSubagentPolicySwitch_DefaultOnAndToggle(t *testing.T) {
 	e := NewEngine("test", &resultAgent{}, nil, "", LangEnglish)
 	defer e.cancel()
-	if got := e.withSubagentPolicy("hi", "human", false); !strings.HasPrefix(got, "[Bridge delegation policy") {
+	if got := e.withSubagentPolicy("hi", "human", false, nil); !strings.HasPrefix(got, "[Bridge delegation policy") {
 		t.Fatalf("default engine dropped the policy: %q", got)
 	}
 	e.SetSubagentPolicyEnabled(false)
-	if got := e.withSubagentPolicy("hi", "human", false); got != "hi" {
+	if got := e.withSubagentPolicy("hi", "human", false, nil); got != "hi" {
 		t.Fatalf("policy off: got %q, want the prompt unchanged", got)
 	}
 	e.SetSubagentPolicyEnabled(true)
-	if got := e.withSubagentPolicy("hi", "", true); !strings.Contains(got, "This request is automated") {
+	if got := e.withSubagentPolicy("hi", "", true, nil); !strings.Contains(got, subagentBotLine) {
 		t.Fatalf("policy back on: got %q", got)
 	}
 }
@@ -48,7 +48,7 @@ func TestSubagentPolicySwitch_DefaultOnAndToggle(t *testing.T) {
 // #597 G27: the per-turn policy said "do the task yourself … no bot handoffs", so a lead never ran the
 // team rules' ws-handoff for a big task. The policy now names ws-handoff as allowed routing.
 func TestSubagentPolicy_AllowsTeamWorkspaceHandoff(t *testing.T) {
-	got := withSubagentPolicy("hi", "human", false)
+	got := subagentPolicyText
 	if !strings.Contains(got, "`ws-handoff`") || !strings.Contains(got, "not a subagent") {
 		t.Fatalf("policy does not let the lead use ws-handoff: %q", got)
 	}

@@ -14,7 +14,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, threading, time, urllib.request
+import collections, hashlib, json, math, os, re, sqlite3, threading, time, urllib.request
 from pathlib import Path
 
 try:
@@ -62,7 +62,8 @@ def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
     t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
-    return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
+    return t  # 不截断：推送标题整行照原文（用户 11-03「标题不要截断」；截了定案正文会被截没）
+
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
@@ -194,7 +195,9 @@ def turn_query(text, key=""):
 # 最常见 5 条占全部推送 56%）。开工那一轮改用：提示里的任务那句 + 它点名的交接文件的标题、「用户原话」「总目标」两节；
 # 交接没有这两节就用交接开头。提示里已经写着的规矩（行的词大半出现在提示的套话里）这一轮不占推送名额，票和分不动。
 _KICK_TASK = re.compile(r"(?:从主频道接手一整块大活|工作区接手)[：:]\s*(.+?)(?:。\s*先读交接|\n|$)")
-_KICK_FILE = re.compile(r"先读交接\s*((?:~|/)[^\s`'\"（）()「」]*?\.md)")
+# 交接不长时 ws-handoff 把全文附在提示末尾，措辞是「交接全文附在本条末尾（文件 <路径>）」（11-14 起）；
+# 只认「先读交接」时这类开工轮整段（套话 + 交接全文）当查询，重排超过桥的 2 秒限时，整轮没推送（#1902）
+_KICK_FILE = re.compile(r"(?:先读交接|交接全文附在本条末尾（文件)\s*((?:~|/)[^\s`'\"（）()「」]*?\.md)")
 KICK_SECTIONS = ("用户原话", "总目标")
 KICK_CHARS = 1500  # 交接里取的字数：用户原话 + 总目标一般 600–1200 字，再长就是转述了
 KICK_DUP = 0.7  # 一行的词有这么多出现在开工套话里，就算「提示里已经带着」（离线 #1436 回放定，见 notes/memfix1436）
@@ -499,17 +502,9 @@ def _floor_line(cid):
     return None
 
 
-LATEST_SHARE = 2  # 最新楼和推出的那楼至少共用这么多个实词才附带（11-11 重放：共用 0–1 个的附带最新楼几乎都不相干）
-
-
-def _content_toks(line):
-    """一行标题里的实词（去掉带虚字的二字词和常用词，同 rare_toks）。"""
-    return {t for t in search.toks(_title(line)) if not FRAG_CH.search(t) and t not in COMMON}
-
-
 def _thread_rows(th, rel, root, hit=None, mark=""):
-    """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
-    别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
+    """楼层帖推一行「帖标题 [#编号]」，编号是最高分楼（同票取命中那楼）的，投票记到那一楼；楼原文不推（11-23）。
+    别的页上的楼写出页路径。"""
     floors = {f["id"]: f for f in th["floors"]}
     found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
     found = [(f, x) for f, x in found if x and is_item(x[2])]
@@ -522,23 +517,16 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
         mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
         if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
             top = mine[0]
-    latest = max(found, key=lambda t: t[0].get("floor", 0))
+    f, (file, n, line) = top
     here = ((root or WIKI) / rel).resolve()
-    out = []
-    # 最新楼只在和推出的那楼讲同一件事时附带：大帖里最新楼常是别的小问题，和本轮无关
-    with_latest = latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) \
-        and len(_content_toks(latest[1][2]) & _content_toks(top[1][2])) >= LATEST_SHARE
-    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if with_latest else []):
-        where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
-        u, d = FORUM.counts(f["id"])
-        head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
-        fold = FORUM.label(f["id"])
-        fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
-        if "【旧】" in mark and "【旧】" not in fm:
-            fm = "【旧】" + fm
-        out.append(_row(file.as_posix(), line, f"{where}: {fm}{head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
-                        root=Path("/"), ln=n))
-    return out
+    where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
+    fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
+    if "【旧】" in mark and "【旧】" not in fm:
+        fm = "【旧】" + fm
+    title = th.get("title") or _title(line)  # 帖标题整行，不截（11-07 括号内断开的坏标题清过 619 个）
+    # 只推帖标题 + 那楼的 [#编号]（用户 11-23「我不是说只推标题吗？什么时候改原文了」）；楼的原文按编号存进正文库
+    return [_row(file.as_posix(), line, f"{where}: {fm}{FORUM.label(f['id'])}【帖·{len(floors)}楼】{title}{exp_tag(rel, line)}",
+                 root=Path("/"), ln=n)]
 
 
 def context(req):
@@ -560,7 +548,7 @@ def context(req):
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
     dec = decision_items(text, key)
-    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + board_items(key)
+    out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + corrected_items(bot, key) + board_items(key)
            + proposal_items(text, bot, key)
            + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
@@ -828,6 +816,56 @@ def profile_items(roots, sender, bot=""):
     return [{"path": f"【懂你 {who} {hashlib.sha1(body.encode()).hexdigest()[:6]}】",
              "desc": f"{who} 的画像（夜间从他自己的原话重写，{_shown(rel, roots[0])}）：这条消息是他发的，照这些懂他，"
                      "说话做事贴他的判断和口味\n" + body}]
+
+
+# ---- 今天别的频道用户纠正过的（#1902，用户 11-23「都做吧」）----
+# 桥封存旧会话时，把交接纪要「用户纠正过的」栏追加到 <数据目录>/session_memory/corrected.jsonl
+# （core/session_seal.go appendSealCorrected，一行 {"at": 旧会话最后一条事件的 unix 秒, "bot", "key", "lines"}）。
+# 这里取同一角色、别的频道、夜间入库之后的行推出去：纪要只传给本频道的下一个会话，知识库次日才入库，
+# 当天在别的频道（和不走交接的工作区）就靠这一块。夜里入库后这些话进了 wiki，水位过了就不再带。
+CORRECTED_HEAD = "【今天别的频道用户纠正过的】"
+_mark = {}  # 入库水位：src =（库文件, mtime），at = 水位
+
+
+def _ingest_mark():
+    """夜间入库读到哪了：主 wiki 根下 .ingest.sqlite 表 dream_window 的 max(at)（unix 秒，~/wiki/bin/ingest.py --nightly 推进）。
+    只读打开、最多等 0.2 秒；库文件没变用上次读的，读不到沿用上次值，从没读到过按最近 24 小时。"""
+    f = WIKI / ".ingest.sqlite"
+    try:
+        src = (str(f), f.stat().st_mtime)
+        if _mark.get("src") != src:
+            db = sqlite3.connect(f.absolute().as_uri() + "?mode=ro", uri=True, timeout=0.2)
+            try:
+                at = db.execute("select max(at) from dream_window").fetchone()[0]
+            finally:
+                db.close()
+            _mark["src"] = src
+            if at is not None:
+                _mark["at"] = float(at)
+    except (OSError, sqlite3.Error):
+        pass
+    return _mark.get("at") or time.time() - 86400
+
+
+def corrected_items(bot, key):
+    d = store_dir()
+    try:
+        raw = (d.parent / "session_memory" / "corrected.jsonl").read_text(encoding="utf-8")
+    except (AttributeError, OSError):  # 没装 datadir（终端 hook）或还没封存过
+        return []
+    mark = _ingest_mark()
+    rows = []
+    for line in raw.splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if r.get("bot", "") != bot or r.get("key") == key or not r.get("at", 0) > mark:
+            continue
+        rows += [{"id": "txt:" + hashlib.sha1(x.encode()).hexdigest()[:16], "text": "- " + x, "group": ""} for x in r.get("lines") or []]
+    if not rows:
+        return []
+    return [_render({"path": CORRECTED_HEAD, "head": "", "sep": "\n", "rows": rows})]
 
 
 def _read(f):

@@ -6,8 +6,13 @@
 #   ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"   发到这件活的来源聊天频道
 #   ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
 #     用户「我都说工作群返回你要看一眼，结果你他妈就图片跟视频，你看一眼文字你不看」；桥 core/team_report_accept.go）。
+#     工作区随交回带上的成品（ws-up --report --file/--image；ws-up 会把汇报里写了路径、这件活期间写出的成品文档自动当 --file 带上）
+#     由桥跟在文字后面一并贴出，汇报里有链接的文档不发。「要你做的」要用户审/看东西、却既没有随交回的文件也没有链接时，
+#     桥拒绝只放行文字并报错（#1097，11-24「你没发我定稿啊 为什么会这样」；桥 heldReportReviewProblem）。
 #   封面/宣传活（交接提到封面、宣传片、B 站、投稿）：--stitch 顺带出手机大小缩略图并打印 bili-playbook 规则，发送要加 --cover-checked。
 #   交接里有参考材料（参考链接或 ~/work/ref/ 下的图/视频）时必须带 --compare，没有就拦。不合格用 ws-forward 打回。
+#   对照件（#1904）：这件活登记过成品（board stage）时，放行前要有和现在这份成品一致的对照件（board compare <任务号>），
+#     三处差别自动跟在给用户的话后面（只放行文字时紧跟着另发一条）；没有原件也没有认可样的，话里要有一句问话。
 #   哪件活：--id <任务板编号> 指定（验收提示给的就是它）；也可 --notes <交接文件>，或路径栏里的 PR/分支/提交链接（#1371）；不给时按 ws-handoff-last.json 里来源是当前聊天频道（CC_SESSION_KEY）的活，只有一件才自动认。
 import json, os, shutil, subprocess, sys, time
 from pathlib import Path
@@ -21,7 +26,7 @@ import board  # noqa: E402
 
 USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
          '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
-         '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报）')
+         '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报，随交回的成品桥一并贴出）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
 MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
@@ -172,6 +177,46 @@ def board_id(rec, path):
     return max((int(i["id"]) for i in rows if str(i.get("id", "")).isdigit()), default=0)
 
 
+def held_body(nid):
+    """桥扣着等验收的 #nid 的 [report] 正文（<数据目录>/team-reports/<项目>.json）；没有挂着的返回 None。"""
+    try:
+        import datadir
+        recs = json.loads((datadir.data_dir() / "team-reports" / f"{_team.project()}.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    for r in (recs.values() if isinstance(recs, dict) else recs or []):
+        if isinstance(r, dict) and r.get("held") and not r.get("delivered_at") and str(r.get("board")) == str(nid):
+            return r.get("body") or ""
+    return None
+
+
+def compare_gate(nid, files, msg):
+    """#1904 对照件闸（用户 11-23 认可「交之前，由一个只拿到你原话和原件的新人，把成品和原件并排比一遍，写出最大的三处差别，
+    跟成品一起交给你」）：判断和主会话 bothouse send 带附件是同一个（gate/deliver.py exit_check）。登记过的成品
+    （board stage）有原件或认可样却没有和现在这份一致的对照件、或没原件没认可样又没带问话，就不放行。
+    返回要跟成品一起带给用户的三处差别（msg 里已经带了就是空串）。deliver.py 载不了或记录读不了就放行。"""
+    try:
+        import deliver
+        problems, passed = deliver.exit_check(files, msg, nid or None)
+    except Exception as e:  # noqa: BLE001
+        print(f"ws-pass: 对照件检查没跑成（{type(e).__name__}: {e}），放行", file=sys.stderr)
+        return ""
+    if problems:
+        sys.exit("ws-pass: 对照件检查没过，没交给用户：\n  " + "\n  ".join(problems) + "\n成品不对就用 ws-forward 打回。")
+    return "\n\n".join(one["text"] for one in passed if not deliver.carried(msg, one["compare"]))
+
+
+def say_diffs(rec, text):
+    """文字汇报放行后，把对照件的三处差别跟着发到同一个聊天频道（桥照原文贴汇报，差别加不进正文）。"""
+    chat = rec.get("chat") or os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    if not text or not chat or getattr(board, "is_probe", lambda _: False)(rec.get("board")):
+        return
+    r = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, "--message", text],
+                       capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        print(f"ws-pass: 三处差别没发出去（{(r.stderr or r.stdout).strip()}），手动补发：\n{text}", file=sys.stderr)
+
+
 def pass_text(rec, path, verdict, nid=0):
     """放行桥扣下的文字 [report]：桥照原文贴 📬 到聊天频道，挂在任务板编号上。"""
     if not verdict.strip():  # #1527：只要写了就行，删掉「满 15 字」的形式检查
@@ -179,11 +224,14 @@ def pass_text(rec, path, verdict, nid=0):
     nid = nid or board_id(rec, path)
     if not nid:
         sys.exit(f"ws-pass: 任务板上找不到这份交接的条目（{rec.get('file') or path or '未指定交接'}），用 --id <任务号> 写明是哪件")
+    body = held_body(nid)  # 桥上没有挂着的就没有东西要交给用户，对照件不查，下面 report pass 自己会说
+    diffs = compare_gate(nid, [], body) if body is not None else ""
     r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         sys.exit(f"ws-pass: 放行 #{nid} 的文字汇报失败：{(r.stderr or r.stdout).strip()}")
     print(f"ws-pass: #{nid} 的文字汇报已放行，桥已贴到聊天频道", file=sys.stderr)
+    say_diffs(rec, diffs)
 
 
 def close_text(rec, path, verdict, nid=0):
@@ -194,7 +242,8 @@ def close_text(rec, path, verdict, nid=0):
     nid = nid or board_id(rec, path)
     if not nid:
         return
-    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict],
+    # --with-files：这次放行自己带着成品，桥不再拦「要用户审却没东西」（#1097）
+    r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict, "--with-files"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode == 0:
         print(f"ws-pass: #{nid} 挂着的文字汇报一并放行，桥已照原文贴出", file=sys.stderr)
@@ -276,6 +325,9 @@ def main(argv):
     if is_cover_job(rec, path) and not cover_ok:
         sys.exit("ws-pass: 这是封面/宣传活，发前要对 bili-playbook 规则逐条看过手机列表大小的缩略图（--stitch 会顺带出）：\n"
                  + cover_rules() + "\n全对了再加 --cover-checked 发；不对用 ws-forward 打回。")
+    diffs = compare_gate(nid or board_id(rec, path), [p for p in shots if p != compare], msg)
+    if diffs:
+        msg = msg + "\n\n" + diffs  # 三处差别跟成品同一条消息到用户手里
     chat = rec.get("chat") or key
     if not chat:
         sys.exit("ws-pass: 不知道发到哪个频道（没有 CC_SESSION_KEY，也没找到交接记录）")

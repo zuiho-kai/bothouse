@@ -40,9 +40,9 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if e.team == nil || thread == "" {
 		return nil, false
 	}
-	rt := e.taskForumRT()
-	rt.mu.Lock()
-	s := e.taskForumLoadLocked()
+	// Read the saved post map without the task-post lock: every guild message comes through here,
+	// and a sync pass holds that lock while it waits on Discord (agentm 11-24: messages stalled).
+	s := e.taskForumReadSaved()
 	board := 0
 	chat := ""
 	for id, post := range s.Posts {
@@ -52,7 +52,6 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 				forum = s.Forums[platform+":"+guild].ID
 			}
 			if forum == "" || (parent != "" && parent != forum) {
-				rt.mu.Unlock()
 				return nil, false
 			}
 			board, _ = strconv.Atoi(id)
@@ -60,7 +59,6 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 			break
 		}
 	}
-	rt.mu.Unlock()
 	if board <= 0 {
 		return nil, false
 	}

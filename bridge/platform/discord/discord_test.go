@@ -1911,3 +1911,45 @@ func TestMentionIDsOnlyExplicit(t *testing.T) {
 		t.Fatalf("reply ping only: mentionIDs = %v, want none", got)
 	}
 }
+
+// TestReferencedMessageNameCalledDoesNotTrigger verifies that when a user replies
+// to a message whose text starts with a bot's name (e.g. "橘，这是上一条内容"),
+// the bot does not falsely consider itself mentioned via nameCalled on the prepended reference.
+func TestReferencedMessageNameCalledDoesNotTrigger(t *testing.T) {
+	p := &Platform{
+		botID:   "bot1",
+		botName: "橘",
+	}
+	p.channelNameCache.Store("ch-1", "test-channel")
+	var dispatched *core.Message
+	p.handler = func(_ core.Platform, msg *core.Message) {
+		dispatched = msg
+	}
+
+	ref := &discordgo.Message{
+		ID:        "m-ref-1",
+		ChannelID: "ch-1",
+		Author:    &discordgo.User{ID: "bot1", Username: "橘"},
+		Content:   "橘，请确认上一条指令状态",
+	}
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:                "m-user-2",
+			ChannelID:         "ch-1",
+			GuildID:           "", // direct message / DM to pass guildAllowed
+			Author:            &discordgo.User{ID: "user1", Username: "testuser"},
+			Content:           "请检查并确认任务状态",
+			Timestamp:         time.Now(),
+			ReferencedMessage: ref,
+		},
+	}
+
+	p.handleIncoming(nil, m, nil)
+
+	if dispatched == nil {
+		t.Fatal("expected message to be dispatched, but got nil")
+	}
+	if dispatched.Mentioned {
+		t.Fatalf("dispatched.Mentioned = true, want false (referenced message text should not trigger nameCalled for %s)", p.botName)
+	}
+}

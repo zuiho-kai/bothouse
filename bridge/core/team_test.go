@@ -235,40 +235,36 @@ func TestDynamicTeamLeadRefreshesWorkspaceOwnership(t *testing.T) {
 	}
 }
 
-func TestTeamBlockOnlyWhenBoardChanges(t *testing.T) {
+// #1903 A: the teammate status goes once per agent context through the one exit, not again when
+// the board changes (the lead runs board for the latest); a new context gets it again.
+func TestTeamBlockOncePerContext(t *testing.T) {
 	dir := t.TempDir()
 	e := newTestEngine()
 	e.name = "maomao"
 	e.team = &teamState{dir: dir, name: "橘", inject: true, seen: map[string]*teamSession{}}
-	now := time.Now()
-	write := func(task string, since time.Time) {
+	write := func(task string) {
 		writeTeamFile(t, dir, teamFile{Project: "longniang", Name: "龙娘", Updated: time.Now(), Sessions: []teamEntry{
-			{Key: "discord:111", Chat: "general", Task: task, Busy: true, Since: since},
+			{Key: "discord:111", Chat: "general", Task: task, Busy: true, Since: time.Now()},
 		}})
 	}
 	s := &Session{AgentSessionID: "a1"}
-	write("修 bug", now.Add(-3*time.Minute))
-	if e.teamBlock(s, "discord:111") == "" {
-		t.Fatal("first turn should get the board")
+	block := func() string { return e.injectBlock(s, "team", e.teamBlock(s, "discord:111")) }
+	write("修 bug")
+	if got := block(); !strings.Contains(got, "修 bug") {
+		t.Fatalf("first turn should get the board, got:\n%s", got)
 	}
-	write("修 bug", now.Add(-10*time.Minute)) // only the elapsed time differs
-	if got := e.teamBlock(s, "discord:111"); got != "" {
-		t.Fatalf("unchanged board resent:\n%s", got)
-	}
-	write("写测试", now)
-	if e.teamBlock(s, "discord:111") == "" {
-		t.Fatal("changed board should be sent")
+	write("写测试")
+	if got := block(); got != "" {
+		t.Fatalf("changed board resent in the same context:\n%s", got)
 	}
 	s.ResetTurnCtx()
-	if e.teamBlock(s, "discord:111") == "" {
-		t.Fatal("board should be resent after compaction")
+	if got := block(); !strings.Contains(got, "写测试") {
+		t.Fatalf("board should be resent after compaction, got:\n%s", got)
 	}
 	os.Remove(filepath.Join(dir, "longniang.json"))
-	if got := e.teamBlock(s, "discord:111"); !strings.Contains(got, "都没有在忙") {
-		t.Fatalf("emptied board should be reported once, got:\n%s", got)
-	}
-	if got := e.teamBlock(s, "discord:111"); got != "" {
-		t.Fatalf("empty board resent:\n%s", got)
+	s.ResetTurnCtx()
+	if got := block(); !strings.Contains(got, "都没有在忙") {
+		t.Fatalf("emptied board should be reported, got:\n%s", got)
 	}
 }
 

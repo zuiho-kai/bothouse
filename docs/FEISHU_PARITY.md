@@ -27,7 +27,7 @@
 | 任务帖（论坛频道，每件活一个帖子，带状态标签；等你拍板时在帖里提醒；在帖里回复能回到原频道会话） | 有 | 没有。任务进度由上面的任务卡展示 | `TaskForumPoster`、`TaskForumUserNotifier`、`ChannelSessionKeyer` | 平台不支持（飞书群没有论坛频道和帖子标签） | discord：platform/discord/task_forum.go:43、:371，platform/discord/live_options.go:91，platform/discord/task_forum_inbound.go:17；core：core/team_task_forum.go:729；platform/CAPABILITIES.md:151、:159、:167 |
 | 进度卡（一轮里每一步在干什么） | 有。可按 bot 配卡片条数、每行长度、藏不藏思考；编辑有限速 | 有卡片样式、结构化进度卡、流式预览和原地更新。按 bot 配条数、行长、藏思考已补，选项名和 Discord 一样（`progress_card_entries`、`progress_line_len`、`progress_hide_thinking`），不配就和原来一样；编辑最快每 0.2 秒一次 | 已补（单测，未真机）：`ProgressCardSizer`、`ProgressUpdateThrottler` | 纯代码 | discord：platform/discord/discord.go:296、:309、:313、:1617；飞书：platform/feishu/progress_size.go:27、:28；core：core/progress_compact.go:355、:352 |
 | 进度卡同步进任务子话题（点开任务就看到每一步） | 有 | 没有。飞书任务卡不填话题 id，core 找不到往哪发 | `TaskThreadTarget`，并先让飞书任务卡把话题根消息 id 记到任务上 | 纯代码，要真机验证（话题里的卡片能不能原地编辑） | discord：platform/discord/task_thread_progress.go:9；core：core/task_thread_progress.go:67；platform/CAPABILITIES.md:39 |
-| 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 没有，飞书上看不到这张表 | `SubTaskTablePayloadSupport`（渲染成卡片）、`LatestMessageChecker`（要先有历史读取） | 纯代码 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
+| 子 agent 表（一轮里开了哪些子 agent、各自状态） | 有。表被聊天顶上去后会在底部重发 | 有。一张卡片消息，原地编辑；被聊天顶上去后不会在底部重发 | `LatestMessageChecker`（表开在话题里时，按群读历史只拿到话题根消息，「是不是最新一条」要真机核） | 要真机验证 | discord：platform/discord/subtasks.go:18、:27；core：core/subtasks.go:188、:206 |
 | 引用回复（回复某条消息，bot 知道回的是哪件活） | 有 | 有。入站把被回复消息 id 填进 Reference，出站登记每条发出消息的 id | 不缺 | 已支持 | discord：platform/discord/discord.go:932，platform/discord/turn_sent.go:123；飞书：platform/feishu/feishu.go:1121（Reference 在 :1133）、:3783；core：core/reply_task.go:145；platform/CAPABILITIES.md:12、:21 |
 | 私信 `send --dm`、`--dm --to <id>` | 有。开私聊；`--to` 先核对方在不在本服务器；对方拒收私信时改开一个只有他能看的私密子区 | 有开私聊、`--to` 核对方在不在当前群、认出拒收。没和机器人聊过的人，第一次要先按 open_id 发一条「私信」两个字的消息换出单聊。拒收时没有私密子区兜底，直接报发不出 | 已补（单测，未真机）：`DirectMessageOpener`、`DMMemberChecker`、`DMRefusalDetector`；私密子区飞书没有 | 前三个：纯代码，要真机验证；私密子区：平台不支持 | discord：platform/discord/discord.go:1671、:1690、:1736、:1747；飞书：platform/feishu/dm.go:51、:98、:125；core：core/dm.go:102、:156、:34、:48；platform/CAPABILITIES.md:127、:135、:143 |
 | 按名字发频道 `send --channel <名字>` | 有。只在当前对话所在的服务器里按名字找，重名或找不到就报错、不发 | 有。飞书没有「服务器」，在 bot 所在的全部群里按群名找（没名字的群不算），重名或找不到就报错、列候选、不发；发完回显发到了哪个群 | 已补（单测，未真机）：`GuildChannelLister`、`ChannelNameResolver` | 纯代码，语义变了（从「同服务器」变成「bot 在的所有群」），要真机验证 | discord：platform/discord/channel_names.go:18，platform/discord/discord.go:2001；飞书：platform/feishu/channel_names.go:25、:43，platform/feishu/workspaces.go:119；core：core/send_channel.go:83；platform/CAPABILITIES.md:84 |
@@ -43,9 +43,9 @@
 | 平台事件触发器（进出群、别人贴表情、频道建删、子区、语音进出、置顶） | 有，11 种事件 | 有 5 种：表情加、表情撤、成员进群、成员退群、群解散 | 建群、新开话题、置顶变化、语音进出四类事件 | 语音进出：平台不支持（群里没有语音频道）；其余三类：没核飞书有没有对应事件 | discord：platform/discord/events.go:13；飞书：platform/feishu/events.go:14、:70、:78、:98、:105、:112；core：core/member_events.go:25-35 |
 | 权限审批（点按钮允许或拒绝）、指定别人代批 | 有。按钮消息；可配哪些身份能代批 | 有卡片按钮。没有代批 | `PermissionDelegationPlatform` | 纯代码 | discord：platform/discord/discord.go:1577，platform/discord/permission_delegation.go:43；飞书：platform/feishu/card.go:38、:58；core：core/engine.go:11763-11767，core/permission_delegation.go:26 |
 | 工作区静音（工作区里的消息不推送通知） | 有 | 没有 | `SilentChannelAware` | 没核。没查到飞书发消息有「不通知」的参数 | discord：platform/discord/silent.go:31；core：core/engine.go:3143 |
-| 运行维护：改配置不重启就生效、断线后自己恢复 | 有 | 没有。改飞书选项要重启桥；断线恢复没核飞书长连接自己会不会重连 | `OptionsReloader`、`AsyncRecoverablePlatform` | 纯代码 | discord：platform/discord/live_options.go:61，platform/discord/discord.go:734；core：core/engine.go:1452、:2148 |
+| 运行维护：改配置不重启就生效、断线后自己恢复 | 有 | 有一部分。`allow_bots`、`team_lead_bot` 改完不重启就生效，其余选项改了会报出要重启的是哪几项；断线恢复没核飞书长连接自己会不会重连 | `AsyncRecoverablePlatform` | 纯代码 | discord：platform/discord/live_options.go:61，platform/discord/discord.go:734；core：core/engine.go:1452、:2148 |
 
-表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。有缺口的 22 行里，6 行的缺口已补（单测，未真机）：bot 之间互相 @、主和 sub 交回、任务板「换主后删旧板」、私信（私密子区兜底除外，平台不支持）、按名字发频道、定时任务每次新开话题。真机验过再算进完整支持，所以上面的 7 和 22 先不动。
+表共 29 行。飞书已完整支持 7 行（工作区建改列、任务卡与事实楼层、引用回复、发图发文件、发语音、发视频、表情回应）；其余 22 行有缺口，其中任务板、进度卡、斜杠命令、定时回帖、停和插话、平台事件、权限审批这几行主体能用，只缺一部分。有缺口的 22 行里，6 行的缺口已补（单测，未真机）：bot 之间互相 @、主和 sub 交回、任务板「换主后删旧板」、私信（私密子区兜底除外，平台不支持）、按名字发频道、定时任务每次新开话题。另有两行补了一半（单测，未真机）：子 agent 表（不含顶上去后重发）、改配置不重启（只含 `allow_bots`、`team_lead_bot`）。真机验过再算进完整支持，所以上面的 7 和 22 先不动。
 
 飞书有、Discord 没有的（不算缺口，列出来免得误删）：原生视频消息（feishu.go:5053）、消息撤回感知（feishu.go:1058）、富文本卡片和表格拆分（feishu.go:6805、:6810）、状态脚注（feishu.go:2896）、卡片翻页（feishu.go:279）。
 
@@ -90,7 +90,7 @@
    - 风险：看板改得勤，飞书卡片编辑的限速没核，可能要配合第 9 条的限速一起做。
    - 要真飞书验证：要。
 
-6. **进度卡同步进任务子话题**
+6. **进度卡同步进任务子话题** —— 没补。能力表（platform/CAPABILITIES.md 的 TaskThreadTarget）写明：话题里的卡片能不能原地编辑要先在真实飞书上验证，验过再接。
    - 补法：飞书任务卡发出后把卡片消息 id 记成任务的话题 id；实现 `TaskThreadReplyCtx`，返回「回复到这条卡片的话题里」的上下文。
    - 要动的文件：platform/feishu/public_progress.go（:45 EnsureTaskCard、:215 replyInThread）；新增 platform/feishu/task_thread_progress.go。
    - 预估：代码约 80 行，单测约 60 行。
@@ -111,7 +111,7 @@
    - 风险：Discord 版限定「同一服务器」就是为了防发错地方（用户 11-11「我说转给jiuwen，怎么转到这来了」）；飞书没有服务器，范围变成 bot 在的所有群，重名和发错的机会更大。动了 core，属于一次动两个组件。
    - 要真飞书验证：建议。
 
-9. **进度卡尺寸和编辑限速、子 agent 表** —— 尺寸和限速已补（单测，未真机）；子 agent 表没补。限速取飞书「同一条消息每秒最多改 5 次」，即 0.2 秒一次：飞书改卡片这条路原来没有限速处理，一串工具事件连发会被回 230020。
+9. **进度卡尺寸和编辑限速、子 agent 表** —— 尺寸和限速已补（单测，未真机）；子 agent 表已补（单测，未真机，platform/feishu/subtasks.go）：一张卡片，表头颜色和进度卡一致，每个子 agent 两行，原地编辑；飞书卡片没有自己走的相对时间，在跑的行显示开始的钟点。「被顶上去后在底部重发」没补。限速取飞书「同一条消息每秒最多改 5 次」，即 0.2 秒一次：飞书改卡片这条路原来没有限速处理，一串工具事件连发会被回 230020。
    - 补法：`ProgressCardSizer` 读每个 bot 的卡片条数、行长、藏思考三个选项；`ProgressUpdateThrottler` 给一个编辑间隔；`SupportsSubTaskTablePayload` 把子 agent 表渲染成卡片。
    - 要动的文件：platform/feishu/feishu.go（:448 一带）；新增 platform/feishu/subtasks.go。参照 platform/discord/subtasks.go（233 行）。
    - 预估：尺寸和限速约 40 行，子 agent 表约 120 行，单测约 80 行。
@@ -139,14 +139,14 @@
     - 风险：新接口，没人在本项目里用过；轮询限 100 次每分钟；每场会议都要主持人手动开「AI 总结」和「允许智能体加入会议」；字幕质量由飞书决定，本机换不了转写模型。动了 core 和两个平台。
     - 要真飞书验证：要。要一场多人会议和 7.68 以上的客户端。
 
-13. **权限代批**
+13. **权限代批** —— 没补。除了下面三个方法还有两处要先定：飞书的权限提示走卡片，卡片里的 @ 不通知机器人，代批提示得另发一条文本（要动 core 的权限提示）；代批人是另一个机器人，它发的消息飞书推不推给本机器人，和第 1 条一样没在真机上见过。
     - 补法：实现 `PermissionDelegationPlatform` 三个方法，从配置读能代批的身份。
     - 要动的文件：新增 platform/feishu/permission_delegation.go。参照 platform/discord/permission_delegation.go（76 行）。
     - 预估：代码约 80 行，单测约 50 行。
     - 风险：小。
     - 要真飞书验证：建议。
 
-14. **定时任务每次新开话题、改配置不重启、断线恢复** —— 定时任务每次新开话题已补（单测，未真机）；另两项没动。真机没核：bot 对自己刚发的标题消息做话题回复是否真的开出话题、用户在这个话题里回复时 root_id 是否等于标题消息 id（会话接不接得上靠它）、话题群里的表现。
+14. **定时任务每次新开话题、改配置不重启、断线恢复** —— 定时任务每次新开话题已补（单测，未真机）；改配置不重启已补 `allow_bots`、`team_lead_bot` 两项（单测，未真机，platform/feishu/live_options.go），其余选项改了会逐项报「要重启」，原来只报整个平台要重启；断线恢复没动。真机没核：bot 对自己刚发的标题消息做话题回复是否真的开出话题、用户在这个话题里回复时 root_id 是否等于标题消息 id（会话接不接得上靠它）、话题群里的表现。
     - 补法：`ResolveCronReplyTarget` 先发一条根消息再回到它的话题里；`ReloadOptions` 让一部分选项热生效；`SetLifecycleHandler` 没核飞书长连接现状，先查再定。
     - 要动的文件：platform/feishu/feishu.go；新增 platform/feishu/live_options.go。参照 platform/discord/live_options.go（93 行）。
     - 预估：三项合计代码约 200 行，单测约 100 行。

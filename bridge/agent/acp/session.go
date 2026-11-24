@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -945,7 +944,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 
 	params := map[string]any{
 		"sessionId": sid,
-		"prompt":    s.promptBlocks(prompt, messageID, images, files, s.commands.name(prompt) == ""),
+		"prompt":    s.promptBlocks(prompt, messageID, images, files),
 	}
 
 	slog.Debug("acp: sending session/prompt", "session_id", sid, "prompt_len", len(prompt))
@@ -1047,11 +1046,10 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 	return nil
 }
 
-// promptBlocks builds session/prompt content: the text (with saved file references, after the
-// model-control instructions when modelSkill) and, when the agent advertised
+// promptBlocks builds session/prompt content: the text (with saved file references) and, when the agent advertised
 // promptCapabilities.image, one image block per supported image. Other images are saved to disk
 // and referenced by path in the text.
-func (s *acpSession) promptBlocks(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, modelSkill bool) []any {
+func (s *acpSession) promptBlocks(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) []any {
 	filePaths := core.SaveFilesToDisk(s.workDir, messageID, files)
 	prompt = core.AppendFileRefs(prompt, filePaths)
 	var imageBlocks []any
@@ -1068,9 +1066,6 @@ func (s *acpSession) promptBlocks(prompt string, messageID string, images []core
 			prompt = "User sent image(s)."
 		}
 	}
-	if modelSkill {
-		prompt = core.PrependModelSwitchInstructions(prompt)
-	}
 	blocks := []any{map[string]any{"type": "text", "text": prompt}}
 	return append(blocks, imageBlocks...)
 }
@@ -1081,10 +1076,7 @@ var acpImageMimeTypes = map[string]bool{"image/png": true, "image/jpeg": true, "
 // acpImageBlocks returns inline ACP image blocks for images of a supported type, and the rest.
 func acpImageBlocks(images []core.ImageAttachment) (blocks []any, rest []core.ImageAttachment) {
 	for _, img := range images {
-		mt := strings.ToLower(strings.TrimSpace(img.MimeType))
-		if mt == "" || !acpImageMimeTypes[mt] {
-			mt = http.DetectContentType(img.Data)
-		}
+		mt := core.SniffImageMime(img.MimeType, img.Data) // the bytes win: DSH rejects a type that does not match them
 		if len(img.Data) == 0 || !acpImageMimeTypes[mt] {
 			rest = append(rest, img)
 			continue
@@ -1103,7 +1095,7 @@ func (s *acpSession) appendImageRefs(prompt string, images []core.ImageAttachmen
 	var paths []string
 	for i, img := range images {
 		ext := ".bin"
-		switch img.MimeType {
+		switch core.SniffImageMime(img.MimeType, img.Data) {
 		case "image/jpeg":
 			ext = ".jpg"
 		case "image/gif":

@@ -101,7 +101,7 @@ func testRulesByContextDrop(t *testing.T, ag Agent, tokens *int) {
 	send := func(n int) string {
 		*tokens = n
 		e.checkRulesContext(s, ag)
-		got := e.teamRulesOnce(rules, s, ag)
+		got := e.injectBlock(s, "rules", rules)
 		s.SettleHandoff(true)
 		return got
 	}
@@ -123,33 +123,33 @@ func testRulesByContextDrop(t *testing.T, ag Agent, tokens *int) {
 
 func TestTeamRulesOnceMarkSettles(t *testing.T) {
 	e := &Engine{}
-	ag := compactingTestAgent{&inputTestAgent{}}
+	_ = compactingTestAgent{&inputTestAgent{}}
 	rules := teamModeRulesFor(DispatchMixed)
 	s := &Session{}
-	if e.teamRulesOnce(rules, s, ag) != rules {
+	if e.injectBlock(s, "rules", rules) != rules {
 		t.Fatal("first delivery lacks the rules")
 	}
 	s.SettleHandoff(false) // not sent: the next turn carries them again
-	if e.teamRulesOnce(rules, s, ag) != rules {
+	if e.injectBlock(s, "rules", rules) != rules {
 		t.Fatal("rules lost after an unsent turn")
 	}
 	s.SettleHandoff(true)
-	if e.teamRulesOnce(rules, s, ag) != "" {
+	if e.injectBlock(s, "rules", rules) != "" {
 		t.Fatal("rules repeated in the same context")
 	}
 	s.SettleHandoff(true)
 	// Another mode's text (channel dispatch mode changed) is sent again.
-	if e.teamRulesOnce(teamModeRulesFor(DispatchTeam), s, ag) == "" {
+	if e.injectBlock(s, "rules", teamModeRulesFor(DispatchTeam)) == "" {
 		t.Fatal("changed rules not sent")
 	}
 	s.SettleHandoff(true)
 	// A new agent session starts an empty context.
 	s.SetAgentSessionID("", "x")
-	if e.teamRulesOnce(teamModeRulesFor(DispatchTeam), s, ag) == "" {
+	if e.injectBlock(s, "rules", teamModeRulesFor(DispatchTeam)) == "" {
 		t.Fatal("rules not sent to a new context")
 	}
 	// A nil session keeps every delivery.
-	if e.teamRulesOnce(rules, nil, ag) != rules {
+	if e.injectBlock(nil, "rules", rules) != rules {
 		t.Fatal("nil session dropped the rules")
 	}
 }

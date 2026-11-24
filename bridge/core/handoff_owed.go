@@ -164,7 +164,7 @@ func currentTeamTaskBoardItems(dir string) []teamTaskBoardItem {
 // to the item's current handoff (a hold made under another bind is an earlier round's).
 func (e *Engine) heldReportThisRound(platform string, it teamTaskBoardItem) *pendingReport {
 	owner := e
-	if lead := e.reportLead(platform); lead != nil {
+	if lead := e.reportAcceptor(platform, &it); lead != nil {
 		owner = lead
 	}
 	rec := owner.heldReportFor(it.ID)

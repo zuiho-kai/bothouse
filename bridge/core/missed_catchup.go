@@ -25,8 +25,10 @@ type MissedMessageReader interface {
 }
 
 // missedCatchUpWindow: only posts this recent are answered after a restart; older ones stay
-// context for the next turn. Same limit as resuming an interrupted turn (turnResumeMaxAge).
-var missedCatchUpWindow = 2 * time.Hour
+// context for the next turn. It covers a night's downtime: 11-24 the bridge was down 00:42 to
+// 11:32 and two @s from 01:54 were dropped by the old 2 h limit (which was borrowed from
+// turnResumeMaxAge, a different thing: how stale an interrupted turn may be to resume).
+var missedCatchUpWindow = 24 * time.Hour
 
 // journalMessageIDs is the set of platform message ids the turn journal left by the earlier
 // process holds (taken before the resume can delete entries).
@@ -97,13 +99,14 @@ func (e *Engine) catchUpMissed(p Platform, skip map[string]bool) {
 	}
 }
 
-// foldMissed makes one turn of a session's missed posts: the newest. With a gate its channel
-// backfill shows the older ones (they are after the last-seen mark); without one nothing would,
-// so their words go in front of the newest (11-21 e2e: "add 1 to that number" was answered
-// without the post that gave the number).
+// foldMissed makes one turn of a session's missed posts: the newest, marked as posted while the
+// bridge was down (it may be hours old). With a gate its channel backfill shows the older ones
+// (they are after the last-seen mark); without one nothing would, so their words go in front of
+// the newest (11-21 e2e: "add 1 to that number" was answered without the post that gave the number).
 func (e *Engine) foldMissed(ms []*Message) *Message {
 	m := ms[len(ms)-1]
 	if len(ms) == 1 || e.gate.Load() != nil {
+		m.Content = missedOneHead + "\n" + m.Content
 		return m
 	}
 	var b strings.Builder
@@ -118,5 +121,7 @@ func (e *Engine) foldMissed(ms []*Message) *Message {
 	m.SeenUpToID = m.MessageID
 	return m
 }
+
+const missedOneHead = "（这条是桥停机时发来的，开机后补回；可能已过去一段时间）"
 
 const missedFoldHead = "（桥停机时发来、还没回的消息，按时间顺序；最后一条在下面）"

@@ -28,6 +28,7 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 		Board   int    `json:"board"`
 		Action  string `json:"action"`
 		Verdict string `json:"verdict"`
+		Carried bool   `json:"carried"` // pass: the lead sends files with this pass itself (ws-pass <files> --verdict)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -77,6 +78,12 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 	if req.Action == "reject" {
 		owner.rejectHeldReport(rec.Key, req.Verdict)
 	} else {
+		if !req.Carried {
+			if why := owner.heldReportReviewProblem(rec); why != "" {
+				http.Error(w, why, http.StatusConflict)
+				return
+			}
+		}
 		if err := owner.deliverHeldReport(rec.Key, req.Verdict, false); err != nil {
 			http.Error(w, "post failed: "+err.Error(), http.StatusBadGateway)
 			return

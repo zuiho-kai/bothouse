@@ -85,12 +85,13 @@ type claudeSession struct {
 	// Reply text seen before a Stop hook blocked the turn. When the model
 	// answers the block with only a short addendum, the CLI result holds just
 	// that addendum; handleResult puts the blocked reply back in front of it.
-	replyMu      sync.Mutex
-	lastText     string
-	preStopText  string
-	apiErrTimer  *time.Timer
-	apiErrFired  bool
-	apiErrClosed bool // events channel closed; guarded by apiErrMu
+	replyMu         sync.Mutex
+	lastText        string
+	preStopText     string
+	preStopWithhold bool // #1907 copy gate: never merge the blocked draft back
+	apiErrTimer     *time.Timer
+	apiErrFired     bool
+	apiErrClosed    bool // events channel closed; guarded by apiErrMu
 	// quotaPending/quotaReset: this turn's API error was an exhausted quota; the
 	// turn-ending result carries core.MetaQuotaExhausted. Guarded by apiErrMu.
 	quotaPending bool
@@ -1008,6 +1009,10 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 // Stop hook blocks the end of a turn.
 const stopHookFeedbackPrefix = "Stop hook feedback:"
 
+// copyGateWithheld is in the feedback when the copy gate (contrib/hooks/deliver-check.py, #1907)
+// blocked the reply: that draft lacks its reference lines and must never be merged back.
+const copyGateWithheld = "文案检查没过"
+
 func (cs *claudeSession) noteReplyText(text string) {
 	cs.replyMu.Lock()
 	cs.lastText = text
@@ -1016,8 +1021,11 @@ func (cs *claudeSession) noteReplyText(text string) {
 
 // noteStopBlocked keeps the reply that was blocked; with several blocks in one
 // turn the longest one is kept.
-func (cs *claudeSession) noteStopBlocked() {
+func (cs *claudeSession) noteStopBlocked(feedback string) {
 	cs.replyMu.Lock()
+	if strings.Contains(feedback, copyGateWithheld) {
+		cs.preStopWithhold = true
+	}
 	if len(cs.lastText) > len(cs.preStopText) {
 		cs.preStopText = cs.lastText
 	}
@@ -1033,9 +1041,12 @@ func (cs *claudeSession) noteStopBlocked() {
 // blocked reports whether a Stop hook blocked the turn.
 func (cs *claudeSession) takeStopBlockedReply(result string) (reply string, blocked bool) {
 	cs.replyMu.Lock()
-	pre := cs.preStopText
-	cs.preStopText, cs.lastText = "", ""
+	pre, withhold := cs.preStopText, cs.preStopWithhold
+	cs.preStopText, cs.lastText, cs.preStopWithhold = "", "", false
 	cs.replyMu.Unlock()
+	if withhold { // #1907: the blocked draft must not reach the channel
+		return result, strings.TrimSpace(pre) != ""
+	}
 	return mergeStopBlockedReply(pre, result), strings.TrimSpace(pre) != ""
 }
 
@@ -1063,7 +1074,7 @@ func (cs *claudeSession) handleUser(raw map[string]any) {
 		contentType, _ := item["type"].(string)
 		if contentType == "text" {
 			if t, _ := item["text"].(string); strings.HasPrefix(t, stopHookFeedbackPrefix) {
-				cs.noteStopBlocked()
+				cs.noteStopBlocked(t)
 			}
 			continue
 		}

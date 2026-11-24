@@ -23,3 +23,13 @@ func TestRunTimerAdd_ForwardFlag(t *testing.T) {
 		t.Errorf("--forward --inject-if-busy: body[inject_if_busy] = %v, want true", interrupt["inject_if_busy"])
 	}
 }
+
+// #1915: board.py arm_guard passes --guard so the handback guard timer is not counted as polling.
+func TestRunTimerAdd_GuardFlag(t *testing.T) {
+	if v, _ := runTimerAddCapture(t, "--guard")["guard"].(bool); !v {
+		t.Error("--guard: body[guard] must be true")
+	}
+	if _, ok := runTimerAddCapture(t)["guard"]; ok {
+		t.Error("without --guard the body must omit guard")
+	}
+}

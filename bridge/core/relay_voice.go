@@ -435,7 +435,7 @@ func (e *Engine) collectVoiceRelay(ctx context.Context, req RelayRequest, key st
 	if confirmed {
 		toSend = &pending
 	}
-	prompt := withSubagentPolicy(e.withVoiceDesk(""), "", true)
+	prompt := voiceSubagentPolicy(e.withVoiceDesk(""))
 	// A spoken task opens its card on the voice channel the device is bound to;
 	// that channel is already verified by voiceTarget.
 	if token := e.voicePublicProgress(ctx, req.SessionKey); token != "" {

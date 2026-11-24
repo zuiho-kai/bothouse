@@ -28,17 +28,17 @@ func TestPinnedCmdModel_DisplayMatchesActual(t *testing.T) {
 }
 
 func TestPinnedCmdModel_NoModelSwitchInstructions(t *testing.T) {
-	pinned := &antigravitySession{workDir: t.TempDir(), extraArgs: []string{"--model", "gemini-pinned"}}
-	got, _ := pinned.preparePrompt("hello", nil, nil)
+	pinned := &Agent{cliExtraArgs: []string{"--model", "gemini-pinned"}, activeIdx: -1}
+	got := pinned.TurnPreamble()
 	if strings.Contains(got, "[bothouse model-control instructions]") {
 		t.Fatalf("pinned cmd model still gets model-switch instructions: %s", got)
 	}
-	if !strings.Contains(got, "[Task lifecycle]") || !strings.HasSuffix(got, "hello") {
-		t.Fatalf("pinned prompt lost lifecycle guidance or request: %s", got)
+	if !strings.Contains(got, "[Task lifecycle]") {
+		t.Fatalf("pinned preamble lost lifecycle guidance: %s", got)
 	}
-	free := &antigravitySession{workDir: t.TempDir(), model: "gemini-a"}
-	if got, _ := free.preparePrompt("hello", nil, nil); !strings.Contains(got, "[bothouse model-control instructions]") {
-		t.Fatalf("unpinned prompt lost model-switch instructions: %s", got)
+	free := &Agent{model: "gemini-a", activeIdx: -1}
+	if !strings.Contains(free.TurnPreamble(), "[bothouse model-control instructions]") {
+		t.Fatal("unpinned preamble lost model-switch instructions")
 	}
 }
 

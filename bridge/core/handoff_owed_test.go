@@ -73,7 +73,7 @@ func TestHandoffBlockListsOwedFromRecords(t *testing.T) {
 			t.Fatalf("handoff lacks %q:\n%s", want, b)
 		}
 	}
-	for _, bad := range []string{"已经跑过的", "别的角色的", "别的频道的", "#22", "#23"} {
+	for _, bad := range []string{"已经跑过的", "别的角色的", "别的频道的", "#22 ", "#23 "} { // trailing space: a random [#22…] hash id must not match
 		if strings.Contains(b, bad) {
 			t.Fatalf("handoff has %q:\n%s", bad, b)
 		}
@@ -97,6 +97,10 @@ func TestSealDigestPromptLeavesOpenWorkToRecords(t *testing.T) {
 		if strings.Contains(sealDigestPrompt, col) {
 			t.Fatalf("prompt still asks for %q", col)
 		}
+	}
+	// #1902: the user's corrections are asked for in the user's own words
+	if !strings.Contains(sealDigestPrompt, "七栏") || !strings.Contains(sealDigestPrompt, sealColCorrected+"：用户纠正、否定助手的话，每条照抄原话并带时间，不准改写。") {
+		t.Fatalf("prompt lacks the corrections section:\n%s", sealDigestPrompt)
 	}
 }
 

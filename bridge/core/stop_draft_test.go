@@ -20,7 +20,7 @@ func TestStopBlockedDraftIsWithdrawn(t *testing.T) {
 	agent := newControllableSession("dm")
 	state := &interactiveState{agentSession: agent, platform: p, replyCtx: "ctx"}
 	e.interactiveStates[key] = state
-	if !e.NoteStopBlocked(key, draft) {
+	if !e.NoteStopBlocked(key, draft, false, "") {
 		t.Fatal("running turn not found")
 	}
 	agent.events <- Event{Type: EventText, Content: draft}
@@ -57,4 +57,68 @@ func TestMergeStopBlockedReplyAddendum(t *testing.T) {
 	if got := MergeStopBlockedReply(pre, ""); got != pre {
 		t.Fatalf("empty: %q", got)
 	}
+}
+
+// #1907: the copy gate blocked a reply without its reference lines. A short
+// rewrite must not bring the blocked draft back in front of it.
+func TestStopWithheldDraftNeverMergedBack(t *testing.T) {
+	draft := "仓库简介改成这样：住在你群聊里的 AI 团队，自己分活、自己验收，再也不用你盯。"
+	short := "文案检查没过，草稿没发出。"
+	p := &mockReplierPlatform{}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangChinese)
+	e.SetStreamPreviewCfg(replierCfg())
+	e.SetDisplayConfig(DisplayCfg{Mode: "compact", ThinkingMessages: true})
+	key := "test:dm"
+	session := e.sessions.GetOrCreateActive(key)
+	agent := newControllableSession("dm")
+	state := &interactiveState{agentSession: agent, platform: p, replyCtx: "ctx"}
+	e.interactiveStates[key] = state
+	if !e.NoteStopBlocked(key, draft, true, "") {
+		t.Fatal("running turn not found")
+	}
+	agent.events <- Event{Type: EventText, Content: draft}
+	agent.events <- Event{Type: EventText, Content: short}
+	agent.events <- Event{Type: EventResult, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+	commits, _ := p.state()
+	for _, c := range append(append([]string{}, commits...), p.sent...) {
+		if strings.Contains(c, "自己分活") {
+			t.Fatalf("withheld draft reached the channel: %q", c)
+		}
+	}
+	out := strings.Join(append(append(commits, p.getMessages()...), p.sent...), "\n")
+	if !strings.Contains(out, "草稿没发出") {
+		t.Fatalf("short rewrite not delivered: %s", out)
+	}
+}
+
+// #1907: blocked once, the model sent the same copy again; the hook lets the turn
+// end and asks for a replacement. The draft is swapped for the replacement line.
+func TestStopReplaceSwapsFinalDraft(t *testing.T) {
+	draft := "仓库简介改成这样：住在你群聊里的 AI 团队，自己分活、自己验收。"
+	p := &mockUpdaterPlatform{} // plain send at the end (the preview was withdrawn)
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangChinese)
+	e.SetStreamPreviewCfg(replierCfg())
+	e.SetDisplayConfig(DisplayCfg{Mode: "compact", ThinkingMessages: true})
+	key := "test:dm"
+	session := e.sessions.GetOrCreateActive(key)
+	agent := newControllableSession("dm")
+	state := &interactiveState{agentSession: agent, platform: p, replyCtx: "ctx"}
+	e.interactiveStates[key] = state
+	agent.events <- Event{Type: EventText, Content: draft}
+	if !e.NoteStopBlocked(key, draft, true, "文案检查没过，草稿没发出。") {
+		t.Fatal("running turn not found")
+	}
+	agent.events <- Event{Type: EventResult, Content: draft, Done: true}
+	e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, nil)
+	final := strings.Join(append(p.getMessages(), p.sent...), "\n")
+	if !strings.Contains(final, "草稿没发出") {
+		t.Fatalf("replacement not delivered: %s", final)
+	}
+	for _, c := range p.sent {
+		if strings.Contains(c, "自己分活") {
+			t.Fatalf("draft reached the channel: %q", c)
+		}
+	}
+	t.Logf("msgs=%q sent=%q", p.getMessages(), p.sent)
 }

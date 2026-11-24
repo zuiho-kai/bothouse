@@ -231,11 +231,19 @@ jobs:
       - run: python3 -I contrib/gate/test_board_prune.py
       - run: python3 -I contrib/gate/test_board_review.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_deliver.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: |
+          python3 -I contrib/lead/test_ws_pass_compare.py
+          python3 -I contrib/hooks/test_delivery_check.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_sync_gate_modules.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_memory_forum.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_score_night.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: python3 -I contrib/gate/test_forum_page.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - name: Install channel test dependencies
         if: ${{ !cancelled() }}

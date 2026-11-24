@@ -32,6 +32,7 @@ import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json
 import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.py）
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
+import _source  # noqa: E402  讨论原文导出、续派补导、转话文本（_source.py）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
@@ -61,9 +62,6 @@ def check_notes(text: str, task: str = ""):
     errs = _handoff_rules.check_tiered(text, rules, fmt)
     if fmt and rules["flags"].get("cli_gate"):
         errs += [e for e in [generic_gate(text)] if e]
-    # 对象核对也是读文件就能判的检查，和必填节同一次报（#1514：11-12 17:31–17:35 鲸鱼娘的交接先被必填节退回两次，
-    # 补齐后第三次才报对象核对缺证据，同一份交接跑了四遍）
-    errs += [e for e in [object_gate(text)] if e]
     errs += root_cause_errors(text, task)
     if not errs:
         return None
@@ -175,28 +173,8 @@ OWN = "派活人自己定的"
 OWN_EXAMPLE = "类别：出图\n## 派活人自己定的\n- 画风照上次头像，不换\n- 尺寸 1024×1024"
 
 
-# 所有交活都要「## 对象核对」节：用户原话里说到的每个对象（功能、PR、分支、文件、页面、人、数字……）一条一行，
-# 写成「原话词 → 现场核到它实际是什么」，每行带现场证据（提交号、路径、链接、PR/任务状态或命令名）。没有或缺证据就退回。
-# 根因：派活人拿旧会话纪要和自己的理解去替用户的对象，不先核现场，范围从一开始就错（11-06 !9544 连错三次；同类
-# 「凭旧印象说事」见全局 CLAUDE.md「说事实」）。不按话题分，任何活都适用。
-OBJ = "对象核对"
-OBJ_EVID = re.compile(r"\b[0-9a-f]{7,40}\b|[~/][\w./-]+|https?://|merged|open|closed|#\d+|!\d+|git |curl |board |grep |ls ", re.I)
-OBJ_EXAMPLE = ("## 对象核对\n- 「我们已经合的全双工」→ develop 上 video_duplex 已合提交 45e98de57 等（git log gitcode/develop）\n"
-               "- 「!9544」→ merged 到 releases/0.2.9.beta2，提交 e19454331 已随 a814ed8b0 回流 develop")
-
-
-def object_gate(text: str):
-    """本机规则 flags.object_gate 打开时查（handoff-rules.local.json）；产品默认不查。"""
-    if not _handoff_rules.load()["flags"].get("object_gate"):
-        return None
-    lines, lead = text.splitlines(), _handoff_rules.load().get("lead", "")
-    obj = [x for seg in _handoff_rules._sections(lines, OBJ, lead) for x in seg if x.strip("-*> \t") and not x.lstrip().startswith("#")]
-    bad = [x for x in obj if not OBJ_EVID.search(x)]
-    if obj and not bad:
-        return None
-    why = "缺「## " + OBJ + "」节" if not obj else "这几行没带现场证据：" + "；".join(x.strip() for x in bad[:3])
-    return (why + "。交出前把用户原话里的每个对象对着现场核一遍（git log、PR 接口、看文件、看任务板），一条一行写成"
-            "「原话词 → 实际是什么」，带提交号、路径、链接或状态。示例：\n" + OBJ_EXAMPLE)
+# 「对象核对」硬拦已去掉（用户 11-24 批）：原话里的词指什么，由工作区对着现场核、写进交回（见 timer_cmd 的开工话），
+# 主角色不再在交接里替用户解释词义。
 
 
 def added_gate(text: str):
@@ -641,202 +619,8 @@ def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     return f"{plat}:{w['id']}", str(w.get("name") or w["id"]), parent
 
 
-SOURCE = "原话出处（程序附）"
-_STAMP = re.compile(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d)([\dxX])")
-
-
-def _window_start(text):
-    """时间窗起点：用户原话那节里最早的「MM-DD HH:MM」（10:2x 按 10:20）往前 10 分钟；没有或早于 3 天前，取交活前 3 小时。"""
-    import datetime as dt
-    now = dt.datetime.now().astimezone()
-    body = text.split(f"## {_QUOTE_SEC}", 1)[1].split("\n## ", 1)[0] if f"## {_QUOTE_SEC}" in text else ""
-    got = []
-    for m in _STAMP.finditer(body):
-        mo, d, h, t, u = m.groups()
-        try:
-            got.append(now.replace(month=int(mo), day=int(d), hour=int(h), minute=int(t) * 10 + (0 if u in "xX" else int(u)),
-                                   second=0, microsecond=0))
-        except ValueError:
-            continue
-    got = [g for g in got if now - dt.timedelta(days=3) <= g <= now]
-    return (min(got) - dt.timedelta(minutes=10)) if got else now - dt.timedelta(hours=3)
-
-
-_HDR = re.compile(r'\[bothouse sender_id=(\S+) sender_name="([^"]*)"')
-_CTX_HEAD = "（频道里你上次看到之后的消息"
-_CTX_LINE = re.compile(r"^\[(\d{1,2}):(\d{2})，[^\]\n]*\] ([^:\n]+?): ", re.M)
-_INSERTED = re.compile(r"^\[回复 ([^：\]]+)：(.*)\] ↪ 已插入$", re.S)
-_LATEST = re.compile(r"（最新，回这条）\n(?:（用户这条[^\n]*）\n)?")
-_REPLYING = re.compile(r"^\[replying to [^\]]*\]\n", re.S)
-_SYS_TAIL = re.compile(r"\n\n\[系统定时消息[^\n]*$", re.S)
-_BOT_SENDERS = {"timer", "handoff", "relay", "system"}
-
-
-def _split_bridge(body, when):
-    """桥包好的一条用户消息拆成频道里的每句话：[(时刻, 谁, 原文)]。谁 = None 表示最新那条（桥的记录里不带名字）。
-    没 @ 到主角色的话在「频道里你上次看到之后的消息」那段（行头「[时:分，…] 名字: 」），主角色做事时插进来的在
-    「[回复 名字：原文] ↪ 已插入」，最新一条在「（最新，回这条）」之后。没有这些包装就返回 []（由调用方原样留一条）。"""
-    import datetime as dt
-    out = []
-    lm = _LATEST.search(body)
-    ctx_at = body.find(_CTX_HEAD)
-    if ctx_at >= 0:
-        ctx = body[ctx_at:lm.start() if lm and lm.start() > ctx_at else len(body)]
-        ctx = ctx.split("\n", 1)[1] if "\n" in ctx else ""
-        hits = list(_CTX_LINE.finditer(ctx))
-        for i, h in enumerate(hits):
-            seg = ctx[h.end():hits[i + 1].start() if i + 1 < len(hits) else len(ctx)].split("\n\n（", 1)[0].strip()
-            who = h.group(3).strip()
-            try:
-                t = when.replace(hour=int(h.group(1)), minute=int(h.group(2)), second=0, microsecond=0)
-            except ValueError:
-                t = when
-            if t > when:
-                t -= dt.timedelta(days=1)
-            if who.startswith("Claude橘") or "你这个账号" in who:
-                im = _INSERTED.match(seg)
-                if im:
-                    out.append((t, im.group(1), im.group(2).strip()))
-                continue  # 主角色自己账号发的（定时任务输出等），不是讨论
-            out.append((t, who, seg))
-    if lm:
-        out.append((when, None, _REPLYING.sub("", _SYS_TAIL.sub("", body[lm.end():])).strip()))
-    return out
-
-
-def _jsonl_text(content):
-    if isinstance(content, str):
-        return content
-    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
-
-
-def _transcript_names(agent_ids, start):
-    """主角色的 Claude 会话记录（~/.claude/projects/*/<id>.jsonl）里，每条最新消息的原文 → 发言人（sender_name）。
-    桥的记录里最新那条不带名字，靠这里补；不是 Claude 的主角色找不到就只写「用户」。"""
-    import datetime as dt
-    names = {}
-    for aid in dict.fromkeys(agent_ids):
-        for f in sorted(Path.home().glob(f".claude/projects/*/{aid}.jsonl")):
-            for line in open(f, encoding="utf-8"):
-                try:
-                    o = json.loads(line)
-                except ValueError:
-                    continue
-                if o.get("type") != "user" or not o.get("timestamp"):
-                    continue
-                text = _jsonl_text((o.get("message") or {}).get("content"))
-                m = _HDR.search(text)
-                if not m or m.group(1) in _BOT_SENDERS:
-                    continue
-                when = dt.datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).astimezone()
-                if when < start:
-                    continue
-                for _, who, t in _split_bridge(text[m.end():], when):
-                    if who is None and t:
-                        names.setdefault(t, m.group(2))
-    return names
-
-
-def _discussion(msgs, agent_ids, start):
-    """桥的记录 [(时刻 iso, role, content)] → 讨论原文 [(时刻 iso, 谁, 原文)]：用户消息拆成每句并标发言人，
-    主角色的话标「只作参考」，同一句只留一次；同一分钟里按出现先后（频道旧消息只记到分钟）。"""
-    import datetime as dt
-    try:
-        names = _transcript_names(agent_ids, start)
-    except Exception:  # noqa: BLE001  补名字失败不影响导出
-        names = {}
-    out, seen = [], set()
-
-    def add(ts, who, text):
-        if text and (who, text) not in seen:
-            seen.add((who, text))
-            out.append((ts, len(out), who, text))
-
-    for ts, role, c in msgs:
-        if role == "assistant":
-            if c.strip().upper() != "NO_REPLY":  # 没发出去的不算讨论
-                add(ts, "主角色（只作参考）", re.sub(r"\n*NO_REPLY\s*$", "", c.strip(), flags=re.I))
-            continue
-        system = "[系统定时消息，不是用户发的" in c and not _LATEST.search(c)  # 定时任务、工作区交回：只留它前面那段频道旧消息
-        try:
-            when = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
-        except ValueError:
-            when = None
-        parts = _split_bridge(c, when) if when else []
-        if not parts:
-            if not system:
-                add(ts, "用户和队友", c.strip())
-            continue
-        for t, who, text in parts:
-            if t >= start:
-                add(t.isoformat(), who or names.get(text, "用户"), text)
-    out.sort(key=lambda x: (x[0][:16], x[1]))
-    return [(ts, who, text) for ts, _, who, text in out]
-
-
-def append_source(path, chat, project=None):
-    """给交接追加「原话出处」节：聊天频道 id、交活人的会话记录、时间窗，并把时间窗里这个聊天频道的原始对话
-    （用户、主角色和队友的每条消息按时间原样，来自桥的会话记录：sessions/<项目>_*.json 旁的 .history/<会话 id>.jsonl，
-    旧桥内嵌在 json 的 history 也读）导出到 <交接>.原话.md；主角色的话标「只作参考」。
-    已有就不再加；出任何错只返回 None，不拦交活。来源：用户 11-01「工作区…他也可以看我们的会话原话啊，解决人类之间这种传递有损的问题」；
-    11-21「你把整个讨论内容给他」「我是说之后给工作区都要这样做」（此前只读内嵌 history，桥挪到 .history/ 后导出一直是 0 条）。"""
-    try:
-        text = Path(path).read_text(encoding="utf-8")
-        if SOURCE in text or ":" not in (chat or ""):
-            return None
-        project = project or os.environ.get("CC_PROJECT", "")
-        data = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
-        start = _window_start(text)
-        msgs, agent_ids = [], []
-        for f in sorted((data / "sessions").glob(f"{project}_*.json")):
-            d = json.loads(f.read_text(encoding="utf-8"))
-            sids = (d.get("user_sessions") or {}).get(chat) or []
-            for sid in sids:
-                s = (d.get("sessions") or {}).get(sid) or {}
-                if s.get("agent_session_id"):
-                    agent_ids.append(s["agent_session_id"])
-                name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in sid) or "_"
-                hist = list(s.get("history") or [])
-                hf = f.parent / (f.name.removesuffix(".json") + ".history") / (name + ".jsonl")  # core/session_history.go
-                if hf.is_file():
-                    for ln in hf.read_text(encoding="utf-8").splitlines():
-                        try:
-                            hist.append(json.loads(ln))
-                        except ValueError:
-                            continue
-                for m in hist:
-                    if not isinstance(m, dict):
-                        continue
-                    ts = m.get("timestamp") or ""
-                    if ts and ts >= start.isoformat():
-                        msgs.append((ts, m.get("role") or "?", m.get("content") or ""))
-        msgs.sort(key=lambda m: m[0])  # 只按时间；同一时刻保持记录里的先后（不按 role 字母排）
-        msgs = _discussion(msgs, agent_ids, start)
-        dump = Path(path).with_suffix("").as_posix() + ".原话.md"
-        with open(dump, "w", encoding="utf-8") as fh:
-            fh.write(f"# 聊天频道 {chat} 讨论原文（{start:%m-%d %H:%M} 到交活，{len(msgs)} 条）\n")
-            fh.write("# 程序从桥的会话记录原样导出，按时间。每条标了是谁说的。用户的话是准绳；队友的话是意见；「主角色（只作参考）」是主角色自己的理解，"
-                     "和用户原话冲突时信用户。交接里没有主角色的概括，做什么照用户原话自己判断。\n\n")
-            for ts, who, c in msgs:
-                fh.write(f"### {ts[5:16].replace('T', ' ')} {who}\n{c}\n\n")
-        tr = ""
-        if agent_ids:
-            hits = sorted(Path.home().glob(f".claude/projects/*/{agent_ids[-1]}.jsonl"))
-            tr = str(hits[0]) if hits else ""
-        lines = [f"## {SOURCE}",
-                 "（交活时程序附：开工先读这里的原始对话，再读总部判断那节；交接正文是主角色的转述，和原话冲突时信原话）",
-                 f"- 聊天频道：{chat}",
-                 f"- 时间窗：{start:%m-%d %H:%M} 到交活",
-                 f"- 讨论原文：{dump}（{len(msgs)} 条，用户和主角色每条消息按时间原样；主角色的话只作参考）",
-                 f"- 读原话：sed -n '1,400p' '{dump}'"]
-        if tr:
-            lines.append(f"- 主角色交活时的会话记录：{tr}")
-        lines.append(f"- 时间窗外再找：{Path(__file__).resolve().parent / 'chanlog'} <关键词> --since {start:%m-%d} --full")
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
-        return dump
-    except Exception:  # noqa: BLE001
-        return None
+# 讨论原文的导出、补导、转话文本都在 _source.py（ws-forward 也用）
+SOURCE, append_source = _source.SOURCE, _source.append_source
 
 
 def _codemap():
@@ -937,11 +721,95 @@ def append_plan_first(path):
         return False
 
 
+_FENCE = re.compile(r"^\s*(```|~~~)")
+FOLD_NOTE = "（交活时程序归并：下面几节是主角色自己写的理解，不是用户说的；和用户原话冲突时信原话，做什么、范围多大照原话和现场自己定）"
+
+
+def _blocks(text):
+    """按二级标题切块 [(标题, [行])]；第一块（标题 None）是首个二级标题之前的内容。代码围栏里的 # 不算标题。"""
+    out, fenced = [(None, [])], False
+    for ln in text.splitlines():
+        if _FENCE.match(ln):
+            fenced = not fenced
+        m = None if fenced else re.match(r"^##\s+(.*\S)\s*$", ln)
+        if m:
+            out.append((m.group(1), [ln]))
+        else:
+            out[-1][1].append(ln)
+    return out
+
+
+def _lead_lines(lines, deeper=True):
+    """主角色写的一节：deeper 时每个标题降一级；以范围节名（PRODUCT_SECS[2]）开头的标题前面加「主角色写的」
+    （桥只拿以这个节名开头的节出交回骨架、查漏项，core/team/exit_rules.go scopeChangeItems）。围栏里的不动。"""
+    out, fenced = [], False
+    for ln in lines:
+        if _FENCE.match(ln):
+            fenced = not fenced
+        m = None if fenced else re.match(r"^(#{1,6})\s+(.*)$", ln)
+        if m:
+            title = m.group(2)
+            if title.startswith(PRODUCT_SECS[2]):  # 节名从 handoff-rules.json 读，不写死（test_handoff_rules）
+                title = "主角色写的" + title
+            ln = "#" * min(len(m.group(1)) + (1 if deeper else 0), 6) + " " + title
+        out.append(ln)
+    return out
+
+
+def fold_lead_notes(path):
+    """交接里主角色自己写的节（总目标、范围、做法、词义……）归到「主角色的话（只作参考）」一节下面，各降一级；
+    排成：用户原话、原话出处、主角色的话、程序附的其余节。改了返回 True；重复跑结果不变；出任何错返回 False，不拦交活。
+    来源：用户 11-21「你不要指定说做什么，把我们原文给他，让他自己判断」；11-24 批「我真想说点什么，只能放进
+    『主角色的话，只作参考』那一节」。规则仍要后端是 DS 类的主角色写总目标、范围（handoff-rules.json），写了也归到这里。"""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        blocks = _blocks(text)
+        quote, src, said, lead, prog, had = [], [], [], [], [], False
+        for title, lines in blocks[1:]:
+            if title.startswith(_source.LEAD_SAYS):
+                had = True
+                said.append(_lead_lines(lines[1:], deeper=False))
+            elif title.startswith(SOURCE):
+                src.append(lines)
+            elif any(n in title for n in _existing.PROGRAM_SECS):
+                prog.append(lines)
+            elif _QUOTE_SEC in title:
+                quote.append(lines)
+            else:
+                lead.append(_lead_lines(lines))
+        mine = []
+        if had or lead:
+            mine = [[f"## {_source.LEAD_SAYS}"]] + ([] if had else [[FOLD_NOTE]]) + said + lead
+        parts = ["\n".join(b).strip("\n") for b in [blocks[0][1]] + quote + src]
+        parts.append("\n\n".join(x for x in ("\n".join(b).strip("\n") for b in mine) if x))
+        parts += ["\n".join(b).strip("\n") for b in prog]
+        new = "\n\n".join(x for x in parts if x.strip()) + "\n"
+        if new == text:
+            return False
+        Path(path).write_text(new, encoding="utf-8")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 SKELETON = "交回骨架"
 
 
+
+
+def word_rows(path):
+    """交回骨架的「用户原话逐条」：每句一行待填；没有原话可列时返回 []。"""
+    rows = []
+    for _, said in _source.user_words(path):
+        said = " ".join(said.split())
+        rows.append(f"- 「{said}」—— （待填：做到没有、证据；和这件活无关写「无关」）")
+    return ["用户原话逐条："] + rows if rows else []
+
+
 def append_skeleton(path, nid):
-    """给交接追加「交回骨架」节：桥 `report skeleton` 按任务板编号和「## 范围」的改项出的 [report] 填空稿
+    """给交接追加「交回骨架」节：桥 `report skeleton` 按任务板编号出的 [report] 填空稿，后面接「用户原话逐条」：
+    这件活里用户说过的每句话一行（_source.user_words），交回时逐句答做到没有（用户 11-24 批「交回模板改成对照你的每句
+    原话，逐条回答做到没有」；此前是按主角色拆的「## 范围」改项逐条）。没填的「（待填」桥会退回（core/team ReportPreflight）。
     （反思 11-04 改法 a：[report] 被退回涉及 6 个会话，缺首行 [report] 或漏交接范围项）。已有就不再加；
     桥太旧没有这个子命令或出任何错只返回 False，不拦交活。"""
     try:
@@ -956,8 +824,8 @@ def append_skeleton(path, nid):
                  f"（交活时程序附：交回时照抄填空，每个「（待填」都换成实话。ws-up --report 会先检查，下面三类会退回："
                  "①细节之前的四段每段最多两句、说人话，不能出现文件名、路径、分支名、带下划线/连字符/驼峰的英文词、反引号、"
                  "首行以外的 #编号、表格（这些都放细节里；引用户原话时里面的文件名也换成大白话）；②「入口自验」那行或紧跟的几行要有 ``` 包住的命令输出，或真实存在的文件路径、链接；"
-                 "③范围里每条「改」都要逐条写到。细节写短：每条一两句结果，命令输出只贴关键几行。这一节不算范围。）",
-                 "```", r.stdout.rstrip("\n"), "```"]
+                 "③「用户原话逐条」每句都要答：做到没有、证据在哪，和这件活无关的写「无关」，还留着「（待填」的会退回。细节写短：每条一两句结果，命令输出只贴关键几行。这一节不算范围。）",
+                 "```", r.stdout.rstrip("\n")] + word_rows(path) + ["```"]
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(("" if text.endswith("\n") else "\n") + "\n" + "\n".join(lines) + "\n")
         return True
@@ -970,14 +838,17 @@ def append_skeleton(path, nid):
 KICKOFF_DELAY = "5s"
 
 
-def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None, project=None):
+def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=None, project=None, chat=None):
     """叫醒工作区会话。--handoff：这一轮是交过来的活，不是例行定时，桥照常自动开公开任务卡
     （core/public_progress_auto.go timerTurnUser）。不带 --inject-if-busy：工作区正有别的活在跑时这一轮排在后面，
     轮到时自己开一轮、开自己的卡；插进那一轮不会开卡（审稿 pr410 必须改 1，桥 ExecuteTimerJob 对 Handoff 也不插）。
     --desc 带任务：桥把它当这一轮的任务名（谁在干啥、频道任务板，core/team.go teamNoteTurn → boardDescOf），
     不是把开工提示当任务名（#597 G36）。
     开工提示 #1628 重写：只留每件活都用得上的句子；「先出方案」「没有骨架」两句看交接里有没有那一节才带。
-    #1631：交接全文直接附在提示末尾（2 万字以内），省掉开工先 Read 交接的那一轮；更长的照旧「先读交接」。"""
+    #1631：交接全文直接附在提示末尾（2 万字以内），省掉开工先 Read 交接的那一轮；更长的照旧「先读交接」。
+    11-24 用户批：开工话改成「照用户原话做，范围你自己定」；讨论原文全文（<交接>.原话.md，2 万字以内）紧跟在首句后面；
+    首次交活（answer 是 None 且知道聊天频道 chat）让工作区先往聊天频道发一句「我理解做完是这样」，续做不发。
+    首句「从主频道接手一整块大活：…」别改：contrib/gate/ctxsvc.py 的 _KICK_TASK 靠它认任务。"""
     kickoff_existing(path, task)  # 只写进交接「手里现成的」节；开工提示里不再重复一遍
     try:
         note = Path(path).read_text(encoding="utf-8", errors="ignore")
@@ -988,22 +859,35 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     head = (f"你是工作区频道里的主角色，接着做一件等外部条件停下的活：{task}（任务板 #{nid}）。{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None and answer.startswith("到点重试") else
-            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。答复：{answer}\n"
+            f"你是工作区频道里的主角色，接着做一件提问后停下的活：{task}（任务板 #{nid}）。\n{answer}\n"
             f"{read}（之前的进度都在里面）。"
             if answer is not None else
             f"你是工作区频道里的主角色，从主频道接手一整块大活：{task}（任务板 #{nid}）。{read}。")
+    dump = _source.dump_path(path)
+    try:
+        talk = Path(dump).read_text(encoding="utf-8", errors="ignore").rstrip()
+    except OSError:
+        talk = ""
+    talk = (f"\n【讨论原文 {dump}：用户的话是准绳，主角色的话只作参考】\n{talk}\n\n" if 0 < len(talk) <= 20000 else
+            f"先读讨论原文 {dump}。" if talk else "")
+    say = (f"开工先在聊天频道发一句「我理解做完是这样：…」，逐句对上用户原话，发完接着做，不等批："
+           f"{cc_bin()} send -p {project or _team.project()} -s {chat} --stdin <<'EOF'，下面写这句，最后一行 EOF。"
+           if answer is None and ":" in (chat or "") else "")
     draft = str(Path(path).with_suffix(".report.md"))
     plan = (f"交接里「{PLAN_FIRST}」节的几项先 --ask 交方案，批了再改，没批前只读。"
             if re.search(r"^#+\s*" + PLAN_FIRST, note, re.M) else "")
     skel = (f"照交接「{SKELETON}」节填空" if f"## {SKELETON}" in note else
             f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
-    prompt = (head + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
-              f"交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳，怎么做你定。拿不准用户意思先读交接「{SOURCE}」里的原话，"
+    prompt = (head + talk + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
+              f"讨论原文里用户的话、交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳；交接「{_source.LEAD_SAYS}」那节是主角色"
+              f"自己的理解，只作参考，和原话冲突时信原话。照用户原话做，范围你从原话和现场自己定，怎么做你定。" + say +
+              f"原话里的词指什么（功能、文件、页面、编号、数字），对着现场核，核到的写进交回细节。"
+              f"拿不准用户意思先读交接「{SOURCE}」里的原话，"
               f"还不清楚、要拍板、或会改变用户原话范围的，用 ws-up --notes <交接> \"<提问>\" --ask 提给聊天频道的主角色"
               f"（她能定的直接定，方向、花钱、成品、权限四类她才转给用户）；提问分四段各起一行：「问题：」「背景：」"
               f"「选项与推荐：」「自验：」，缺问题或推荐会被退回。等答复时先做不受影响的部分。不在工作区里问用户；纯技术细节自己定。"
-              + plan + f"只做交接里写成「改」的部分，做到验收标准为止：用户原话和验收标准里没有的设定、防御分支、额外用例都不加。"
-              f"结果没达到用户的目的时，在范围内接着查原因、试下一步再交回，不停在「没提升」「不行」。\n"
+              + plan + f"用户原话里没有的设定、防御分支、额外用例都不加。"
+              f"结果没达到用户的目的时，接着查原因、试下一步再交回，不停在「没提升」「不行」。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
               f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<多久后，如 2h>」，"
@@ -1103,7 +987,7 @@ def start(path, task, chat, nid, project, answer=None, reassigned=False):
     append_skeleton(path, nid)
     # 交活指定过模型的活接回、续做时照它再切（#2075）：新认领的工作区放回时已换回它自己的模型
     why = _model.apply(ws if ":" in ws else f"discord:{ws}", previous.get("model"), previous.get("effort"), project)
-    r = (subprocess.run(timer_cmd(ws, path, task, nid, answer, project), capture_output=True, text=True) if why is None else
+    r = (subprocess.run(timer_cmd(ws, path, task, nid, answer, project, chat), capture_output=True, text=True) if why is None else
          subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(previous.get('model'), previous.get('effort'))} 没切成：{why}"))
     if r.returncode != 0:
         # 没叫醒：工作区放回、任务板整条退回改前（#1492 L3：原先只放工作区，板停在「已交接」绑着那个工作区）
@@ -1170,6 +1054,11 @@ def resume_answered(nid, answer, project=None, model=None, effort=None):
               "主角色定案" if by_lead else "用户答复")
     if by_lead:
         answer = f"（主角色定的，不是用户说的）{answer}"
+    if source != "到点重试":
+        # 用户后面再纠正：聊天频道里新说的原话原样补进讨论原文、排在前面；主角色写的这句标「只作参考」（用户 11-24 批）。
+        # 「到点重试」那句不动：timer_cmd 靠它开头分支。
+        fresh = _source.append_new(it["where"], it["chat"], os.environ.get("CC_PROJECT") or it.get("dispatcher") or "")
+        answer = _source.relay_text(fresh, answer) or answer
     if answer:
         board.append_forward(it["where"], f"{board._now()} {source}（#{nid}）：{answer}")
     _recall.append_to(it["where"])  # 改动前交出的活没有旧定案节，接回时补上（已有就跳过，上次没搜成就重搜）
@@ -1328,8 +1217,12 @@ def main(argv):
     chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
     if append_source(path, chat):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
+    else:  # 这份交接交过（原话文件已在）：只把上次导出之后聊天频道里新说的补进去
+        _source.append_new(path, chat)
     if append_plan_first(path):
         print(f"ws-handoff: 已附「{PLAN_FIRST}」", file=sys.stderr)
+    if fold_lead_notes(path):
+        print(f"ws-handoff: 主角色写的节已归到「{_source.LEAD_SAYS}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件
     nid = None
     by = assigner()
@@ -1370,7 +1263,7 @@ def main(argv):
     if model:
         board.set_model(nid, model, effort)
         why = _model.apply(key, model, effort)
-    r = (subprocess.run(timer_cmd(ws, path, task, nid), capture_output=True, text=True) if why is None else
+    r = (subprocess.run(timer_cmd(ws, path, task, nid, chat=chat), capture_output=True, text=True) if why is None else
          subprocess.CompletedProcess([], 1, "", f"模型 {_model.label(model, effort)} 没切成：{why}"))
     if r.returncode != 0:
         # 叫醒失败：撤掉刚上的板和刚 claim 的那一件交接（只放这一件，同 board pause 的 park），不留给看门判无进展

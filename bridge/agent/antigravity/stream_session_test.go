@@ -88,7 +88,7 @@ func streamTestProcess() {
 				Content string `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &input) != nil || input.Event != "user" || !strings.HasSuffix(input.Message.Content, fmt.Sprintf("prompt-%d", turn)) || !strings.Contains(input.Message.Content, "model list --json") {
+		if json.Unmarshal(scanner.Bytes(), &input) != nil || input.Event != "user" || !strings.HasSuffix(input.Message.Content, fmt.Sprintf("prompt-%d", turn)) || strings.Contains(input.Message.Content, "model list --json") { // #1903: the engine sends the preamble once, not the session
 			fmt.Println(`{"event":"result","result":{"status":"ERROR","response":"prompt or process continuity lost"}}`)
 			return
 		}

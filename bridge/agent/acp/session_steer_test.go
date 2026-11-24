@@ -188,7 +188,7 @@ func TestPromptBlocksImages(t *testing.T) {
 	png := core.ImageAttachment{Data: steerTestPNG} // no MimeType: sniffed
 
 	s.imagePrompts.Store(true)
-	blocks := s.promptBlocks("", "m", []core.ImageAttachment{png, heic}, nil, true)
+	blocks := s.promptBlocks("", "m", []core.ImageAttachment{png, heic}, nil)
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %v", blocks)
 	}
@@ -202,7 +202,7 @@ func TestPromptBlocksImages(t *testing.T) {
 	}
 
 	s.imagePrompts.Store(false)
-	blocks = s.promptBlocks("look", "m", []core.ImageAttachment{png}, nil, true)
+	blocks = s.promptBlocks("look", "m", []core.ImageAttachment{png}, nil)
 	if len(blocks) != 1 || !strings.Contains(blocks[0].(map[string]any)["text"].(string), "Image files saved locally") {
 		t.Fatalf("agent without image prompts gets paths only: %v", blocks)
 	}
@@ -243,5 +243,16 @@ func TestToolNameCacheIsBounded(t *testing.T) {
 	}
 	if n := len(s.toolNameByID); n > toolInputCacheMaxEntries {
 		t.Fatalf("tool name cache grew to %d (cap %d)", n, toolInputCacheMaxEntries)
+	}
+}
+
+// #1922: a PNG screenshot Discord saved as .jpg / image/jpeg is declared by its bytes; DSH rejects a mismatch.
+func TestPromptBlocksPNGNamedJPEG(t *testing.T) {
+	s, _, _ := newTestSession(t, nil)
+	s.imagePrompts.Store(true)
+	img := core.ImageAttachment{MimeType: "image/jpeg", FileName: "shot.jpg", Data: steerTestPNG}
+	blocks := s.promptBlocks("", "m", []core.ImageAttachment{img}, nil)
+	if len(blocks) != 2 || blocks[1].(map[string]any)["mimeType"] != "image/png" {
+		t.Fatalf("PNG bytes named .jpg must be declared image/png: %v", blocks)
 	}
 }

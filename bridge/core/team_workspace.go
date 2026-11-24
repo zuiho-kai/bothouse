@@ -204,7 +204,9 @@ type TeamWorkspace struct {
 	// is asked to pause them and release; without it the plain release is tried and retried.
 	Park bool `json:"park,omitempty"`
 	// Open and Parked: in TeamWorkspacePool only, the handoffs to the workspace that are in
-	// work (not closed, not paused) and the paused ones, from the bridge's own record.
+	// work (not closed, not paused) and the paused ones, from the bridge's own record. Open
+	// counts a turn running there too when that is more (#699 B: a turn is work in progress
+	// even with no open handoff; a claim is refused while one runs).
 	Open   int `json:"open,omitempty"`
 	Parked int `json:"parked,omitempty"`
 	// WatchDue: in TeamWorkspacePool only, the earliest check time of the ten-minute watch on
@@ -1284,6 +1286,10 @@ func teamWorkspacePlan(path, chat string, self TeamChannel, guild []TeamChannel,
 				open, _ := teamWorkspaceCountsLocked(st, plat+":"+c.ID)
 				busy = busy || open >= teamWorkspaceBusy
 			}
+			// #699 B: a turn running there keeps it busy too — even a turn of no task (the
+			// claim refuses those). 11-23 06:03 `new` adopted 工作区2 while its queued chatter
+			// was still draining as a task #0 turn, and the claim of #1021 failed.
+			busy = busy || teamTurnRunning(plat+":"+c.ID)
 			home := teamWorkspaceHome(plat, c)
 			if inPool(guild[i], self) && c.ID != self.ID && !mine[c.ID] && ownerOf(c) == "" && n > 0 && !busy &&
 				(home == "" || home == chat) && (pick == nil || n < teamWorkspaceNum(pick.Name)) {
@@ -2432,19 +2438,19 @@ func (e *Engine) ResetTeamWorkspaceSessions(key string) int {
 	return n
 }
 
-// retryTeamWorkspaceReleases asks the platform of chat ("<platform>:<id>") to release every
+// retryTeamWorkspaceReleases (true when it released any) asks the platform of chat ("<platform>:<id>") to release every
 // workspace of that platform whose release is pending (ReleasePending), naming the claim being
 // ended, and drops the record of each one the platform released (or that it says was claimed
 // again since, ErrTeamWorkspaceStaleClaim: that claim is over). A busy or failed release keeps
 // the record for the next try. Caller holds teamWorkspaceOpMu.
-func (e *Engine) retryTeamWorkspaceReleases(chat string) {
+func (e *Engine) retryTeamWorkspaceReleases(chat string) (released bool) {
 	if e == nil || e.dataDir == "" {
-		return
+		return false
 	}
 	plat, _, _ := strings.Cut(chat, ":")
 	r, ok := e.platformForName(plat).(TeamWorkspaceReleaser)
 	if !ok {
-		return
+		return false
 	}
 	path := teamWorkspacePath(e.dataDir)
 	type pending struct {
@@ -2457,7 +2463,7 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 	if err != nil {
 		teamWorkspaceStore.mu.Unlock()
 		slog.Error("team workspace: state unreadable; releases not retried", "chat", chat, "error", err)
-		return
+		return false
 	}
 	for parent, list := range st0.Parents {
 		if p, _, _ := strings.Cut(parent, ":"); p != plat {
@@ -2500,10 +2506,12 @@ func (e *Engine) retryTeamWorkspaceReleases(chat string) {
 		}
 		teamWorkspaceStore.mu.Unlock()
 		slog.Info("team workspace: released after its last task", "workspace", key, "owner", x.owner, "stale_claim", err != nil)
+		released = true
 		if err == nil {
 			e.shelveTeamWorkspace(plat, x.id)
 		}
 	}
+	return released
 }
 
 // TeamWorkspacePool returns every workspace in the server/category of chat, 「工作区n」 lowest
@@ -2520,14 +2528,21 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 	if !ok {
 		return nil, fmt.Errorf("team workspace: %s: no platform with workspaces", chat)
 	}
-	teamWorkspaceOpMu.Lock()
-	defer teamWorkspaceOpMu.Unlock()
-	e.retryTeamWorkspaceReleases(chat)
 	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
+	// The listing is read before teamWorkspaceOpMu, so a slow platform holds up only this call,
+	// not every claim, park and turn-end release on the bridge; it is read again under the lock
+	// only when a pending release changed the channels.
 	self, guild, err := plat.TeamGuildChannels(ctx, teamChannelID(chat))
 	if err != nil {
 		return nil, err
+	}
+	teamWorkspaceOpMu.Lock()
+	defer teamWorkspaceOpMu.Unlock()
+	if e.retryTeamWorkspaceReleases(chat) {
+		if self, guild, err = plat.TeamGuildChannels(ctx, teamChannelID(chat)); err != nil {
+			return nil, err
+		}
 	}
 	self, _ = teamWorkspacePoolHome(self, guild)
 	if e.dataDir != "" {
@@ -2580,6 +2595,11 @@ func (e *Engine) TeamWorkspacePool(channel string) ([]TeamWorkspace, error) {
 			}
 			w := TeamWorkspace{Name: c.Name, ID: c.ID, Owner: owner, Home: teamWorkspaceHome(pname, c)}
 			w.Open, w.Parked = counts[c.ID][0], counts[c.ID][1]
+			// #699 B: a turn running there is work in progress even with no open handoff — a
+			// claim refuses it, so the pool does not list it free either.
+			if n := len(teamTurnsOf(pname + ":" + c.ID)); n > w.Open {
+				w.Open = n
+			}
 			w.WatchDue = dues[c.ID]
 			out = append(out, w)
 		}

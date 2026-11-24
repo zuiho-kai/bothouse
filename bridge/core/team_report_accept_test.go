@@ -252,3 +252,29 @@ func TestHeldReportRejectedThenReworkIsHeldAgain(t *testing.T) {
 		t.Fatalf("copy after the post woke the lead again: %d jobs", n)
 	}
 }
+
+// #1097: 「要你做的」 asks the user to review something the report neither carries nor links. The
+// lead's text-only pass is refused (409) and nothing is posted; a pass that carries files itself
+// (ws-pass <files> --verdict sends "carried") goes through.
+func TestVerdictPassRefusesReviewWithoutDeliverable(t *testing.T) {
+	e, p, _, item := heldFixture(t)
+	body := "[report] #46 背景：你让我改两份英文稿。\n两份都改完了\n要你做的：审两份定稿。\n我加的：无\n细节：在工作区"
+	e.holdReportForLead(e.ctx, p, "chat1", "ws1", "橘", body, exitWSKey, 46, "背景：你让我改两份英文稿。", "", "", item)
+	if e.heldReportFor(46) == nil {
+		t.Fatal("report not held")
+	}
+	w := verdictCall(t, e, 46, "pass", "逐条：已核")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "要你做的") {
+		t.Fatalf("text-only pass = %d %q, want 409 naming 要你做的", w.Code, w.Body.String())
+	}
+	if got := p.sentTo("discord:chat1"); len(got) != 0 || e.heldReportFor(46) == nil {
+		t.Fatalf("refused pass posted %q or dropped the held report", got)
+	}
+	s := &APIServer{engines: map[string]*Engine{e.name: e}}
+	b, _ := json.Marshal(map[string]any{"board": 46, "action": "pass", "verdict": "逐条：已核", "carried": true})
+	w = httptest.NewRecorder()
+	s.handleTeamReportVerdict(w, httptest.NewRequest(http.MethodPost, "/team/report/verdict", bytes.NewReader(b)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("carried pass = %d %q", w.Code, w.Body.String())
+	}
+}

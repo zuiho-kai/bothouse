@@ -768,6 +768,8 @@ type interactiveState struct {
 	lastRecallProbeAt        time.Time
 	recallProbeInFlight      bool
 	stopDraft                string // a Stop hook blocked this reply draft; it is withdrawn when the segment matches (stop_draft.go); guarded by mu
+	stopWithhold             bool   // the blocked draft must never reach the channel, not even merged back (copy gate #1907); guarded by mu
+	stopReplace              string // the hook let the turn end but the draft must not go out: send this instead (#1907); guarded by mu
 	workspaceDir             string
 	agent                    Agent
 	mu                       sync.Mutex
@@ -1898,7 +1900,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
 	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
 	var proactiveIDs []string
-	if ob := e.outbox(); !job.IsShellJob() && ob != nil {
+	if ob := e.outbox(); !job.IsShellJob() && !job.IsEventJob() && ob != nil {
 		if ok, why := ob.admit(job, proactiveChat(job.SessionKey)); !ok {
 			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
 			return nil
@@ -1910,7 +1912,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		job, proactiveIDs = merged, ids
 	}
 	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2297,7 +2299,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		slog.Info("timer: test job runs muted", "job", job.ID, "desc", job.Description)
 	}
 	check := !job.Mute && !job.Handoff && job.resume == nil && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2785,27 +2787,34 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	case <-time.After(quickFinishTimeout):
 	}
 
-	// Long-running command — try in-place updates
+	// Long-running command — try in-place updates. A job marked silent (no start
+	// notice) announces no ⏳ progress either: a quiet success then posts nothing
+	// at all, while failure, timeout and real output still post their result at
+	// the end (#1031 review: the silent daily wiki check lit up ⏳→✅ anyway).
+	silent := e.timerScheduler != nil && e.timerScheduler.IsSilent(job)
+
 	var previewHandle any
 	var useUpdate bool
-	if _, ok := p.(MessageUpdater); ok {
-		if starter, ok := p.(PreviewStarter); ok {
-			mu.Lock()
-			output := buf.String()
-			mu.Unlock()
-			progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
-			if output != "" {
-				progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
-			}
-			handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
-			if err == nil && handle != nil {
-				previewHandle = handle
-				useUpdate = true
+	if !silent {
+		if _, ok := p.(MessageUpdater); ok {
+			if starter, ok := p.(PreviewStarter); ok {
+				mu.Lock()
+				output := buf.String()
+				mu.Unlock()
+				progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
+				if output != "" {
+					progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
+				}
+				handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
+				if err == nil && handle != nil {
+					previewHandle = handle
+					useUpdate = true
+				}
 			}
 		}
-	}
-	if !useUpdate {
-		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		if !useUpdate {
+			e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		}
 	}
 
 	updateDone := make(chan struct{})
@@ -2836,6 +2845,11 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	select {
 	case <-doneCh:
 		close(updateDone)
+		if silent {
+			// Nothing was announced: the no-opts finish only posts a result, so a
+			// quiet success stays quiet end to end.
+			return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
+		}
 		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
@@ -2899,6 +2913,9 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	if e.dataDir != "" {
 		// Shell jobs need the same authoritative storage root as interactive role sessions.
 		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
+	if len(job.eventEnv) > 0 {
+		shellCmd.Env = append(shellCmd.Environ(), job.eventEnv...)
 	}
 
 	stdout, err := shellCmd.StdoutPipe()
@@ -2965,27 +2982,34 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		// Still running — fall through to progress mode
 	}
 
-	// Long-running command. Try in-place updates.
+	// Long-running command. Try in-place updates — a job marked silent (no start
+	// notice) announces no ⏳ progress either: a quiet success then posts nothing
+	// at all, while failure, timeout and real output still post their result at
+	// the end (#1031 review: the silent daily wiki check lit up ⏳→✅ anyway).
+	silent := e.cronScheduler != nil && e.cronScheduler.IsSilent(job)
+
 	var previewHandle any
 	var useUpdate bool
-	if _, ok := p.(MessageUpdater); ok {
-		if starter, ok := p.(PreviewStarter); ok {
-			mu.Lock()
-			output := buf.String()
-			mu.Unlock()
-			progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
-			if output != "" {
-				progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
-			}
-			handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
-			if err == nil && handle != nil {
-				previewHandle = handle
-				useUpdate = true
+	if !silent {
+		if _, ok := p.(MessageUpdater); ok {
+			if starter, ok := p.(PreviewStarter); ok {
+				mu.Lock()
+				output := buf.String()
+				mu.Unlock()
+				progressMsg := fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel)
+				if output != "" {
+					progressMsg = fmt.Sprintf("⏰ ⏳ `%s`\n\n%s", cmdLabel, truncateStr(output, 3000))
+				}
+				handle, err := starter.SendPreviewStart(e.ctx, replyCtx, progressMsg)
+				if err == nil && handle != nil {
+					previewHandle = handle
+					useUpdate = true
+				}
 			}
 		}
-	}
-	if !useUpdate {
-		e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		if !useUpdate {
+			e.sendSystemNotice(p, replyCtx, fmt.Sprintf("⏰ ⏳ `%s`", cmdLabel))
+		}
 	}
 
 	updateDone := make(chan struct{})
@@ -3016,6 +3040,11 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	select {
 	case <-doneCh:
 		close(updateDone)
+		if silent {
+			// Nothing was announced: the no-opts finish only posts a result, so a
+			// quiet success stays quiet end to end.
+			return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir)
+		}
 		return e.finishCronShell(p, replyCtx, shellCmd, &mu, &buf, cmdLabel, job.SessionKey, job.WorkDir, useUpdate, previewHandle)
 	case <-ctx.Done():
 		close(updateDone)
@@ -3043,13 +3072,32 @@ func (e *Engine) finishCronShell(p Platform, replyCtx any, cmd *exec.Cmd, mu *sy
 
 	exitOK := cmd.ProcessState.ExitCode() == 0
 
+	if exitOK && strings.TrimSpace(output) == "" {
+		// A silent success posts no result (user 2026-11-23: every healthy 定时
+		// 检查 still dropped a "(no output)" line into the chat, #2104). A run
+		// long enough to have announced ⏳ (callers pass opts only then) still
+		// closes that line with a bare ✅ — it must not keep looking like it is
+		// running. A run that finished inside quickFinishTimeout posts nothing.
+		if len(opts) < 2 {
+			return nil
+		}
+		doneMsg := fmt.Sprintf("⏰ ✅ `%s`", cmdLabel)
+		if useUpdate, ok := opts[0].(bool); ok && useUpdate {
+			if handle := opts[1]; handle != nil {
+				if err := updaterFor(p).UpdateMessage(e.ctx, handle, doneMsg); err != nil {
+					return err
+				}
+				e.recordExternalSend(p, sessionKey, workDir, doneMsg, "定时脚本")
+				return nil
+			}
+		}
+		e.sendSystemNotice(p, replyCtx, doneMsg)
+		return nil
+	}
+
 	var finalMsg string
 	if exitOK {
-		result := strings.TrimSpace(output)
-		if result == "" {
-			result = "(no output)"
-		}
-		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(result, 3000))
+		finalMsg = fmt.Sprintf("⏰ ✅ `%s`\n\n%s", cmdLabel, truncateStr(strings.TrimSpace(output), 3000))
 	} else {
 		errMsg := output
 		if errMsg != "" {
@@ -3821,7 +3869,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	if e.checkTurnAuthorization(msg.authorization, "tool.execute") == nil {
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventMessageReceived,
 			SessionKey: msg.SessionKey,
 			Platform:   msg.Platform,
@@ -5191,7 +5239,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		endTurnFact()
 		// #699 design §4 row 12: the workspace goes back to the pool because its task's state
 		// says handed back, when the last turn there has ended — not on a timer after a reply.
-		e.releaseReturnedWorkspace(msg.SessionKey)
+		// In its own goroutine: the release talks to the platform under teamWorkspaceOpMu, and
+		// a turn's end (and the cron/timer run waiting on it) must not wait behind that
+		// (agentm 11-24: cron turns that had replied were recorded as 30-minute timeouts).
+		go e.releaseReturnedWorkspace(msg.SessionKey)
 	}()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
@@ -5384,12 +5435,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				promptContent := attemptPrompt
 				if msg.inputTurn != nil {
 					if strict, ok := as.(StrictResumeSession); ok {
-						err = strict.SendResumed(promptContent, msg.MessageID, images, msg.Files, msg.inputTurn.expectedID)
+						err = strict.SendResumed(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files, msg.inputTurn.expectedID)
 					} else {
 						err = fmt.Errorf("live session does not support strict resume")
 					}
 				} else {
-					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
+					err = as.Send(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				if msg.externalInput != nil {
@@ -5912,7 +5963,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	if err != nil {
 		slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventError,
 			SessionKey: sessionKey,
 			Platform:   p.Name(),
@@ -5987,7 +6038,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionStarted,
 		SessionKey: sessionKey,
 		Platform:   p.Name(),
@@ -6195,7 +6246,8 @@ func agentSessionResumable(agent Agent, as AgentSession) bool {
 func (e *Engine) cleanupSideRunState(iKey string) {
 	e.interactiveMu.Lock()
 	keep := false
-	if state := e.interactiveStates[iKey]; state != nil {
+	state := e.interactiveStates[iKey]
+	if state != nil {
 		state.mu.Lock()
 		keep = state.agentSession != nil && state.agentSession.Alive() && agentHasBackgroundWork(state.agentSession)
 		state.mu.Unlock()
@@ -6203,9 +6255,56 @@ func (e *Engine) cleanupSideRunState(iKey string) {
 	e.interactiveMu.Unlock()
 	if keep {
 		slog.Info("scheduled run: agent still runs background work, process kept until it reports back", "session_key", iKey)
+		e.journalBackgroundKeep(iKey, state)
 		return
 	}
 	e.cleanupInteractiveState(iKey)
+}
+
+// journalBackgroundKeep writes the restart record for a process kept for background
+// work (#1894): a restart stops that process, and the record makes the next start
+// wake the session to pick the work up instead of losing it silently.
+func (e *Engine) journalBackgroundKeep(iKey string, state *interactiveState) {
+	j := e.turnJournalStore()
+	if j == nil || state == nil {
+		return
+	}
+	state.mu.Lock()
+	as := state.agentSession
+	state.mu.Unlock()
+	ok, err := j.KeepBackground(iKey, describeBackgroundWork(as), time.Now())
+	if err != nil {
+		slog.Warn("turn journal: background keep failed", "key", iKey, "error", err)
+	} else if !ok {
+		slog.Warn("turn journal: background keep has no turn to copy the chat from", "key", iKey)
+	}
+}
+
+// describeBackgroundWork names the work still running in as, for the wake-up text.
+func describeBackgroundWork(as AgentSession) string {
+	var parts []string
+	if r, ok := as.(SubTaskReporter); ok {
+		_, tasks, _ := r.SubTasks()
+		for _, t := range tasks {
+			if !t.Live() {
+				continue
+			}
+			d := turnResumeOneLine(t.Description, 80)
+			if t.Name != "" {
+				d = t.Name + "：" + d
+			}
+			parts = append(parts, "子 agent「"+d+"」")
+		}
+	}
+	if r, ok := as.(BackgroundTaskReporter); ok {
+		if running, _ := r.BackgroundTasks(); running > 0 {
+			parts = append(parts, fmt.Sprintf("%d 个后台命令", running))
+		}
+	}
+	if len(parts) == 0 {
+		return "后台活"
+	}
+	return strings.Join(parts, "、")
 }
 
 // agentHasBackgroundWork reports whether the agent process still runs work of its own
@@ -6297,6 +6396,7 @@ func (e *Engine) cleanupInteractiveStateForIdleToken(sessionKey string, expected
 			state.mu.Unlock()
 			e.interactiveMu.Unlock()
 			slog.Info("turn ended: agent still runs background work, process kept until it reports back", "session_key", sessionKey)
+			e.journalBackgroundKeep(sessionKey, state)
 			return
 		}
 	} else if wait, running := agentSessionIdleDeferral(state.agentSession, timeout); wait > 0 {
@@ -6380,6 +6480,14 @@ func (e *Engine) closeAgentSessionAndSignal(sessionKey string, agentSession Agen
 // closeAgentSessionBy is closeAgentSessionAndSignal with the close call given:
 // Close, or CloseForRestart of an AgentSessionRestartCloser.
 func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSession, closed chan struct{}, closeFn func() error) {
+	// #1894: the process closes while the bridge runs, so the restart record of its
+	// background work is no longer needed. While stopping it stays: the next start
+	// wakes the session.
+	if j := e.turnJournalStore(); j != nil && !e.isStoppingForJournal() {
+		if err := j.BackgroundDone(sessionKey); err != nil {
+			slog.Warn("turn journal: background done failed", "key", sessionKey, "error", err)
+		}
+	}
 	// Allow enough time for the agent's own graceful shutdown sequence:
 	// stdin close → Stop hooks (claude-mem summary etc.) → SIGTERM → SIGKILL.
 	// Claude Code's Stop hooks can take up to 120s (claude-mem uses a
@@ -6393,7 +6501,7 @@ func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSessio
 	agentID := agentSession.CurrentSessionID()
 	// maomao fork: tell hooks once the process is gone (sub bots export + ingest their wiki here, like 橘's
 	// SessionEnd hook; user 2026-10-20 「让他们和你一样的待遇，不要区分」)
-	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
+	defer e.emitEvent(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
 	done := closed
@@ -7336,6 +7444,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		if len(turn.textParts) > turn.segmentStart {
 			if draft, ok := turn.state.takeStopDraft(strings.Join(turn.textParts[turn.segmentStart:], "")); ok {
 				turn.sp.retract()
+				slog.Info("stop hook: withdrew the blocked draft from the channel", "session", turn.sessionKey, "draft_runes", utf8.RuneCountInString(draft))
 				turn.textParts = turn.textParts[:turn.segmentStart]
 				turn.silentHold = false
 				if len(draft) > len(turn.blockedDraft) {
@@ -8101,7 +8210,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if event.Error != nil {
 				errMsg := event.Error.Error()
 				slog.Error("agent error", "error", event.Error)
-				e.hooks.Emit(HookEvent{
+				e.emitEvent(HookEvent{
 					Event:      HookEventError,
 					SessionKey: turn.sessionKey,
 					Platform:   p.Name(),
@@ -8291,7 +8400,7 @@ channelClosed:
 		}
 
 		if turn.input == nil {
-			e.hooks.Emit(HookEvent{
+			e.emitEvent(HookEvent{
 				Event:      HookEventMessageSent,
 				SessionKey: turn.sessionKey,
 				Platform:   p.Name(),
@@ -8617,7 +8726,7 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				}
 				err := e.recordTurnAgent(queued.authorization, queuedAgent)
 				if err == nil {
-					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+					err = as.Send(attemptPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				return err
@@ -12977,7 +13086,7 @@ func (e *Engine) stopInteractiveStateWithQueue(sessionKey string, want *interact
 		slog.Info("agent session turn cancelled, session kept alive",
 			"session_key", sessionKey)
 
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventSessionEnded,
 			SessionKey: sessionKey,
 		})
@@ -13022,7 +13131,7 @@ normalCleanup:
 		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 	}
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionEnded,
 		SessionKey: sessionKey,
 	})
@@ -14430,7 +14539,7 @@ func (e *Engine) resolveOutboundSessionTarget(sessionKey string, hasAttachments 
 // sendPermissionPrompt sends a permission prompt with interactive buttons when
 // the platform supports them. Fallback chain: InlineButtonSender → CardSender → plain text.
 func (e *Engine) sendPermissionPrompt(p Platform, replyCtx any, prompt, toolName, toolInput string) {
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:    HookEventPermissionRequested,
 		Platform: p.Name(),
 		Content:  prompt,

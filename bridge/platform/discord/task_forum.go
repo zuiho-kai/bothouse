@@ -26,6 +26,7 @@ const taskForumTopic = "本类别的任务，一件活一个帖子。点「等�
 type taskForumAPI interface {
 	workspaceAPI
 	ForumThreadStartComplex(channelID string, threadData *discordgo.ThreadStart, messageData *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Channel, error)
+	MessageThreadStartComplex(channelID, messageID string, data *discordgo.ThreadStart, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 	ChannelMessageEditComplex(m *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	GuildThreadsActive(guildID string, options ...discordgo.RequestOption) (*discordgo.ThreadsList, error)
@@ -33,7 +34,7 @@ type taskForumAPI interface {
 
 func (p *Platform) taskForumSession() (taskForumAPI, error) {
 	if s := p.boardSession(); s != nil {
-		return s, nil
+		return rateGuardedSession{s}, nil
 	}
 	return nil, errors.New("discord: task forum: not connected")
 }
@@ -77,13 +78,32 @@ func taskForumScope(ch, cat *discordgo.Channel) (core.TaskForum, error) {
 	if ch.GuildID == "" {
 		return core.TaskForum{}, core.ErrNotTeamChannel
 	}
-	if ch.ParentID == "" {
-		return core.TaskForum{}, core.ErrTaskForumCategoryRequired
-	}
 	if cat != nil && cat.Name == workspaceCategoryName {
 		return core.TaskForum{}, core.ErrTaskForumWorkspaceCategory
 	}
+	if privateChannel(ch) {
+		return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID, Channel: ch.ID}, nil
+	}
+	if ch.ParentID == "" {
+		return core.TaskForum{}, core.ErrTaskForumCategoryRequired
+	}
 	return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID}, nil
+}
+
+// privateChannel: @everyone may not view the channel. Its posts become threads in the channel
+// itself: a category forum is shared by every channel of the category and a forum post cannot
+// be private, while a thread follows its channel's permissions (user 11-24「把帖子变成私密帖吧，
+// 如果是那种私人频道的话」).
+func privateChannel(ch *discordgo.Channel) bool {
+	if ch == nil || ch.Type != discordgo.ChannelTypeGuildText {
+		return false
+	}
+	for _, o := range ch.PermissionOverwrites {
+		if o != nil && o.Type == discordgo.PermissionOverwriteTypeRole && o.ID == ch.GuildID && o.Deny&discordgo.PermissionViewChannel != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // TaskForumForPost recovers a persisted post's actual parent, independently of
@@ -103,6 +123,9 @@ func (p *Platform) TaskForumForPost(ctx context.Context, thread string, tags []s
 	forum, err := api.Channel(ch.ParentID, discordgo.WithContext(ctx))
 	if err != nil {
 		return core.TaskForum{}, err
+	}
+	if forum.Type == discordgo.ChannelTypeGuildText {
+		return core.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Channel: forum.ID}, nil
 	}
 	if forum.Type != discordgo.ChannelTypeGuildForum {
 		return core.TaskForum{}, fmt.Errorf("discord: post %s parent is not a forum", thread)
@@ -138,21 +161,51 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 			return core.TaskForum{}, err
 		}
 	}
-	list, err := api.GuildChannels(ch.GuildID, options...)
-	if err != nil {
-		return core.TaskForum{}, err
-	}
+	// The category is read by its own ID, not from the guild channel list: a private channel's
+	// post needs nothing else, so it never waits on the guild-wide channels bucket.
 	var cat *discordgo.Channel
-	for _, c := range list {
-		if c != nil && c.ID == ch.ParentID {
-			cat = c
+	var list []*discordgo.Channel
+	if ch.ParentID != "" {
+		if cat, err = api.Channel(ch.ParentID, options...); err != nil {
+			cat = nil
+			if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
+				return core.TaskForum{}, err
+			}
+			for _, c := range list {
+				if c != nil && c.ID == ch.ParentID {
+					cat = c
+				}
+			}
 		}
 	}
 	scope, err := taskForumScope(ch, cat)
 	if err != nil {
 		return core.TaskForum{}, err
 	}
+	if scope.Channel != "" {
+		scope.ID = scope.Channel
+		return scope, nil
+	}
+	if list == nil {
+		if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
+			return core.TaskForum{}, err
+		}
+	}
 	forum := findTaskForum(list, scope.CategoryID, remembered)
+	if forum == nil && remembered != "" {
+		// A forum the bot cannot view is left out of GuildChannels. Creating another one then
+		// repeats every round until the category is full (agentm 11-23: 47 forums in one
+		// category), so the remembered forum is asked for by ID and only a deleted one is replaced.
+		c, err := api.Channel(remembered, options...)
+		switch {
+		case err == nil:
+			if c.Type == discordgo.ChannelTypeGuildForum && c.ParentID == scope.CategoryID {
+				forum = c
+			}
+		case !isUnknownChannel(err):
+			return core.TaskForum{}, err
+		}
+	}
 	if forum == nil {
 		forum, err = api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
 			Name: taskForumName, Type: discordgo.ChannelTypeGuildForum, ParentID: scope.CategoryID,
@@ -164,9 +217,16 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	}
 	ids, err := ensureForumTags(api, forum, tags, options...)
 	if err != nil {
-		return core.TaskForum{}, err
+		// The forum exists even when its tags cannot be set; return it so it is remembered
+		// and not created again next round.
+		return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID}, err
 	}
 	return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID, Tags: ids}, nil
+}
+
+func isUnknownChannel(err error) bool {
+	var rest *discordgo.RESTError
+	return errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound
 }
 
 // Only adopt forums in the source category, even if a legacy remembered ID
@@ -245,6 +305,21 @@ func (p *Platform) openTaskPost(api taskForumAPI, forum core.TaskForum, post cor
 	} else if err != nil {
 		return "", err
 	}
+	if forum.Channel != "" {
+		// The 现状卡 is a message in the private channel and the post is the thread on it, so the
+		// thread's ID is the card's, as in a forum.
+		card, err := api.ChannelMessageSendComplex(forum.Channel, &discordgo.MessageSend{Content: post.Card, AllowedMentions: noMentions()}, options...)
+		if err != nil {
+			return "", err
+		}
+		th, err := api.MessageThreadStartComplex(forum.Channel, card.ID, &discordgo.ThreadStart{
+			Name: truncateDiscordThreadName(post.Title, 90), AutoArchiveDuration: discordTaskThreadAutoArchiveMinutes,
+		}, options...)
+		if err != nil {
+			return "", err
+		}
+		return th.ID, nil
+	}
 	start := &discordgo.ThreadStart{
 		Name:                truncateDiscordThreadName(post.Title, 90),
 		AutoArchiveDuration: discordTaskThreadAutoArchiveMinutes,
@@ -291,8 +366,14 @@ func (p *Platform) updateTaskPost(api taskForumAPI, forum core.TaskForum, thread
 }
 
 func (p *Platform) editTaskPost(api taskForumAPI, forum core.TaskForum, threadID string, post core.TaskForumPost, unarchive bool, options ...discordgo.RequestOption) error {
-	tags := forumTagIDs(forum, post.Tag)
-	edit := &discordgo.ChannelEdit{Name: truncateDiscordThreadName(post.Title, 90), AppliedTags: &tags}
+	edit := &discordgo.ChannelEdit{Name: truncateDiscordThreadName(post.Title, 90)}
+	cardChannel := threadID
+	if forum.Channel != "" {
+		cardChannel = forum.Channel // a channel thread has no tags; its card sits in the channel
+	} else {
+		tags := forumTagIDs(forum, post.Tag)
+		edit.AppliedTags = &tags
+	}
 	if unarchive {
 		archived := false
 		edit.Archived = &archived
@@ -312,7 +393,7 @@ func (p *Platform) editTaskPost(api taskForumAPI, forum core.TaskForum, threadID
 	}
 	content := post.Card
 	_, err := api.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		ID: threadID, Channel: threadID, Content: &content, AllowedMentions: noMentions(),
+		ID: threadID, Channel: cardChannel, Content: &content, AllowedMentions: noMentions(),
 	}, options...)
 	return err
 }

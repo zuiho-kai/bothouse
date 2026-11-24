@@ -341,3 +341,7 @@ var (
 	_ core.ModelSwitcher           = (*Agent)(nil)
 	_ core.ReasoningEffortSwitcher = (*Agent)(nil)
 )
+
+// TurnPreamble is the model-control instructions; the engine sends them once per agent context
+// (core.TurnPreambleAgent, #1903).
+func (a *Agent) TurnPreamble() string { return core.ModelSwitchInstructions() }

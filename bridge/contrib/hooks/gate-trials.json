@@ -1,0 +1,29 @@
+{
+  "legacy": [
+    "bash-guard",
+    "choice-ask-guard",
+    "codemap-fill",
+    "codemap-inject",
+    "deliver-check",
+    "dispatch-review-guard",
+    "param-source-guard",
+    "subagent-ctx-hook",
+    "wiki-context"
+  ],
+  "checks": {
+    "copy-gate": {
+      "replays": [
+        {
+          "date": "2026-11-23 19:54",
+          "replayed": 1,
+          "blocked": 1,
+          "wrong": 1,
+          "source": "11-23 18:55 配图方案原文（旧文案检查 518f8e21e 回放；被整条换成「文案检查没过」，用户「这个什么傻逼东西能把他干掉」）",
+          "wrong_samples": [
+            "这版稿子我看了。现在的图是拼凑出来的：被 P 掉的人只剩一团马赛克，成员栏里没有 WorkSwarm，派活那张也看不到帖子和工作区，几张图之间没有一条连起来的线"
+          ]
+        }
+      ]
+    }
+  }
+}

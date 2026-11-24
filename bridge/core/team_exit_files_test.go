@@ -173,3 +173,150 @@ func TestExitFilesOnlyForDeliverableDocs(t *testing.T) {
 		t.Fatalf("file the workspace sent was dropped: %+v", files)
 	}
 }
+
+// #2130: when a handback carries both a final cut (成片) and a numbered review sample (样片带段号)
+// or two resolutions of the same edition, only one video per edition goes to the chat channel,
+// preferring the final cut while keeping the numbered sample local for review.
+func TestExitFilesForDedupVideosAndKeepFinal(t *testing.T) {
+	body := "[report] #1061 背景：出片。\n第十版出好了。\n要你做的：没有\n我加的：无\n"
+	namesOf := func(files []FileAttachment) []string {
+		out := make([]string, 0, len(files))
+		for _, f := range files {
+			out = append(out, f.FileName)
+		}
+		return out
+	}
+
+	t.Run("final and numbered sample both orders", func(t *testing.T) {
+		final := FileAttachment{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("final")}
+		sample := FileAttachment{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")}
+		for _, kept := range [][]FileAttachment{{final, sample}, {sample, final}} {
+			got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+			if strings.Join(got, "|") != final.FileName {
+				t.Fatalf("got %v, want only %q", got, final.FileName)
+			}
+		}
+	})
+
+	t.Run("same edition different resolution keeps one", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("720")},
+			{FileName: "黎曼猜想xClaude-v10-成片-1080p.mp4", MimeType: "video/mp4", Data: []byte("1080")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if len(got) != 1 || got[0] != "黎曼猜想xClaude-v10-成片-720p.mp4" {
+			t.Fatalf("got %v, want single video", got)
+		}
+	})
+
+	t.Run("final cut suppresses numbered sample even with different prefix", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "成片-720p.mp4", MimeType: "video/mp4", Data: []byte("final")},
+			{FileName: "黎曼-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if strings.Join(got, "|") != "成片-720p.mp4" {
+			t.Fatalf("got %v, want only final cut", got)
+		}
+	})
+
+	t.Run("numbered sample alone still posts", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("sample")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		if strings.Join(got, "|") != "黎曼猜想xClaude-v10-样片带段号-720p.mp4" {
+			t.Fatalf("got %v, want sample when no final cut exists", got)
+		}
+	})
+
+	t.Run("distinct episodes keep each final and drop each numbered sample", func(t *testing.T) {
+		kept := []FileAttachment{
+			{FileName: "第1集-v2-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("s1")},
+			{FileName: "第1集-v2-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("f1")},
+			{FileName: "第2集-v2-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("f2")},
+			{FileName: "第2集-v2-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("s2")},
+			{FileName: "说明.csv", MimeType: "text/csv", Data: []byte("a,b")},
+		}
+		got := namesOf(exitFilesFor("discord:ws", body, nil, kept, false))
+		want := "第1集-v2-成片-720p.mp4|第2集-v2-成片-720p.mp4|说明.csv"
+		if strings.Join(got, "|") != want {
+			t.Fatalf("got %v, want %q", got, want)
+		}
+	})
+}
+
+// #1097 (11-24): the lead releases a held text [report] with `ws-pass --verdict` and no attachments;
+// the deliverable the workspace handed back must follow the text into the chat channel. #1095 used
+// no --file, said 「两份英文定稿和中文对照已写好」 and named the file in its details; the text went out
+// alone (「你没发我定稿啊 为什么会这样」).
+func TestVerdictPassCarriesDeliverables(t *testing.T) {
+	doc := filepath.Join(t.TempDir(), "rlt-1053-final-drafts-20261124.md")
+	if err := os.WriteFile(doc, []byte("# 两份英文定稿\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const head = "[report] #7 背景：你让我按审稿意见改两份英文材料。\n"
+	cases := []struct {
+		name  string
+		sent  []FileAttachment // what ws-up --report --file sent in the workspace before the exit
+		body  string
+		files []string
+		block bool // the lead may not pass it as text alone (heldReportReviewProblem)
+	}{
+		{"file handed back with --file", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
+			head + "改完了。\n要你做的：审一下。\n我加的：无\n", []string{"final.md"}, false},
+		{"draft named by path (#1095)", nil,
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审两份定稿。\n我加的：无\n细节：\n入口自验：成品是定稿文件 " + doc + " 。\n", []string{filepath.Base(doc)}, false},
+		{"document with a link in the report", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审一下。\n我加的：无\n细节：定稿 " + doc + "，也贴在 https://gist.github.com/x/1\n", nil, false},
+		{"no deliverable", nil, head + "改完了。\n要你做的：没有。\n我加的：无\n", nil, false},
+		{"asks a review, nothing to review", nil, head + "改完了。\n要你做的：审两份定稿。\n我加的：无\n", nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resetTeamTurns(t)
+			p := &exitFilePlatform{exitImgPlatform: exitImgPlatform{exitTestPlatform: exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}}}
+			as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: "t1"}
+			a := &inputTestAgent{session: as, requested: make(chan string, 32)}
+			e := NewEngine("orange", a, []Platform{p}, "", LangEnglish)
+			e.dataDir = t.TempDir()
+			e.SetWorkspaceParentResolver(mapParent{"ws1": "chat1"})
+			e.workspaceChatForTest = func(s string) bool { return strings.Contains(s, "ws1") }
+			t.Cleanup(func() { e.cancel(); _ = e.Stop() })
+			e.SetTeam(t.TempDir(), "橘", true)
+			e.platformReady = map[Platform]bool{p: true}
+			store, err := NewTimerStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.timerScheduler = NewTimerScheduler(store)
+			exitBoardItem(t, e, 7, "RLT 两份英文稿定稿")
+			exitSay(e, p, exitWSKey, "ws1", "开工")
+			inputPrompt(t, a)
+			inputDone(a, "好")
+			e.noteWorkspaceFiles(exitWSKey, c.sent)
+			exitByCommand(t, e, exitWSKey, c.body)
+			inputWait(t, func() bool { return e.heldReportFor(7) != nil })
+			if got := p.filesTo("discord:chat1"); len(got) != 0 {
+				t.Fatalf("files reached the chat before the lead passed the report: %v", got)
+			}
+			if why := e.heldReportReviewProblem(e.heldReportFor(7)); (why != "") != c.block {
+				t.Fatalf("review problem = %q, want blocked=%v", why, c.block)
+			}
+			if c.block {
+				return
+			}
+			if err := e.deliverHeldReport(e.heldReportFor(7).Key, "逐条：已核", false); err != nil {
+				t.Fatal(err)
+			}
+			inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+			if len(c.files) > 0 {
+				inputWait(t, func() bool { return len(p.filesTo("discord:chat1")) == len(c.files) })
+			}
+			time.Sleep(50 * time.Millisecond) // nothing more may follow
+			if got := p.filesTo("discord:chat1"); strings.Join(got, ",") != strings.Join(c.files, ",") {
+				t.Fatalf("files posted with the passed report = %v, want %v", got, c.files)
+			}
+		})
+	}
+}

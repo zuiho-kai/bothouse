@@ -25,7 +25,7 @@ type TimerJob struct {
 	Exec        string         `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt
 	WorkDir     string         `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
 	Description string         `json:"description"`
-	Silent      *bool          `json:"silent,omitempty"` // suppress start notification; nil = use global default
+	Silent      *bool          `json:"silent,omitempty"` // suppress start and ⏳ progress notifications; nil = use global default
 	Mute        bool           `json:"mute,omitempty"`   // suppress ALL messages (start + result)
 	// InjectIfBusy: when the target session is mid-turn, write the prompt into that turn
 	// instead of queuing a new one after it. Falls back to queuing when injection fails.
@@ -38,6 +38,9 @@ type TimerJob struct {
 	// anti-spin guard lets it through (anti_spin.go); unlike Handoff it changes nothing about
 	// the turn's user, card or inject-if-busy behaviour, so --interrupt still folds in.
 	Forward bool `json:"forward,omitempty"`
+	// Guard: the task board's handback guard timer (board.py arm_guard): wakes the lead once when
+	// a workspace has not handed back in time. Not a status poll, so the anti-spin guard passes it.
+	Guard bool `json:"guard,omitempty"`
 	// TaskHandoff: the workspace task the process that set the job was started for (its
 	// CC_HANDOFF), when the job wakes that process's own session. The job is delivered where
 	// that task is when it comes due, not to whoever has the workspace then (team_task_timer.go).
@@ -387,7 +390,9 @@ func (ts *TimerScheduler) Start() error {
 			scheduled++
 		} else if delay <= 0 {
 			// Past due
-			if job.TaskReview != nil || -delay <= missedJobGracePeriod {
+			// A workspace handback waiting for the lead (ReportID) is replayed however late: the
+			// lead must be woken once to accept it (#1915: #1910's wake hit a restart and was dropped).
+			if job.TaskReview != nil || job.ReportID != "" || -delay <= missedJobGracePeriod {
 				// Just missed — fire immediately
 				slog.Info("timer: firing missed job immediately", "id", job.ID, "overdue", -delay)
 				ts.scheduleAt(job, 0)
