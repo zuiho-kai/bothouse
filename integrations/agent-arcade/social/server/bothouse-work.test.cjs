@@ -185,3 +185,11 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
     modelStatementsAcceptedAsCompletion:0,taskAttempts:requests.length,chatCalls:chats,upstream:'Bothouse board.add / update / returned',worker:'real board and artifact worker; synthetic role returned category labels'};
   if(process.env.ARCADE_WORK_TEST_RECEIPT)await fs.writeFile(process.env.ARCADE_WORK_TEST_RECEIPT,JSON.stringify(evidence,null,2)+'\n');
 });
+
+test('a task inserted in the composer keeps the same classification items as a natural request',()=>{
+  const {textTask}=require('./bothouse/text-delivery.cjs');
+  const direct='请把这些物品分类：蓝笔；旧书';
+  const prefixed=textTask('给你一个任务：'+direct);
+  assert.equal(prefixed.prompt,textTask(direct).prompt);
+  assert.equal(prefixed.render('["文具","书籍"]'),'文具：蓝笔\n书籍：旧书');
+});

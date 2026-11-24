@@ -2,6 +2,8 @@
 
 // The agent assigns labels. The worker constructs the deliverable from the original
 // items, so a completion claim, missing item or invented entry cannot be handed back.
+const assignmentLead=/^(?:给你(?:个|一个|一项)任务|任务交给你|请接(?:一下)?这个任务)[：:,，\s]+(?=\S)/u;
+
 function partitionRequest(text){
   const match=/^([^：:\n]{1,180})[：:\n]([\s\S]+)$/u.exec(text.trim());
   if(!match||!/(分类|分组|归类)/u.test(match[1]))return;
@@ -26,6 +28,8 @@ function partitionArtifact(items,answer){
   return text;
 }
 function textTask(text){
+  // Keep the submitted chat and board entry intact. Only the executor parses the instruction body.
+  text=text.trim().replace(assignmentLead,'');
   const list=partitionRequest(text);
   if(list)return {prompt:list.prompt,render:answer=>partitionArtifact(list.items,answer)};
   if(!/(?:起草|拟一份|写一份|列出)[^？?]*(?:稿|文案|提纲|计划|清单|通知|安排)/u.test(text))return;
@@ -39,4 +43,4 @@ function textTask(text){
       return result;
     }};
 }
-module.exports={textTask};
+module.exports={textTask,assignmentLead};

@@ -243,6 +243,7 @@ function toggleAuthMode(mode) {
   $('#auth-error').textContent = '';
 }
 function leaveSession({discardFeedback=false,expired=false}={}) {
+  closeStartMenu();
   interruptedDrafts=expired?suspendChatDrafts(user?.number,[...drafts],chat):undefined;
   if(discardFeedback&&currentFeedbackDraft(user?.number))feedbackPending(null);
   stopVoicePlayback();
@@ -301,8 +302,18 @@ async function enterSession(account) {
   $('#sync-status').textContent = '';
   renderDirectory();
   if(resumeChat&&!location.hash)window.history.replaceState(null,'','#chat/'+encodeURIComponent(resumeChat));
+  const startInChat=!location.hash&&matchMedia('(min-width: 681px)').matches;
   await openFromUrl();
-  if (epoch === generation) await sync();
+  const visit=chatVisit;
+  if (epoch !== generation)return;
+  await sync();
+  if(startInChat&&epoch===generation&&visit===chatVisit&&tab==='messages'&&!location.hash&&!chat&&!dialog.open){
+    const first=conversations[0];
+    if(first){
+      window.history.replaceState(null,'','#chat/'+encodeURIComponent(first.id));
+      await openChat(first.id);
+    }
+  }
 }
 const authSwitch = $('#auth-switch'), authSubmit = $('#auth-submit'), authError = $('#auth-error');
 authSwitch.addEventListener('click',()=>{
@@ -423,6 +434,35 @@ function ownNumberControls() {
   });
   return [number.node,copy,status];
 }
+directory.addEventListener('keydown',event=>{
+  const row=event.target.closest('[data-chat-id]');
+  if(!row||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+  const rows=[...directory.querySelectorAll('[data-chat-id]')];
+  const i=rows.indexOf(row);
+  const next={ArrowDown:Math.min(i+1,rows.length-1),ArrowUp:Math.max(i-1,0),Home:0,End:rows.length-1}[event.key];
+  if(next===undefined)return;
+  event.preventDefault();
+  rows[next].focus();
+});
+const clockTime=new Intl.DateTimeFormat('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+const dayStamp=new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric'});
+function listTime(value){
+  if(!value)return '';
+  const day=new Date(value);
+  return time(value,day.toDateString()===new Date().toDateString()?clockTime:dayStamp);
+}
+const startMenu=$('#start-chat-menu');
+function closeStartMenu(){
+  if(startMenu)startMenu.open=false;
+}
+$('#start-new-group')?.addEventListener('click',()=>{closeStartMenu();showMemberPicker();});
+$('#start-add-friend')?.addEventListener('click',()=>{closeStartMenu();showSearch();});
+document.addEventListener('click',event=>{
+  if(startMenu?.open&&!startMenu.contains(event.target))closeStartMenu();
+});
+startMenu?.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){closeStartMenu();startMenu.querySelector('summary').focus();}
+});
 function renderDirectory() {
   if(!user) return;
   renderUnreadNavigation();
@@ -437,29 +477,39 @@ function renderDirectory() {
   tabs.forEach(node=>node.setAttribute('aria-current',node.dataset.tab===tab?'page':'false'));
   root.classList.toggle('show-feed',tab==='feed');
   feed.hidden=tab!=='feed';
+  if(startMenu){
+    startMenu.hidden=tab!=='messages';
+    if(startMenu.hidden)closeStartMenu();
+  }
   if(tab==='feed')return;
   const actions=$('#directory-actions');
   actions.replaceChildren();
   if(tab==='messages') {
-    actions.append(button('发起群聊',()=>showMemberPicker()),button('添加朋友',showSearch));
+    if(!startMenu)actions.append(button('发起群聊',()=>showMemberPicker()),button('添加朋友',showSearch));
     const directNames=new Map();
     for(const item of conversations) {
       if(item.type!=='direct')continue;
       const name=item.title.normalize('NFC');
       directNames.set(name,(directNames.get(name)||0)+1);
     }
+    const focused=document.activeElement?.closest('[data-chat-id]')?.dataset.chatId;
     const rows=conversations.map(item=>{
       const latest=item.lastMessage, summary=latest?latest.text:item.type==='group'?'群聊已建立':'开始发消息';
       const peer=item.type==='direct'?item.members.find(person=>person.number!==user.number):null;
       const identity=peer?.kind==='ai'?'AI 联系人':
         peer&&(directNames.get(item.title.normalize('NFC'))>1)?peer.number:'';
       const unread=hasUnread(item);
-      const node=row(item.title,summary,peer?.kind==='ai'?peer.number:item.id,()=>goChat(item.id),time(latest?.createdAt),identity,unread);
+      const node=row(item.title,summary,peer?.kind==='ai'?peer.number:item.id,event=>goChat(item.id,event.detail===0),listTime(latest?.createdAt),identity,unread);
+      // OpenIM ConversationItem's two-line grid: name/time above, preview across the second line.
+      const content=node.children[1], stamp=node.querySelector('time');
+      content.classList.add('conversation-copy');
+      if(stamp)content.insertBefore(stamp,content.lastElementChild);
       node.dataset.chatId=item.id;
       node.setAttribute('aria-current',String(chat===item.id));
       return node;
     });
     directory.replaceChildren(...(rows.length?rows:[empty('暂无消息。添加朋友后就能开始聊天。')]));
+    if(focused)rows.find(node=>node.dataset.chatId===focused)?.focus({preventScroll:true});
   }
   if(tab==='contacts') {
     actions.append(button('添加朋友',showSearch),button('新的朋友'+(incoming.length?'（'+incoming.length+'）':''),showRequests),button('发起群聊',()=>showMemberPicker()));
@@ -486,11 +536,16 @@ function routeId() {
   if(!location.hash.startsWith('#chat/')) return undefined;
   try { return decodeURIComponent(location.hash.slice(6)) || undefined; } catch {return undefined;}
 }
-function goChat(id) {
+async function goChat(id,focusEditor=false) {
   tab='messages';
   const route='#chat/'+encodeURIComponent(id);
   if(location.hash!==route) window.history.pushState(null,'',route);
-  void openChat(id);
+  await openChat(id);
+  const active=document.activeElement;
+  if(focusEditor&&chat===id&&conversation&&!dialog.open&&
+     (active===document.body||active.id==='back'||active.dataset.chatId===id)){
+    (messageBox.readOnly?historyView:messageBox).focus({preventScroll:true});
+  }
 }
 function goTab(next) {
   if(next==='feed') {
@@ -840,8 +895,37 @@ function chooseMention(person,popup) {
   showChatHeader();
   messageBox.focus();
 }
+const workMenu=$('#work-menu');
+const taskPrefix='给你一个任务：';
+function taskRecipient(){
+  const peer=conversation?.type==='direct'?directAiPeer(conversation):drafts.get(chat)?.target;
+  return peer?.kind==='ai'&&/^bh_[a-f0-9]{21}$/.test(peer.number)&&mentionAvailable(peer)?peer:null;
+}
+$('#compose-task')?.addEventListener('click',()=>{
+  workMenu.open=false;
+  if(!taskRecipient()||messageBox.readOnly)return;
+  const target=drafts.get(chat)?.target;
+  const body=withoutMention(messageBox.value,target);
+  if(!body.trimStart().startsWith(taskPrefix)){
+    if(messageBox.value.length+taskPrefix.length>messageBox.maxLength){
+      $('#send-error').textContent='草稿已满，请缩短后再添加任务。';
+      return;
+    }
+    const mark=target?.marker;
+    const at=mark?.start===0&&messageBox.value.startsWith(mark.text)?mark.text.length:0;
+    messageBox.setRangeText(taskPrefix,at,at,'end');
+    messageBox.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  messageBox.focus();
+});
 function showMention() {
   const holder=$('#mention-target'),target=conversation?.type==='group'?drafts.get(chat)?.target:undefined;
+  if(workMenu){
+    const recipient=taskRecipient();
+    if(workMenu.dataset.chat!==chat||!recipient)workMenu.open=false;
+    workMenu.dataset.chat=chat||'';
+    workMenu.hidden=!recipient||messageBox.readOnly;
+  }
   holder.hidden=!target;
   holder.replaceChildren();
   if(!target)return;
@@ -1326,6 +1410,12 @@ function voiceOfferControls(message) {
     actions,status);
   return panel;
 }
+// Adapted from Tinode messages-view.jsx. A long pause or local date change starts a new run.
+function sameRun(a,b){
+  if(!a||!b||a.sender.number!==b.sender.number)return false;
+  const first=new Date(a.createdAt),last=new Date(b.createdAt);
+  return first.toDateString()===last.toDateString()&&last-first>=0&&last-first<300000;
+}
 function renderHistory(scroll) {
   const oldTop=historyView.scrollTop, oldHeight=historyView.scrollHeight;
   const imageButtons=new Map([...historyView.querySelectorAll('[data-image-id]')]
@@ -1342,10 +1432,15 @@ function renderHistory(scroll) {
   if(historyContext)nodes.push(latestHistoryButton);
   if(historyContext?.older??older) nodes.push(olderButton);
   if(!rows.length) nodes.push(empty(conversation?.requiresAiCloudConsent?'在上方开启云聊天后，就可以和她打招呼。':'还没有消息。先打个招呼。'));
-  for(const message of rows) {
+  for(const [index,message] of rows.entries()) {
+    const previous=rows[index-1], next=rows[index+1];
+    const day=new Date(message.createdAt).toDateString();
+    if(!previous||day!==new Date(previous.createdAt).toDateString())nodes.push(el('p',time(message.createdAt,dayStamp),'history-day'));
     const mine=message.sender.number===user.number;
     const bubble=el('article',null,'bubble'+(mine?' mine':''));
     bubble.dataset.historyMessage=message.id;
+    const continued=sameRun(previous,message), continues=sameRun(message,next);
+    bubble.dataset.sequence=continued?(continues?'middle':'last'):(continues?'first':'single');
     if(historyContext?.anchor===message.id){bubble.classList.add('history-anchor');bubble.tabIndex=-1;}
     const content=el('div',null,'bubble-content');
     bubble.append(avatar(message.sender.displayName,message.sender.number),content);
@@ -1354,7 +1449,11 @@ function renderHistory(scroll) {
     const address=message.mention?.aiOwner?'@'+message.mention.displayName+'（'+message.mention.aiOwner+' 的 AI）':message.mention&&mentionLabel(message.mention);
     const text=address&&!message.removed?address+' '+message.text:message.text;
     const meta=el('div',null,'meta');
-    meta.append(el('span',sender+'　'+time(message.createdAt)));
+    const label=el('span',sender,'message-sender');
+    const stamp=el('time',time(message.createdAt,clockTime));
+    stamp.dateTime=message.createdAt;
+    stamp.title=time(message.createdAt,reportDate);
+    meta.append(label,stamp);
     if(!message.removed){
       const control=button('⋯',()=>showMessageActions(message.id,control),'message-action-trigger');
       control.dataset.messageAction=message.id;
@@ -1585,6 +1684,7 @@ async function sync() {
         else if(active.title!==conversation.title||active.webSearch?.revision!==conversation.webSearch?.revision||
           JSON.stringify(active.members)!==JSON.stringify(conversation.members)) {
           conversation=active;showChatHeader();
+          if(dialog.open&&dialog.dataset.memberPanel===active.id)showGroupMembers(active);
         }
       }
 
@@ -1686,6 +1786,11 @@ composer.addEventListener('submit',async event=>{
   const target=drafts.get(id)?.target;
   const text=withoutMention(messageBox.value,target).trim();
   if(!id||!conversation||!text||composingMessage||sendButton.disabled||!mentionAvailable(target)) return;
+  if(taskRecipient()&&text===taskPrefix){
+    $('#send-error').textContent='请写下要交办的内容。';
+    messageBox.focus();
+    return;
+  }
   const revision=conversation.cloudChat?.revision;
   const mentionAccount=conversation.type==='group'?target?.number:undefined;
   const previous=drafts.get(id)?.attempt;
@@ -1733,15 +1838,23 @@ composer.addEventListener('submit',async event=>{
     if(generation===epoch) {sending.delete(id);if(chat===id)showChatHeader();}
   }
 });
+const wideMembers=matchMedia('(min-width: 1024px)');
 function closeDialog() {
+  const returnToMembers=dialog.open&&dialog.dataset.memberPanel!==undefined&&dialog.contains(document.activeElement);
+  delete dialog.dataset.memberPanel;
   ++dialogGeneration;dialogGroup=dialogMessage=undefined;
   clearDialogResources();
   if(dialog.open)dialog.close();
   $('#dialog-body').replaceChildren();
+  if(returnToMembers&&!$('#members').hidden)$('#members').focus({preventScroll:true});
 }
 $('#dialog-close').addEventListener('click',closeDialog);
 dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
-function openDialog(title, nodes, groupId) {
+function openDialog(title, nodes, groupId, memberPanel=false) {
+  const dock=memberPanel&&wideMembers.matches;
+  if(dialog.open&&dock===dialog.matches(':modal'))dialog.close();
+  if(memberPanel)dialog.dataset.memberPanel=groupId;
+  else delete dialog.dataset.memberPanel;
   ++dialogGeneration;
   clearDialogResources();
   dialogMessage=undefined;
@@ -1749,7 +1862,7 @@ function openDialog(title, nodes, groupId) {
   $('#dialog-title').textContent=title;
   $('#dialog-error').textContent='';
   $('#dialog-body').replaceChildren(...nodes);
-  if(!dialog.open)dialog.showModal();
+  if(!dialog.open){if(dock)dialog.show();else dialog.showModal();}
   return dialogGeneration;
 }
 // Based on bothouse role-household/rh/static/rh-history.js at 8ec73a8f (Apache-2.0).
@@ -3400,7 +3513,8 @@ function showGroupMembers(group,{mentionOnly=false}={}) {
   if(!group||group.type!=='group')return;
   const list=el('div'), actions=el('div',null,'actions');
   for(const member of group.members) {
-    const card=el('div',null,'request');
+    const card=el('div',null,mentionOnly?'request':'request group-member-row');
+    if(!mentionOnly)card.append(avatar(member.displayName,member.number));
     card.append(el('strong',member.displayName+(member.kind==='ai'?' · AI':'')),
       el('p',member.number+(member.number===group.ownerNumber?'　群主':''),'minor'),
       button(mentionLabel(member),()=>pickMention(member,group.id,scope)));
@@ -3414,9 +3528,21 @@ function showGroupMembers(group,{mentionOnly=false}={}) {
   actions.append(button('添加成员',()=>showMemberPicker(group),'primary'),
     button('群内 AI',()=>showGroupAi(group)));
   if(group.ownerNumber!==user.number) actions.append(button('退出群聊',()=>confirmLeaveGroup(group)));
-  const scope=openDialog(mentionOnly?'点名群成员':'群成员',mentionOnly?[list]:[actions,list],group.id);
+  const scope=openDialog(mentionOnly?'点名群成员':'群成员',mentionOnly?[list]:[actions,list],group.id,!mentionOnly);
 }
-$('#members').addEventListener('click',()=>showGroupMembers(conversation));
+wideMembers.addEventListener('change',()=>{
+  if(dialog.open&&dialog.dataset.memberPanel===chat)showGroupMembers(conversation);
+});
+dialog.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&dialog.open&&dialog.dataset.memberPanel&&!dialog.matches(':modal')){
+    event.preventDefault();
+    closeDialog();
+  }
+});
+$('#members').addEventListener('click',()=>{
+  if(dialog.open&&dialog.dataset.memberPanel===chat)closeDialog();
+  else showGroupMembers(conversation);
+});
 $('#mention-member').addEventListener('click',()=>showGroupMembers(conversation,{mentionOnly:true}));
 const startupAuthControls=[...$('#auth-form').elements,$('#auth-switch')];
 for(const control of startupAuthControls)control.disabled=true;

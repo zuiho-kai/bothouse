@@ -236,3 +236,169 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 .group-card-preview dt{font-weight:600}
 .group-card-preview dd{margin:0 0 .45rem;white-space:pre-wrap}
 .group-card-entry{border-inline-start:2px solid var(--line);padding-inline-start:.65rem;white-space:pre-wrap}
+
+/* Friends messenger. Row, message and composer layout adapted from OpenIM Electron.
+   The sender run styles follow Tinode. Exact sources and licenses: THIRD_PARTY_NOTICES.md. */
+.auth {
+  background: #f5f1f4;
+  padding: clamp(16px, 5vw, 72px);
+}
+.auth-card:has(.auth-cover) {
+  display: grid;
+  grid-template-columns: 0.98fr 1fr;
+  width: min(100%, 838px);
+  min-height: 470px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #e1d6dc;
+  border-radius: 22px;
+  box-shadow: 0 20px 56px #45213712;
+}
+.auth-cover {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  overflow: hidden;
+  padding: clamp(30px, 4vw, 50px);
+  background: #522638;
+  color: #fff9fc;
+}
+.auth-cover::before, .auth-cover::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -235px;
+  left: -255px;
+  width: 560px;
+  height: 510px;
+  border: 1px solid #945c71;
+  border-radius: 50%;
+  transform: rotate(-34deg);
+}
+.auth-cover::after { top: -183px; left: -231px; }
+.auth-art {position: relative; width: 200px; height: 166px; margin: 18px auto 48px;}
+.auth-art i {position:absolute; display:block; border-radius: 28px 28px 28px 5px;}
+.auth-art i:first-child {inset:8px 51px 52px 0; transform: rotate(-12deg); background:#f8d6df;}
+.auth-art i:last-of-type {inset:55px 0 6px 63px; transform:rotate(10deg); background:#c57392; border-radius:28px 28px 6px 28px;}
+.auth-art img {position:absolute; width:86px; top:26px; left:25px; transform:rotate(-9deg);}
+.auth-art i:last-of-type::before {
+  content:""; position:absolute; width:11px; height:11px; top:48%; left:33%;
+  background:#59273d; border-radius:50%; box-shadow:20px 0 #59273d,40px 0 #59273d;
+}
+.auth-cover .brand {font:650 clamp(29px,3.2vw,44px)/1.07 "Segoe UI",sans-serif;letter-spacing:-.045em;}
+.auth-product {margin-top:9px; font-size:15px; color:#f5dbe5; letter-spacing:.09em;}
+.auth-panel {align-self:center; min-width:0; padding:45px clamp(25px,4vw,51px);}
+.auth-panel h1 {font-size:27px; margin:0 0 25px; color:#382331;}
+.auth-panel label {font-size:13px; gap:6px;}
+.auth-panel #auth-form {gap:15px;}
+.auth-panel input {border-radius:7px; background:#fffdfe; border-color:#d5c9d0;}
+.auth-panel .primary {border-radius:7px; margin-top:7px;}
+.auth-panel #auth-switch {padding-inline:0; margin-top:3px; font-size:14px;}
+.auth-links {display:flex; gap:18px; flex-wrap:wrap; border-top:1px solid var(--line); margin-top:13px;}
+.auth-links a {font-size:12px; color:var(--muted); text-decoration:none;}
+.auth-links a:hover {text-decoration:underline;}
+@media(min-width:681px) {
+  .workspace {grid-template-columns:64px clamp(244px,24vw,310px) minmax(0,1fr);}
+  .sidebar {padding:13px 6px; background:#412332; color:#faeaf1;}
+  .sidebar .rail-brand {height:44px; margin:0 auto 20px;}
+  .rail-brand img {box-sizing:content-box; width:28px; height:25px; padding:5px; background:#f7e5ed; border-radius:11px;}
+  .sidebar nav {gap:10px;}
+  .sidebar nav button {border-radius:9px; color:#f0dbe4; font-size:11px; gap:4px;}
+  .sidebar nav button[aria-current=page] {background:#f6e5ed; color:#732c50;}
+  .sidebar nav button:not([aria-current=page]):hover {background:#5b3448;}
+}
+.directory {background:#fcfafb;}
+.directory header {padding:18px 14px 11px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;}
+.directory header h1 {margin-right:auto; font-size:20px;}
+.directory header .actions {margin:0; gap:2px;}
+.directory header .actions button {min-height:34px; font-size:12px; padding:0 5px;}
+.directory-body {padding:2px 7px 12px;}
+.row[data-chat-id] {grid-template-columns:42px minmax(0,1fr); padding:9px 9px; min-height:65px; gap:10px; border-radius:8px;}
+.row[data-chat-id] .avatar {height:42px; width:42px; border-radius:12px;}
+.row[data-chat-id][aria-current=true] {background:#f1e0e9; box-shadow:none;}
+.conversation-copy {min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:3px 6px;}
+.conversation-copy > small {grid-column:1/-1; font-size:13px;}
+.conversation-copy strong {font-size:15px; font-weight:650;}
+.conversation-copy .row-heading {flex-wrap:nowrap; overflow:hidden;}
+.conversation-copy time {white-space:nowrap; padding:0; font-variant-numeric:tabular-nums;}
+.chat {background:#f6f3f5;}
+.chat header {min-height:66px; padding-inline:clamp(12px,2.25vw,32px);}
+.chat header h2 {font-size:18px; font-weight:670;}
+.chat header .chat-tool {border-radius:7px;}
+.history {gap:12px;}
+.history-day {margin:3px auto 7px; color:var(--muted); font-size:12px;}
+.bubble {gap:9px;}
+.bubble>.avatar {height:34px;width:34px; border-radius:10px; margin-top:0;}
+.bubble .meta {min-height:22px;gap:7px; line-height:1.3;}
+.bubble .meta time {font-variant-numeric:tabular-nums; font-size:10px;}
+.bubble .body {
+  width:fit-content; max-width:100%; box-sizing:border-box;
+  background:white; border:1px solid #e9e1e6; border-radius:3px 12px 12px;
+  white-space:pre-wrap; overflow-wrap:anywhere; padding:8px 12px; font-size:15px;
+}
+.bubble.mine .body {margin-left:auto; background:#f0d7e4; border-color:#ebcadb; border-radius:12px 3px 12px 12px;}
+.bubble .message-action-trigger {min-height:24px; min-width:30px; font-size:16px;}
+.bubble:is([data-sequence=middle],[data-sequence=last]) {margin-top:-8px;}
+.bubble:is([data-sequence=middle],[data-sequence=last])>.avatar {visibility:hidden;}
+.bubble:is([data-sequence=middle],[data-sequence=last]) .message-sender {position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;}
+@media(hover:hover) {
+  .bubble .message-action-trigger {opacity:0;}
+  .bubble:hover .message-action-trigger,.bubble:focus-within .message-action-trigger,.bubble .message-action-trigger[aria-expanded=true] {opacity:1;}
+}
+.composer:has(.compose-tools),.composer:has(.compose-tools #composer-media[hidden]) {
+  grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:5px 12px;
+  padding:9px clamp(12px,2.25vw,32px) max(12px,env(safe-area-inset-bottom));
+}
+.compose-tools {grid-column:1/-1; display:flex;align-items:center;gap:5px; min-width:0;}
+.compose-tools:has(#composer-media[hidden]):has(#work-menu[hidden]),.composer .feedback:empty {display:none;}
+.compose-tools button,.compose-tools summary {border-radius:6px; min-height:32px; font-size:13px; color:#675661;}
+#composer-media {gap:8px;}
+#composer-media button {display:inline-flex; align-items:center; gap:5px; padding:0 5px;}
+#composer-media svg {width:16px;height:16px; fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round;}
+#work-menu {position:relative;}
+#work-menu summary {cursor:pointer; list-style:none; display:grid;place-items:center; width:34px; font-size:21px;}
+#work-menu summary:hover,#work-menu[open] summary {background:var(--select);}
+#compose-task {position:absolute; bottom:calc(100% + 4px); left:0; z-index:2; width:max-content; padding:6px 14px; background:var(--paper); border:1px solid var(--line);box-shadow:0 4px 16px #4825371c;}
+.composer:has(.compose-tools) textarea {height:60px; min-height:44px; padding:6px 5px; background:var(--paper); border-color:transparent; border-radius:5px; resize:none; line-height:1.5;}
+.composer:has(.compose-tools) button[type=submit] {align-self:end; min-height:35px; padding:0 18px; border-radius:7px;}
+@media(max-width:680px) {
+  .auth {padding:18px;}
+  .auth-card:has(.auth-cover) {grid-template-columns:1fr; min-height:0; max-width:410px; border-radius:17px;}
+  .auth-cover {padding:25px 26px; min-height:108px;}
+  .auth-cover .brand {font-size:30px;}
+  .auth-cover .auth-product {font-size:13px;}
+  .auth-art {position:absolute; margin:0; right:-4px; top:-7px; transform:scale(.55); transform-origin:right center;}
+  .auth-panel {padding:25px;}
+  .auth-panel h1 {font-size:23px; margin-bottom:20px;}
+  .chat header {min-height:58px;}
+  .chat header h2 {font-size:16px;}
+  .history {padding-inline:12px;}
+  .bubble>.avatar {width:30px;height:30px;}
+  .composer:has(.compose-tools) textarea {height:44px;}
+  .compose-tools button,.compose-tools summary {min-height:36px;}
+}
+@media(max-width:355px) {
+  .auth-art {opacity:.55; transform:scale(.43);}
+  .auth-panel,.auth-cover {padding-inline:19px;}
+}
+
+/* One compact conversation menu; the search control may share the header. */
+:root {font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif;}
+.start-chat-menu {position:relative; margin-left:auto;}
+.start-chat-menu summary {width:36px;height:36px;list-style:none;cursor:pointer;display:grid;place-items:center;border-radius:8px;font-size:22px;color:var(--plum);}
+.start-chat-menu[open] summary,.start-chat-menu summary:hover {background:var(--select);}
+.start-chat-menu > div {position:absolute;right:0;top:calc(100% + 3px);z-index:4;min-width:130px;display:grid;padding:4px;background:var(--paper);border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 20px #39202c20;}
+.start-chat-menu button {text-align:left;border-radius:6px;}
+.start-chat-menu button:hover {background:var(--select);}
+#dialog[data-member-panel] {position:fixed;inset:0 0 0 auto;margin:0;padding:16px;width:min(292px,90vw);height:100dvh;max-height:100dvh;max-width:100vw;overflow:auto;border-radius:0;border:0;border-left:1px solid var(--line);}
+#dialog[data-member-panel] header {border-bottom:1px solid var(--line);padding-bottom:10px;}
+.group-member-row {display:grid;grid-template-columns:35px minmax(0,1fr);align-items:center;column-gap:9px;}
+.group-member-row>.avatar {grid-row:span 2;width:35px;height:35px;border-radius:10px;}
+.group-member-row .minor {grid-column:2;overflow-wrap:anywhere;}
+.group-member-row button {grid-column:2;width:fit-content;min-height:34px;font-size:12px;border-radius:6px;}
+@media(min-width:1024px){
+  body:has(#dialog[data-member-panel][open]) #workspace {margin-right:276px;}
+  #dialog[data-member-panel] {width:276px;z-index:3;}
+}

@@ -1,11 +1,12 @@
 'use strict';
 const {randomUUID,createHash}=require('node:crypto');
 const {fail}=require('../store.cjs');
+const {assignmentLead}=require('./text-delivery.cjs');
 
 // Only addressed imperatives qualify. In groups the renderer sends the selected account
 // separately from the text. Never infer a recipient by scanning a display name.
 function isAssignment(text){
-  return /^(?:(?:给你(?:个|一个|一项)任务|任务交给你|请接(?:一下)?这个任务)[：:,，\s]+\S|(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)?(?:把|将)[^？?]{1,160}(?:整理(?:成|好)?|分(?:好)?类|分组|汇总|列成|归纳|排序)|(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)(?:整理|归类|汇总|分组|起草|拟一份|制作|编写|写一份|列出)\S)/u.test(text.trim()) &&
+  return (assignmentLead.test(text.trim())||/^(?:(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)?(?:把|将)[^？?]{1,160}(?:整理(?:成|好)?|分(?:好)?类|分组|汇总|列成|归纳|排序)|(?:请(?:你)?|麻烦(?:你)?|帮我|请帮我)(?:整理|归类|汇总|分组|起草|拟一份|制作|编写|写一份|列出)\S)/u.test(text.trim())) &&
     !/[？?]\s*$/u.test(text);
 }
 
