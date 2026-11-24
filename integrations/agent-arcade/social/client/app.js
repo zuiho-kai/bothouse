@@ -2570,26 +2570,31 @@ function fileDialog(droppedFile){
   if(!canAttach(conversation))return;
   const id=chat, account=user.number, visit=chatVisit, epoch=generation, revision=membershipRevision;
   const label=el('label','选择文件（最多 16 MiB）'),input=el('input'),info=el('p',null,'minor');
-  input.type='file';label.append(input);
+  input.type='file';input.hidden=Boolean(droppedFile);label.append(input);
+  const name=el('strong',null,'chat-file-name');
+  const replaceFile=button('更换文件',()=>input.click(),'outline');
   let selected,clientId;
   const submit=button('发送文件',()=>void perform(async()=>{
     if(!current()||!selected)return;
     if(!revision||membershipRevision!==revision)throw Error('file_session');
-    input.disabled=true;
+    input.disabled=replaceFile.disabled=true;
     try{
       const sent=await api(thread(id)+'/files',selected,{expectedAccount:account,
         fileUpload:{name:selected.name,clientId,revision,mime:'application/octet-stream'},timeoutMs:60000});
       if(current()){merge([sent.message],'end');closeDialog();void sync();}
-    }finally{input.disabled=false;}
+    }finally{input.disabled=replaceFile.disabled=false;}
   },submit,scope),'primary');
   submit.disabled=true;
-  const fields=droppedFile?[el('p','发送到「'+conversation.title+'」','minor'),info,submit]:[label,info,submit];
+  const fields=droppedFile
+    ? [el('p','发送到「'+conversation.title+'」','minor'),name,info,input,replaceFile,submit]
+    : [label,info,submit];
   const scope=openDialog('发送文件',fields,id);
   const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation&&routeId()===id;
   const selectFile=file=>{
     selected=file;clientId=clientNonce();
     submit.disabled=!selected || selected.size>16*1024*1024;
-    info.textContent=selected?selected.name+' · '+fileSize(selected.size)+(submit.disabled?'，超过 16 MiB':''):'';
+    name.textContent=selected?.name??'';
+    info.textContent=selected?(droppedFile?'':selected.name+' · ')+fileSize(selected.size)+(submit.disabled?'，超过 16 MiB':''):'';
   };
   input.addEventListener('change',()=>selectFile(input.files[0]));
   if(droppedFile)selectFile(droppedFile);
@@ -2603,7 +2608,10 @@ function photoDialog(screenshot,droppedFile){
   const boundToMembership=screenshot||Boolean(droppedFile);
   const form=el('form'), label=el('label','选择一张图片'), input=el('input'), preview=el('img',null,'attachment-preview');
   input.type='file';input.accept='image/png,image/jpeg';input.required=!screenshot&&!droppedFile;
+  input.hidden=Boolean(droppedFile);
   label.append(input);preview.alt='发送预览';preview.hidden=true;
+  const name=el('strong',null,'chat-file-name');
+  const replacePhoto=button('更换图片',()=>input.click(),'outline');
   const submit=el('button','发送图片','primary');submit.type='submit';submit.disabled=true;
   const direct=!screenshot && conversation.type==='direct'&&conversation.cloudChat?.enabled;
   const role=direct&&conversation.members.find(member=>member.kind==='ai');
@@ -2617,9 +2625,10 @@ function photoDialog(screenshot,droppedFile){
   const notice=el('p',(direct?
     '留空问题即可只发图片。也可以之后打开图片并选「问 AI」。':
     '会话成员可以查看和另存。')+(screenshot?'':' 原图可能保留拍摄时间或位置。'),'minor');
-  if(droppedFile)form.append(el('p','发送到「'+conversation.title+'」','minor'),el('p',droppedFile.name,'minor'));
+  if(droppedFile)form.append(el('p','发送到「'+conversation.title+'」','minor'),name,input);
   else form.append(label);
   form.append(notice,preview);
+  if(droppedFile)form.append(replacePhoto);
   if(direct)form.append(questionLabel,disclose);
   form.append(submit);
   const updateSendLabel=()=>{
@@ -2650,6 +2659,7 @@ function photoDialog(screenshot,droppedFile){
   }
   async function selectPhoto(file){
     latestFile=file;
+    name.textContent=file?.name??'';
     selected=undefined;submit.disabled=true;preview.hidden=true;preview.removeAttribute('src');
     $('#dialog-error').textContent='';
     if(!file)return;
@@ -2674,7 +2684,7 @@ function photoDialog(screenshot,droppedFile){
     const chosenQuestion=direct?question.value.trim():'';
     if(chosenQuestion&&previousDraft.trim()===chosenQuestion&&drafts.get(id)?.text===previousDraft)
       updateChatDraft(id,{submittedPhotoText:chosenQuestion});
-    input.disabled=question.disabled=true;
+    input.disabled=question.disabled=replacePhoto.disabled=true;
     void perform(async()=>{
       try {
         if(boundToMembership&&(!revision||membershipRevision!==revision))throw Error('file_session');
@@ -2704,7 +2714,7 @@ function photoDialog(screenshot,droppedFile){
       } catch(error) {
         if(current()&&error.message==='unknown_chat')forgetConversation(id);
         throw error;
-      } finally {input.disabled=question.disabled=false;}
+      } finally {input.disabled=question.disabled=replacePhoto.disabled=false;}
     },submit,scope);
   });
 }
