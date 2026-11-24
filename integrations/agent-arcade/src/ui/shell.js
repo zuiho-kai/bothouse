@@ -52,9 +52,9 @@
   const socialTools=[];
   let bothouseActive=false,bothouseEpoch=0,bothousePanel,bothouseBack,bothouseCopy,bothouseRetry,bothouseChoose;
   let worldActive=false,residentStrip,residentButton,residentRetry,residentNote,residentState,residentBusy=false;
-  let worldFriend;
+  let worldFriend,visitsButton,visitsNote,visitSharing;
   const residentMessages={
-    ready:['连接后，好友可从私聊找到这颗星球，访客可见获准角色的名称、形象和活动。','Connect so friends can find this planet from your chat. Visitors can see your authorized AI and their activity.'],
+    ready:['连接后，访客可见已授权 AI 的名称、形象和近期活动。好友来访可单独设置。','Visitors can see your connected AI and their recent activity. You can control friend visits separately.'],
     home:['请先回到自己的星球。','Land on your own planet first.'],
     connected:['已连接，返回聊天后仍会同步。','Connected. Sync continues while you chat.'],
     disconnected:['已从本星球移除这组居民。','These residents have been removed from this planet.'],
@@ -86,11 +86,26 @@
       const value=await window.arcade.storeBothouse({action:'residents-'+action});
       if(visit===bothouseEpoch&&bothouseActive&&worldActive && value?.state!=='closed'){
         residentState=value?.state?value:{state:'unavailable',connected:residentState.connected};
+        if(action!=='open'&&!visitsButton.disabled)void visitPreference('visits-status');
       }
     }catch{if(visit===bothouseEpoch)residentState={state:'unavailable',connected:residentState.connected};}
     finally{if(visit===bothouseEpoch){residentBusy=false;drawResidents();}}
   }
+  async function visitPreference(action){
+    const epoch=bothouseEpoch;
+    visitsButton.disabled=true;
+    const response=await window.arcade.storeBothouse({action}).catch(()=>null);
+    if(epoch!==bothouseEpoch||!worldActive||!bothouseActive)return;
+    const ok=response?.state==='ready';
+    visitSharing=ok?response.sharing:undefined;
+    visitsButton.disabled=false;
+    setText(visitsButton,visitSharing===undefined?tr('重试来访设置','Retry visit settings'):
+      visitSharing?tr('关闭好友来访','Stop friend visits'):tr('允许好友来访','Allow friend visits'));
+    setText(visitsNote,ok?(visitSharing?tr('离线时好友也能从私聊拜访。','Friends can visit from chat while you’re offline.'):''):
+      response?.state==='home'?tr('请先建立自己的家园。','Create your home first.'):tr('暂时无法核对来访设置。','Visit settings are unavailable.'));
+  }
   const worldMessage={
+    'original-home':['请先在原设备用同一好友账号打开自己的星球，再回到这里重试。','Open your planet on the original device with the same Friends account, then retry here.'],
     'friend-unavailable':['这位朋友的星球目前无法拜访。','This friend’s planet is currently unavailable.'],
     loading:['正在打开小星球…','Opening Little Worlds…'],
     login:['请先返回消息，登录好友账号后再进入小星球。','Return to messages and sign in before opening Little Worlds.'],
@@ -134,6 +149,9 @@
       if(worldActive&&state==='ready'&&!friend){
         residentState={state:'ready',connected:false};
         residentStrip.hidden=false;bar.dataset.worldResidents='open';
+        visitSharing=undefined;
+        setText(visitsButton,tr('正在读取来访设置…','Loading visit settings…'));setText(visitsNote,'');
+        void visitPreference('visits-status');
         void residentsAction('open');
       }
     }
@@ -238,7 +256,10 @@
       residentRetry.onclick=()=>void residentsAction('connect');
       residentNote=el('span','store-resident-note');residentNote.id='store-resident-status';residentNote.setAttribute('role','status');
       residentButton.setAttribute('aria-describedby',residentNote.id);
-      residentStrip.append(residentButton,residentRetry,residentNote);bar.append(residentStrip);
+      visitsButton=el('button','shell-ws-button');visitsButton.type='button';visitsButton.id='store-friend-visits';
+      visitsButton.onclick=()=>void visitPreference(visitSharing===undefined?'visits-status':visitSharing?'visits-close':'visits-allow');
+      visitsNote=el('span','store-resident-note');visitsNote.setAttribute('role','status');
+      residentStrip.append(residentButton,residentRetry,residentNote,visitsButton,visitsNote);bar.append(residentStrip);
       new ResizeObserver(()=>{if(!residentStrip.hidden&&bothouseActive&&worldActive){
         void window.arcade.storeBothouse({action:'world-layout',headerBottom:bar.getBoundingClientRect().bottom}).catch(()=>{});
       }}).observe(bar);

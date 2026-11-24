@@ -1,5 +1,6 @@
 'use strict';
 const {spawn}=require('node:child_process');
+const {randomBytes,randomUUID}=require('node:crypto');
 const {existsSync}=require('node:fs');
 const path=require('node:path');
 const {fail}=require('../store.cjs');
@@ -56,23 +57,75 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     }catch(e){if(e.status)throw e;problem('unavailable');}
     finally{if(response&&!response.bodyUsed)await response.body?.cancel();}
   }
-  async function friendPlanet(account,number){
-    function requireFriend(){
-      if(number===account||!store.direct(account,number)||store.user(number).kind!=='human')
-        fail(403,'friends_only','请从真人好友的私聊打开。');
+  const tickets=new Map();
+  const homeRow=account=>store.one('SELECT * FROM friend_world_homes WHERE account=? AND issuer=? AND world=?',account,socialOrigin(),origin);
+  const validPlanet=id=>typeof id==='string'&&/^p-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id);
+  function issueTicket(account,session,body){
+    if(account!==body.expectedAccount)problem('session');
+    if(!origin||body.worldOrigin!==origin)problem('config');
+    const now=Date.now();
+    let pendingForSession=0;
+    for(const [key,grant] of tickets){
+      if(grant.expires<=now)tickets.delete(key);
+      else if(grant.session===session)pendingForSession++;
     }
-    requireFriend();
-    const response={account,number,worldOrigin:origin,planetId:null};
-    const job=jobs.get(number);
-    if(!job?.ready||!sessionAlive(job))return response;
+    if(pendingForSession>=12)problem('busy');
+    if(tickets.size>=4096)problem('busy');
+    const ticket=randomBytes(32).toString('hex');
+    tickets.set(ticket,{account,session,expires:now+60000});
+    return {ticket};
+  }
+  function redeemTicket({ticket,worldOrigin}){
+    const grant=tickets.get(ticket);
+    if(!grant||worldOrigin!==origin||!origin)problem('binding');
+    tickets.delete(ticket);
+    if(grant.expires<=Date.now()||!sessionAlive(grant))problem('session');
+    let instance=store.one('SELECT id FROM world_friends_instance WHERE singleton=1');
+    if(!instance){
+      store.run('INSERT OR IGNORE INTO world_friends_instance VALUES(1,?)',randomUUID());
+      instance=store.one('SELECT id FROM world_friends_instance WHERE singleton=1');
+    }
+    const row=homeRow(grant.account);
+    return {account:grant.account,worldOrigin,instanceId:instance.id,
+      legacy:row?.resident_source?{sourceId:row.resident_source,planetId:row.planet}:null};
+  }
+  function visits(account){
+    const row=homeRow(account);
+    return {account,sharing:!!row?.planet&&row.visits!=='closed'};
+  }
+  async function shareVisits(account,session,body){
+    if(account!==body.expectedAccount)problem('session');
+    if(!origin||body.worldOrigin!==origin)problem('config');
+    if(typeof body.sharing!=='boolean')problem('binding');
+    const keys=[account,socialOrigin(),origin];
+    if(!body.sharing){
+      store.run(`INSERT INTO friend_world_homes(account,issuer,world,visits) VALUES(?,?,?,'closed')
+        ON CONFLICT(account,issuer,world) DO UPDATE SET visits='closed',revision=revision+1`,...keys);
+      return visits(account);
+    }
+    const revision=homeRow(account)?.revision;
+    const {ticket}=issueTicket(account,session,body);
     let verified;
-    try{verified=await control(job,'check');}
-    catch(error){if(error.code!=='planet_binding')throw error;}
-    requireFriend();
-    if(!verified||job!==jobs.get(number)||!sessionAlive(job))return response;
-    if(typeof verified.planetId!=='string'||!/^p-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(verified.planetId))
-      problem('unavailable');
-    return {...response,planetId:verified.planetId};
+    try{
+      const response=await fetch(origin+'/api/friends-home',{method:'POST',redirect:'error',
+        headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(6000),body:JSON.stringify({ticket,expectedAccount:account})});
+      if(!response.ok)problem('unavailable');
+      verified=await response.json();
+    }catch(error){if(error.status)throw error;problem('unavailable');}
+    finally{tickets.delete(ticket);}
+    if(!sessionAlive({account,session})||homeRow(account)?.revision!==revision)problem('session');
+    if(verified?.ok!==true||verified.account!==account||!validPlanet(verified.planetId))
+      fail(409,'planet_home','请先在自己的星球建立家园，再允许好友拜访。');
+    store.run(`INSERT INTO friend_world_homes(account,issuer,world,visits,planet) VALUES(?,?,?,'allowed',?)
+      ON CONFLICT(account,issuer,world) DO UPDATE SET visits='allowed',revision=revision+1,
+      resident_source=CASE WHEN planet=excluded.planet THEN resident_source END,planet=excluded.planet`,...keys,verified.planetId);
+    return visits(account);
+  }
+  function friendPlanet(account,number){
+    if(number===account||!store.direct(account,number)||store.user(number).kind!=='human')
+      fail(403,'friends_only','请从真人好友的私聊打开。');
+    const row=homeRow(number);
+    return {account,number,worldOrigin:origin,planetId:row&&row.visits!=='closed'?row.planet:null};
   }
   function stop(job){
     if(jobs.get(job.account)===job)jobs.delete(job.account);
@@ -165,6 +218,8 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     if([existing,checking].some(j=>j&&j.sourceId!==body.sourceId))problem('in_use');
     if(body.action==='disconnect'){
       if(checking)pending.delete(account);
+      store.run(`UPDATE friend_world_homes SET resident_source=NULL,visits=CASE WHEN visits='residents' THEN 'closed' ELSE visits END,
+        revision=revision+1 WHERE account=? AND issuer=? AND world=? AND resident_source=?`,account,socialOrigin(),origin,body.sourceId);
       if(existing)await stop(existing);
       return view(account);
     }
@@ -180,7 +235,8 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     job.promise=(async()=>{
       // A claimed world slot must match this server, this social account and this owner.
       // Never cancel an existing publisher until the replacement has proved its own grant.
-      await control(job,'check');
+      const verified=await control(job,'check');
+      if(!validPlanet(verified.planetId))problem('unavailable');
       try{
         if(pending.get(account)!==job||!sessionAlive(job))problem('session');
         if(existing?.ready&&existing.token===job.token&&existing.session===session)return view(account);
@@ -191,6 +247,10 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
         if(pending.get(account)!==job||!sessionAlive(job))problem('session');
         jobs.set(account,job);
         await heartbeat(job);current(job);
+        store.run(`INSERT INTO friend_world_homes(account,issuer,world,planet,resident_source,visits) VALUES(?,?,?,?,?,'residents')
+          ON CONFLICT(account,issuer,world) DO UPDATE SET planet=excluded.planet,resident_source=excluded.resident_source,revision=revision+1
+          WHERE friend_world_homes.planet IS NULL OR friend_world_homes.planet=excluded.planet`,
+          account,socialOrigin(),origin,verified.planetId,job.sourceId);
         job.ready=true;job.lastPublished=Date.now();schedule(job);return view(account);
       }catch(e){
         // A late pass cannot stop a newer source that now owns this token.
@@ -206,7 +266,12 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     for(const [a,p] of pending)if(predicate(p))pending.delete(a);
     for(const j of [...jobs.values()])if(predicate(j))void stop(j).catch(()=>{});
   }
-  return {view,change,friendPlanet,endSession:d=>{if(d)cancel(j=>j.session===d);},
-    unpair:a=>cancel(j=>j.account===a),close:()=>{closed=true;cancel(()=>true);}};
+  function unpair(account){
+    cancel(j=>j.account===account);
+    store.run(`UPDATE friend_world_homes SET visits='closed',revision=revision+1
+      WHERE account=? AND issuer=? AND world=? AND visits='residents'`,account,socialOrigin(),origin);
+  }
+  return {view,change,friendPlanet,issueTicket,redeemTicket,visits,shareVisits,unpair,
+    endSession:d=>{if(d)cancel(j=>j.session===d);},close:()=>{closed=true;tickets.clear();cancel(()=>true);}};
 }
 module.exports={planetPublishers};

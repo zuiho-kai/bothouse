@@ -1003,13 +1003,13 @@ visitFriendPlanet?.addEventListener('click',async()=>{
       return;
     }
     if(!destination.planetId){
-      feedback.textContent='这位好友目前没有已连接的星球。';
+      feedback.textContent='这位好友目前没有共享可拜访的星球。';
       return;
     }
     const answer=await window.arcadeWorldVisit.open({account,number:friend.number});
     if(chatVisit!==visit||user?.number!==account)return;
     if(answer?.state!=='opened')
-      feedback.textContent=answer?.state==='unavailable'?'这位好友目前没有已连接的星球。':
+      feedback.textContent=answer?.state==='unavailable'?'这位好友目前没有共享可拜访的星球。':
         answer?.state==='changed'?'好友或账号已变更，请重新打开私聊。':'小星球暂时无法连接，请稍后再试。';
   }catch{
     if(chatVisit===visit&&user?.number===account)feedback.textContent='小星球暂时无法连接，请稍后再试。';

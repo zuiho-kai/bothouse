@@ -474,7 +474,10 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       const body = req.method === 'POST' ? await jsonBody(req,cardSave||privateCardSave?
         65536+PORTRAIT_BASE64_LIMIT:undefined) : null;
       let result;
-      if (req.method === 'POST' && ['register','login'].includes(key)) {
+      if(req.method==='POST'&&key==='world-session-ticket/redeem'){
+        if(req.headers.origin!==undefined||req.headers.cookie!==undefined)fail(403,'planet_binding','此入口供世界服务核验登录。');
+        result=residents.redeemTicket(body);
+      } else if (req.method === 'POST' && ['register','login'].includes(key)) {
         result = await auth.enter(key === 'register',body,req,res);
         residents.endSession(sessionDigest(req));
       } else if (req.method === 'POST' && key === 'logout') {
@@ -488,6 +491,13 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
            (['ai-contacts','ai-contacts/pair','personal-ai','conversations'].includes(key)||
             collection==='conversations'&&(!action||action==='messages')))
           fail(409,'account_changed','请回到当前账号');
+        if((key==='world-session-ticket'&&req.method==='POST')||key==='planet-visits'){
+          const answer=key==='world-session-ticket'?residents.issueTicket(account,sessionDigest(req),body):
+            req.method==='GET'?residents.visits(account):await residents.shareVisits(account,sessionDigest(req),body);
+          if(current(store,req)!==account)fail(409,'planet_session','账号已切换，请重新打开自己的小星球。');
+          res.setHeader('Content-Type','application/json; charset=utf-8');
+          return res.end(JSON.stringify(answer));
+        }
         if(req.method==='GET'&&key==='friend-planet'){
           if(req.headers['x-social-account']!==undefined&&req.headers['x-social-account']!==account)
             fail(409,'planet_session','账号已切换，请重新打开好友私聊。');

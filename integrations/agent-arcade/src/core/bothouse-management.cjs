@@ -11,7 +11,7 @@ const {promisify} = require('node:util');
 const {worldResidentControls}=require('./world-resident-controls.cjs');
 const run = promisify(execFile);
 const fail = code => { throw Object.assign(new Error(code), {code}); };
-const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled', 'login', 'friends-offline', 'friend-unavailable']);
+const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled', 'login', 'friends-offline', 'friend-unavailable', 'original-home']);
 const localFile = file => typeof file === 'string' && /^[a-z]:[\\/]/i.test(file);
 
 function defaultConfig(home=os.homedir(), dataDir=process.env.BOTHOUSE_DATA_DIR) {
@@ -130,6 +130,29 @@ async function worldTarget(origin,socialOrigin,friends) {
   }
 }
 
+async function postWorldJSON(session,url,body){
+  return session.fetch(url,{
+    method:'POST',credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(12000),
+    headers:{Origin:new URL(url).origin,'Content-Type':'application/json'},body:JSON.stringify(body),
+  });
+}
+
+async function openFriendsHome(friends,world,target,socialOrigin,current){
+  const payload={expectedAccount:target.account,worldOrigin:target.origin};
+  const issued=await postWorldJSON(friends,socialOrigin+'/api/v1/world-session-ticket',payload);
+  if(!current())fail('cancelled');
+  if(issued.status===401||issued.status===409)fail('login');
+  if(!issued.ok)fail('friends-offline');
+  const {ticket}=await issued.json();
+  if(!/^[0-9a-f]{64}$/u.test(ticket)||!current())fail('offline');
+  const admitted=await postWorldJSON(world,target.origin+'/api/friends-session',{ticket,expectedAccount:target.account});
+  if(!current())fail('cancelled');
+  if(admitted.status===409)fail('original-home');
+  if(!admitted.ok)fail('offline');
+  const result=await admitted.json();
+  if(result.ok!==true||result.account!==target.account)fail('login');
+}
+
 function mountBothouse({window,WebContentsView,session,dialog,profile,language,inspect=listener,littleWorldsOrigin,socialOrigin}) {
   const bindingFile=path.join(profile,'bothouse-management.json');
   const tr=(cn,en)=>language()==='zh'?cn:en;
@@ -200,6 +223,9 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
     if(['residents-open','residents-connect','residents-disconnect'].includes(value?.action)){
       return guest?.residents ? guest.residents(value.action.slice('residents-'.length)) : {state:'closed'};
     }
+    if(['visits-status','visits-allow','visits-close'].includes(value?.action)){
+      return guest?.visits?guest.visits(value.action):{state:'closed'};
+    }
     if(value?.action==='world-layout'){
       if(guest?.residents && Number.isFinite(value.headerBottom)&&value.headerBottom>=1&&value.headerBottom<=200){
         top=value.headerBottom;fit();
@@ -229,22 +255,7 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
         friends.cookies.on('changed',accountChanged);
         detachAccountWatch=()=>friends.cookies.removeListener('changed',accountChanged);
         target=await worldTarget(origin,socialOrigin,friends);
-        if(value.friend){
-          const {account,number}=value.friend;
-          if(account!==target.account)fail('login');
-          if(typeof number!=='string'||!/^[a-z0-9_]{4,24}$/u.test(number))fail('friend-unavailable');
-          let response;
-          try{
-            response=await friends.fetch(socialOrigin+'/api/v1/friend-planet?number='+number,{
-              headers:{'X-Social-Account':account},credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(7000)});
-          }catch{fail('friends-offline');}
-          if(response.status===401||response.status===409)fail('login');
-          if(!response.ok)fail(response.status>=500?'friends-offline':'friend-unavailable');
-          const destination=await response.json();
-          if(destination.account!==account||destination.number!==number||destination.worldOrigin!==origin||
-             !/^p-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(destination.planetId))fail('friend-unavailable');
-          target.planet=destination.planetId;
-        }
+
       } else target=await managementTarget(value.action,current);
       if(!current())fail('cancelled');
       const {partition,origin}=target;
@@ -264,10 +275,46 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
           details.url===origin+'/api/app-residents';
         cb({cancel:!(alive||rollback) || !belongs(details.url,origin)});
       });
+      if(world){
+        const friends=session.fromPartition('persist:arcade-social');
+        await openFriendsHome(friends,isolated,target,socialOrigin,current);
+        if(!current())fail('cancelled');
+        if(value.friend){
+          const {account,number}=value.friend;
+          if(account!==target.account)fail('login');
+          if(typeof number!=='string'||!/^[a-z0-9_]{4,24}$/u.test(number))fail('friend-unavailable');
+          let response;
+          try{
+            response=await friends.fetch(socialOrigin+'/api/v1/friend-planet?number='+number,{
+              headers:{'X-Social-Account':account},credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(7000)});
+          }catch{fail('friends-offline');}
+          if(response.status===401||response.status===409)fail('login');
+          if(!response.ok)fail(response.status>=500?'friends-offline':'friend-unavailable');
+          const destination=await response.json();
+          if(destination.account!==account||destination.number!==number||destination.worldOrigin!==origin||
+             !/^p-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(destination.planetId))fail('friend-unavailable');
+          target.planet=destination.planetId;
+        }
+        if(!current())fail('cancelled');
+      }
       const view=new WebContentsView({webPreferences:{session:isolated,nodeIntegration:false,contextIsolation:true,sandbox:true,devTools:false,
         webSecurity:true,webviewTag:false,navigateOnDragDrop:false}});
       guest={view};top=value.headerBottom;
       if(world){
+        const friends=session.fromPartition('persist:arcade-social');
+        if(!value.friend)guest.visits=async action=>{
+          const url=socialOrigin+'/api/v1/planet-visits';
+          try{
+            const reply=action==='visits-status'?await friends.fetch(url,{credentials:'include',redirect:'error',
+              cache:'no-store',signal:AbortSignal.timeout(7000)}):await postWorldJSON(friends,url,
+              {expectedAccount:target.account,worldOrigin:origin,sharing:action==='visits-allow'});
+            if(!current())return {state:'closed'};
+            const result=await reply.json();
+            if(!reply.ok)return {state:result.error?.code==='planet_home'?'home':'unavailable'};
+            if(result.account!==target.account||typeof result.sharing!=='boolean')return {state:'unavailable'};
+            return {state:'ready',sharing:result.sharing};
+          }catch{return {state:'unavailable'};}
+        };
         guest.residents=worldResidentControls({world:isolated,worldOrigin:origin,socialOrigin,
           friends:session.fromPartition('persist:arcade-social'),account:target.account,current,
           onRollback:value=>{rollbackPending=value;}});

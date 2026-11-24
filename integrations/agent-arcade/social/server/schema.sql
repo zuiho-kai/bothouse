@@ -14,6 +14,15 @@ CREATE TABLE IF NOT EXISTS human_avatars (
 CREATE TABLE IF NOT EXISTS sessions (
   digest TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES users, expires INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS world_friends_instance (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1), id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS friend_world_homes (
+  account TEXT NOT NULL REFERENCES users(number) ON DELETE CASCADE,
+  issuer TEXT NOT NULL, world TEXT NOT NULL, planet TEXT, resident_source TEXT,
+  visits TEXT NOT NULL CHECK(visits IN ('residents','allowed','closed')), revision INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY(account,issuer,world)
+);
 CREATE TABLE IF NOT EXISTS bothouse_pair_codes (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   digest TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL
