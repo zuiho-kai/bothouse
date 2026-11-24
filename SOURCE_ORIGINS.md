@@ -24,3 +24,5 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 integrations/dsh-acp-stream/source.patch 基于 DeepSeek Harness 提交 ecc89fff43a85d7f836a99472dd31e672fd89c26，扩展已有 ACP 接口，包含本项目的流式展示和 JSON 历史解码修改。原始代码与修改遵循 MIT，许可副本见该目录 LICENSE-MIT-DeepSeek。部署需应用到匹配源码并构建，不修改已安装 node_modules。
 
 [Agent Arcade 好友与群聊](integrations/agent-arcade/social/README.md) 的源码来自 [Ray0766/agent-arcade](https://github.com/Ray0766/agent-arcade)。导入提交的 Source-Commit 记录原始修订。
+
+Agent Arcade 的桌面宿主沿用Electron 与项目的原生 DOM 客户端。源提交 `f608695a`（Codex）接入本机管理页，`2cfe12f2`（Agent Arcade Software 6）清理桌面重复诊断入口，`399a2777`（Codex）限定角色形象的展示场景。`3f20e56f`、`7004b68c`（Agent Arcade Codex）接入真实目录、聊天和首次授权。`1b65c893`（Agent Arcade Software 6）按获准的 Bothouse 项目读取角色图。公共源码范围和逐项素材许可见[模块说明](integrations/agent-arcade/README.md)。
