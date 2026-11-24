@@ -2,11 +2,11 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "5d14019acbfd5fb67a7d6055cac74fe3779c0442",
-  "worldTree": "82f92a95c50410c84f0f7994f193b1f21f631275",
+  "worldRevision": "bae54ce410c6d8d778eef8ed4bd4835f2780d514",
+  "worldTree": "e0cca3ca32af81663ff84ce7f70acfc02ba397b2",
   "patchSHA256": "0b4caf95711d5f389b5a5eacc61eb79e049aa925fc9a0945ff4aaa7083a98616",
   "windowsPublisherSHA256": {
-    "publish-residents.py": "9d2fe545dce6df02ebe4b24b708976acc614129e48c414b76a6db94195c87387",
+    "publish-residents.py": "5b921bc405941feef45d9cd9459571c534dc0ff5e19ceebd3af1ba2e4e62fe8b",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
   },
   "files": [
@@ -67,8 +67,8 @@
     {
       "action": "A",
       "path": "scripts/publish-residents.py",
-      "blob": "c499ca861d3e69cea8f4ae33fc6ce474f0bed8da",
-      "sha256": "7b78f250ba1551b504f61c8d53710d371d066303b943473e8b395c97d73d702c"
+      "blob": "97e37f53077d7f1e946052b97eb1c4c882d866c0",
+      "sha256": "c87dc3ef3a5c523f3edd5376b107e41cf94a87de53f9969b57a35b78499ae976"
     },
     {
       "action": "A",
@@ -91,8 +91,8 @@
     {
       "action": "A",
       "path": "scripts/test_resident_looks.py",
-      "blob": "7d25deda3c96191eea5bb4f63b36c081ad64c566",
-      "sha256": "1de2b98a943132b90b973a123b0c25d4ad482fae26adb40282ad96e3d7584bea"
+      "blob": "d962ec6fff24e418b8aec8a26a881cca1ea32a49",
+      "sha256": "3d5e22f17c766daff3af41da4687e4fa1c51d124e3c8544f9d3146bd05a22d0c"
     },
     {
       "action": "A",

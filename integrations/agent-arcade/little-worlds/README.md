@@ -10,6 +10,12 @@ python install.py .\LittleWorlds --run
 
 关闭终端后的再次启动：`python LittleWorlds/serve.py`。默认保存于安装目录的 .data/resident-preview/world.sqlite。请使用空目录首次安装；端口已占用可选 `--port 18749`，此时选择该回环地址，同一端口使用同一存档。已有 Bothouse 角色和模型配置由房主在 Bothouse 中管理。
 
+## 自定义居民的三维造型
+
+在支持「星球里的三维造型」的 Bothouse 成员设置中，房主可分别保存星球身体和本机头像。保存后，已连接的发布器会将造型自动同步到星球。头像原件仍按原有分享设置处理。仅安装游戏即可使用旧版 Bothouse 的已有造型与默认规则。要更换头像后仍保留指定身体，请同时使用包含独立造型设置的 Bothouse 版本。
+
+For a costume that survives portrait changes, use a Bothouse build with the **3D appearance on the planet** member setting. The publisher syncs that stored selection automatically. Older Bothouse builds still work with their existing avatar presets and the default resident models.
+
 ## 与 Agent Arcade 好友共用星球
 
 房主只需在好友 App 里登录。部署者第一次安装时可指定可信桌面包的 service.json，安装器读取其中的 `origin` 和 `littleWorldsOrigin`。同一份世界存档下次直接运行 serve.py 仍会使用这两个地址。

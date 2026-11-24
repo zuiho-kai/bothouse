@@ -57,6 +57,15 @@ class ResidentLooks(unittest.TestCase):
         for private in [*models, "private-marker", "fixture"]:
             self.assertNotIn(private, json.dumps(captured))
 
+    def test_native_body_with_private_portrait(self):
+        body = pub["native_body"]
+        member = {"avatar": "upload:private.png", "name": "GPT", "model": {"model": "gpt-5"}}
+        self.assertEqual(body(member), "dragon")
+        self.assertEqual(body({**member, "worldBody": "whale"}), "whale")
+        self.assertEqual(body({**member, "avatar": "whale", "worldBody": "auto"}), "dragon")
+        self.assertEqual(body({**member, "model": None}), "default")
+        self.assertEqual(body({**member, "model": None, "cli": "gemini"}), "rainbow")
+
     def test_approved_portrait_retained(self):
         row = {"appearanceKey": "brand-openai", "portrait": {"sha256": "a"*64}}
         pub["finalize_looks"]({"residents": [row]})

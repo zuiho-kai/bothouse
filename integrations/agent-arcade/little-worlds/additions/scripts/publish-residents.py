@@ -33,6 +33,16 @@ AGENTS = {"claude": "orange", "claudecode": "orange", "codex": "dragon",
           "grok": "grok", "minimax": "lanxi"}
 
 
+def model_look(model, agent):
+    model = str(model or "").lower()
+    match = re.fullmatch(r"(?:(?:anthropic|openai|deepseek|google|xai|minimax)/)?"
+                         r"(claude|gpt|codex|o[134]|deepseek|gemini|grok|minimax)(?:[-.:][a-z0-9.-]+)?", model)
+    if match:
+        family = match[1]
+        return "dragon" if family in ("gpt", "o1", "o3", "o4") else AGENTS[family]
+    return AGENTS.get(agent, "default")
+
+
 def role_looks(rows):
     looks = {}
     for row in rows:
@@ -43,15 +53,7 @@ def role_looks(rows):
         if source == "dsh" and not name.startswith("dsh:"):
             continue
         key = (source, name[4:] if source == "dsh" else name)
-        model = str(row.get("model") or "").lower()
-        match = re.fullmatch(r"(?:(?:anthropic|openai|deepseek|google|xai|minimax)/)?"
-                             r"(claude|gpt|codex|o[134]|deepseek|gemini|grok|minimax)(?:[-.:][a-z0-9.-]+)?", model)
-        if match:
-            family = match[1]
-            look = "dragon" if family in ("gpt", "o1", "o3", "o4") else AGENTS[family]
-        else:
-            # Management also emits 'dsh' for external bots with unknown CLI.
-            look = AGENTS.get(row.get("agent_type"), "default")
+        look = model_look(row.get("model"), row.get("agent_type"))
         looks[key] = look if key not in looks or looks[key] == look else "default"
     return looks
 
@@ -152,6 +154,18 @@ def fingerprint(data_dir):
     return digest(public)
 
 
+def native_body(member):
+    # Older hosts expose only avatar. Ignore private image references and use known role metadata.
+    chosen = member.get("worldBody") or member.get("avatar")
+    if isinstance(chosen, str):
+        if chosen in BRANDS.values():
+            return chosen
+        if chosen in BRANDS:
+            return BRANDS[chosen]
+    model = member.get("model")
+    return model_look(model.get("model") if isinstance(model, dict) else model, member.get("cli"))
+
+
 def native_dsh_profiles(base, headers, data_dir):
     """Read the native member's selected built-in look through Bothouse Channels."""
     local_host = None
@@ -178,7 +192,7 @@ def native_dsh_profiles(base, headers, data_dir):
                 return None, {}
             local_host = site.netloc
             state = request(site, "/collab/api/state", {"X-Collab-Local": token})
-        return local_host, {row["id"]: (row.get("avatar") or "") for row in state["members"]
+        return local_host, {row["id"]: native_body(row) for row in state["members"]
                 if isinstance(row, dict) and row.get("kind") == "dsh" and isinstance(row.get("id"), str)}
     except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException):
         return None, {}
@@ -341,10 +355,9 @@ def project_snapshot(cfg_file, selected, friends=None):
             if activity == "idle" and project in dsh_looks and project in bound_busy:
                 # Channels may have no team reader. Only project the engine busy bit.
                 residents[-1]["activity"] = "working"
-            avatar = dsh_looks.get(project)
-            if isinstance(avatar, str) and avatar:
-                look = BRANDS.get(avatar, avatar if avatar in BRANDS.values() else "default")
-                residents[-1]["_builtin"] = look
+            body = dsh_looks.get(project, "default")
+            if body != "default":
+                residents[-1]["_builtin"] = body
                 continue
         if not any(options):
             residents[-1]["_builtin"] = inferred.get((source, project), "default")
