@@ -568,7 +568,9 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("用户说先别做", sec)
         self.assertLess(sec.index("接着做"), sec.index("用户说先别做"))
         self.assertNotIn("用户说先别做", text[text.index("## 检查点"):])
-        self.assertIn("按这条做：用户说先别做", prompt)
+        self.assertIn("用户原话是准绳，主角色的话只作参考：", prompt)
+        self.assertIn("主角色的话（只作参考）：用户说先别做", prompt)
+        self.assertNotIn("按这条做", prompt)
         self.assertNotIn("接着推进", prompt)
 
     def test_forward_wakes_as_delivery_not_status_poll(self):
@@ -665,7 +667,7 @@ class WsPoolTest(unittest.TestCase):
         self.assertIn("已暂停（#1）：用户说先别做。停手", sec)
         prompt = self.forward(notes, "再说一遍：别跑评测")
         self.assertIn("已暂停（#1）：停手，不要再起后台命令", prompt)
-        self.assertIn("原文：再说一遍：别跑评测", prompt)
+        self.assertIn("原文：主角色的话（只作参考）：再说一遍：别跑评测", prompt)  # 停手那句是程序写的照旧；主角色转的话标参考（#1956）
 
     def test_forward_creates_section_when_missing(self):
         notes = self.note("y")

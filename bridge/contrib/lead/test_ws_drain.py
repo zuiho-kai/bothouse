@@ -90,7 +90,8 @@ class Drain(unittest.TestCase):
             stack.enter_context(patch.object(self.g["_recall"],"append_to"))
             stack.enter_context(patch.dict(self.g,{"start":start}))
             self.mod["resume_answered"](70,"continue with evidence")
-        self.assertEqual(started,[(69,None),(70,"continue with evidence")])
+        # 续派时主角色写的那句标「只作参考」再给工作区（#1956，用户 11-24 批：主角色的话只作参考，用户原话才是准绳）
+        self.assertEqual(started,[(69,None),(70,"主角色的话（只作参考）：continue with evidence")])
         self.assertEqual(json.loads(queue.read_text()),[])
 
     def test_queued_pause_is_not_pruned_while_waiting_for_resume(self):
