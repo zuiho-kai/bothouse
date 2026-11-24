@@ -152,7 +152,10 @@ def run(file, request):
         return {"instance": instance, "projects": roles}
     listing = request["action"] == "list"
     if not roles:
-        return {"contacts": [], "directoryStatus": "empty"} if listing else {"error": "unavailable"}
+        if not listing:
+            return {"error": "unavailable"}
+        return {"contacts": [], "directoryStatus": "empty",
+                "directoryReason": "no_roles" if instance is None else "not_shared"}
     if not any(r["configured"] for r in roles):
         return {"contacts": roles, "directoryStatus": "offline"} if listing else {"error": "unavailable"}
     if not listing and (request["action"] != "chat" or len(roles) != 1):

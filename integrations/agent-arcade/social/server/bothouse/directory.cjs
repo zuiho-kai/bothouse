@@ -42,7 +42,9 @@ function bothouseDirectory(store, request) {
   async function list(account, number) {
     const data = await request({action:'list',account,link:pairing.active(store,account),...(number && {number})});
     if (!Array.isArray(data?.contacts)) return {contacts:[],directoryStatus:'offline'};
-    return {contacts:data.contacts, directoryStatus:data.directoryStatus};
+    const {contacts, directoryStatus, directoryReason} = data;
+    return {contacts, directoryStatus,
+      ...(directoryStatus==='empty' && ['no_roles','not_shared'].includes(directoryReason) ? {directoryReason} : {})};
   }
   async function resolveMember(account, number) {
     if (typeof number!=='string' || !targetNumber.test(number.toLowerCase())) return null;

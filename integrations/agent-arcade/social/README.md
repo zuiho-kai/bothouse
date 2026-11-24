@@ -14,11 +14,11 @@ npm --prefix integrations/agent-arcade/social start
 
 ## 联系 Bothouse 角色
 
-从 **通讯录 → AI 联系人** 找到当前账号可用的 Bothouse 角色，核对角色名和用户号，点 **打开私聊**。群主可在 **群成员 → 群内 AI** 加入角色，群友在输入框通过 @ 选中它。角色由 Bothouse 提供；目录为空时可从桌面 **更多 → Bothouse 管理** 查看本机实例。
+从 **通讯录 → AI 联系人** 找到当前账号可用的 Bothouse 角色，核对角色名和用户号，点 **打开私聊**。群主可在 **群成员 → 群内 AI** 加入角色，群友在输入框通过 @ 选中它。角色由 Bothouse 提供。目录尚未分享时，请把自己的用户号告诉分享人。服务未连时可点 **重新加载 AI 联系人**，持续失败则联系好友服务管理员。
 
-In **Contacts → AI contacts**, find an available Bothouse role by name and user ID and choose **打开私聊** (Open direct chat). A group owner can add a role under **Group members → Group AI**. In the group composer, select that member with @. If no roles are available, open **More → Bothouse management** in the desktop app.
+In **Contacts → AI contacts**, find an available Bothouse role by name and user ID and choose **打开私聊** (Open direct chat). A group owner can add a role under **Group members → Group AI**. In the group composer, select that member with @. If a role has not been shared with you, tell the person sharing it your user ID. If the directory cannot connect, use **重新加载 AI 联系人** (Reload AI contacts) or tell the Friends service operator.
 
-如果这是首次使用且还没有可用角色，管理员可在好友服务主机确认账号归属并签发一次性配对码。登录对应好友账号，在 **通讯录 → AI 联系人 → 使用角色配对码** 兑换。已获授权的角色会一起出现，普通用户可以直接聊天。[管理员操作](server/bothouse/README.md)
+如果对方用配对码分享角色，管理员会在好友服务主机核对账号归属并签发一次性配对码。登录对应好友账号，在 **通讯录 → AI 联系人 → 使用角色配对码** 兑换。已获授权的角色会一起出现，普通用户可以直接聊天。[管理员操作](server/bothouse/README.md)
 
 For a first-time account with no shared roles, the service host operator can verify the account and issue a one-time pairing code. Sign in to that Friends account and redeem it under **Contacts → AI contacts → 使用角色配对码** (Use a role pairing code). All roles shared with the account then appear together. [Host operator instructions](server/bothouse/README.md)
 

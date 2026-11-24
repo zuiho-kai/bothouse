@@ -3275,7 +3275,7 @@ function showAiContacts() {
     }
   },null,scope);
   void perform(async()=>{
-    const {contacts,directoryStatus}=await api('/ai-contacts');
+    const {contacts,directoryStatus,directoryReason}=await api('/ai-contacts');
     if(generation!==epoch||dialogGeneration!==scope)return;
     const roles=contacts.filter(contact=>contact.kind==='ai'&&contact.source==='bothouse'&&contact.configured===true);
     if(directoryStatus)void perform(async()=>{
@@ -3284,13 +3284,26 @@ function showAiContacts() {
       catch(error){if(error.status===404)return;throw error;}
       if(generation!==epoch||dialogGeneration!==scope)return;
       if(state.paired===true)pairing.append(button('解除角色配对',()=>showBothousePair(account,true)));
-      else if(state.paired===false&&directoryStatus==='empty'&&!contacts.length)
+      else if(state.paired===false&&directoryStatus==='empty'&&directoryReason!=='no_roles'&&!contacts.length)
         pairing.append(button('使用角色配对码',()=>showBothousePair(account,false)));
     },null,scope);
     if(!roles.length){
-      const notice=directoryStatus==='offline'?'暂时无法连接 Bothouse 角色目录。':
-        directoryStatus?'目前没有可用的 AI 角色。':'当前好友服务没有提供 Bothouse 角色目录。';
-      list.replaceChildren(el('p',notice),el('p',bothouseRoleGuide,'minor'));
+      if(directoryStatus==='offline'){
+        list.replaceChildren(el('p','暂时连不上 Bothouse。'),
+          el('p','请稍后重试。如果仍连不上，请联系这台好友服务的管理员。','minor'),
+          button('重新加载 AI 联系人',showAiContacts));
+      }else if(directoryReason==='no_roles'){
+        list.replaceChildren(el('p','这台 Bothouse 还没有可分享的聊天角色。'),
+          el('p','如果你负责管理这台 Bothouse，请到「更多 → Bothouse」添加一个支持好友聊天的角色。普通朋友可以请管理员添加并分享，之后在这里查看。','minor'),
+          button('刷新 AI 联系人',showAiContacts));
+      }else if(directoryStatus==='empty'){
+        list.replaceChildren(el('p',directoryReason==='not_shared'?
+          '还没有角色分享给当前账号。':'当前账号还没有可用的 AI 联系人。'),
+          el('p','请把自己的用户号告诉分享人。有配对码后在这里使用。如果已获直接授权，刷新即可。','minor'),
+          button('刷新 AI 联系人',showAiContacts));
+      }else{
+        list.replaceChildren(el('p','当前好友服务没有提供可用的 Bothouse 角色目录，请联系管理员。'));
+      }
       return;
     }
     const cards=el('div',null,'ai-role-grid');
