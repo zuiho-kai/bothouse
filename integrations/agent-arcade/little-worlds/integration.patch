@@ -110,6 +110,32 @@ index b730d3d2aa8fcf30938fb85d0e57464b68942005..c846ef9b2e15b65dd66c59f0a7087c98
 + expect(fetch).not.toHaveBeenCalled();
 +});
 \ No newline at end of file
+diff --git a/spec/multiplayer-sync.test.ts b/spec/multiplayer-sync.test.ts
+index 9d5be1fc64008293f78343a54bf166e39b88f224..fd8efa6865b7402a27b06514f66eb1caf37c9187 100644
+--- a/spec/multiplayer-sync.test.ts
++++ b/spec/multiplayer-sync.test.ts
+@@ -32,9 +32,9 @@ function colonyFixture(current:Universe,read:()=>Promise<Universe>=async()=>curr
+   document.body.innerHTML='<button id="open-history"></button><button id="open-terrain"></button><select id="built-list"></select><canvas></canvas>';
+-  const applyPlayer=vi.fn(()=>true),paint=vi.fn(),obstacles=vi.fn();
++  const applyPlayer=vi.fn(()=>true),paint=vi.fn(),obstacles=vi.fn(),onReadFailure=vi.fn();
+   // Exercise the real acceptance/polling methods without the editor's event setup.
+   const colony:Colony=Object.assign(Object.create(Colony.prototype) as Colony,{universe:current,building:false,syncing:true,busy:false,
+-    bridge:{applyPlayer,universe:paint,obstacles,canvas:document.querySelector('canvas'),read} as Partial<ColonyBridge>,
++    bridge:{applyPlayer,universe:paint,obstacles,canvas:document.querySelector('canvas'),read,onReadFailure} as Partial<ColonyBridge>,
+     layer:new Group(),pathPreview:new Group(),objects:new Map(),shadows:new PlacedObjectShadows(),painted:'',selected:null,pollBusy:false,
+     hud:vi.fn(),editor:vi.fn(),starMap:vi.fn(),renderObject:vi.fn(()=>new Group())});
+-  return {colony,applyPlayer,paint,obstacles};
++  return {colony,applyPlayer,paint,obstacles,onReadFailure};
+ }
+@@ -119,5 +119,6 @@ it('keeps successful reconnect state when an earlier universe poll fails later',
+   s.createObject('owner',{planetId:planet,objectId:randomUUID(),kind:'lamp',position:normalize([.5,1,.4]),rotation:0});c.colony.accept(s.universe('visitor'));
+-  fail(new Error('old disconnected request'));await pending;expect(c.colony.syncing).toBe(true);
++  fail(new Error('old disconnected request'));await pending;expect(c.colony.syncing).toBe(true);expect(c.onReadFailure).not.toHaveBeenCalled();
+   const disconnected=colonyFixture(before,async()=>{throw new Error('current failure');});await (disconnected.colony as unknown as {poll:()=>Promise<void>}).poll();
+-  expect(disconnected.colony.syncing).toBe(false);disconnected.colony.accept(s.universe('visitor'));expect(disconnected.colony.syncing).toBe(true);
++  expect(disconnected.colony.syncing).toBe(false);expect(disconnected.onReadFailure).toHaveBeenCalledOnce();
++  disconnected.colony.accept(s.universe('visitor'));expect(disconnected.colony.syncing).toBe(true);
+ });
 diff --git a/spec/town-residents.test.ts b/spec/town-residents.test.ts
 index 4ce3509ab79c6be9e4f83d9bb35ebca818b3ec49..3c232d4e5a7bcc79aa6e56450e9f0d195ddf10ed 100644
 --- a/spec/town-residents.test.ts
@@ -296,13 +322,33 @@ index 9e2e1f9978b075934705f6aaaf25981ddaa57039..a614b875aadb91c3d2e23932784dfa2f
 +  if(shadow)shadow.visible=grounded;if(!grounded&&!reduced){legs.forEach(l=>{l.hip.rotation.x=-.15;l.knee.rotation.x=.35;});}
    if(t<gestureUntil&&!reduced&&!parcel.visible){arms[1].upper.rotation.z=-2.25;arms[1].forearm.rotation.x=Math.sin(t*14)*.25;}
 diff --git a/src/client/colony.ts b/src/client/colony.ts
-index 09549aaf6fa80e4da5e025d2cea68daff88c3d4a..5f7c7a4814b9f5624b84e0042dc90d5a2555571d 100644
+index 09549aaf6fa80e4da5e025d2cea68daff88c3d4a..d8a52ee284d047a66651a2477aa56aed6ec474c1 100644
 --- a/src/client/colony.ts
 +++ b/src/client/colony.ts
 @@ -1 +1,2 @@
 +import {addTownExterior} from './town-exterior.ts';
  import { localizedOption, setAttribute, setText, translate } from './i18n.ts';
-@@ -277,3 +278,5 @@ export class Colony {
+@@ -35,3 +36,3 @@ export interface ColonyBridge {
+   obstacles: (blocks:Obstacle[]) => void; pause: (building:boolean) => void;
+-  read: () => Promise<Universe>; write: (route:string, body:unknown) => Promise<Universe>;
++  read: () => Promise<Universe>; onReadFailure?: () => void; write: (route:string, body:unknown) => Promise<Universe>;
+   libraryRead: () => Promise<LibraryEntry[]>; librarySave: (body:unknown) => Promise<LibraryEntry>;
+@@ -226,3 +227,13 @@ export class Colony {
+     const before=this.universe;
+-    try{this.accept(await this.bridge.read());}catch{if(this.universe===before){this.syncing=false;this.hud();this.editor();}}finally{this.pollBusy=false;}
++    let received=false;
++    try{
++      const next=await this.bridge.read();
++      received=true;
++      this.accept(next);
++    }catch{
++      if(this.universe===before){
++        this.syncing=false;this.hud();this.editor();
++        if(!received)this.bridge.onReadFailure?.();
++      }
++    }finally{this.pollBusy=false;}
+   }
+@@ -277,3 +288,5 @@ export class Colony {
        :buildBlueprintModel(visibleParts,worldMaterials(),'medium',options);
 -    const finish=buildStructureFinish(parts,worldMaterials(),cameraCutaway?{cameraPartSlots:cameraPartSlots(parts)}:{});model.object.add(finish.object);
 +    const slots=cameraCutaway?cameraPartSlots(parts):undefined;
@@ -492,38 +538,75 @@ index 7a870819b29ebed6159a71a69de0600400265e76..bf706cd6fa139b03cabbd15bbdea1995
 +  language = saved === 'en' || saved === 'zh' ? saved : fallback;
    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
 diff --git a/src/client/main.ts b/src/client/main.ts
-index 0639a7b2e636be2963ca2599618308f12632025a..ffb8c32abd0966eaf53a3dc1cb93ceda554095c4 100644
+index 0639a7b2e636be2963ca2599618308f12632025a..e55e97277ae3e8a00fe08b9cd7f90a3cbd34dc39 100644
 --- a/src/client/main.ts
 +++ b/src/client/main.ts
 @@ -32,2 +32,3 @@ import { createVillagePolish } from './village-polish.ts';
  import { BOARD_RADIUS, portPoint } from '../shared/ports.ts';
 +import { BothouseResidents } from './bothouse-residents.ts';
  import { GroundPresence } from './presence.ts';
-@@ -319,2 +320,3 @@ worldMaterials().attachRenderer(renderer,textureFormat());
+@@ -270,3 +271,4 @@ function accept(next: PlayerState) {
+   if(previousMode==='ground'&&state.flight.mode==='space'&&activePlanet==='hub'&&!reduced&&flight){departure={time:0,base:world.parked.root.position.clone(),start:camera.position.clone(),rotation:camera.quaternion.clone()};flight.presentation=true;document.body.classList.add('departing');notice('Departure clearance granted · Sunseed Harbour',4200);}
+-  physicsMismatch=false;online = navigator.onLine; renderSaveProgress(); renderTask();
++  // An accepted world response proves this server is reachable, even on a local-only network.
++  physicsMismatch=false;online=true;renderSaveProgress();renderTask();
+   homeInterior?.receive(state);homeInterior?.setOnline(online);homeControls?.receivePlayer(state);
+@@ -275,7 +277,10 @@ function accept(next: PlayerState) {
+ }
+-function failed(error: unknown) {
+-  clearGroundMotion();
+-  presence.clear();
+-  online = false; status('Offline · retrying', true);
++function worldUnavailable(){
++  if(physicsMismatch)return;
++  online=false;presence.clear();clearGroundMotion();clearInput();flight?.clear();
+   homeInterior?.setOnline(false);
++  status('Offline · retrying',true);
++}
++function failed(error: unknown) {
++  worldUnavailable();
+   notice(error instanceof Error ? error.message : 'Could not save. Reconnecting…');
+@@ -319,2 +324,3 @@ worldMaterials().attachRenderer(renderer,textureFormat());
  const scene = new T.Scene();
 +const bothouseResidents=new BothouseResidents(scene,reduced);
  const exteriorHomeDoor=createHomeDoor();scene.add(exteriorHomeDoor.root);exteriorHomeDoor.root.visible=false;
-@@ -734,2 +736,6 @@ function animate(now:number) {
+@@ -723,3 +729,3 @@ setInterval(async()=>{
+   try {
+-    const next=await serial(()=>stateLoader.read());if(!accept(next))return;
++    const next=await serial(()=>stateLoader.read());if(online||!accept(next))return;
+     walker=new SurfaceWalker(next.position);lastSaved.copy(walker.up);clearInput();rebaseGroundCamera();ensureColony();notice('Back at your last saved spot. Welcome home.');
+@@ -727,4 +733,2 @@ setInterval(async()=>{
+ },2500);
+-window.addEventListener('online',()=>notice('Reconnecting to your worlds…'));
+-window.addEventListener('offline',()=>{presence.clear();online=false;homeInterior?.setOnline(false);clearGroundMotion();clearInput();flight?.clear();status('Offline · retrying',true);});
+ 
+@@ -734,2 +738,6 @@ function animate(now:number) {
    mouseLook?.sync();lookButton.hidden=!canLook()||overview;paintLookHint();
 +  const garden=colony?.universe?.currentPlanet;
 +  const visitVisible=online&&colony?.syncing&&!document.hidden&&!graphicsLost&&!worldPending&&!state?.appearanceRequired&&state?.flight.mode==='ground'&&state.location?.kind!=='interior'&&!homeTransition&&garden?.id===activePlanet&&garden.claimed&&garden.kind==='garden';
 +  const landedGarden=online&&colony?.syncing&&state?.flight.mode==='ground'&&garden?.kind==='garden'&&garden.claimed?garden.id:null;
 +  bothouseResidents.frame(visitVisible?groundWorld:null,landedGarden,state?.location?.visitEpoch??0,now,!!garden?.mine&&garden.id===activePlanet&&online);
    if(graphicsLost)return;
-@@ -910,2 +916,3 @@ function animate(now:number) {
+@@ -910,2 +918,3 @@ function animate(now:number) {
    const cutawayFrame=cameraLocalExceptionB&&!overview?committedCutawayFrame:activeTownCutaway&&groundWorld?activeTownCutaway.update({world:groundWorld,camera,feet,up:renderUp,dt,enabled:cameraCutawayB&&!overview,diagnostics:measureCamera}):null;
 +  bothouseResidents.animate(dt,walker.up.toArray() as Vec3,renderCamera(),!scenePaused);
    residents?.update({dt,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:renderCamera(),reducedMotion:reduced,enabled:!scenePaused});
-@@ -915,2 +922,3 @@ function animate(now:number) {
+@@ -915,2 +924,3 @@ function animate(now:number) {
    practical.update(scene,renderCamera(),dt);if(indoorRoomView.room)indoorRoomView.render();else drawing.render(new T.Vector3(),overview);readyWelcome();
 +  if(measureCamera)renderer.domElement.dataset.companions=JSON.stringify(bothouseResidents.snapshot(renderCamera()));
    // Opt-in, atomic evidence from this rendered frame. Reading this snapshot can
-@@ -1032,3 +1040,3 @@ function ensureColony() {
+@@ -1032,3 +1042,3 @@ function ensureColony() {
      apply:next=>{if(colony?.universe!==next)colony?.accept(next);},notice});
 -  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
 +  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,findShip:()=>worldGuide.findShip(),apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
    flight.setDesign((state.ship??defaultShip()).design);flight.receive(state.flight);scene.environment=flight.scene.environment;scene.environmentIntensity=groundPresentation(activePlanet,activeRadius).environmentIntensity;
-@@ -1061,3 +1069,3 @@ photoMode=new PhotoMode({renderer,
+@@ -1040,3 +1050,4 @@ function ensureColony() {
+     libraryRead:()=>request<import('../shared/blueprints.ts').LibraryEntry[]>('blueprints'),librarySave:body=>serial(()=>request<import('../shared/blueprints.ts').LibraryEntry>('blueprints/save',body)),
+-    read:()=>request<Universe>('universe'),write:(route,body)=>serial(()=>request<Universe>(route,body)),flush:async()=>{await savePosition(true);await queue;},notice,
++    read:()=>request<Universe>('universe'),onReadFailure:()=>{if(online)worldUnavailable();},
++    write:(route,body)=>serial(()=>request<Universe>(route,body)),flush:async()=>{await savePosition(true);await queue;},notice,
+   });
+@@ -1061,3 +1072,3 @@ photoMode=new PhotoMode({renderer,
      view.updateProjectionMatrix();view.updateMatrixWorld(true);
 -    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
 +    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');bothouseResidents.animate(0,walker.up.toArray() as Vec3,photo,false);residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};

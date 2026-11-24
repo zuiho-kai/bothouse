@@ -63,7 +63,7 @@ function sculpt(look:Look){
     s.strand(head,'#9c6a60',[[-.033,-.103,.177],[0,-.111,.184],[.034,-.098,.179]],.006,.005);
   }
   hairAndHeadwear(s,head,look);clothing(s,body,look);
-  const ledger=joint(root.getObjectByName('elbow1')!,'work-ledger',.09,-.217,.025);
+  const ledger=joint(root.getObjectByName('elbow1')!,'work-ledger',-.012,-.217,.025);
   for(const {color,offset,size} of townResidentLedger)s.box(ledger,color,offset,size);
   ledger.visible=false;
   if(look==='generic'){
@@ -117,8 +117,8 @@ export function createBothouseResidentModel(appearanceKey:string){
         // Hold the reader's ledger beside the hair and sleeves. The free
         // hand repeats the town sorter's small reach as the resident works.
         const holding=sign===1;
-        l.arm.rotation.set(holding?-.61:-.68+(reducedMotion?0:Math.sin(t*2.8)*.10),0,holding?.84:-.42);
-        l.elbow.rotation.set(holding?-.79:-.77,0,holding?-.25:.18);
+        l.arm.rotation.set(holding?-.61:-.68+(reducedMotion?0:Math.sin(t*2.8)*.10),0,holding?.19:-.42);
+        l.elbow.rotation.set(holding?-.79:-.77,0,holding?-.32:.18);
       }else{
         l.arm.rotation.set(think&&sign===1?-.82:talk&&sign===1?-.49:book?-.50:sign*swing*.31,0,
           -sign*(book?.09:talk&&sign===1?.33:think&&sign===1?.10:.07));

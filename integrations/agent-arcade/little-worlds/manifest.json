@@ -2,9 +2,9 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "2e96603d9afc1648bcf3ae1a8e3ba805e3989f43",
-  "worldTree": "ff8b91857a51ca7714710c41e4abaf2914c0a58e",
-  "patchSHA256": "f6aec7815c56e0d7ef3368bfbe9757438bc5c24b505b1fa119f26145243c1416",
+  "worldRevision": "ed709673ad4177097fb2560b7442dfd2073c4ef8",
+  "worldTree": "9d1c92395db91b44766ad82f50ec360361e6133c",
+  "patchSHA256": "e617d2a69875ea9433dbebef4453c799e0dc7d3f0bd5d1d2ad98bd9f730568fb",
   "windowsPublisherSHA256": {
     "publish-residents.py": "e8ad43f595f85f9ca48944a2b776aedebc0194bd9b1c06009c948fe7048230e5",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
@@ -120,6 +120,12 @@
     },
     {
       "action": "A",
+      "path": "spec/bothouse-dock-sightline.test.ts",
+      "blob": "3b8d7d82b2cf1a18ea6608143df8ab3b936ad755",
+      "sha256": "e8409453e12e27aa069aed41193df648208f541ea6d0c0200340916b62049b13"
+    },
+    {
+      "action": "A",
       "path": "spec/bothouse-work-pose.test.ts",
       "blob": "d1906f7e1ea9239e8a87ceaf93a824e1a3ccbc80",
       "sha256": "ba5c27adc64728c4d7cf1b8d6915e5eb6f649ac2cbc44c07f0d3d6ff61d6d40e"
@@ -129,6 +135,12 @@
       "path": "spec/guide-interaction.test.ts",
       "blob": "c846ef9b2e15b65dd66c59f0a7087c98595b0172",
       "sha256": "52f735508d3e800f895c337ddfad34a74bf5f9982f5bf68f0c60419de5223ecd"
+    },
+    {
+      "action": "M",
+      "path": "spec/multiplayer-sync.test.ts",
+      "blob": "fd8efa6865b7402a27b06514f66eb1caf37c9187",
+      "sha256": "4b2d67446f5d3685544b2d2026ea04311818a6ca1e26c1aaee88689dab3559a5"
     },
     {
       "action": "A",
@@ -415,14 +427,20 @@
     {
       "action": "A",
       "path": "src/client/bothouse-resident-model.ts",
-      "blob": "59daddb522c382d874315b51136e1ae174e2e6b1",
-      "sha256": "6542e254ba1815788c76cd6bf5ff04ecaa31be21714edabb801f0738277fc41e"
+      "blob": "c0bd3c7cbc7d5969d67cfc653c3b65bf48e1b2c4",
+      "sha256": "ef7f6de3b984c1bb20e9dbfa2025fd3d94a7c848ea53d0ab9f0a6b1839046694"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-resident-sites.ts",
+      "blob": "d95ca5e6583230b11a975526419b86c7eb646671",
+      "sha256": "7c8bae8bee337ce7743b3da5b6d37fe8f0d7aa588687816d63509b79a9a2c347"
     },
     {
       "action": "A",
       "path": "src/client/bothouse-residents.ts",
-      "blob": "1b48fe95b49f31ef88137b64484708311b0af2fe",
-      "sha256": "645b38ab6bc85873aff791d33a09c1a9a2cef753b1a061794d1827fb0657d555"
+      "blob": "a67fef180a6bd0f0ac1507caf679e974dcb4e44e",
+      "sha256": "912ff75c2c9dc3f1416c1103f53d8b310baa4d357be03445e93b159c6ca33381"
     },
     {
       "action": "A",
@@ -445,8 +463,8 @@
     {
       "action": "M",
       "path": "src/client/colony.ts",
-      "blob": "5f7c7a4814b9f5624b84e0042dc90d5a2555571d",
-      "sha256": "27b121daaeae1b863f5c30e5f1210c1e57671393f6c4c56664d6de6197bd6d9c"
+      "blob": "d8a52ee284d047a66651a2477aa56aed6ec474c1",
+      "sha256": "6abd35e336463fe670f1732cd088e6fe55cbf940d7cb9a340caae172dee8e5d6"
     },
     {
       "action": "M",
@@ -487,8 +505,8 @@
     {
       "action": "M",
       "path": "src/client/main.ts",
-      "blob": "ffb8c32abd0966eaf53a3dc1cb93ceda554095c4",
-      "sha256": "37ee9ce2354b3b660603cacd411c9e023ae90d94449c061694f37dfc310097dc"
+      "blob": "e55e97277ae3e8a00fe08b9cd7f90a3cbd34dc39",
+      "sha256": "39bea4a22d4de8177bbbb18f4a7fb9254b2c3dd9c871fe8d8f86bdfc3aacd5dd"
     },
     {
       "action": "M",

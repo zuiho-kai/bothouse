@@ -1,11 +1,12 @@
 import * as T from 'three';
 import { portPoint } from '../shared/ports.ts';
-import { GroundWorld, STEP_HEIGHT } from '../shared/physics/world.ts';
+import { GroundWorld } from '../shared/physics/world.ts';
 import { TownResidentMotion } from '../shared/town-resident-motion.ts';
 import type { Vec3 } from '../shared/world.ts';
 import type { PlanetResident } from '../shared/planet-residents.ts';
 import { residentPortrait } from '../shared/resident-portrait.ts';
 import { createBothouseResidentModel } from './bothouse-resident-model.ts';
+import { landingSites, residentWalkEnd } from './bothouse-resident-sites.ts';
 
 type Resident = PlanetResident & Parameters<typeof residentPortrait>[1];
 type Portrait = ReturnType<typeof residentPortrait>;
@@ -20,7 +21,9 @@ class ResidentFigure {
   readonly model: ReturnType<typeof createBothouseResidentModel>;
   readonly motion: TownResidentMotion;
   readonly card = document.createElement('span');
-  private label = new T.Sprite(new T.SpriteMaterial({transparent:true,depthWrite:false,toneMapped:false}));
+  // The ink pass uses scene depth. Write the card's depth so a background
+  // outline cannot cut through the text, while walls still occlude the card.
+  private label = new T.Sprite(new T.SpriteMaterial({transparent:true,alphaTest:.02,toneMapped:false}));
   private up=new T.Vector3();
   private forward=new T.Vector3();
   private right=new T.Vector3();
@@ -43,8 +46,7 @@ class ResidentFigure {
     this.model.animate(role.activity,0,true);
     const start=feet.clone().normalize(), pad=portPoint(world.planetId);
     this.dockFacing=new T.Vector3(...pad);
-    const outward=start.clone().sub(new T.Vector3(...pad)).projectOnPlane(start).normalize();
-    const end=start.clone().addScaledVector(outward,1.15/world.baseRadius).normalize().toArray() as Vec3;
+    const end=residentWalkEnd(start,this.dockFacing,world.baseRadius).toArray() as Vec3;
     this.phase=slot*.75;
     this.motion=new TownResidentMotion(world,{position:start.toArray() as Vec3,facing:pad,
       route:[start.toArray() as Vec3,end],activity:'walk',phase:this.phase,speed:.55});
@@ -125,31 +127,6 @@ class ResidentFigure {
     this.label.removeFromParent();this.label.material.map?.dispose();this.label.material.dispose();
     this.card.remove();
   }
-}
-
-// Use the same support and capsule checks as TownResidentMotion. Hub-authored shops do not exist on a garden.
-function landingSites(world:GroundWorld,count:number) {
-  const sites:T.Vector3[]=[];
-  const pad=new T.Vector3(...portPoint(world.planetId));
-  const north=new T.Vector3(0,0,-1).projectOnPlane(pad).normalize();
-  const east=new T.Vector3().crossVectors(north,pad),radius=world.baseRadius;
-  for(let distance=3.5;distance<Math.PI*radius-1&&sites.length<count;distance+=2.6){
-    const angle=distance/radius;
-    const slots=Math.max(1,Math.floor(2*Math.PI*radius*Math.sin(angle)/1.15));
-    for(let slot=0;slot<slots&&sites.length<count;slot++){
-      // Place the first pair just to either side of the traveller's forward view.
-      const yaw=Math.ceil((slot+1)/2)*(slot%2 ? -1 : 1)*2*Math.PI/slots;
-      const normal=pad.clone().multiplyScalar(Math.cos(angle))
-        .addScaledVector(north,Math.sin(angle)*Math.cos(yaw)).addScaledVector(east,Math.sin(angle)*Math.sin(yaw));
-      const position=normal.toArray() as Vec3,pose=world.pose(position);
-      const support=world.support(position,Infinity);
-      if(support.radius>pose.radius+STEP_HEIGHT)continue;
-      pose.radius=support.radius;
-      const feet=normal.multiplyScalar(pose.radius+.03);
-      if(!world.blocked(pose)&&sites.every(site=>site.distanceToSquared(feet)>1.8**2))sites.push(feet);
-    }
-  }
-  return sites;
 }
 
 /** Fence every asynchronous roster read to its acknowledged outdoor visit. */
