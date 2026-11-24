@@ -80,10 +80,13 @@ const PermSendMessages = "发送消息 (Send Messages)"
 // TaskForum identifies a category's forum. Empty CategoryID is a legacy
 // server-wide mapping, retained only for already published posts.
 type TaskForum struct {
-	ID         string            `json:"id"`
-	GuildID    string            `json:"guild"`
-	CategoryID string            `json:"category,omitempty"`
-	Tags       map[string]string `json:"tags"`
+	ID         string `json:"id"`
+	GuildID    string `json:"guild"`
+	CategoryID string `json:"category,omitempty"`
+	// Channel: a private chat channel's posts are threads in that channel (ID is the channel),
+	// so only people who can see the channel see them (user 11-24「如果是那种私人频道的话」变私密帖).
+	Channel string            `json:"channel,omitempty"`
+	Tags    map[string]string `json:"tags"`
 }
 
 var ErrTaskForumCategoryRequired = errors.New("task forum: source chat must belong to a category")
@@ -96,6 +99,9 @@ func (f TaskForum) scopeKey(platform string) string {
 	key := platform + ":" + f.GuildID
 	if f.CategoryID != "" {
 		key += ":" + f.CategoryID
+	}
+	if f.Channel != "" {
+		key += ":" + f.Channel
 	}
 	return key
 }

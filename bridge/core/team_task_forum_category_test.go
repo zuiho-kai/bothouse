@@ -315,3 +315,14 @@ func TestTaskForumLegacyWaitingSummaryUsesSavedSourceCategory(t *testing.T) {
 		})
 	}
 }
+
+// Each private channel's posts live in that channel (user 11-24), so two private channels of one
+// category must not share the forum the state remembers for a scope.
+func TestTaskForumPrivateChannelsHaveOwnScope(t *testing.T) {
+	a := TaskForum{GuildID: "g", CategoryID: "C", Channel: "a"}.scopeKey("discord")
+	b := TaskForum{GuildID: "g", CategoryID: "C", Channel: "b"}.scopeKey("discord")
+	cat := TaskForum{GuildID: "g", CategoryID: "C"}.scopeKey("discord")
+	if a == b || a == cat || cat != "discord:g:C" {
+		t.Fatalf("scopes a=%s b=%s category=%s", a, b, cat)
+	}
+}
