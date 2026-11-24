@@ -91,13 +91,16 @@ test('the operator endpoint is a bare HTTPS origin and test can only use loopbac
     'https://social.example.org/chat', 'https://u@social.example.org', 'https://social.example.org/?key=secret']) {
     assert.throws(() => serviceOrigin(origin, 'store'));
   }
-  for (const mode of ['test','test-signed'])
+  for (const mode of ['test','test-signed']) {
     assert.equal(serviceOrigin('http://127.0.0.1:8765', mode), 'http://127.0.0.1:8765');
-  assert.throws(() => serviceOrigin('http://192.168.1.2:8765', 'test'));
-  assert.equal(serviceOrigin('https://arcade-store.test:8765','test'),'https://arcade-store.test:8765');
+    assert.equal(serviceOrigin('https://arcade-store.test:8765', mode), 'https://arcade-store.test:8765');
+    for (const origin of ['http://192.168.1.2:8765', 'http://arcade-store.test:8765',
+      'https://arcade-store.test', 'https://other.test:8765', 'https://sub.arcade-store.test:8765',
+      'https://unrelated.example.org:8765', 'https://friends.home.arpa:8765']) {
+      assert.throws(() => serviceOrigin(origin, mode), origin);
+    }
+  }
   assert.throws(() => serviceOrigin('https://arcade-store.test:8765','store'));
-  assert.throws(() => serviceOrigin('https://unrelated.example.org:8765','test'));
-  assert.throws(() => serviceOrigin('https://friends.home.arpa:8765','test'));
 });
 
 test('production entry points reject a placeholder before checking release files',()=>{
@@ -407,6 +410,27 @@ test('a planet visit uses the peer in the current active human conversation',asy
   active=false;assert.equal((await handler(event,peer)).state,'changed');
   active=true;changeDuringRead=true;assert.equal((await handler(event,peer)).state,'changed');
   assert.deepEqual(sent,[peer]);
+});
+
+test('the signed test desktop loads the configured HTTPS Friends origin', async () => {
+  const origin = 'https://arcade-store.test:8765';
+  const navigated = [];
+  const browserSession = Object.assign(new EventEmitter(), {
+    setPermissionRequestHandler(){}, setPermissionCheckHandler(){},
+    webRequest:{onBeforeRequest(){}},
+  });
+  class Guest {
+    constructor() {
+      this.webContents = Object.assign(new EventEmitter(), {
+        setWindowOpenHandler(){},
+        async loadURL(url){ navigated.push(url); this.emit('did-navigate', {}, url, 200); },
+      });
+    }
+  }
+  const guest = createSocialView({WebContentsView:Guest, session:{fromPartition:()=>browserSession},
+    configuration:{mode:'test-signed',origin}});
+  await guest.load();
+  assert.deepEqual(navigated,[origin]);
 });
 
 test('both release commands reject unsafe world origins before packaging or network access', () => {

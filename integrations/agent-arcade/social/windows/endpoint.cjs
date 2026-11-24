@@ -18,8 +18,10 @@ function serviceOrigin(value, mode) {
     throw new Error('Store cannot use a local or reserved DNS name: ' + url.hostname + '. Use the deployed service HTTPS origin.');
   }
   if (mode === 'store' && url.protocol === 'https:' && dnsName) return url.origin;
-  if (['test', 'test-signed'].includes(mode) && url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port) return url.origin;
-  if (mode === 'test' && url.protocol === 'https:' && url.hostname === 'arcade-store.test' && url.port) return url.origin;
+  if (['test', 'test-signed'].includes(mode) && url.port) {
+    if (url.protocol === 'http:' && url.hostname === '127.0.0.1') return url.origin;
+    if (url.protocol === 'https:' && url.hostname === 'arcade-store.test') return url.origin;
+  }
   throw new Error('Store requires an HTTPS DNS origin. Local tests use explicit loopback or the reserved HTTPS test host.');
 }
 
