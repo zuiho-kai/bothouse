@@ -101,6 +101,7 @@ func TestTaskForumUncategorizedNoticeAndRecovery(t *testing.T) {
 		t.Fatal("restart repeated category notice")
 	}
 	p.scopes["111"] = TaskForum{ID: "forumA", GuildID: "g1", CategoryID: "A"}
+	e.taskForumRT().failedOpen = nil // the failed chat's wait is over
 	e.syncTaskForum()
 	if p.opens != 2 || readForumTestState(t, e).CategoryNotices["discord:111"] {
 		t.Fatal("classification did not resume pending posts")
@@ -313,5 +314,16 @@ func TestTaskForumLegacyWaitingSummaryUsesSavedSourceCategory(t *testing.T) {
 				t.Fatal("summary changed legacy identity or created a forum/post")
 			}
 		})
+	}
+}
+
+// Each private channel's posts live in that channel (user 11-24), so two private channels of one
+// category must not share the forum the state remembers for a scope.
+func TestTaskForumPrivateChannelsHaveOwnScope(t *testing.T) {
+	a := TaskForum{GuildID: "g", CategoryID: "C", Channel: "a"}.scopeKey("discord")
+	b := TaskForum{GuildID: "g", CategoryID: "C", Channel: "b"}.scopeKey("discord")
+	cat := TaskForum{GuildID: "g", CategoryID: "C"}.scopeKey("discord")
+	if a == b || a == cat || cat != "discord:g:C" {
+		t.Fatalf("scopes a=%s b=%s category=%s", a, b, cat)
 	}
 }
