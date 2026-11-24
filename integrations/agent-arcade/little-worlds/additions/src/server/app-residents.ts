@@ -45,7 +45,7 @@ export function appResidents(db:DatabaseSync, residents:ReturnType<typeof planet
   }
   function publisher(token:string){
     residents.authorize(token);
-    const row=db.prepare(`SELECT l.source,l.scope FROM app_resident_links l
+    const row=db.prepare(`SELECT l.source,l.scope,l.planet FROM app_resident_links l
       JOIN planet_resident_sources s ON l.source=s.id AND l.planet=s.planet WHERE s.credential=?`).get(digest(token));
     if(!row)throw new RequestError(403,'This publisher does not belong to the App.');
     return row;
@@ -100,7 +100,7 @@ export function appResidents(db:DatabaseSync, residents:ReturnType<typeof planet
       const row=publisher(token);
       if(Object.keys(body).length!==3||row.source!==body.sourceId||row.scope!==friendScope(body))
         throw new RequestError(403,'The App connection belongs to a different account or source.');
-      return {ok:true};
+      return {ok:true,planetId:String(row.planet)};
     },
     pause(token:string){
       return transact(()=>{rotate(String(publisher(token).source));return {ok:true};});

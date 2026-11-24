@@ -81,7 +81,7 @@ try{
   await ctx.addInitScript(()=>{localStorage.setItem('little-worlds:quality:v1','smooth');localStorage.setItem('little-worlds:language:v1','zh');localStorage.setItem('little-worlds:core-guide:v1','skipped');localStorage.setItem('little-worlds:first-visit:v1','hidden');});
   const page=await ctx.newPage(),errors=[],assets=new Set();
   page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if((r.url().includes('/bothouse-art/')||r.url().includes('/art/'))&&r.status()===200)assets.add(new URL(r.url()).pathname);});
-  await page.goto('/?measure=1');page.setDefaultTimeout(45000);
+  await page.goto('/?measure=1&visit='+encodeURIComponent(planets[1]));page.setDefaultTimeout(45000);
   await page.waitForFunction(()=>document.querySelector('#welcome-start:not(:disabled)')||document.querySelector('#welcome-panel')?.dataset.state==='failed',null,{timeout:90000});
   if(await page.locator('#welcome-start').isVisible())await page.locator('#welcome-start').click();
   const summary=page.locator('#bothouse-residents');
@@ -125,8 +125,8 @@ try{
   await expect(summary).toContainText('说话中',{timeout:12000});await expect(summary).toContainText('离线');
   await photo('02-status');
   const gl=await page.locator('#world canvas').first().evaluate(c=>!!c.getContext('webgl2'));
-  await page.locator('#board-ship').click();
-  await page.locator('#trip-departure').selectOption(planets[1]);
+  await page.locator('#friend-visit-route').click();
+  await expect(page.locator('#trip-departure')).toHaveValue(planets[1]);
   const startResponse=page.waitForResponse(r=>r.url().endsWith('/api/trip/start'));
   await page.locator('#confirm-flight').click();const trip=await startResponse;if(!trip.ok())throw Error(await trip.text());
   await page.locator('#flight-skip').click();

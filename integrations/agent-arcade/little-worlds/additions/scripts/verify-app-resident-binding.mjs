@@ -26,7 +26,7 @@ test('keeps an independently paired source and refuses an old App publisher afte
     assert.throws(()=>manage.check(next.token,{...details,sourceId:next.sourceId,account:'friend_b'}));
     assert.throws(()=>manage.check(next.token,{...details,sourceId:next.sourceId,socialOrigin:'https://other.example'}));
     assert.throws(()=>manage.pause(manual.token));
-    assert.deepEqual(manage.check(next.token,{...details,sourceId:next.sourceId}),{ok:true});
+    assert.deepEqual(manage.check(next.token,{...details,sourceId:next.sourceId}),{ok:true,planetId:planet});
     const fixture={instance:'1'.repeat(64),residents:[{project:'companion',source:'bridge',displayName:'Test Companion',appearanceKey:'default',activity:'working'}]};
     sources.publish(next.token,fixture);
     sources.publish(manual.token,{...fixture,instance:'2'.repeat(64)});

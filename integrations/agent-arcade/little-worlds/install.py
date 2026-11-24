@@ -84,8 +84,7 @@ def install(dest, source=None, offline=False):
     # Dependencies and their licences come from the unchanged upstream lockfile.
     run([*pnpm,"install","--frozen-lockfile","--ignore-scripts",*(["--offline"] if offline else [])],release)
     if os.name == "nt":
-        windows_pins = {"publish-residents.py": "bf54fceddd23a8e1c36c874afd6c4a22af179bd66229ec5a54b5c02408a5edf7",
-                        "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"}
+        windows_pins = SPEC["windowsPublisherSHA256"]
         for name, expected in windows_pins.items():
             if hashlib.sha256((release/"scripts"/name).read_bytes()).hexdigest() != expected:
                 raise SystemExit("Windows publisher bytes differ from the signed release: " + name)
