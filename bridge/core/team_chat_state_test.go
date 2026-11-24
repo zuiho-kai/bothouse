@@ -53,7 +53,7 @@ func TestChatWaitingOneMessageMovesOnNewAndStrikesAnswered(t *testing.T) {
 	other := waitItem(9, "别的频道", "不该出现", "discord:c2")
 	a := waitItem(1, "key 分发", "走 yibu 还是蓝区？", chat)
 	e.syncChatWaiting(f, st, chat, []teamTaskBoardItem{a, other}, now)
-	if len(f.sent) != 1 || !strings.HasPrefix(f.sent[0], "post ①等你定 1 件") || !strings.Contains(f.sent[0], "1. 【key 分发】走 yibu 还是蓝区？ 建议：A，便宜") || strings.Contains(f.sent[0], "别的频道") {
+	if len(f.sent) != 1 || !strings.HasPrefix(f.sent[0], "post ①等你定 1 件") || !strings.Contains(f.sent[0], "1. 【key 分发】问题：走 yibu 还是蓝区？ 选项与推荐：A 或 B；推荐 A，便宜") || strings.Contains(f.sent[0], "别的频道") {
 		t.Fatalf("first = %q", f.sent)
 	}
 	b := waitItem(2, "trending", "做哪条？", chat)

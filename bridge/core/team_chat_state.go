@@ -32,7 +32,8 @@ const teamChatStateExt = ".chatstate"
 
 type chatWaitRow struct {
 	ID   int    `json:"id"`
-	Line string `json:"line"`
+	Line string `json:"line"` // 【名】 and the whole question
+	Head string `json:"head"` // 【名】 and the question's title only
 }
 
 type chatWaitNote struct {
@@ -135,7 +136,11 @@ func chatWaitRows(items []teamTaskBoardItem, chat string, now time.Time) []chatW
 			continue
 		}
 		at, _ := teamTaskTableAsked(it, now)
-		rows = append(rows, row{at, chatWaitRow{ID: it.ID, Line: chatWaitLine(it)}})
+		head := it.askTitle()
+		if head == "" {
+			head = teamTaskBoardReason(it.PauseWhy, teamTaskBoardHumanStatus(it.Status))
+		}
+		rows = append(rows, row{at, chatWaitRow{ID: it.ID, Line: chatWaitLine(it), Head: "【" + teamTaskBoardShort(it) + "】" + head}})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].at.Before(rows[j].at) })
 	out := make([]chatWaitRow, 0, len(rows))
@@ -145,35 +150,33 @@ func chatWaitRows(items []teamTaskBoardItem, chat string, now time.Time) []chatW
 	return out
 }
 
-func chatAskRecommendOf(text string) string {
-	at := -1
-	for _, w := range []string{"推荐", "建议"} {
-		if i := strings.LastIndex(text, w); i > at {
-			at = i + len(w)
-		}
-	}
-	if at < 0 {
-		return ""
-	}
-	rec, _, _ := strings.Cut(text[at:], "\n")
-	return strings.TrimSpace(strings.TrimLeft(rec, "：: "))
-}
 
-// chatWaitLine: 「【名】问题。建议：…」 — the question's title and the asker's recommendation.
+// chatWaitLine: 「【名】<the question>」 — the whole stored question on one line (the lead's plain
+// rewrite carries its options and pick, e.g. 「……我推荐这个；二，……你回一个数字就行」), else its title.
+// Same text the pinned table shows in full (#1728); renderChatWaiting falls back to titles when long.
 func chatWaitLine(it teamTaskBoardItem) string {
-	q := it.askTitle()
+	q := strings.Join(strings.Fields(it.askText), " ")
+	if q == "" {
+		q = it.askTitle()
+	}
 	if q == "" {
 		q = teamTaskBoardReason(it.PauseWhy, teamTaskBoardHumanStatus(it.Status))
 	}
-	line := "【" + teamTaskBoardShort(it) + "】" + shortLabel(q, 80)
-	// the last 推荐/建议 in the question: 「选项与推荐：A 或 B；推荐 A」 names the pick after the label
-	if rec := chatAskRecommendOf(it.askText); rec != "" {
-		line += " 建议：" + shortLabel(rec, 60)
-	}
-	return line
+	return "【" + teamTaskBoardShort(it) + "】" + q
 }
 
+// chatNoteMaxRunes: one Discord message (2000, platform limit) less room for the header.
+const chatNoteMaxRunes = 1900
+
 func renderChatWaiting(rows []chatWaitRow, open map[int]bool) string {
+	if out := renderChatWaitingAt(rows, open, true); runeLen(out) <= chatNoteMaxRunes {
+		return out
+	}
+	// too long for one message: titles only, like the pinned table (renderTeamTaskTableAsks)
+	return renderChatWaitingAt(rows, open, false)
+}
+
+func renderChatWaitingAt(rows []chatWaitRow, open map[int]bool, full bool) string {
 	n := 0
 	for _, r := range rows {
 		if open[r.ID] {
@@ -186,10 +189,14 @@ func renderChatWaiting(rows []chatWaitRow, open map[int]bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "①等你定 %d 件（回数字就行）", n)
 	for i, r := range rows {
+		line := r.Line
+		if !full || r.Line == "" {
+			line = r.Head
+		}
 		if open[r.ID] {
-			fmt.Fprintf(&b, "\n%d. %s", i+1, r.Line)
+			fmt.Fprintf(&b, "\n%d. %s", i+1, line)
 		} else {
-			fmt.Fprintf(&b, "\n~~%d. %s~~ 已定", i+1, r.Line)
+			fmt.Fprintf(&b, "\n~~%d. %s~~ 已定", i+1, r.Head) // answered: its title is enough
 		}
 	}
 	return b.String()
@@ -225,14 +232,14 @@ func (e *Engine) syncChatWaiting(poster ChatNotePoster, st *teamChatState, chat 
 		rows = cur
 	} else {
 		// keep the numbers; refresh lines of rows still open
-		line := map[int]string{}
+		now := map[int]chatWaitRow{}
 		for _, r := range cur {
-			line[r.ID] = r.Line
+			now[r.ID] = r
 		}
 		rows = append([]chatWaitRow(nil), note.Rows...)
 		for i := range rows {
-			if l, ok := line[rows[i].ID]; ok {
-				rows[i].Line = l
+			if r, ok := now[rows[i].ID]; ok {
+				rows[i] = r
 			}
 		}
 	}
