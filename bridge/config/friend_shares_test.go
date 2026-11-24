@@ -17,15 +17,15 @@ func TestFriendSharesStayWithinProjectAndPreservePairingPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, number := range []string{"paper", "later", "paper"} {
-		if _, err := FriendShares("a", number, true); err != nil {
+		if _, err := FriendShares("a", number, "fixture-id"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := FriendShares("a", "later", false); err != nil {
+	if _, err := FriendShares("a", "later", ""); err != nil {
 		t.Fatal(err)
 	}
-	for project, want := range map[string][]string{"a": {"paper"}, "b": {}} {
-		got, err := FriendShares(project, "", false)
+	for project, want := range map[string][]string{"a": {"paper:fixture-id"}, "b": {}} {
+		got, err := FriendShares(project, "", "")
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("%s: got %v %v", project, got, err)
 		}
@@ -34,17 +34,17 @@ func TestFriendSharesStayWithinProjectAndPreservePairingPolicy(t *testing.T) {
 	if err != nil || !strings.Contains(string(saved), "# retained owner comment") || !strings.Contains(string(saved), "user_ids=['arcade:earlier']") {
 		t.Fatalf("other policy or comment changed")
 	}
-	if _, err = FriendShares("b", "spare", true); err != nil {
+	if _, err = FriendShares("b", "spare", "fixture-id"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = FriendShares("b", "spare", false); err != nil {
+	if _, err = FriendShares("b", "spare", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := SaveProjectSettings("a", ProjectSettingsUpdate{}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := FriendShares("a", "", false)
-	if err != nil || !reflect.DeepEqual(got, []string{"paper"}) {
+	got, err := FriendShares("a", "", "")
+	if err != nil || !reflect.DeepEqual(got, []string{"paper:fixture-id"}) {
 		t.Fatalf("other setting write: %v %v", got, err)
 	}
 }

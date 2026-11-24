@@ -75,7 +75,7 @@ type ManagementServer struct {
 	hotRemove            func(name string) error // stops a running project removed from config.toml
 	removeProject        func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
-	friendShares         func(string, string, bool) ([]string, error)
+	friendShares         func(string, string, string) ([]string, error)
 	getProjectConfig     func(projectName string) map[string]any
 	saveProviderRefs     func(projectName string, refs []string) error
 	getQQSettings        func(string) (*QQSettings, error)
@@ -1213,8 +1213,8 @@ func (m *ManagementServer) handleProjectUsers(w http.ResponseWriter, r *http.Req
 		e.userRolesMu.RUnlock()
 		snapshot := urm.Snapshot()
 		if m.token != "" && m.friendShares != nil {
-			if numbers, err := m.friendShares(e.name, "", false); err == nil && len(numbers) > 0 {
-				snapshot["arcade_friends"] = numbers
+			if numbers, err := m.friendShares(e.name, "", ""); err == nil && len(numbers) > 0 {
+				snapshot["arcade_friend_accounts"] = numbers
 			}
 		}
 		mgmtJSON(w, http.StatusOK, snapshot)

@@ -9,10 +9,10 @@ func TestFriendSharesRequireAuthenticatedManagerAndExactNumber(t *testing.T) {
 	for _, token := range []string{"", "token"} {
 		m, server, _ := testManagementServer(t, token)
 		calls := 0
-		m.SetFriendShares(func(project, number string, allow bool) ([]string, error) {
+		m.SetFriendShares(func(project, number, identity string) ([]string, error) {
 			calls++
-			if project != "test-project" || number != "paper_01" || !allow {
-				t.Fatalf("unexpected update %q %q %t", project, number, allow)
+			if project != "test-project" || number != "paper_01" || identity != "" {
+				t.Fatalf("unexpected update %q %q %q", project, number, identity)
 			}
 			return []string{number}, nil
 		})
@@ -20,7 +20,7 @@ func TestFriendSharesRequireAuthenticatedManagerAndExactNumber(t *testing.T) {
 			number string
 			status int
 		}{{"p", 400}, {"paper_01", 200}} {
-			req, err := http.NewRequest(http.MethodPut, server.URL+"/api/v1/projects/test-project/friend-shares/"+c.number, nil)
+			req, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/projects/test-project/friend-shares/"+c.number, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

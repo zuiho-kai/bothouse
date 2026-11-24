@@ -820,12 +820,12 @@ type ProjectConfig struct {
 	InjectTeamRules *bool `toml:"inject_team_rules,omitempty"`
 	// ReplyFooter: nil/true = render the reply footer; false = disable it
 	// entirely (the per-line indicator flags above become no-ops).
-	ReplyFooter      *bool        `toml:"reply_footer,omitempty"`
-	InjectSender     *bool        `toml:"inject_sender,omitempty"`     // prepend sender identity (platform + user ID) to each message sent to the agent
-	DisabledCommands []string     `toml:"disabled_commands,omitempty"` // commands to disable for this project (e.g. ["restart", "upgrade"])
-	AdminFrom        string       `toml:"admin_from,omitempty"`        // comma-separated user IDs allowed to run privileged commands; "*" = all allowed users
-	ArcadeFriends    []string     `toml:"arcade_friends,omitempty"`
-	Users            *UsersConfig `toml:"users,omitempty"` // per-user role config; nil = legacy behavior
+	ReplyFooter          *bool        `toml:"reply_footer,omitempty"`
+	InjectSender         *bool        `toml:"inject_sender,omitempty"`     // prepend sender identity (platform + user ID) to each message sent to the agent
+	DisabledCommands     []string     `toml:"disabled_commands,omitempty"` // commands to disable for this project (e.g. ["restart", "upgrade"])
+	AdminFrom            string       `toml:"admin_from,omitempty"`        // comma-separated user IDs allowed to run privileged commands; "*" = all allowed users
+	ArcadeFriendAccounts []string     `toml:"arcade_friend_accounts,omitempty"`
+	Users                *UsersConfig `toml:"users,omitempty"` // per-user role config; nil = legacy behavior
 	// WorkspaceIdleTimeoutMinsLegacy is the deprecated per-project form of
 	// the workspace idle reaper timeout. New configs should set the top-level
 	// Config.WorkspaceIdleTimeoutMins instead. When the top-level field is

@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/chenhg5/cc-connect/core"
@@ -13,7 +14,7 @@ import (
 
 // FriendShares edits one recipient under the same lock as other config writers.
 // Keep the raw document so unrecognised platform options survive a grant.
-func FriendShares(project, account string, allow bool) ([]string, error) {
+func FriendShares(project, account, identity string) ([]string, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	data, err := os.ReadFile(ConfigPath)
@@ -30,15 +31,15 @@ func FriendShares(project, account string, allow bool) ([]string, error) {
 			continue
 		}
 		var numbers []string
-		if raw, exists := p["arcade_friends"]; exists {
+		if raw, exists := p["arcade_friend_accounts"]; exists {
 			entries, ok := raw.([]any)
 			if !ok {
-				return nil, fmt.Errorf("invalid arcade_friends array")
+				return nil, fmt.Errorf("invalid arcade_friend_accounts array")
 			}
 			for _, entry := range entries {
 				value, ok := entry.(string)
 				if !ok {
-					return nil, fmt.Errorf("invalid arcade_friends entry")
+					return nil, fmt.Errorf("invalid arcade_friend_accounts entry")
 				}
 				numbers = append(numbers, value)
 			}
@@ -46,14 +47,22 @@ func FriendShares(project, account string, allow bool) ([]string, error) {
 		if numbers == nil {
 			numbers = []string{}
 		}
-		i := slices.Index(numbers, account)
-		if account == "" || allow == (i >= 0) {
+		i := slices.IndexFunc(numbers, func(entry string) bool {
+			return strings.HasPrefix(entry, account+":")
+		})
+		if account == "" {
 			return numbers, nil
 		}
-		if allow {
-			numbers = append(numbers, account)
-		} else {
+		if i >= 0 {
+			if numbers[i] == account+":"+identity {
+				return numbers, nil
+			}
 			numbers = slices.Delete(numbers, i, i+1)
+		} else if identity == "" {
+			return numbers, nil
+		}
+		if identity != "" {
+			numbers = append(numbers, account+":"+identity)
 		}
 		// Reuse the settings editor's line patch so comments and unrelated sections survive.
 		lines, trailing := splitConfigLines(string(data))
@@ -70,7 +79,7 @@ func FriendShares(project, account string, allow bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		lines = upsertTomlRawKey(lines, span.start+1, end-1, "arcade_friends", string(value))
+		lines = upsertTomlRawKey(lines, span.start+1, end-1, "arcade_friend_accounts", string(value))
 		patched := joinConfigLines(lines, trailing)
 		var check map[string]any
 		if err := toml.Unmarshal([]byte(patched), &check); err != nil {
@@ -80,7 +89,7 @@ func FriendShares(project, account string, allow bool) ([]string, error) {
 		for i, number := range numbers {
 			entries[i] = number
 		}
-		p["arcade_friends"] = entries
+		p["arcade_friend_accounts"] = entries
 		if !reflect.DeepEqual(check, document) {
 			return nil, fmt.Errorf("cannot edit recipients without changing other project settings")
 		}
