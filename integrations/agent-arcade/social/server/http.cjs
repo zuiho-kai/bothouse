@@ -97,7 +97,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     }
     case 'GET personal-ai/friend-settings': return {settings:personal.friendSettings(a)};
     case 'POST personal-ai/friend-settings': return {settings:personal.saveFriendSettings(a,body)};
-    case 'GET friends': return {friends:store.friends(a)};
+    case 'GET friends': return {account:a,friends:store.friends(a)};
     case 'GET ai-contacts': return {contacts:ai.contacts().filter(visibleRole)};
     case 'POST ai-contacts/start': guard(body.number);return ai.start(a,body);
     case 'GET friend-requests': {
@@ -178,6 +178,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
   if (root === 'conversations') {
     if (parts.length === 2 && method === 'GET') return {conversation:conversationView(store.conversation(a,id))};
     if (parts.length===3&&method==='POST'&&action==='remove-friend')return store.removeFriend(a,id,body);
+    if (parts.length===3&&method==='POST'&&action==='friend-remark')return store.saveFriendRemark(a,id,body);
     if (parts.length === 3 && action === 'read' && method === 'POST') return store.markConversationRead(a,id,body);
     if (parts.length === 3 && action === 'history-search' && method === 'GET') {
       const page=store.historySearch(a,id,params);

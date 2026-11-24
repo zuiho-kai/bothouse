@@ -230,12 +230,27 @@ class SocialStore {
     }
     return {conversation:this.conversation(a,id)};
   }
+  saveFriendRemark(a,id,{expectedAccount,number:peer,remark}) {
+    if(expectedAccount!==a)fail(409,'friend_session','账号已变更，请重新打开会话');
+    const c=this.access(a,id);
+    if(c.type!=='direct'||c.friendRemoved||peer!==(c.first_user===a?c.second_user:c.first_user)||
+       this.user(a).kind!=='human'||this.user(peer).kind!=='human')
+      fail(403,'human_friend_only','请从这位真人好友的私聊设置备注');
+    if(typeof remark!=='string'||remark.trim().length>40||/[\u0000-\u001f\u007f]/u.test(remark))
+      fail(400,'invalid_remark','备注须为 40 字以内的单行文字');
+    const value=remark.trim();
+    if(value)this.run(`INSERT INTO friend_remarks(account,friend,remark) VALUES(?,?,?)
+      ON CONFLICT(account,friend) DO UPDATE SET remark=excluded.remark`,a,peer,value);
+    else this.run('DELETE FROM friend_remarks WHERE account=? AND friend=?',a,peer);
+    return {account:a,number:peer,remark:value};
+  }
   friends(a) {
-    return this.all(`SELECT u.number,u.name AS displayName,u.kind,p.revision AS avatarRevision FROM friend_chats c
+    return this.all(`SELECT u.number,u.name AS displayName,u.kind,p.revision AS avatarRevision,r.remark FROM friend_chats c
       JOIN users u ON u.number=CASE WHEN c.first_user=? THEN c.second_user ELSE c.first_user END
       LEFT JOIN human_avatars p ON p.account=u.number AND u.kind='human'
-      WHERE c.first_user=? OR c.second_user=? ORDER BY u.name,u.number`, a,a,a)
-      .map(({avatarRevision,...user})=>avatarRevision?{...user,avatarRevision}:user);
+      LEFT JOIN friend_remarks r ON r.account=? AND r.friend=u.number AND u.kind='human'
+      WHERE c.first_user=? OR c.second_user=? ORDER BY u.name,u.number`, a,a,a,a)
+      .map(({avatarRevision,remark,...user})=>({...user,...(avatarRevision&&{avatarRevision}),...(remark&&{remark})}));
   }
   friendFeed(a,params) {
     const scope=params.get('scope')??'friends';

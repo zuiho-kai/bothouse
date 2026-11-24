@@ -347,6 +347,8 @@ function leaveSession({discardFeedback=false,expired=false}={}) {
   ++generation;
   user = null;
   conversationList.scope();
+  contactQuery.value='';
+  contactSearch.hidden=true;
   chatPortrait=undefined;
   chat = conversation = historyContext = historyFinder = undefined;
   friends = incoming = outgoing = conversations = messages = [];
@@ -561,9 +563,22 @@ document.addEventListener('click',event=>{
 startMenu?.addEventListener('keydown',event=>{
   if(event.key==='Escape'){closeStartMenu();startMenu.querySelector('summary').focus();}
 });
+const contactSearch=el('div',null,'conversation-search');
+contactSearch.hidden=true;
+const contactQuery=el('input');
+contactQuery.type='search';
+contactQuery.placeholder='搜索备注、昵称或用户号';
+contactQuery.setAttribute('aria-label','搜索通讯录');
+contactQuery.setAttribute('aria-controls',directory.id);
+contactQuery.maxLength=100;
+contactSearch.append(contactQuery);
+directory.parentElement.querySelector('header').append(contactSearch);
+contactQuery.addEventListener('input',renderDirectory);
+const contactText=value=>(value??'').normalize('NFKC').trim().toLowerCase();
 function renderDirectory() {
   if(!user) return;
   conversationList.scope(user.number,tab==='messages');
+  contactSearch.hidden=tab!=='contacts';
   renderUnreadNavigation();
   const badge=$('#contact-count');
   badge.hidden=!incoming.length;
@@ -615,12 +630,15 @@ function renderDirectory() {
   if(tab==='contacts') {
     actions.append(button('添加朋友',showSearch),button('新的朋友'+(incoming.length?'（'+incoming.length+'）':''),showRequests),button('发起群聊',()=>showMemberPicker()));
     actions.append(button('AI 联系人',showAiContacts));
-    const rows=friends.map(person=>row(person.displayName,person.kind==='ai'?'AI 联系人':person.number,person.number,()=>perform(async()=>{
+    const query=contactText(contactQuery.value);
+    const matches=friends.filter(person=>!query||[person.remark,person.displayName,person.number].some(value=>contactText(value).includes(query)));
+    const rows=matches.map(person=>row(person.remark||person.displayName,person.kind==='ai'?'AI 联系人':
+      [person.remark&&person.displayName,person.number].filter(Boolean).join(' · '),person.number,()=>perform(async()=>{
       const response=await api('/direct',{number:person.number});
       goChat(response.conversation.id);
       void sync();
     }),'','',false,person));
-    directory.replaceChildren(...(rows.length?rows:[empty('通讯录还没有好友。用用户号添加朋友。')]));
+    directory.replaceChildren(...(rows.length?rows:[empty(query?'没有匹配的联系人。':'通讯录还没有好友。用用户号添加朋友。')]));
   }
   if(tab==='profile') {
     const profile=el('div',null,'profile');
@@ -1182,6 +1200,33 @@ async function reconnectFriend(){
     if(user?.number===account)void sync();
   }
 }
+const remarkControl=button('好友备注',()=>{
+  const id=chat,account=user?.number,visit=chatVisit;
+  const peer=conversation?.type==='direct'&&!conversation.friendRemoved&&
+    conversation.members.find(member=>member.kind==='human'&&member.number!==account);
+  if(!peer)return;
+  const remark=field('备注（仅你可见）','remark',40,friends.find(item=>item.number===peer.number)?.remark??'');
+  remark.input.required=false;
+  const result=el('form'),save=el('button','保存备注','primary');
+  save.type='submit';
+  result.append(el('p',peer.displayName+'（'+peer.number+'）'),remark.node,el('p','清空并保存，即恢复原昵称。','minor'),save);
+  const scope=openDialog('好友备注',[result],id);
+  remark.input.focus();
+  result.addEventListener('submit',event=>{
+    event.preventDefault();
+    void perform(async()=>{
+      const current=()=>chatVisit===visit&&user?.number===account&&scope===dialogGeneration;
+      if(!current())return;
+      const updated=await api(thread(id)+'/friend-remark',{expectedAccount:account,number:peer.number,remark:remark.input.value},{expectedAccount:account});
+      if(user?.number!==account||updated.account!==account||updated.number!==peer.number)return;
+      friends=friends.map(item=>item.number===peer.number?{...item,remark:updated.remark}:item);
+      if(current()){closeDialog();showChatHeader();}
+      renderDirectory();
+      void sync();
+    },save,scope);
+  });
+});
+remarkControl.hidden=true;chatSettings.append(remarkControl);
 function showChatHeader() {
   showReplyTarget();
   renderReconnectAction();
@@ -1197,8 +1242,11 @@ function showChatHeader() {
     closeMentionSuggestions();
     return;
   }
-  $('#chat-title').textContent=meta.title;
   const peer=meta.members.find(person=>person.number!==user.number);
+  const canRemark=meta.type==='direct'&&peer?.kind==='human'&&!meta.friendRemoved;
+  const privateRemark=canRemark&&friends.find(person=>person.number===peer.number)?.remark;
+  remarkControl.hidden=!canRemark;
+  $('#chat-title').textContent=privateRemark||meta.title;
   const cloud=meta.cloudChat, paused=cloud?.enabled===false;
   const awaitingAiConsent=meta.requiresAiCloudConsent;
   const legacyPersonal=meta.personalAi===true;
@@ -1208,7 +1256,8 @@ function showChatHeader() {
   $('#chat-detail').textContent=meta.type==='group'?groupDetail:
     meta.friendRemoved?'已不是好友 · 仍可查看历史':
     legacyPersonal?'原有 AI 私聊 · 可查看历史':
-      cloud?cloudService+(paused?'云聊天已关闭':'云聊天已开启'):awaitingAiConsent?cloudService+'未开启云聊天':peer?.kind==='ai'?'AI 联系人':peer?.number||'';
+      cloud?cloudService+(paused?'云聊天已关闭':'云聊天已开启'):awaitingAiConsent?cloudService+'未开启云聊天':peer?.kind==='ai'?'AI 联系人':
+      privateRemark?meta.title+' · '+peer.number:peer?.number||'';
   const aiPeer=directAiPeer(meta);
   const avatarSeed=aiPeer?.number??meta.id;
   const builtinArt=roleArt.get(aiPeer?.number);
@@ -1941,6 +1990,7 @@ async function sync() {
   try {
     const [people,requests,threads]=await Promise.all([api('/friends'),api('/friend-requests'),api('/conversations')]);
     if(generation!==epoch||syncFlight!==lock) return;
+    if(people.account!==undefined&&people.account!==user.number){leaveSession();return;}
     const changed=JSON.stringify([friends,incoming,outgoing,conversations])!==JSON.stringify([people.friends,requests.incoming,requests.outgoing,threads.conversations]);
     const removedFriend=tab==='feed'&&friends.some(friend=>friend.kind==='human'&&!people.friends.some(next=>next.number===friend.number));
     friends=people.friends;incoming=requests.incoming;outgoing=requests.outgoing;conversations=threads.conversations;
@@ -1968,6 +2018,7 @@ async function sync() {
             active.webSearch?.revision!==conversation.webSearch?.revision)applyCloudConversation(active);
         }
         else if(active.title!==conversation.title||active.webSearch?.revision!==conversation.webSearch?.revision||
+            active.type==='direct'&&changed||
             JSON.stringify(active.members)!==JSON.stringify(conversation.members)) {
           const avatarsChanged=active.members.some(member=>member.avatarRevision!==
             conversation.members.find(previous=>previous.number===member.number)?.avatarRevision);

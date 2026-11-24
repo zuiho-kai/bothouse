@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS chats (
   first_user TEXT REFERENCES users, second_user TEXT REFERENCES users, created TEXT NOT NULL,
   UNIQUE(first_user,second_user)
 );
+CREATE TABLE IF NOT EXISTS friend_remarks (
+  account TEXT NOT NULL REFERENCES users(number),
+  friend TEXT NOT NULL REFERENCES users(number),
+  remark TEXT NOT NULL,
+  PRIMARY KEY(account,friend)
+);
 CREATE TABLE IF NOT EXISTS removed_friends (
   chat TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE
 );
