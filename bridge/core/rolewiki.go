@@ -114,6 +114,7 @@ var shippedSubWikiSums = []string{
 	"1b759cb4f0cc7d6cb65021d43767434d2fca3543f13393c99a641188615fb154",
 	"bf0523df6c09a883c893ea13fa2186092a799c87e2f60e20b26cc1293dc274cb",
 	"b6c68baf8ee11a36d653fb6c27e8be1a5ed95072dc3330f5de162b69cb74594a", // #1957: no console window on Windows
+	"e0bd341ea9f0466d6123b872d696c3839f42a102ff8456b7ba85ac628a9dfe11", // #1929: role nightly passes run concurrently
 }
 
 // subWikiSum: sha256 of a sub-wiki.py with LF line endings (a checkout with core.autocrlf has CRLF).

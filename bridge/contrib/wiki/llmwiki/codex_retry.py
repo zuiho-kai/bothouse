@@ -1,4 +1,4 @@
-"""Codex event evidence and bounded continuation, shared by every wiki call site."""
+"""Codex event evidence and the bounded retry policy shared by wiki engines."""
 import json
 import re
 
@@ -129,30 +129,27 @@ def failure(errors, tid, terminal, active, progress=False, result="", stderr="",
     return value
 
 
-def run(invoke, models, remaining, round_seconds, log, resume=None, reset=None, save=None):
-    """Every invocation spends one existing round slot, including immediate connection failures."""
-    left = remaining()
-    # Source: #848 adopts #791's measured round allocation; unlimited runs retain the finite model chain.
-    slots = max(1, int(left // round_seconds)) if left is not None else len(models)
-    tid, index, retryable = resume, 0, bool(resume)
+def run(invoke, models, remaining, round_seconds, log, reset=None):
+    """Retry from the same round baseline, then change model; deadlines still govern admission."""
+    # Source: user 2026-11-17 12:5x「有问题都直接重试 3次不行就换模型」: initial call + three retries.
+    retries = 3
+    tid, previous = None, None
     ok, out, cost = False, Failure("no Codex round admitted", "budget_exhausted", started=False), 0
-    while index < len(models) and slots:
-        left = remaining()
-        if left is not None and left < round_seconds:
-            log(f"{left:.0f} s left, less than one round ({round_seconds} s); continuation waits")
-            return False, Failure("not enough remaining time for a Codex round", "budget_exhausted", started=False), cost, tid, models[index]
-        slots -= 1
-        if retryable:
-            log(f"resuming thread {tid}" if tid else "empty connection; starting exec again")
-        elif index and reset:
-            log(f"{models[index - 1]} failed; starting {models[index]} fresh")
-            reset()
-        ok, out, cost, tid = invoke(models[index], tid if retryable else None)
-        retryable = not ok and getattr(out, "retryable", False)
-        if save:
-            save(tid if retryable else None)
-        if ok or getattr(out, "reason", None) in ("budget_exhausted", "cancelled", "request_rejected", "ambiguous_transport"):
-            break
-        log(f"{models[index]} failed: {out[-200:]}")
-        index = min(index + 1, len(models) - 1) if retryable else index + 1
-    return ok, out, cost, tid, models[min(index, len(models) - 1)]
+    for model in models:
+        for retry in range(retries + 1):
+            left = remaining()
+            if left is not None and left < round_seconds:
+                log(f"{left:.0f} s left, less than one round ({round_seconds} s); retry waits")
+                return False, Failure("not enough remaining time for a model round", "budget_exhausted", started=False), cost, tid, model
+            if previous is not None:
+                log(f"{model} retry {retry}/{retries} from round baseline" if retry else
+                    f"{previous} failed after {retries} retries; starting {model} fresh")
+                if reset:
+                    reset()
+            ok, out, spent, tid = invoke(model, None)
+            cost += spent
+            previous = model
+            if ok or getattr(out, "reason", None) in ("budget_exhausted", "cancelled"):
+                return ok, out, cost, tid, model
+            log(f"{model} failed: {out[-200:]}")
+    return ok, out, cost, tid, models[-1]
