@@ -67,6 +67,26 @@ index 95c6d02a4c10b9de7c542f53fcf28eb916e30454..bd3a7cf533c85f9d2eb98a086e5fcffe
 +cleared for visitor display can appear on its badge and in the resident list.
 +The list credits the pack, author and licence supplied by its publisher. The
 +scene needs no sprite-sheet installation or desktop-pet animation files.
+diff --git a/index.html b/index.html
+index 3485d1df00959a9d8f731596e3f84908297e6b66..cd197e7f474527ae5ee81ebf366be06379a42106 100644
+--- a/index.html
++++ b/index.html
+@@ -77,3 +77,14 @@
+ // This tiny bootstrap runs before the main module graph downloads; it never calls an API.
+-(()=>{let language='en';try{if(localStorage.getItem('little-worlds:language:v1')==='zh')language='zh';}catch{}
++(()=>{
++const hint=new URLSearchParams(location.search).get('appLang');
++let language=hint==='zh'?'zh':'en';
++try{
++  const saved=localStorage.getItem('little-worlds:language:v1');
++  if(saved==='zh'||saved==='en')language=saved;
++  else if(hint==='zh'||hint==='en'){
++    const key='little-worlds:app-language:v1', first=localStorage.getItem(key);
++    if(first==='zh'||first==='en')language=first;
++    else localStorage.setItem(key,language);
++  }
++}catch{}
+ if(language==='zh'){document.documentElement.lang='zh-CN';const copies={eyebrow:'SUNSEED · 慢慢探索',title:'小星球',intro:'逛逛小村庄，送出一点善意，再把家变成喜欢的模样。',deviceNote:'小星球使用实时 3D 画面。性能较低的设备可能加载缓慢、出现卡顿，或无法完成加载。请先尝试「流畅」画质；若仍无法顺畅运行，建议换用性能更强的电脑。加载失败也可能与网络或浏览器设置有关。'};for(const node of document.querySelectorAll('[data-welcome-string]'))node.textContent=copies[node.dataset.welcomeString];document.getElementById('welcome-panel').setAttribute('aria-label','欢迎来到小星球');document.getElementById('welcome-stage').textContent='正在下载游戏模块…';document.getElementById('welcome-help').textContent='正在加载游戏模块，可测的准备计数将在可用时显示。';document.getElementById('welcome-start').textContent='正在准备你的星球…';document.getElementById('welcome-progress').setAttribute('aria-label','当前准备阶段');document.getElementById('welcome-retry').textContent='重试';}
 diff --git a/spec/town-residents.test.ts b/spec/town-residents.test.ts
 index 4ce3509ab79c6be9e4f83d9bb35ebca818b3ec49..3c232d4e5a7bcc79aa6e56450e9f0d195ddf10ed 100644
 --- a/spec/town-residents.test.ts
@@ -99,6 +119,33 @@ index 4ce3509ab79c6be9e4f83d9bb35ebca818b3ec49..3c232d4e5a7bcc79aa6e56450e9f0d19
 +  expect(geometries).toBe(batches.filter(mesh => mesh.name !== 'resident-courier').length);
 +  expect(materials).toBe(2);
  });
+diff --git a/spec/welcome.test.ts b/spec/welcome.test.ts
+index bab62f910dac30ad938d2b9de40d4a4fb6e8571e..0cdeab3be9ed7c353f834f27c717cb7c0a488c16 100644
+--- a/spec/welcome.test.ts
++++ b/spec/welcome.test.ts
+@@ -146 +146,22 @@ it.each([null,'','bad','zh-CN','en','zh'])('uses English boot defaults and prese
+ });
++
++it.each([
++ ['zh', null, null, 'zh-CN', 'zh'],
++ ['en', null, null, 'en', 'en'],
++ ['en', null, 'zh', 'zh-CN', 'zh'],
++ ['zh', 'en', 'zh', 'en', 'zh'],
++ ['en', 'zh', 'en', 'zh-CN', 'en'],
++ [null, null, 'zh', 'en', 'zh'],
++ ['invalid', null, 'zh', 'en', 'zh'],
++])('applies a desktop hint once and preserves the explicit game preference (%s, %s, %s)', (hint,saved,first,language,remembered)=>{
++ const url='http://welcome.test/'+(hint?'?appLang='+hint:'');
++ const page=new JSDOM(html,{url,runScripts:'dangerously',beforeParse(window){
++  if(saved)window.localStorage.setItem('little-worlds:language:v1',saved);
++  if(first)window.localStorage.setItem('little-worlds:app-language:v1',first);
++ }});
++ try{
++  expect(page.window.document.documentElement.lang).toBe(language);
++  expect(page.window.localStorage.getItem('little-worlds:language:v1')).toBe(saved);
++  expect(page.window.localStorage.getItem('little-worlds:app-language:v1')).toBe(remembered);
++ }finally{page.window.close();}
++});
 diff --git a/src/client/build-art.ts b/src/client/build-art.ts
 index 4ac5126e36616101ce4acd38b28bcf638c114fd2..434dca5f7d35749a931c1732c274edb757d23b15 100644
 --- a/src/client/build-art.ts
@@ -360,6 +407,26 @@ index c598904e2a1c8c2e3b4958442be2343bcfaa34f6..4f7c95d00b864c34b7af561e939ecd02
 +    source.owned().forEach(material => { material.userData.ownedResource = true; });
 +    return group;
    }
+diff --git a/src/client/i18n.ts b/src/client/i18n.ts
+index 7a870819b29ebed6159a71a69de0600400265e76..bf706cd6fa139b03cabbd15bbdea1995a39b312b 100644
+--- a/src/client/i18n.ts
++++ b/src/client/i18n.ts
+@@ -108,5 +108,13 @@ export function setLanguage(next: Language) {
+ export function initI18n() {
++  const hint = new URLSearchParams(location.search).get('appLang');
++  let fallback = chooseLanguage(hint);
+   let saved: string | null = null;
+-  try { saved = localStorage.getItem(LANGUAGE_KEY); } catch { /* Browser language remains available. */ }
+-  language = chooseLanguage(saved);
++  try {
++    saved = localStorage.getItem(LANGUAGE_KEY);
++    if (hint === 'en' || hint === 'zh') {
++      const first = localStorage.getItem('little-worlds:app-language:v1');
++      if (first === 'en' || first === 'zh') fallback = first;
++    }
++  } catch { /* The desktop hint and default still work without storage. */ }
++  language = saved === 'en' || saved === 'zh' ? saved : fallback;
+   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
 diff --git a/src/client/main.ts b/src/client/main.ts
 index 0639a7b2e636be2963ca2599618308f12632025a..9d123673205298a2cb914a36845074180cc2f09a 100644
 --- a/src/client/main.ts

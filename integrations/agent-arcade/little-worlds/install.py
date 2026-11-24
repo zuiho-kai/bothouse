@@ -53,6 +53,8 @@ def install(dest, source=None, offline=False):
     run([git, "init", "-q"], release)
     # Reference the public course release without prompting for a GitHub account.
     run([git,"config","core.autocrlf","true" if os.name == "nt" else "false"],release)
+    if os.name == "nt":
+        run([git, "config", "core.longpaths", "true"], release)
     run([git,"-c","credential.helper=","fetch","--depth=1","--no-tags",str(source or SPEC["repository"]),
          SPEC["baseCommit"] if source else TAG],release,env={**os.environ,"GIT_TERMINAL_PROMPT":"0"})
     run([git,"checkout","-q","--detach","FETCH_HEAD"],release)

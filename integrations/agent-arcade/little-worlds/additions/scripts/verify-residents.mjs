@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
-import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,appendFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
@@ -19,7 +19,7 @@ const probe=createServer();const port=await listen(probe);await new Promise(r=>p
 const world='http://127.0.0.1:'+port;
 const baseEnv=Object.fromEntries(['PATH','SystemRoot','TEMP','TMP','HOME','USERPROFILE','LOCALAPPDATA'].filter(k=>process.env[k]).map(k=>[k,process.env[k]]));
 const app=spawn(process.execPath,['src/server/index.ts'],{env:{...baseEnv,HOST:'127.0.0.1',PORT:String(port),DATABASE_PATH:dbfile,NODE_ENV:'test',TEST_LEGACY_WORLD:'1'},windowsHide:true,stdio:['ignore','ignore','inherit']});
-let db;
+let db,browser,dshPage;
 let mood='thinking',name='小岚🐳（一号）',added=false,restricted=true,online=true,allowed=[],activeAccount='owner_test';
 const role=(project,display_name,status,source='bridge')=>({role_key:source+':'+project,name:project,display_name,online,status,source,sessions:[{session_key:privateMarker}]});
 function pixel(rgb){
@@ -34,7 +34,8 @@ function pixel(rgb){
     chunk('IDAT',deflateSync(Buffer.from([0,...rgb]))),chunk('IEND',Buffer.alloc(0))]);
 }
 const pictures=[pixel([255,0,0]),pixel([0,0,255])];
-let shareLibrary=false;
+let shareLibrary=false,engineBusy=false;
+let nativeName='站内角色',nativeState='working',nativeLook='rainbow',nativeOnline=true,dshReads=0;
 const makeUpstream=(index)=>createServer((req,res)=>{
   const send=value=>res.end(JSON.stringify(value));
   if(req.url==='/api/v1/me')return activeAccount?send({user:{number:activeAccount}}):res.writeHead(401).end();
@@ -43,9 +44,22 @@ const makeUpstream=(index)=>createServer((req,res)=>{
     assert.equal(req.headers.authorization,undefined);
     res.setHeader('Content-Type','image/png');return res.end(pictures[index]);
   }
+  if(req.url==='/collab/api/state'){
+    assert.equal(req.headers['x-collab-local'],'synthetic-dsh-owner');
+    assert.equal(req.headers.authorization,undefined);
+    dshReads++;
+    return send({members:[
+      {id:'role-1',name:nativeName,kind:'dsh',online:nativeOnline,avatar:nativeLook,persona:privateMarker},
+      {id:'human',kind:'human',name:'Synthetic owner',avatar:'orange'},
+    ],rooms:[{name:privateMarker}]});
+  }
   if(req.headers.authorization!=='Bearer synthetic-management')return res.writeHead(401).end();
+  if(req.url==='/api/v1/roles')return send({ok:true,data:{roles:[{
+    name:'role-1',display_name:nativeName,source:'bridge',agent_type:'dsh',online:true,paused:false,
+    platforms:[{name:'cloud_web',ready:true}],busy:engineBusy,current_task:privateMarker,
+  }]}});
   if(req.url==='/api/v1/roles/events'){
-    const roles=[role('role-1',name,mood),role('acl','限制角色','idle'),role('role-1','站内角色','working','dsh')];
+    const roles=[role('role-1',name,mood),role('acl','限制角色','idle'),{...role('role-1',nativeName,nativeState,'dsh'),online:nativeOnline}];
     for(let i=0;i<34;i++)roles.push(role('extra-'+i,'第'+i+'位','idle'));
     if(added)roles.push(role('new','新来客','idle'));
     res.writeHead(200,{'Content-Type':'text/event-stream'});
@@ -65,6 +79,10 @@ const configurations=[];
 for(let i=0;i<2;i++){
   const root=join(dir,'instance'+i),publicKey=randomBytes(32).toString('base64');
   await mkdir(join(root,'identity'),{recursive:true});await writeFile(join(root,'identity','signing.pub'),'bothouse-ed25519 '+publicKey);
+  await mkdir(join(root,'conest-collab'));
+  await writeFile(join(root,'conest-collab','collab.owner.json'),JSON.stringify({
+    pid:process.pid,local:{origin:'http://127.0.0.1:'+ports[i],token:'synthetic-dsh-owner'},
+  }));
   const config=join(root,'config.toml');await writeFile(config,'[management]\nenabled=true\nport='+ports[i]+'\ntoken="synthetic-management"\n');configurations.push(config);
 }
 async function api(cookie,path,body){
@@ -123,7 +141,80 @@ try{
   online=false;await publish(0,tokenA);assert.equal((await roster(p))[0].activity,'offline');online=true;
   db.prepare('UPDATE planet_resident_sources SET sampled=sampled-30001 WHERE id=?').run(slotA);
   assert((await roster(p)).every(r=>r.activity==='unknown'));
+  const native=first.find(r=>r.displayName===nativeName);
+  assert.equal(native.activity,'working');assert.equal(native.appearanceKey,'rainbow');
+  assert.notEqual(native.id,resident.id); // Bridge and DSH intentionally share a raw ID.
+  assert(!JSON.stringify(first).includes('Synthetic owner'));
+  const beforeShared=dshReads;
   allowed=[resident.id];await publish(0,tokenA,true);assert.deepEqual((await roster(p)).map(r=>r.id),allowed);
+  assert.equal(dshReads,beforeShared,'No native profile read when the owner has not authorized it');
+  const dshEvidence=process.argv[2];
+  if(dshEvidence){
+    const {chromium,expect}=await import('@playwright/test');
+    await mkdir(dshEvidence,{recursive:true});
+    browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+    const context=await browser.newContext({baseURL:world,viewport:{width:1136,height:795}});
+    await context.route('**/*',route=>route.request().url().startsWith(world+'/')?route.continue():route.abort());
+    await context.addCookies([{name:visitor.split('=')[0],value:visitor.split('=')[1],url:world}]);
+    await context.addInitScript(()=>{
+      localStorage.setItem('little-worlds:language:v1','zh');
+      localStorage.setItem('little-worlds:core-guide:v1','skipped');
+      localStorage.setItem('little-worlds:first-visit:v1','hidden');
+    });
+    dshPage=await context.newPage();
+    await dshPage.goto('/?measure=1');
+    await dshPage.waitForFunction(()=>!document.querySelector('#welcome-start')?.disabled,{},{timeout:60000});
+    if(await dshPage.locator('#welcome-start').isVisible())await dshPage.locator('#welcome-start').click();
+    await expect(dshPage.locator('#bothouse-residents')).toContainText(name,{timeout:30000});
+    await expect(dshPage.locator('#bothouse-residents')).not.toContainText('站内角色');
+  }
+  allowed=[native.id];nativeState='idle';engineBusy=true;
+  const conf=await readFile(configurations[0],'utf8');
+  const binding=bot=>'\n[[projects]]\nname="role-1"\n[[projects.platforms]]\ntype="cloud_web"\n'+
+    '[projects.platforms.options]\nws_url="ws://127.0.0.1:'+ports[0]+'/cloud-web/ws?bot='+bot+'"\n';
+  await appendFile(configurations[0],binding('other'));
+  await publish(0,tokenA,true);assert.equal((await roster(p))[0].activity,'idle');
+  await writeFile(configurations[0],conf+binding('role-1'));
+  await publish(0,tokenA,true);assert.equal((await roster(p))[0].activity,'working');
+  nativeOnline=false;await publish(0,tokenA,true);assert.equal((await roster(p))[0].activity,'offline');nativeOnline=true;
+  allowed=[];await publish(0,tokenA,true);assert.deepEqual(await roster(p),[]);
+  engineBusy=false;await writeFile(configurations[0],conf);
+  allowed=[resident.id,native.id];
+  nativeName='同名·新昵称🎨';nativeState='thinking';nativeLook='whale';
+  await publish(0,tokenA,true);
+  const updatedNative=(await roster(p)).find(r=>r.id===native.id);
+  assert.equal(updatedNative.displayName,nativeName);
+  assert.equal(updatedNative.activity,'thinking');
+  assert.equal(updatedNative.appearanceKey,'whale');
+  assert.equal((await roster(p)).filter(r=>r.displayName===nativeName).length,2);
+  if(dshPage){
+    const {expect}=await import('@playwright/test');
+    await expect(dshPage.locator('#bothouse-residents')).toContainText(nativeName+' · 思考中',{timeout:15000});
+    const bodies=()=>dshPage.locator('#world canvas').first().evaluate(canvas=>JSON.parse(canvas.dataset.companions||'[]'));
+    await expect.poll(async()=>(await bodies()).find(r=>r.id===native.id)?.model).toBe('bothouse-whale');
+    await dshPage.screenshot({path:join(dshEvidence,'visitor-dsh-thinking.png')});
+  }
+  nativeState='unrecognized';
+  nativeLook='upload:private.png';
+  await publish(0,tokenA,true);
+  const privateNative=(await roster(p)).find(r=>r.id===native.id);
+  assert.equal(privateNative.activity,'unknown');
+  assert.equal(privateNative.appearanceKey,'default');
+  assert.equal(privateNative.portrait ?? null,null);
+  nativeOnline=false;await publish(0,tokenA,true);
+  assert.equal((await roster(p)).find(r=>r.id===native.id).activity,'offline');
+  nativeOnline=true;nativeState='idle';await publish(0,tokenA,true);
+  assert.equal((await roster(p)).find(r=>r.id===native.id).activity,'idle');
+  allowed=[resident.id];await publish(0,tokenA,true);
+  assert.deepEqual((await roster(p)).map(r=>r.id),allowed);
+  if(dshPage){
+    const {expect}=await import('@playwright/test');
+    await expect(dshPage.locator('#bothouse-residents')).not.toContainText('思考中',{timeout:15000});
+    await expect.poll(async()=>dshPage.locator('#world canvas').first().evaluate((canvas,id)=>
+      JSON.parse(canvas.dataset.companions||'[]').some(r=>r.id===id),native.id)).toBe(false);
+    await dshPage.screenshot({path:join(dshEvidence,'visitor-dsh-revoked.png')});
+    await browser.close();browser=null;
+  }
   activeAccount='someone_else';await publish(0,tokenA,true);assert.equal((await roster(p)).length,0);
   activeAccount='owner_test';await publish(0,tokenA,true);assert.equal((await roster(p)).length,1);
   activeAccount=null;await publish(0,tokenA,true);assert.equal((await roster(p)).length,0);
@@ -162,6 +253,7 @@ try{
     owners:2,visitors:1,rosterBefore:36,rosterAfter:37,states:['thinking','working','offline','unknown'],
     sourcePngSHA256:pictures.map(png=>createHash('sha256').update(png).digest('hex')),
     originalPixels:true,oldUrlRevoked:true,neighborDenied:true,customAppearanceRemoved:true,
+    nativeDSH:{sameIdAfterRename:true,sharedConsentRevoked:true,readBeforeConsent:false,visitorBrowserChecked:Boolean(dshEvidence),states:['working','thinking','unknown','offline','idle'],privatePortraitExcluded:true},
     nativeForm:true,customArtKey:true,emojiRenameSameId:true,separateInstances:true,sharedAccountSwitchClears:true,
     revokedPublisherRejected:true,noPrivateFields:true,visitAndInFlightChecks:true}));
-}finally{db?.close();for(const api of instances){api.closeAllConnections();api.close();}app.kill();}
+}finally{await browser?.close();db?.close();for(const api of instances){api.closeAllConnections();api.close();}app.kill();}

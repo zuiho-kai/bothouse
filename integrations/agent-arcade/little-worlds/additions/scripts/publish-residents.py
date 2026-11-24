@@ -4,6 +4,7 @@ import base64
 import getpass
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import sys
 import time
 import tomllib
 import unicodedata
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 # Both python -I and the shared Windows host load the exact installed sibling.
 portraits = runpy.run_path(str(Path(__file__).resolve().with_name("resident_portraits.py")))
@@ -151,6 +152,62 @@ def fingerprint(data_dir):
     return digest(public)
 
 
+def native_dsh_profiles(base, headers, data_dir):
+    """Read the native member's selected built-in look through Bothouse Channels."""
+    local_host = None
+    home = Path.home()
+    default_data_dirs = (home / ".bothouse", home / ".cc-connect")
+    collab_dir = home / ".conest-collab" if data_dir.resolve() in default_data_dirs else data_dir / "conest-collab"
+    record = Path(os.getenv("CONEST_COLLAB_DATA") or collab_dir) / "collab.owner.json"
+    try:
+        try:
+            with record.open("rb") as stream:
+                raw = stream.read(4097)
+        except FileNotFoundError:
+            # Web-only Channels uses the management panel's existing owner proxy.
+            state = request(base, "/dsh/collab/api/state", headers)
+        else:
+            if len(raw) > 4096:
+                return None, {}
+            owner = json.loads(raw)["local"]
+            site = origin(owner["origin"], local=True)
+            token = owner["token"]
+            if (site.scheme != "http" or not ipaddress.ip_address(site.hostname).is_loopback or
+                    not site.port or not isinstance(token, str) or not token.isascii() or
+                    not token.isprintable() or not token.strip()):
+                return None, {}
+            local_host = site.netloc
+            state = request(site, "/collab/api/state", {"X-Collab-Local": token})
+        return local_host, {row["id"]: (row.get("avatar") or "") for row in state["members"]
+                if isinstance(row, dict) and row.get("kind") == "dsh" and isinstance(row.get("id"), str)}
+    except (OSError, ValueError, TypeError, KeyError, http.client.HTTPException):
+        return None, {}
+
+
+def bound_busy_members(cfg, host, engines):
+    """Recognize only the native member's own active Cloud Web transport."""
+    bound = set()
+    if not host or not engines:
+        return bound
+    for project in cfg.get("projects", []):
+        name = project.get("name")
+        if project.get("disabled") or name not in engines:
+            continue
+        channels = [p for p in project.get("platforms", []) if p.get("type") == "cloud_web"]
+        if len(channels) != 1 or channels[0].get("disabled"):
+            continue
+        opts = channels[0].get("options", {})
+        try:
+            url = urlsplit(opts.get("ws_url", ""))
+            if (url.scheme == "ws" and url.netloc == host and url.path == "/cloud-web/ws"
+                    and not url.fragment and parse_qs(url.query).get("bot") == [name]
+                    and (opts.get("name") or "cloud_web") in engines[name]):
+                bound.add(name)
+        except (TypeError, ValueError):
+            continue
+    return bound
+
+
 def read_portrait_approvals(config):
     # Optional per-config grants; a missing or partially edited file grants nothing.
     try:
@@ -224,13 +281,24 @@ def project_snapshot(cfg_file, selected, friends=None):
         setup = {}
     avatars = {}
     try:
-        inferred = role_looks(get("roles").get("roles", []))
+        management_roles = get("roles").get("roles", [])
     except (OSError, ValueError, KeyError, http.client.HTTPException):
-        inferred = {}
+        management_roles = []
+    inferred = role_looks(management_roles)
+    # Friends issues a native number only after binding the roster member to the
+    # local Cloud Web engine by instance, project ID and bot endpoint. That
+    # number is checked below before projecting any engine activity.
+    busy_engines = {row["name"]: {p.get("name") for p in row.get("platforms", []) if p.get("ready") is True}
+                    for row in management_roles
+                    if isinstance(row.get("name"), str) and row.get("source", "") in ("", "bridge")
+                    and row.get("agent_type") == "dsh" and row.get("online") is True
+                    and row.get("paused") is False and row.get("busy") is True}
     for key in ("team", "cloud_web_team"):
         for item in setup.get(key) or []:
             avatars.setdefault(item.get("project"), set()).add(item.get("avatar") or "")
     residents = []
+    dsh_looks = None
+    bound_busy = set()
     for role in data["roles"]:
         project = role["name"]
         source = role["source"]
@@ -265,6 +333,19 @@ def project_snapshot(cfg_file, selected, friends=None):
             activity = "unknown"
         residents.append(dict(source=source, project=project, displayName=display, appearanceKey=look if SLUG.fullmatch(look) else "default",
                               activity=activity))
+        if source == "dsh":
+            if dsh_looks is None:
+                host, dsh_looks = native_dsh_profiles(base, headers, data_dir)
+                if permitted is not None:
+                    bound_busy = bound_busy_members(cfg, host, busy_engines)
+            if activity == "idle" and project in dsh_looks and project in bound_busy:
+                # Channels may have no team reader. Only project the engine busy bit.
+                residents[-1]["activity"] = "working"
+            avatar = dsh_looks.get(project)
+            if isinstance(avatar, str) and avatar:
+                look = BRANDS.get(avatar, avatar if avatar in BRANDS.values() else "default")
+                residents[-1]["_builtin"] = look
+                continue
         if not any(options):
             residents[-1]["_builtin"] = inferred.get((source, project), "default")
     return {"instance": instance, "residents": residents}

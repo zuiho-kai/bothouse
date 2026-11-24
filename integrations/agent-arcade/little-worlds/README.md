@@ -12,12 +12,12 @@ python install.py .\LittleWorlds --run
 
 ## How the installation works
 
-Use an empty directory. The installer retrieves the public Git tag final-project-submission and verifies commit 809aa0dee5df7ae4e3036f67f44da9a7ca31d153. It applies the 20-file patch, checks all 77 added blobs and verifies the entire reconstructed Git tree against 5d1a67c095d1f8805e1da682de346b594238daed. Git HEAD stays on the public baseline with the delta staged for inspection. The build uses the upstream frozen dependency lock, skips development install hooks, and builds both the game and worker. The resulting local HTTP server binds to loopback. The first installation needs access to the public Git repo and package registry or their local equivalents. With an existing clone containing the pinned baseline and a populated pnpm store:
+Use an empty directory. The installer retrieves the public Git tag final-project-submission and verifies commit 809aa0dee5df7ae4e3036f67f44da9a7ca31d153. It applies the 23-file patch, checks all 77 added blobs and verifies the entire reconstructed Git tree against d4eb34d971d0f385b56ae799f8fb8aa24c9a963f. Git HEAD stays on the public baseline with the delta staged for inspection. The build uses the upstream frozen dependency lock, skips development install hooks, and builds both the game and worker. The resulting local HTTP server binds to loopback. The first installation needs access to the public Git repo and package registry or their local equivalents. With an existing clone containing the pinned baseline and a populated pnpm store:
 
 ```sh
 python install.py ./LittleWorlds --source /path/to/existing/course-repo --offline --run
 ```
 
-The installed game uses actual Three.js scenes, resident meshes, a local database and the original world UI. For the bridge integration test from the installed release folder use `node scripts/verify-residents.mjs`. It exercises the real publisher and world with synthetic local Bothouse management responses. Production integrations require your own running Bothouse.
+The installed game uses actual Three.js scenes, resident meshes, a local database and the original world UI. For the bridge integration test from the installed release folder use `node scripts/verify-residents.mjs`. It exercises the real publisher and world with synthetic local Bothouse management responses. Production integrations require your own running Bothouse. When Agent Arcade sends its language on the first visit, the world uses it until you pick a language in the game. An authorized native DSH resident shows working when its verified local Bothouse Engine is busy.
 
 See NOTICE.md for source and asset terms, and manifest.json for the complete path, Git blob and SHA-256 list. The Agent Arcade host integration is tracked in [Bothouse PR #2180](https://github.com/zuiho-kai/bothouse/pull/2180). The command above also works for the standalone browser game. The public upstream tag identifies the baseline only.
