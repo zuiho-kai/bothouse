@@ -444,6 +444,10 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 	// Filter out CLAUDECODE env var to prevent "nested session" detection,
 	// since cc-connect is a bridge, not a nested Claude Code session.
 	env := filterEnv(os.Environ(), "CLAUDECODE")
+	// A bridge started from inside a Claude Code session of an older bridge inherits
+	// that session's DISABLE_AUTO_COMPACT=1, which would switch subagent compaction
+	// off again (see compactionEnv); only config.toml [env] may set it.
+	env = filterEnv(env, "DISABLE_AUTO_COMPACT")
 	if len(extraEnv) > 0 {
 		env = core.MergeEnv(env, extraEnv)
 	}
