@@ -4241,25 +4241,18 @@ func RemoveProject(projectName string) error {
 // If the project doesn't exist, it is created using agentType and workDir when provided,
 // otherwise agent config is cloned from the first existing project when present.
 func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, agentType string) error {
-	if room, localDSH := platform.Options[core.LocalDSHRoomOption]; localDSH && platform.Type == "cloud_web" {
+	_, localDSH := platform.Options[core.LocalDSHRoomOption]
+	if platform.Type == core.LocalDSHPlatformType || (platform.Type == "cloud_web" && localDSH) {
+		if !localDSH {
+			return fmt.Errorf("local DSH: a room is required")
+		}
 		_, err := ApplyWizardProjects(func(projects []WizardProjectSnapshot) ([]WizardProjectOptions, error) {
 			for _, project := range projects {
-				if project.Name != projectName {
-					continue
+				if project.Name == projectName {
+					return []WizardProjectOptions{{Name: projectName, PlatformType: core.LocalDSHPlatformType, Options: platform.Options}}, nil
 				}
-				options := platform.Options
-				if existing, hasCloudWeb := project.Platforms[platform.Type]; hasCloudWeb {
-					if _, alreadyLocal := existing[core.LocalDSHRoomOption]; !alreadyLocal {
-						return nil, core.ErrLocalDSHCloudWebConflict
-					}
-					options = map[string]any{core.LocalDSHRoomOption: room}
-					if name, ok := platform.Options["dsh_member_name"].(string); ok {
-						options["dsh_member_name"] = name
-					}
-				}
-				return []WizardProjectOptions{{Name: projectName, PlatformType: platform.Type, Options: options}}, nil
 			}
-			return nil, fmt.Errorf("local DSH: project %q does not exist", projectName)
+			return nil, fmt.Errorf("local DSH: project %q: %w", projectName, core.ErrProjectNotFound)
 		})
 		return err
 	}

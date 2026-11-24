@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 // Setup-wizard helpers (web wizard, `cc-connect setup`, POST /api/v1/setup/apply).
@@ -349,9 +350,24 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 			}
 		}
 		if len(targets) == 0 && !o.AllPlatformsOfType {
-			pl := map[string]any{"type": o.PlatformType, "options": map[string]any{}}
-			plats = append(plats, pl)
-			targets = append(targets, pl)
+			options := map[string]any{}
+			if o.PlatformType == core.LocalDSHPlatformType {
+				options["allow_from"] = "owner"
+				options["share_session_in_channel"] = true
+				for _, pl := range plats {
+					opts, _ := pl["options"].(map[string]any)
+					if _, legacy := opts[core.LocalDSHRoomOption]; pl["type"] == "cloud_web" && legacy {
+						pl["type"] = core.LocalDSHPlatformType
+						targets = append(targets, pl)
+						break
+					}
+				}
+			}
+			if len(targets) == 0 {
+				pl := map[string]any{"type": o.PlatformType, "options": options}
+				plats = append(plats, pl)
+				targets = append(targets, pl)
+			}
 		}
 		p["platforms"] = plats
 		for _, pl := range targets {

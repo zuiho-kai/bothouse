@@ -107,13 +107,15 @@ dsh plugin --profile web add 'github:zuiho-kai/bothouse#dsh-plugin&path:dsh/plug
 
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="新频道小团队里，写手和程序员都在线，模型都是 deepseek-v4.1-flash"><br><b>新频道里角色已就位</b></p>
 
-## 将现有项目接入本机 DSH
+## 将现有项目接入 DSH
 
 1. 在运行 bothouse 的同一台机器上打开 DSH，并启用频道插件。
 2. 在 bothouse 面板的「项目」页面选择现有项目，点击「添加平台 → DSH（本机）」。
 3. 有 `#general` 时可沿用默认选择，也可以选另一个群聊频道。点击「连接」，按提示重启 bothouse。
 
-原机器人加入所选 DSH 频道，并保留 Discord 连接。bothouse 自动读取本机网关地址和默认凭据，DSH 桌面版更换端口后会重新连接。要换频道，重新执行这套流程即可。项目已有手动配置的 Cloud Web 连接时，面板会提示冲突。使用自定义网关 token 时，请用 Cloud Web 手动配置。
+bothouse 自动读取本机网关地址和默认凭据，宿主更换端口后会重新连接。本机 DSH 使用独立的 `dsh` 平台配置，可与 Cloud Web、Discord 一起接入同一项目。旧的本机连接可继续使用 `cloud_web`，通过「DSH（本机）」重新保存并重启后，CLI 发送使用新会话键，例如 `dsh:room-7`。
+
+**远程 DSH Web** 在「桥接 → 已保存的 Cloud Web 连接」中填写服务器地址和机器人网关令牌，再通过「添加平台 → Cloud Web」绑定到项目。使用共享网关令牌时，可在「高级选项」的 WebSocket URL 中指定频道和显示名，例如 `wss://dsh.example.com/cloud-web/ws?room=7&name=Relay`。将允许来源设为 `owner` 即可接收 DSH 主人的消息。CLI 发送可用 `--connection dsh-web --session cloud_web:room-7` 选择对应连接和会话。
 
 ## 管理 DSH 角色
 

@@ -21,8 +21,7 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// moduleOrder is the order `module list` shows; "dsh" is not a config.toml platform but a plugin
-// installed into DSH (core/setup_dsh_platform.go).
+// moduleOrder is the order `module list` shows. The DSH module manages the Channels plugin.
 var moduleOrder = []string{"qq", "discord", "feishu", "dsh", "cloud_web"}
 
 var moduleLabels = map[string]string{
@@ -57,7 +56,7 @@ func printModuleUsage() {
 Platforms are optional modules: only the ones in config.toml start.
 
   list                  Each platform: enabled / disabled / not configured, and which roles use it
-                        DSH reports Channels plugin profiles. DSH project connections appear under cloud_web.
+                        DSH reports Channels plugin profiles. Use DSH (local) in the Projects panel to connect a project.
   add <platform>        Configure the platform with its own flags (below), or turn a disabled one back on
   disable <platform>    Stop a platform; its settings stay in config.toml (add turns it back on).
                         Takes no parameters and no --dry-run: it only marks the section disabled

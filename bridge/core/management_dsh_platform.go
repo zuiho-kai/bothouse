@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -11,10 +10,11 @@ import (
 	"unicode/utf16"
 )
 
-// LocalDSHRoomOption marks a Cloud Web connection that resolves the local DSH host on demand.
-const LocalDSHRoomOption = "dsh_room"
-
-var ErrLocalDSHCloudWebConflict = errors.New("project already has a manually configured Cloud Web connection")
+const (
+	LocalDSHPlatformType = "dsh"
+	// LocalDSHRoomOption also identifies legacy Cloud Web attachments to local DSH.
+	LocalDSHRoomOption = "dsh_room"
+)
 
 type localDSHRoom struct {
 	ID   int64  `json:"id"`
@@ -123,18 +123,12 @@ func (m *ManagementServer) handleDSHProjectSetup(w http.ResponseWriter, r *http.
 		return
 	}
 	opts := map[string]any{
-		LocalDSHRoomOption:         selection.RoomID,
-		"dsh_member_name":          memberName,
-		"allow_from":               "owner",
-		"share_session_in_channel": true,
+		LocalDSHRoomOption: selection.RoomID,
+		"dsh_member_name":  memberName,
 	}
-	if err := m.addPlatformToProject(project, "cloud_web", opts, "", ""); err != nil {
-		if errors.Is(err, ErrLocalDSHCloudWebConflict) {
-			mgmtError(w, http.StatusConflict, "This project already has a manually configured Cloud Web connection.")
-		} else {
-			slog.Error("local DSH: save project connection", "project", project, "error", err)
-			mgmtError(w, http.StatusInternalServerError, "Could not save the local DSH connection.")
-		}
+	if err := m.addPlatformToProject(project, LocalDSHPlatformType, opts, "", ""); err != nil {
+		slog.Error("local DSH: save project connection", "project", project, "error", err)
+		mgmtError(w, http.StatusInternalServerError, "Could not save the local DSH connection.")
 		return
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{"restart_required": true})

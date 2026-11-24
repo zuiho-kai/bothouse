@@ -178,6 +178,8 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 在 **桥接 → 已保存的 Cloud Web 连接** 中按名称保存服务器设置，然后在 **项目 → 添加平台 → Cloud Web** 中选用。运行中的项目会显示已保存的连接名称。展开 **高级选项** 可以按项目设置 WebSocket 地址、允许的用户和群聊行为。设置变更后，可在项目中重新选择该连接，并按提示重启服务。
 
+本机 DSH 频道可通过 **项目 → 添加平台 → DSH（本机）** 连接。远程 DSH Web 服务器使用已保存的 Cloud Web 连接。见 [DSH 项目设置](docs/platforms/dsh.md#将现有项目接入-dsh)。
+
 向正在运行的项目所接入的 Cloud Web 发送消息时，可以用 `bothouse send --connection "工作平台" --project relay --session cloud_web:room-42 --message "你好"`。连接名称选择平台，session key 选择频道。
 
 <a id="iot"></a>

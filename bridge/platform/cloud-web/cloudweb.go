@@ -16,6 +16,7 @@ import (
 
 func init() {
 	core.RegisterPlatform("cloud_web", New)
+	core.RegisterPlatform(core.LocalDSHPlatformType, newLocalDSH)
 }
 
 type Platform struct {
@@ -105,6 +106,10 @@ func New(opts map[string]any) (core.Platform, error) {
 	if name == "" {
 		name = "cloud_web"
 	}
+	return newPlatform(name, opts)
+}
+
+func newPlatform(name string, opts map[string]any) (core.Platform, error) {
 	project, _ := opts["cc_project"].(string)
 	token, _ := opts["token"].(string)
 	room, localDSH := opts[core.LocalDSHRoomOption]

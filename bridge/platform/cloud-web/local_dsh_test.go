@@ -18,9 +18,13 @@ import (
 func TestLocalDSHConnectionFollowsHostRestart(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CONEST_COLLAB_DATA", dir)
-	p := mustNew(t, map[string]any{
+	platform, err := core.CreatePlatform("dsh", map[string]any{
 		"cc_project": "relay", core.LocalDSHRoomOption: int64(2), "dsh_member_name": "QA Relay",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := platform.(*Platform)
 	ws := p.tp.(*wsTransport)
 	// Keep both listeners reserved so the replacement host gets a different port.
 	for i, token := range []string{"first-test-token", "second-test-token"} {
@@ -84,7 +88,7 @@ func TestLocalDSHConnectionFollowsHostRestart(t *testing.T) {
 		ws.onConnected = func() {
 			defer cancel()
 			connected = true
-			reply, err := p.ReconstructReplyCtx("cloud_web:room-2")
+			reply, err := p.ReconstructReplyCtx("dsh:room-2")
 			if err != nil {
 				t.Error(err)
 				return
@@ -110,5 +114,12 @@ func TestLocalDSHConnectionFollowsHostRestart(t *testing.T) {
 		if err != nil || len(msgs) != 1 || msgs[0].Content != history {
 			t.Fatalf("history from %s: messages=%+v error=%v", host.URL, msgs, err)
 		}
+	}
+}
+
+func TestLegacyLocalDSHConnectionStillLoads(t *testing.T) {
+	p := mustNew(t, map[string]any{"cc_project": "relay", core.LocalDSHRoomOption: int64(2)})
+	if p.Name() != "cloud_web" || !p.localDSH {
+		t.Fatalf("legacy attachment has platform %q, local=%v", p.Name(), p.localDSH)
 	}
 }

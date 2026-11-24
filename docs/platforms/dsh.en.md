@@ -22,13 +22,15 @@ The lead creates the channel and both roles in one go through the channels API (
 
 <p align="center"><img src="../assets/readme/demo/dsh-oneline-team-channel-crop.jpg" width="900" alt="In the new channel, the writer and the programmer are online, both on deepseek-v4.1-flash"><br><b>The roles are in the new channel</b></p>
 
-## Connect an existing project to local DSH
+## Connect an existing project to DSH
 
 1. Open DSH on the same machine as bothouse and enable the Channels plugin.
 2. In the bothouse panel, open **Projects**, select the existing project, and choose **Add platform → DSH (local)**.
 3. Keep `#general` when available or pick another group channel. Click **Connect**, then restart bothouse when prompted.
 
-The existing bot joins the selected DSH channel and keeps its Discord connection. Bothouse reads the local gateway address and default credential automatically and reconnects if DSH Desktop changes ports. To change the selected channel, run the same setup again. A project with an existing manual Cloud Web connection will show a conflict. For a DSH gateway with a custom token, use the manual Cloud Web setup.
+Bothouse discovers the local gateway address and default credential and reconnects if the host changes ports. Local DSH has a dedicated `dsh` platform slot and can coexist with Cloud Web and Discord on the same project. Existing local attachments keep working under `cloud_web` until you save them again through **DSH (local)**. After saving and restarting, use the new session key, such as `dsh:room-7`, for CLI sends.
+
+For a **remote DSH Web server**, save its address and bot gateway token under **Bridge → Saved Cloud Web connections**, then attach the profile under **Add platform → Cloud Web**. With a shared gateway token, use **Advanced options** to assign a room and display name in the WebSocket URL, for example `wss://dsh.example.com/cloud-web/ws?room=7&name=Relay`. Set **Allow from** to `owner` for the DSH owner. For CLI sends, use the saved profile and the Cloud Web session key, for example `--connection dsh-web --session cloud_web:room-7`.
 
 ## Managing DSH members
 

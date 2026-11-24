@@ -42,7 +42,7 @@ func TestProjectLocalDSHPlatform(t *testing.T) {
 	management.RegisterEngine("native", NewEngine("native", &stubAgent{}, nil, "", LangEnglish))
 	var saved []map[string]any
 	management.SetAddPlatformToProject(func(project, platform string, opts map[string]any, _, _ string) error {
-		if project != "relay" || platform != "cloud_web" {
+		if project != "relay" || platform != "dsh" {
 			t.Fatalf("saving %s on %s", platform, project)
 		}
 		saved = append(saved, opts)

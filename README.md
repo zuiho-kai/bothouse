@@ -181,6 +181,8 @@ QQ via OneBot/NapCat can also [watch selected groups silently](docs/platforms/qq
 
 Save named Cloud Web server settings in **Bridge → Saved Cloud Web connections**. Pick a saved connection under **Projects → Add platform → Cloud Web**. The running project shows the saved connection name. **Advanced options** lets you set a project-specific WebSocket URL, allowed users, and group behavior. Select the connection again to apply updated settings to that project, then restart the service when prompted.
 
+For DSH Channels on this machine, choose **Projects → Add platform → DSH (local)**. For a remote DSH Web server, use a saved Cloud Web connection. See [DSH project setup](docs/platforms/dsh.en.md#connect-an-existing-project-to-dsh).
+
 To send through a saved connection attached to a running project, use `bothouse send --connection "Work Hub" --project relay --session cloud_web:room-42 --message "Hello"`. The profile selects the hub and the session key selects the room.
 
 <a id="compare"></a>
