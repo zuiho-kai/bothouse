@@ -270,3 +270,9 @@ node social/deploy/rehearse.cjs /path/to/caddy /path/to/openssl /path/to/new-reh
 - 在 `/etc/agent-arcade-social/service.env` 同时填写 `SOCIAL_PUBLIC_OPERATOR_NAME`（对外公布的运营名称）和 `SOCIAL_PUBLIC_PRIVACY_CONTACT`（公开支持邮箱或不含登录凭据的 HTTPS 地址），重启社交服务后从未登录的浏览器打开 `/privacy.html` 核对显示和链接。两个字段会直接公开，请使用正式联系信息。两项都不设置时，页面会显示尚未公布联系方式；只填一项或格式无效时服务会在启动时报错。回环环境可以完全省略。
 - 确认实际联系入口能处理访问、更正或删除请求，并在公开说明中据实补齐数据库、备份、日志、数据保留与第三方处理做法。配置联系信息本身不代表上线或商店审核完成。
 - 微软 Store 10.5 要求说明个人信息的用途、存储、保护、披露和访问控制；条款适用的第三方分享要取得明确同意并提供在产品中撤回的机制。AI 私聊顶部可关闭云聊天，并在明确同意后恢复。群成员可在「群成员 → 群内 AI」分别同意或撤回自己对鲸鱼娘（DeepSeek）和龙娘（OpenAI GPT）的授权。运营者和发布负责人须核对正式域名、公开说明和实际数据处理。对应服务没有配置密钥时，该角色不可用。回环演练只覆盖本机功能。 [Microsoft Store 10.5](https://learn.microsoft.com/en-us/windows/apps/publish/store-policies#105-personal-information)
+
+### 同机 Bothouse 角色分享
+
+已有 Windows 本机启动器沿用它选中的 Bothouse 实例及好友服务端口。若在同一台主机独立运行 Bothouse，先将实例配置放在服务账号有读写权的私有目录。systemd 示例可用 `/var/lib/agent-arcade-social/bothouse`，该目录应由 `agent-arcade-social` 所有。让 Bothouse 以同一账号使用 `--config <目录>/config.toml`，在现有好友服务配置中把 `BOTHOUSE_DATA_DIR` 指向这一目录，并保持 `SOCIAL_HOST=127.0.0.1`、固定 `SOCIAL_PORT`。首次启动好友服务后即可用 Bothouse 管理页查号。
+
+凭据由好友服务自动写到该实例配置旁的私有文件，原安装包和服务日志不含凭据。重启沿用原实例目录与监听地址。已有账号只需正常登录 App，在通讯录打开获准角色。

@@ -352,9 +352,10 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
     res.setHeader('Permissions-Policy','microphone=(self), camera=(), display-capture=()');
     try {
       if(req.method==='GET' && req.url?.startsWith('/api/v1/bothouse-share-recipient?')){
-        const recipient=friendShareLookup(store,req,friendLookupToken);
+        const recipient=friendShareLookup(store,req,friendLookupToken?.());
         res.setHeader('Content-Type','application/json; charset=utf-8');
-        return res.end(JSON.stringify(recipient));
+        res.setHeader('X-Friends-Lookup-Proof',recipient.proof);
+        return res.end(recipient.body);
       }
       let origin;
       try { origin = new URL((publicOrigin ? 'https://' : 'http://') + req.headers.host); } catch { fail(400,'host','主机名无效'); }
