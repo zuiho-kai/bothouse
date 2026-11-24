@@ -613,6 +613,8 @@ func JudgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	var v ExitVerdict
 	if kind == ExitKindAsk {
 		v.Problems = AskEvidenceProblems(body)
+	} else if kind == ExitKindReport {
+		v.Problems = WaitUserProblems(body) // always goes back, like a missing [ask] self-check
 	}
 	var hp []string
 	if auto {

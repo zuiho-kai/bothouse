@@ -99,7 +99,30 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	if len(f.sent) != 1 {
 		t.Fatalf("want one ② for the new stop only, got %q", f.sent)
 	}
-	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 自动交回工作区接着做。"; f.sent[0] != want {
+	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 自动再派人接着做。"; f.sent[0] != want {
 		t.Fatalf("② = %q", f.sent[0])
+	}
+	// #1976: the secretary channel reads the same line from the state, for every chat, said once
+	st.Stops = map[string]chatStopSaid{}
+	if !recordChatStops(st, items, now) || recordChatStops(st, items, now) {
+		t.Fatal("stops must be recorded once")
+	}
+	if len(st.Stops) != 2 || st.Stops["5@p"+stop.PausedAt+stop.Paused].Text != strings.TrimPrefix(want0, "post ") {
+		t.Fatalf("stops = %+v", st.Stops)
+	}
+}
+
+const want0 = "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 自动再派人接着做。"
+
+func TestChatClock(t *testing.T) {
+	now := time.Date(2026, 11, 24, 23, 0, 0, 0, time.Local)
+	for in, want := range map[time.Time]string{
+		now.Add(30 * time.Minute):   "23:30",
+		now.Add(11 * time.Hour):     "明天 10:00",
+		now.Add(3 * 24 * time.Hour): "11-27 23:00",
+	} {
+		if got := chatClock(in, now); got != want {
+			t.Errorf("chatClock(%v) = %q, want %q", in, got, want)
+		}
 	}
 }

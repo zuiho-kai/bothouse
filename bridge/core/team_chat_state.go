@@ -49,6 +49,17 @@ type teamChatState struct {
 	Since   time.Time                `json:"since"`
 	Waiting map[string]*chatWaitNote `json:"waiting"`
 	Stopped map[string]time.Time     `json:"stopped"` // "<id>@<stamp>" → when ② was posted
+	// Stops: every ② said, whatever chat it belongs to ("<id>@<stamp>" → the line). The secretary
+	// channel (experimental script, not in the product) posts these lines instead of judging stops
+	// itself (#1976: the two wrote different 「接下来」 for one stop).
+	Stops map[string]chatStopSaid `json:"stops"`
+}
+
+type chatStopSaid struct {
+	ID   int       `json:"id"`
+	Chat string    `json:"chat"`
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 func (e *Engine) teamChatStatePath() string {
@@ -69,6 +80,9 @@ func loadTeamChatState(path string) *teamChatState {
 	if st.Stopped == nil {
 		st.Stopped = map[string]time.Time{}
 	}
+	if st.Stops == nil {
+		st.Stops = map[string]chatStopSaid{}
+	}
 	return st
 }
 
@@ -84,6 +98,9 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		st.Since, changed = now, true
 	}
 	items := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
+	if recordChatStops(st, items, now) {
+		changed = true
+	}
 	chats := map[string]bool{}
 	for _, it := range items {
 		for _, c := range it.chats() {
@@ -112,6 +129,12 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 	for k, at := range st.Stopped {
 		if now.Sub(at) > 14*24*time.Hour {
 			delete(st.Stopped, k)
+			changed = true
+		}
+	}
+	for k, s := range st.Stops {
+		if now.Sub(s.At) > 14*24*time.Hour {
+			delete(st.Stops, k)
 			changed = true
 		}
 	}
@@ -296,7 +319,7 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		}
 		next := "没有自动接着做的安排，你说接着做就接着派。"
 		if it.WaitUntil > 0 {
-			next = time.Unix(it.WaitUntil, 0).In(now.Location()).Format("15:04") + " 自动交回工作区接着做。"
+			next = chatClock(time.Unix(it.WaitUntil, 0), now) + " 自动再派人接着做。"
 		}
 		stamp = "p" + it.PausedAt + it.Paused
 		if it.Paused == "" {
@@ -316,9 +339,40 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if at.IsZero() {
 			at = now
 		}
-		return "s" + it.Bound, at, fmt.Sprintf("②停了%s%s%s\n接下来：系统每 10 分钟自动催它一次；你要换人做就说一声。", name, where, why)
+		return "s" + it.Bound, at, fmt.Sprintf("②停了%s%s%s\n接下来：会自动催它接着做。", name, where, why)
 	}
 	return "", time.Time{}, ""
+}
+
+// recordChatStops keeps st.Stops: the ② line of every stop since Since, in any chat, once.
+func recordChatStops(st *teamChatState, items []teamTaskBoardItem, now time.Time) bool {
+	changed := false
+	for _, it := range items {
+		stamp, at, text := chatStopOf(it, now)
+		if stamp == "" || at.Before(st.Since) {
+			continue
+		}
+		key := strconv.Itoa(it.ID) + "@" + stamp
+		if _, ok := st.Stops[key]; !ok {
+			st.Stops[key] = chatStopSaid{ID: it.ID, Chat: it.Chat, Text: text, At: now}
+			changed = true
+		}
+	}
+	return changed
+}
+
+// chatClock: 「15:04」 today, 「明天 15:04」 tomorrow, else 「01-02 15:04」.
+func chatClock(t, now time.Time) string {
+	t = t.In(now.Location())
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	switch {
+	case !t.Before(today) && t.Before(today.AddDate(0, 0, 1)):
+		return t.Format("15:04")
+	case !t.Before(today.AddDate(0, 0, 1)) && t.Before(today.AddDate(0, 0, 2)):
+		return "明天 " + t.Format("15:04")
+	}
+	return t.Format("01-02 15:04")
 }
 
 // announceChatStops posts ② once for each stop of this chat's items that began after Since.

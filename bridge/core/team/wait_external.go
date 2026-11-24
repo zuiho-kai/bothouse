@@ -30,6 +30,21 @@ var (
 	waitClock = regexp.MustCompile(`(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?\s*(\d{1,2})[:：](\d{2})\s*(ET|EST|EDT|美东|美东时间)?`)
 )
 
+// waitOnUserWords: a 「等外部：」 reason that is in fact the user's word to wait for (#1976: #1929 wrote
+// 「等外部：用户 12:34 原话…主角色转达“别重跑，等用户下一步”；他说继续就分开跑…」, was parked with an 11-hour
+// retry that would rerun what the user stopped, and never reached ①等你定).
+var waitOnUserWords = regexp.MustCompile(`等待?用户|等你|用户(?:说继续|说接着|下一步|发话|拍板|答复|回话)|[他你]说(?:继续|接着)`)
+
+// WaitUserProblems: a [report] whose 「等外部：」 line waits on the user goes back — the user is not
+// something outside; the question goes to the lead by [ask] and from there to ①等你定, with no retry.
+func WaitUserProblems(body string) []string {
+	why, _, ok := WaitExternalOf(body)
+	if !ok || !waitOnUserWords.MatchString(why) {
+		return nil
+	}
+	return []string{"「等外部：」写的是等用户发话（" + truncateStr(why, 40) + "），用户不算外部条件：改用 ws-up --ask 提给主角色（问题、背景、选项与推荐、自验），由她转给用户进「等你定」，不排到点重跑"}
+}
+
 // pullRequestLink: a GitHub pull request link in a [report] (board.py PR_URL reads the same form).
 var pullRequestLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[1-9]\d*`)
 
