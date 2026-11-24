@@ -103,8 +103,7 @@ class RootCauseTest(unittest.TestCase):
         rules = {'flags': {}}
         with patch.object(ws._handoff_rules, 'load', return_value=rules), \
              patch.object(ws._handoff_rules, 'ds_lead', return_value=False), \
-             patch.object(ws._handoff_rules, 'check_tiered', return_value=['existing missing section']), \
-             patch.object(ws, 'object_gate', return_value=None):
+             patch.object(ws._handoff_rules, 'check_tiered', return_value=['existing missing section']):
             result = ws.check_notes('# fix')
         self.assertIn('5 处', result)
         self.assertIn('existing missing section', result)
