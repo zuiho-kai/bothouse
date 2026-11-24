@@ -279,6 +279,7 @@ function textError(error) {
   if (error.message === 'feedback_session') return '账号已切换，请重新登录后再查看反馈。';
   if (error.message === 'report_session') return '账号已切换，请重新打开会话再举报。';
   if (error.message === 'image_session') return '账号已切换，请重新打开会话。';
+  if (error.message === 'sticker_session') return '会话权限已变更，请重新打开表情包。';
   if (error.status === 413) return '图片超过大小或尺寸限制，请换一张。';
   if (error.status === 415 || error.status === 422) return '请选择可打开的静态 PNG 或 JPEG。';
   if (!error.status) return '暂时连不上服务，请检查网络后重试。';
@@ -1292,7 +1293,7 @@ function showChatHeader() {
   composer.querySelector('button[type="submit"]').disabled=Boolean(meta.friendRemoved)||legacyPersonal||paused||awaitingAiConsent||sending.has(meta.id)||
     !mentionAvailable(drafts.get(meta.id)?.target);
   $('#composer-media').hidden=!canSendPhoto(meta);
-  stickerButton.hidden=!canAttach(meta);
+  stickerButton.hidden=!canSendPhoto(meta);
   $('#record-voice').hidden=!canAttach(meta);
   if($('#attach-file'))$('#attach-file').hidden=!canAttach(meta);
   if($('#chat-screenshot'))$('#chat-screenshot').hidden=!canSendPhoto(meta);
@@ -1853,7 +1854,7 @@ function showMessageActions(id,control){
   if(reply)reply.hidden=messageBox.readOnly||sending.has(chat)||!$('#reply-target');
   $('#copy-message').hidden=!!row.attachment;
   const favorite=$('#save-message-sticker');
-  favorite.hidden=row.attachment?.type!=='image'||row.sender.kind!=='human';
+  favorite.hidden=row.attachment?.type!=='image';
   favorite.disabled=false;favorite.textContent='收藏为表情';
   $('#message-action-status').textContent='';
   messageActions.showPopover({source:control});
@@ -1896,7 +1897,7 @@ $('#copy-message').addEventListener('click',async()=>{
 });
 $('#save-message-sticker').addEventListener('click',async event=>{
   const row=resolveMessageAction(),control=event.currentTarget;
-  if(!row||row.attachment?.type!=='image'||row.sender.kind!=='human'||control.disabled)return;
+  if(row?.attachment?.type!=='image'||control.disabled)return;
   const account=user.number, epoch=generation, visit=chatVisit, action=messageAction;
   const current=()=>generation===epoch&&chatVisit===visit&&messageAction===action&&user?.number===account;
   control.disabled=true;
@@ -2285,60 +2286,89 @@ stickerButton.setAttribute('aria-label','表情包');
 stickerButton.setAttribute('aria-haspopup','dialog');
 stickerButton.classList.add('sticker-trigger');
 $('#composer-media').prepend(stickerButton);
-async function showStickerPicker() {
-  if(!canAttach(conversation))return;
-  const id=chat,epoch=generation,visit=chatVisit,account=user.number;
-  const revision=membershipRevision;
-  const panel=el('div',null,'sticker-picker');
-  const savedPanel=el('div',null,'sticker-picker'), savedTitle=el('h3','我的收藏');
-  savedTitle.hidden=true;
+function showStickerPicker() {
+  if(!canSendPhoto(conversation))return;
+  const id=chat,epoch=generation,visit=chatVisit,account=user.number,revision=membershipRevision;
+  const bundledPanel=el('div',null,'sticker-picker');
+  const savedPanel=el('div',null,'sticker-picker'),savedTitle=el('h3','我的收藏');
   const status=el('p','正在读取表情…');status.setAttribute('role','status');
-  const scope=openDialog('表情包',[status,savedTitle,savedPanel,panel],id);
+  const cursors=[null];
+  let page=0,nextBefore=null,sending=false,loading=false;
+  const previous=button('上一页',()=>void readPage(page-1,previous),'outline');
+  const next=button('下一页',()=>void readPage(page+1,next),'outline');
+  const pages=el('div',null,'actions');pages.append(previous,next);pages.hidden=true;
+  const scope=openDialog('表情包',[status,savedTitle,pages,savedPanel,bundledPanel],id);
   const current=()=>scope===dialogGeneration&&epoch===generation&&visit===chatVisit&&chat===id&&
     user?.number===account&&membershipRevision===revision;
-  await perform(async()=>{
-    const {stickers,favorites=[]}=await api('/stickers',undefined,{expectedAccount:account});
-    if(!current())return;
-    status.textContent=stickers.length||favorites.length?'':'暂时没有可用的表情。';
-    let sendingSticker=false;
-    savedTitle.hidden=!favorites.length;
-    for(const [index,{id:sticker,label}] of [...favorites,...stickers].entries()){
-      const saved=sticker.startsWith('saved-');
-      const clientId=clientNonce();
-      const choice=button('',()=>{
-        if(sendingSticker||!current()||!canAttach(conversation))return;
-        sendingSticker=true;
-        void perform(async()=>{
-          try {
-            const {message}=await api(thread(id)+'/stickers',{expectedAccount:account,clientId,sticker,revision},{expectedAccount:account});
-            if(!current())return;
-            merge([message],'end');
-            closeDialog();
-            void sync();
-          } finally {sendingSticker=false;}
-        },choice,scope);
-      });
-      const accessibleLabel=saved?label+' '+(index+1):label;
-      choice.setAttribute('aria-label','发送 '+accessibleLabel);
-      const image=el('img');image.alt='';image.loading='lazy';
-      image.src='./api/v1/stickers/'+encodeURIComponent(sticker)+(saved?'?account='+encodeURIComponent(account):'');
-      choice.append(image,el('span',label));
-      if(!saved){panel.append(choice);continue;}
-      const item=el('div',null,'saved-sticker');
-      const remove=button('取消收藏',()=>void perform(async()=>{
-        if(!current()||sendingSticker)return;
-        await api('/stickers/remove',{expectedAccount:account,id:sticker},{expectedAccount:account});
-        if(current()){
-          item.remove();savedTitle.hidden=!savedPanel.childElementCount;
-          status.textContent='已取消收藏。';
-          (savedPanel.querySelector('button')??panel.firstElementChild)?.focus();
-        }
-      },remove,scope));
-      remove.setAttribute('aria-label','取消收藏 '+accessibleLabel);
-      item.append(choice,remove);savedPanel.append(item);
-    }
-    (savedPanel.querySelector('button')??panel.firstElementChild)?.focus();
-  },null,scope);
+
+  function stickerChoice({id:sticker,label},index,saved) {
+    const clientId=clientNonce();
+    const accessibleLabel=saved?label+' '+(index+1):label;
+    const choice=button('',()=>void perform(async()=>{
+      if(sending||loading||!current())return;
+      if(!(saved?canSendPhoto(conversation):canAttach(conversation)))throw Error('sticker_session');
+      sending=true;
+      try {
+        const {message}=await api(thread(id)+'/stickers',{expectedAccount:account,clientId,sticker,revision},{expectedAccount:account});
+        if(!current())return;
+        merge([message],'end');
+        closeDialog();
+        void sync();
+      } finally {sending=false;}
+    },choice,scope));
+    choice.setAttribute('aria-label','发送 '+accessibleLabel);
+    const image=el('img');image.alt='';image.loading='lazy';
+    image.src='./api/v1/stickers/'+encodeURIComponent(sticker)+(saved?'?account='+encodeURIComponent(account):'');
+    choice.append(image,el('span',label));
+    if(!saved)return choice;
+
+    const item=el('div',null,'saved-sticker');
+    const remove=button('取消收藏',()=>void perform(async()=>{
+      if(!current()||sending||loading)return;
+      await api('/stickers/remove',{expectedAccount:account,id:sticker},{expectedAccount:account});
+      if(!current()||!item.isConnected)return;
+      const adjacent=item.nextElementSibling??item.previousElementSibling;
+      item.remove();
+      status.hidden=false;
+      status.textContent='已取消收藏。';
+      (adjacent?.firstElementChild??(!next.hidden?next:!previous.hidden?previous:bundledPanel.firstElementChild)
+        ??$('#dialog-close')).focus();
+    },remove,scope));
+    remove.setAttribute('aria-label','取消收藏 '+accessibleLabel);
+    item.append(choice,remove);
+    return item;
+  }
+
+  async function readPage(index,control) {
+    if(!current()||sending||loading)return;
+    const before=index>page?nextBefore:cursors[index];
+    if(index<0||(index>page&&!before))return;
+    let focus;
+    await perform(async()=>{
+      loading=true;
+      try {
+        const query=before?'?before='+encodeURIComponent(before):'';
+        const {stickers,favorites=[],nextBefore:older=null}=await api('/stickers'+query,undefined,{expectedAccount:account});
+        if(!current())return;
+        page=index;cursors[page]=before;nextBefore=older;
+        savedPanel.replaceChildren(...favorites.map((row,i)=>stickerChoice(row,i,true)));
+        if(!control&&canAttach(conversation))
+          bundledPanel.replaceChildren(...stickers.map((row,i)=>stickerChoice(row,i,false)));
+        previous.hidden=page===0;
+        next.hidden=!nextBefore;
+        pages.hidden=previous.hidden&&next.hidden;
+        savedTitle.hidden=!favorites.length&&pages.hidden;
+        status.hidden=Boolean(favorites.length||bundledPanel.childElementCount);
+        status.textContent=status.hidden?'':'暂无收藏表情。';
+        focus=control&&!control.hidden?control:savedPanel.querySelector('button')??bundledPanel.firstElementChild??$('#dialog-close');
+      } catch(error) {
+        if(current()&&!control)status.textContent='';
+        throw error;
+      } finally {loading=false;}
+    },control,scope);
+    if(current())focus?.focus();
+  }
+  void readPage(0,null);
 }
 // Based on bothouse role-household/rh/static/rh-history.js at 8ec73a8f (Apache-2.0).
 // Cursor search and latest-response wins are kept; the local service supplies a bounded context page.

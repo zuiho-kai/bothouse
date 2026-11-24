@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS saved_stickers (
   message INTEGER NOT NULL REFERENCES message_images(message) ON DELETE CASCADE,
   UNIQUE(account,message)
 );
+CREATE INDEX IF NOT EXISTS saved_stickers_account ON saved_stickers(account);
 CREATE TABLE IF NOT EXISTS message_stickers (
   message INTEGER PRIMARY KEY REFERENCES message_images(message) ON DELETE CASCADE,
   label TEXT NOT NULL

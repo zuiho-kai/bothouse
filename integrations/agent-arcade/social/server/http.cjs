@@ -82,7 +82,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     case 'GET personal-ai/private-profile': return {profile:personal.publicProfile(a,true)};
     case 'POST personal-ai/private-profile': return {profile:personal.saveProfile(a,body,true)};
     case 'GET me': return {user:store.profile(a)};
-    case 'GET stickers': return {stickers:bundledStickerOptions(),favorites:store.savedStickers(a)};
+    case 'GET stickers': return {stickers:bundledStickerOptions(),...store.savedStickerPage(a,params.get('before'))};
     case 'POST stickers/save': {
       if(body.expectedAccount!==a)fail(409,'image_session','账号已切换，请重新打开会话');
       if(typeof body.chat!=='string'||!Number.isSafeInteger(body.message)||body.message<1)
@@ -429,9 +429,8 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           fail(400,'client_id','消息重试编号无效');
         const saved=typeof body.sticker==='string'&&body.sticker.startsWith('saved-');
         const message=store.transaction(()=>{
-          if(saved&&store.humanAttachmentAccess(account,chat,'image').membershipRevision!==body.revision)
-            fail(409,'image_session','会话权限已变更，请重新打开表情包');
-          const sticker=saved?store.savedSticker(account,body.sticker):bundledSticker(body.sticker);
+          if(saved)return store.sendSavedSticker(account,chat,body.clientId,body.sticker,body.revision);
+          const sticker=bundledSticker(body.sticker);
           if(!sticker)fail(404,'unknown_sticker','没有找到这个表情');
           return store.sendHumanSticker(account,chat,body.clientId,sticker);
         });

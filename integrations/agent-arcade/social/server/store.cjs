@@ -39,6 +39,10 @@ const feedAuthors=`WITH authors(number,kind) AS (
 const feedAuthorPosts=`FROM authors a JOIN friend_posts p ON p.author=a.number
   JOIN users u ON u.number=p.author AND u.kind=a.kind`;
 
+const savedStickerVisibility=`FROM saved_stickers s JOIN messages m ON m.id=s.message
+  JOIN members viewer ON viewer.chat=m.chat AND viewer.account=s.account
+  WHERE s.account=? AND m.removed=0 AND m.id>viewer.since`;
+
 class SocialStore {
   constructor(filename) {
     this.db = new DatabaseSync(filename);
@@ -499,38 +503,39 @@ class SocialStore {
     const chat=this.humanAttachmentAccess(a,id,'image');
     return this.writeImage(a,chat,clientId,image,image.label,image.sourceCode??null);
   }
-  savedStickerRows(a,id=null) {
-    return this.all(`SELECT s.id,i.mime,i.width,i.height,i.digest,i.message
-      FROM saved_stickers s JOIN message_images i ON i.message=s.message
-      JOIN messages m ON m.id=s.message JOIN members viewer ON viewer.chat=m.chat AND viewer.account=s.account
-      WHERE s.account=? AND m.removed=0 AND m.id>viewer.since AND (? IS NULL OR s.id=?)
-      ORDER BY s.rowid DESC`,a,id,id);
+  sendSavedSticker(a,id,clientId,sticker,revision) {
+    const chat=this.imageUploadAccess(a,id);
+    if(chat.membershipRevision!==revision)
+      fail(409,'sticker_session','会话权限已变更，请重新打开表情包');
+    const image=this.savedSticker(a,sticker);
+    return this.writeImage(a,chat,clientId,image,image.label,image.sourceCode);
   }
   saveSticker(a,chat,message) {
     if(this.user(a).kind!=='human')fail(403,'sticker_human_only','收藏表情仅供真人账号使用');
     this.messageImage(a,chat,message);
-    const sender=this.one('SELECT u.kind FROM messages m JOIN users u ON u.number=m.sender WHERE m.id=?',message);
-    if(sender?.kind!=='human')fail(403,'sticker_human_only','只能收藏真人发送的图片');
     const existing=this.one('SELECT id FROM saved_stickers WHERE account=? AND message=?',a,message);
-    if(existing)return existing;
-    const visible=new Set(this.savedStickerRows(a).map(row=>row.id));
-    if(visible.size>=100)fail(409,'sticker_limit','已收藏 100 张表情，请先取消一张收藏');
-    // Links to messages the owner can no longer read must not use a collection slot.
-    for(const row of this.all('SELECT id FROM saved_stickers WHERE account=?',a))
-      if(!visible.has(row.id))this.removeSavedSticker(a,row.id);
+    if(existing)return {id:existing.id};
     const id='saved-'+randomUUID();
     this.run('INSERT INTO saved_stickers VALUES(?,?,?)',id,a,message);
     return {id};
   }
-  savedStickers(a) {
-    return this.savedStickerRows(a).map(({id})=>({id,label:'收藏表情'}));
+  savedStickerPage(a,before) {
+    if(before!==null&&!isPostId(before))fail(400,'sticker_cursor','请重新打开表情包');
+    const limit=12;
+    // A removed favorite is still a valid page boundary while the picker is open.
+    const rows=this.all(`SELECT s.id,s.rowid AS position ${savedStickerVisibility}
+      AND s.rowid<coalesce(?,9223372036854775807) ORDER BY s.rowid DESC LIMIT ?`,
+      a,before===null?null:Number(before),limit+1);
+    const page=rows.slice(0,limit);
+    return {favorites:page.map(({id})=>({id,label:'收藏表情'})),
+      nextBefore:rows.length>limit?String(page.at(-1).position):null};
   }
   savedSticker(a,id) {
-    const item=this.savedStickerRows(a,id)[0];
+    const item=this.one(`SELECT i.mime,i.width,i.height,i.digest,i.bytes,p.source_code AS sourceCode
+      FROM message_images i LEFT JOIN message_sticker_sources p ON p.message=i.message
+      JOIN (SELECT s.message ${savedStickerVisibility} AND s.id=?) favorite ON favorite.message=i.message`,a,id);
     if(!item)fail(404,'unknown_sticker','此收藏已不可用');
-    const image=this.one(`SELECT i.bytes,p.source_code AS sourceCode FROM message_images i
-      LEFT JOIN message_sticker_sources p ON p.message=i.message WHERE i.message=?`,item.message);
-    return {...item,...image,label:'收藏表情'};
+    return {...item,label:'收藏表情'};
   }
   removeSavedSticker(a,id) {
     this.run('DELETE FROM saved_stickers WHERE account=? AND id=?',a,id);
