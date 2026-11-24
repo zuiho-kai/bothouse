@@ -2565,7 +2565,8 @@ function showOriginalImage(message) {
 function fileSize(bytes){
   return bytes.toLocaleString()+' 字节';
 }
-$('#attach-file')?.addEventListener('click',()=>{
+$('#attach-file')?.addEventListener('click',()=>fileDialog());
+function fileDialog(droppedFile){
   if(!canAttach(conversation))return;
   const id=chat, account=user.number, visit=chatVisit, epoch=generation, revision=membershipRevision;
   const label=el('label','选择文件（最多 16 MiB）'),input=el('input'),info=el('p',null,'minor');
@@ -2582,22 +2583,26 @@ $('#attach-file')?.addEventListener('click',()=>{
     }finally{input.disabled=false;}
   },submit,scope),'primary');
   submit.disabled=true;
-  const scope=openDialog('发送文件',[label,info,submit],id);
-  const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation;
-  input.addEventListener('change',()=>{
-    selected=input.files[0];clientId=clientNonce();
+  const fields=droppedFile?[el('p','发送到「'+conversation.title+'」','minor'),info,submit]:[label,info,submit];
+  const scope=openDialog('发送文件',fields,id);
+  const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation&&routeId()===id;
+  const selectFile=file=>{
+    selected=file;clientId=clientNonce();
     submit.disabled=!selected || selected.size>16*1024*1024;
     info.textContent=selected?selected.name+' · '+fileSize(selected.size)+(submit.disabled?'，超过 16 MiB':''):'';
-  });
-});
+  };
+  input.addEventListener('change',()=>selectFile(input.files[0]));
+  if(droppedFile)selectFile(droppedFile);
+}
 $('#attach-image').addEventListener('click',()=>photoDialog(false));
 $('#chat-screenshot')?.addEventListener('click',()=>photoDialog(true));
-function photoDialog(screenshot){
+function photoDialog(screenshot,droppedFile){
   if(!canSendPhoto(conversation))return;
   const id=chat, visit=chatVisit, epoch=generation, account=user.number;
   const revision=membershipRevision;
+  const boundToMembership=screenshot||Boolean(droppedFile);
   const form=el('form'), label=el('label','选择一张图片'), input=el('input'), preview=el('img',null,'attachment-preview');
-  input.type='file';input.accept='image/png,image/jpeg';input.required=!screenshot;
+  input.type='file';input.accept='image/png,image/jpeg';input.required=!screenshot&&!droppedFile;
   label.append(input);preview.alt='发送预览';preview.hidden=true;
   const submit=el('button','发送图片','primary');submit.type='submit';submit.disabled=true;
   const direct=!screenshot && conversation.type==='direct'&&conversation.cloudChat?.enabled;
@@ -2606,13 +2611,15 @@ function photoDialog(screenshot){
   const previousDraft=messageBox.value;
   const questionLabel=el('label','同时问 AI（选填）'), question=el('textarea');
   question.rows=2;question.maxLength=500;
-  if(direct&&previousDraft.trim().length<=500)question.value=previousDraft;
+  if(direct&&!droppedFile&&previousDraft.trim().length<=500)question.value=previousDraft;
   questionLabel.append(question);
   const disclose=el('p',null,'minor');
   const notice=el('p',(direct?
     '留空问题即可只发图片。也可以之后打开图片并选「问 AI」。':
     '会话成员可以查看和另存。')+(screenshot?'':' 原图可能保留拍摄时间或位置。'),'minor');
-  form.append(label,notice,preview);
+  if(droppedFile)form.append(el('p','发送到「'+conversation.title+'」','minor'),el('p',droppedFile.name,'minor'));
+  else form.append(label);
+  form.append(notice,preview);
   if(direct)form.append(questionLabel,disclose);
   form.append(submit);
   const updateSendLabel=()=>{
@@ -2627,9 +2634,10 @@ function photoDialog(screenshot){
     form.prepend(el('p','选区后回到这里按 Ctrl+V 预览。也可以按 Win+Shift+S 开始新的选区。'));
   }
   const scope=openDialog(screenshot?'发送截图':'发送图片',[form],id);
-  const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation;
+  const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation&&routeId()===id;
   let selected,latestFile;
   input.addEventListener('change',()=>void selectPhoto(input.files[0]));
+  if(droppedFile)void selectPhoto(droppedFile);
   if(screenshot){
     form.tabIndex=-1;
     form.addEventListener('paste',onPaste);
@@ -2669,8 +2677,8 @@ function photoDialog(screenshot){
     input.disabled=question.disabled=true;
     void perform(async()=>{
       try {
-        if(screenshot && (!revision||membershipRevision!==revision))throw Error('file_session');
-        const {message}=await api(thread(id)+'/images',file,{expectedAccount:account,image:{clientId,mime,...(screenshot&&{revision})}});
+        if(boundToMembership&&(!revision||membershipRevision!==revision))throw Error('file_session');
+        const {message}=await api(thread(id)+'/images',file,{expectedAccount:account,image:{clientId,mime,...(boundToMembership&&{revision})}});
         if(!current())return;
         merge([message],'end');
         if(chosenQuestion){
@@ -2700,6 +2708,33 @@ function photoDialog(screenshot){
     },submit,scope);
   });
 }
+function canDropAttachment(event){
+  return user&&chat&&routeId()===chat&&!composer.hidden&&!dialog.open&&composer.parentElement.contains(event.target)&&
+    (canAttach(conversation)||canSendPhoto(conversation));
+}
+
+document.addEventListener('dragover',event=>{
+  if(!event.dataTransfer?.types.includes('Files'))return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect=canDropAttachment(event)?'copy':'none';
+});
+document.addEventListener('drop',event=>{
+  if(!event.dataTransfer?.types.includes('Files'))return;
+  event.preventDefault();
+  if(!canDropAttachment(event))return;
+  const files=event.dataTransfer.files, feedback=$('#send-error');
+  if(!files.length)return;
+  if(files.length>1){
+    feedback.textContent='一次只能拖入一个附件，请分开拖入。';
+    return;
+  }
+  const file=files[0], photo=['image/png','image/jpeg'].includes(file.type);
+  feedback.textContent='';
+  if(photo&&canSendPhoto(conversation))photoDialog(false,file);
+  else if(canAttach(conversation))fileDialog(file);
+  else feedback.textContent='当前会话只支持 PNG 或 JPEG 图片。';
+});
+
 async function askAboutPhoto(message){
   const id=chat,account=user.number,route=thread(id)+'/messages/'+message.id;
   const preview=el('img',null,'attachment-preview');
