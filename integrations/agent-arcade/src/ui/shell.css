@@ -47,7 +47,7 @@ html[data-store-social=open] body #shell-bar[data-world-residents]{
 #store-bothouse-panel{text-align:center;max-inline-size:42rem;margin-inline:auto}
 #store-bothouse-panel:not([hidden]){display:grid;gap:12px;justify-items:center}
 html[data-store-social=open] .store-local-tools{
-  inset:44px 0 auto;width:auto;grid-auto-flow:column;grid-auto-columns:max-content;justify-content:end;
+  inset:44px 0 auto;width:auto;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:max-content;justify-content:end;
   padding:5px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none
 }
 .store-local-tools .shell-ws-button{
