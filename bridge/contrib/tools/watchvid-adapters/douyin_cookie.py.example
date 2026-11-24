@@ -1,0 +1,211 @@
+"""Example watchvid adapter for Douyin (抖音) using ~/.config/watchvid/douyin.cookie + Playwright.
+
+Copy to ~/.config/watchvid/adapters/douyin.py to enable.
+Reads Netscape cookies.txt or a Cookie header string from ~/.config/watchvid/douyin.cookie
+(or $WATCHVID_DOUYIN_COOKIE), drives headless Chrome/Playwright to fetch the signed
+/aweme/v1/web/aweme/detail/ response without bypassing CAPTCHAs, and downloads video.mp4.
+"""
+import http.cookiejar
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+MATCH = r"(^|//)(v\.|www\.|m\.)?(douyin|iesdouyin)\.com/"
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+TARGET_HEIGHT = 720  # 沿用 watchvid.py:59-61：768px 抽帧上限下 720P 足够
+
+_PW_HELPER = r'''
+import http.cookiejar, json, os, re, sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+def load_cookies(path):
+    raw = Path(path).read_text(encoding="utf-8", errors="replace").strip()
+    if not raw:
+        return []
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    is_netscape = any(ln.startswith(("# Netscape HTTP Cookie File", "# HTTP Cookie File")) for ln in lines) or any(
+        not ln.startswith("#") and len(ln.split("\t")) >= 7 for ln in lines
+    )
+    out = []
+    if is_netscape:
+        jar = http.cookiejar.MozillaCookieJar()
+        jar.load(path, ignore_discard=True, ignore_expires=True)
+        for c in jar:
+            item = {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path or "/", "secure": bool(c.secure)}
+            if c.expires:
+                item["expires"] = float(c.expires)
+            out.append(item)
+        return out
+    text = re.sub(r"^\s*cookie\s*:\s*", "", raw, flags=re.IGNORECASE)
+    for part in re.split(r"[;\r\n]+", text):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if k:
+            for dom in (".douyin.com", ".iesdouyin.com"):
+                out.append({"name": k, "value": v, "domain": dom, "path": "/", "secure": False})
+    return out
+
+url = sys.argv[1]
+cookies = load_cookies(os.environ["WATCHVID_DY_COOKIE_PATH"])
+if not cookies:
+    raise RuntimeError("Douyin cookie file is empty or invalid")
+
+launch_kw = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
+if Path("/Applications/Google Chrome.app").exists():
+    launch_kw["channel"] = "chrome"
+
+got = {}
+with sync_playwright() as p:
+    browser = p.chromium.launch(**launch_kw)
+    try:
+        ctx = browser.new_context()
+        ctx.add_cookies(cookies)
+        page = ctx.new_page()
+        def on_resp(resp):
+            if "/aweme/v1/web/aweme/detail/" in resp.url and resp.status == 200 and not got:
+                try:
+                    data = resp.json()
+                    if (data.get("aweme_detail") or {}).get("aweme_id"):
+                        got["detail"] = data["aweme_detail"]
+                except Exception:
+                    pass
+        page.on("response", on_resp)
+        page.goto(url, wait_until="commit", timeout=30000)
+        for _ in range(40):
+            if got:
+                break
+            page.wait_for_timeout(500)
+        if not got:
+            title = page.title()
+            if any(w in title for w in ("验证", "Captcha", "captcha")):
+                raise RuntimeError("Douyin returned a verification challenge; please refresh login cookies in your browser")
+            raise RuntimeError(f"Douyin did not return video detail JSON (page title: {title!r})")
+    finally:
+        browser.close()
+
+print(json.dumps(got["detail"], ensure_ascii=False))
+'''
+
+
+def _cookie_path():
+    return Path(os.environ.get("WATCHVID_DOUYIN_COOKIE") or Path.home() / ".config/watchvid/douyin.cookie").expanduser()
+
+
+def media_id(url):
+    m = re.search(r"/video/(\d+)", url)
+    if m:
+        return m.group(1)
+    try:
+        import requests
+        r = requests.get(url, headers={"User-Agent": UA}, allow_redirects=True, timeout=12)
+        m = re.search(r"/video/(\d+)", r.url)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    slug = url.rstrip("/").rsplit("/", 1)[-1].split("?")[0]
+    return re.sub(r"\W+", "_", slug) or "video"
+
+
+def _canonical_url(url):
+    m = re.search(r"/video/(\d+)", url)
+    if m:
+        return f"https://www.douyin.com/video/{m.group(1)}"
+    mid = media_id(url)
+    return f"https://www.douyin.com/video/{mid}" if mid.isdigit() else url
+
+
+def _pick_video_urls(detail):
+    v = detail.get("video") or {}
+    brs = [b for b in (v.get("bit_rate") or []) if ((b.get("play_addr") or {}).get("url_list"))]
+    under = [b for b in brs if ((b.get("play_addr") or {}).get("height") or 0) <= TARGET_HEIGHT]
+    if under:
+        pick = max(under, key=lambda b: ((b.get("play_addr") or {}).get("height") or 0, b.get("bit_rate") or 0))
+        return list(pick["play_addr"]["url_list"])
+    if brs:
+        pick = min(brs, key=lambda b: ((b.get("play_addr") or {}).get("height") or 9999, b.get("bit_rate") or 0))
+        return list(pick["play_addr"]["url_list"])
+    return list((v.get("play_addr") or {}).get("url_list") or [])
+
+
+def _fetch_detail(url):
+    cpath = _cookie_path()
+    if not cpath.is_file():
+        raise RuntimeError(f"Douyin cookie not found at {cpath}; export cookies or set WATCHVID_DOUYIN_COOKIE")
+    target = _canonical_url(url)
+    env = os.environ.copy()
+    env["WATCHVID_DY_COOKIE_PATH"] = str(cpath)
+    if env.get("HTTPS_PROXY") or env.get("https_proxy"):
+        env.pop("ALL_PROXY", None)
+        env.pop("all_proxy", None)
+    try:
+        import playwright  # noqa: F401
+        cmd = [sys.executable, "-c", _PW_HELPER, target]
+    except ImportError:
+        uv = shutil.which("uv") or "/opt/homebrew/bin/uv"
+        cmd = [uv, "run", "-q", "--with", "playwright", "python3", "-c", _PW_HELPER, target]
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=90)
+    if r.returncode != 0:
+        msg = (r.stderr or r.stdout or "playwright helper failed").strip()[-400:]
+        raise RuntimeError(msg)
+    return json.loads(r.stdout)
+
+
+def fetch(url, d):
+    detail = _fetch_detail(url)
+    urls = _pick_video_urls(detail)
+    if not urls:
+        raise RuntimeError("Douyin returned no playable video URL")
+    import requests
+    dst = Path(d) / "video.mp4"
+    tmp = dst.with_suffix(".mp4.part")
+    last_err = None
+    for src in urls:
+        try:
+            with requests.get(src, stream=True, timeout=60, headers={"User-Agent": UA, "Referer": "https://www.douyin.com/"}) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk)
+            tmp.rename(dst)
+            last_err = None
+            break
+        except Exception as ex:
+            last_err = ex
+            tmp.unlink(missing_ok=True)
+    if last_err is not None or not dst.exists():
+        raise RuntimeError(f"failed to download Douyin video stream: {last_err}")
+
+    aweme_id = str(detail.get("aweme_id") or "")
+    desc = (detail.get("desc") or "").strip()
+    first_line = desc.splitlines()[0][:120] if desc else ""
+    st = detail.get("statistics") or {}
+    dur_ms = (detail.get("video") or {}).get("duration") or 0
+    ts = detail.get("create_time")
+    pubdate = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else None
+    return {
+        "site": "douyin",
+        "id": aweme_id or None,
+        "url": f"https://www.douyin.com/video/{aweme_id}" if aweme_id else url,
+        "title": first_line or (f"Douyin {aweme_id}" if aweme_id else url),
+        "owner": (detail.get("author") or {}).get("nickname"),
+        "desc": desc,
+        "duration": round(dur_ms / 1000.0, 1) if dur_ms else None,
+        "pubdate": pubdate,
+        "stat": {
+            "like": st.get("digg_count"),
+            "reply": st.get("comment_count"),
+            "collect": st.get("collect_count"),
+            "share": st.get("share_count"),
+        },
+    }

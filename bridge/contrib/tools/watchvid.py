@@ -39,9 +39,13 @@ Optional, never required:
    Bilibili login: a Cookie header saved in ~/.config/watchvid/bilibili.cookie (or the file named by
    $WATCHVID_BILI_COOKIE), one line "SESSDATA=…; bili_jct=…". Without it the video is fetched logged out
    (about 480P), which is enough for 768 px frames. The cookie is never printed or written to the output.
+   Douyin cookies: Netscape cookies.txt or a Cookie header line saved in ~/.config/watchvid/douyin.cookie
+   (or $WATCHVID_DOUYIN_COOKIE), or a browser name in $WATCHVID_DOUYIN_BROWSER (e.g. chrome, edge, safari)
+   passed via yt-dlp --cookies-from-browser when no cookie file is set. Only sent to douyin.com / iesdouyin.com
+   and never printed or written to the output.
    $WATCHVID_CN_PROXY=http://host:port: an HTTP proxy with a mainland-China exit, tried next to the direct route
    for Bilibili (its API sometimes answers overseas IPs with a risk-control page)."""
-import json, os, re, shutil, subprocess, sys, tempfile, time, urllib.parse, zlib
+import contextlib, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.parse, zlib
 from collections import Counter
 from functools import reduce
 from hashlib import md5
@@ -52,6 +56,9 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 HEADERS = {"User-Agent": UA, "Referer": "https://www.bilibili.com", "Accept-Language": "zh-CN,zh;q=0.9"}
 COOKIE_FILE = Path(os.environ.get("WATCHVID_BILI_COOKIE") or Path.home() / ".config/watchvid/bilibili.cookie")
+DOUYIN_COOKIE_FILE = Path(os.environ.get("WATCHVID_DOUYIN_COOKIE") or Path.home() / ".config/watchvid/douyin.cookie")
+DOUYIN_BROWSER = os.environ.get("WATCHVID_DOUYIN_BROWSER", "")
+DOUYIN_RE = re.compile(r"(^|//)(v\.|www\.|m\.)?(douyin|iesdouyin)\.com/")
 ASR_URL = os.environ.get("WATCHVID_ASR_URL", "")
 ASR_KEY = os.environ.get("WATCHVID_ASR_KEY", "")
 ASR_MODEL = os.environ.get("WATCHVID_ASR_MODEL", "whisper-1")
@@ -313,9 +320,81 @@ def bilibili(bvid, p, d):
 YTDLP = [sys.executable, "-m", "yt_dlp"]
 
 
+def is_douyin(url):
+    return bool(DOUYIN_RE.search(url))
+
+
+def _is_netscape_cookies(raw):
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    if any(ln.startswith(("# Netscape HTTP Cookie File", "# HTTP Cookie File")) for ln in lines):
+        return True
+    return any(not ln.startswith("#") and len(ln.split("\t")) >= 7 for ln in lines)
+
+
+def _cookie_header_to_netscape(raw):
+    text = re.sub(r"^\s*cookie\s*:\s*", "", raw.strip(), flags=re.IGNORECASE)
+    pairs = []
+    for part in re.split(r"[;\r\n]+", text):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        name, val = part.split("=", 1)
+        name, val = name.strip(), val.strip()
+        if name:
+            pairs.append((name, val))
+    if not pairs:
+        return ""
+    lines = ["# Netscape HTTP Cookie File"]
+    for dom in (".douyin.com", ".iesdouyin.com"):
+        for name, val in pairs:
+            lines.append(f"{dom}\tTRUE\t/\tFALSE\t0\t{name}\t{val}")
+    return "\n".join(lines) + "\n"
+
+
+@contextlib.contextmanager
+def ytdlp_cookie_args(url):
+    """Yield yt-dlp cookie CLI args for Douyin without logging or mutating the source cookie file."""
+    if not is_douyin(url):
+        yield []
+        return
+    cookie_file = Path(os.environ.get("WATCHVID_DOUYIN_COOKIE")).expanduser() if os.environ.get("WATCHVID_DOUYIN_COOKIE") else DOUYIN_COOKIE_FILE
+    browser = os.environ.get("WATCHVID_DOUYIN_BROWSER", DOUYIN_BROWSER).strip()
+    netscape = ""
+    if cookie_file.is_file():
+        try:
+            raw = cookie_file.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as ex:
+            log(f"cannot read the Douyin cookie file ({type(ex).__name__}); going on without cookies")
+            raw = ""
+        if raw:
+            netscape = raw + "\n" if _is_netscape_cookies(raw) else _cookie_header_to_netscape(raw)
+            if not netscape:
+                log("Douyin cookie file has no valid cookies; going on without cookies")
+    if netscape:
+        # yt-dlp saves cookies back to --cookies on exit; pass a private temp copy so the user's file is untouched.
+        fd, tmp_path = tempfile.mkstemp(prefix="watchvid-dy-", suffix=".txt")
+        try:
+            os.chmod(tmp_path, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(netscape)
+            yield ["--cookies", tmp_path]
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+        return
+    if browser:
+        yield ["--cookies-from-browser", browser]
+        return
+    yield []
+
+
 def ytdlp_info(url):
-    r = run(YTDLP + ["-J", "--no-playlist", url])
-    if r.returncode: die("yt-dlp cannot read this link: " + r.stderr[-400:])
+    with ytdlp_cookie_args(url) as cargs:
+        r = run(YTDLP + cargs + ["-J", "--no-playlist", url])
+    if r.returncode:
+        err = r.stderr[-400:]
+        if is_douyin(url) and ("cookie" in err.lower() or "403" in err):
+            err += f" (for Douyin, save cookies to {DOUYIN_COOKIE_FILE} or set WATCHVID_DOUYIN_BROWSER)"
+        die("yt-dlp cannot read this link: " + err)
     info = json.loads(r.stdout)
     return info, "vid-" + re.sub(r"[^\w.-]", "_", f"{info.get('extractor_key', 'web')}_{info['id']}")
 
@@ -323,8 +402,9 @@ def ytdlp_info(url):
 def ytdlp(url, info, d):
     mp4 = d / "video.mp4"
     if not mp4.exists():
-        r = run(YTDLP + ["--no-playlist", "-f", "bv*[height<=720]+ba/b[height<=720]/b", "--merge-output-format", "mp4",
-                         "--ffmpeg-location", str(Path(FFMPEG).parent), "-o", str(mp4), url])
+        with ytdlp_cookie_args(url) as cargs:
+            r = run(YTDLP + cargs + ["--no-playlist", "-f", "bv*[height<=720]+ba/b[height<=720]/b", "--merge-output-format", "mp4",
+                                     "--ffmpeg-location", str(Path(FFMPEG).parent), "-o", str(mp4), url])
         if r.returncode or not mp4.exists(): die("yt-dlp download failed: " + r.stderr[-400:])
     meta = {"site": info.get("extractor_key"), "id": info["id"], "url": info.get("webpage_url", url), "title": info.get("title"),
             "owner": info.get("uploader") or info.get("channel"), "desc": info.get("description"), "duration": info.get("duration"),
@@ -404,10 +484,10 @@ def site_subtitles(url, info, lang):
         if not pick and pool is auto:   # auto-captions in the original language end in "-orig"
             pick = next((k for k in keys if k.endswith("-orig")), None)
         if not pick: continue
-        with tempfile.TemporaryDirectory() as tmp:
-            r = run(YTDLP + ["--skip-download", "--no-playlist", "--sub-format", "vtt",
-                             "--write-subs" if pool is subs else "--write-auto-subs", "--sub-langs", pick,
-                             "-o", str(Path(tmp) / "s"), url])
+        with tempfile.TemporaryDirectory() as tmp, ytdlp_cookie_args(url) as cargs:
+            r = run(YTDLP + cargs + ["--skip-download", "--no-playlist", "--sub-format", "vtt",
+                                     "--write-subs" if pool is subs else "--write-auto-subs", "--sub-langs", pick,
+                                     "-o", str(Path(tmp) / "s"), url])
             files = list(Path(tmp).glob("*.vtt"))
             if r.returncode or not files: continue
             lines = vtt_lines(files[0].read_text(errors="ignore"))

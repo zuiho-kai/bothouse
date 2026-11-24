@@ -48,7 +48,9 @@ Output goes to `--out`, else `$WATCHVID_DIR`, else `<data_dir>/media`. Transcrip
 auto-captions when it has them; for real speech-to-text set `WATCHVID_ASR_URL` to any OpenAI-compatible
 `/v1/audio/transcriptions` endpoint (plus `WATCHVID_ASR_KEY`, `WATCHVID_ASR_MODEL`, default `whisper-1`).
 Optional: a Bilibili `Cookie` header in `~/.config/watchvid/bilibili.cookie` for higher quality (logged out works,
-about 480P); `WATCHVID_CN_PROXY` for an HTTP proxy with a mainland-China exit when Bilibili blocks your IP.
+about 480P); Douyin Netscape `cookies.txt` or a `Cookie` header in `~/.config/watchvid/douyin.cookie`
+(or `$WATCHVID_DOUYIN_COOKIE`), or `$WATCHVID_DOUYIN_BROWSER` (passed to `yt-dlp --cookies-from-browser`);
+`WATCHVID_CN_PROXY` for an HTTP proxy with a mainland-China exit when Bilibili blocks your IP.
 
 Site adapters: for a site that neither Bilibili's API nor yt-dlp can read (Douyin needs signed requests), drop a
 `<name>.py` into `~/.config/watchvid/adapters` (or the folders in `$WATCHVID_ADAPTERS`). It defines `MATCH` (a regex
