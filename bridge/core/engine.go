@@ -2116,6 +2116,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		endProactive()
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupSideRunState(iKey)
+		if msg.capacityHeld {
+			// deferForCapacity already told the channel this run is skipped.
+			slog.Warn("cron: model cooling down, run skipped", "id", job.ID, "session", runSessionKey)
+			return nil
+		}
 		if !job.Mute && turnDelivered(session, prevHistLen) {
 			e.proactiveDelivered(proactiveIDs, runSessionKey)
 		}
@@ -2160,6 +2165,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	endProactive()
 	e.forgetScheduledTurn(job.ID, iKey)
+	if msg.capacityHeld {
+		// Held for re-delivery after the cooldown: the job counts as run from here, as a queued one does.
+		slog.Warn("cron: model cooling down, run held for re-delivery", "id", job.ID, "session", sessionKey)
+		return nil
+	}
 	if !job.Mute && turnDelivered(session, prevHistLen) {
 		e.proactiveDelivered(proactiveIDs, sessionKey)
 	}
@@ -5361,6 +5371,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
 		}
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
+		msg.capacityHeld = true
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
@@ -5452,6 +5463,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func(wait time.Duration) {
 				// cooling: a probe failed while a cooldown was already running, so
 				// the honest notice is "still cooling", not "3 tries failed".
+				msg.capacityHeld = true
 				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, probeCapacity)
 			})
 		// Failed local turns can leave queued ordinary messages for the outer

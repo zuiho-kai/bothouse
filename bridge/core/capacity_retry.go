@@ -560,6 +560,7 @@ func (e *Engine) flushCapacityPending() {
 	}
 	for _, p := range pending {
 		if !e.stillOwnsHandoff(p.handoff) {
+			slog.Warn("capacity re-delivery: the held message's task was handed on, paused or ended; not re-delivered", "key", p.handoff.key)
 			continue
 		}
 		p.redeliver()
@@ -599,7 +600,10 @@ func (e *Engine) capHandoffAt(key string) capHandoffRef {
 	}
 	for _, rows := range []map[string][]TeamHandoff{st.Handoffs, st.ScriptWatches} {
 		for _, h := range rows[key] {
-			if teamHandoffOpen(h) {
+			// A handed-back task is no longer in work. A watch on a chat channel is never closed
+			// after it is handed back, so counting it made every held message there wait on a task
+			// that had ended (2026-11-24: an 11-05 watch dropped a cron run of the chat channel).
+			if teamHandoffOpen(h) && !h.Idle.Returned {
 				return capHandoffRef{key: key, at: h.At}
 			}
 		}
