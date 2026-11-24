@@ -70,6 +70,7 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr, retur
   task('shortcut', ['发送快捷键', 'Send shortcut'], daily, ['send-shortcut-enter']);
   if (returnToMessages) {
     task('devices', ['设备', 'Devices'], daily, ['desktopPetCard', 'desktop-pets-card', 'robot-device-card']);
+    if (window.mountAppUpdate) task('updates', ['更新与源码', 'Updates & source'], daily, ['app-update-panel']);
     // Keep legacy controls mounted for shared renderers, outside the social navigation.
     for (const card of grid.querySelectorAll(':scope > .settings-card')) card.hidden = true;
   } else {

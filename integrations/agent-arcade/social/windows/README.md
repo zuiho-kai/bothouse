@@ -45,7 +45,7 @@ Partner Center 保留一条 **Agent Arcade** 产品记录，第一版和以后�
 
 ## 应用内检查商店更新
 
-在本机「设置 → 应用更新」可看运行版本并检查新版。正式版从同进程的 Electron 主窗口传入 HWND，由 C++/WinRT `StoreContext` 查询本产品的包。点「下载并安装」后交给 Windows 确认，取消后可继续使用。商店不可用时可以明确打开 Microsoft Store 的「更新和下载」页，界面只报告打开请求。测试包会直接说明没有正式商店身份。个人 RC 仍走现有本机更新及正常退出流程。 [商店更新 API](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/package-updates-from-store) · [商店更新页 URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-store-app)
+在「更多 → 应用设置 → 更新与源码」可看运行版本并检查新版。正式版从同进程的 Electron 主窗口传入 HWND，由 C++/WinRT `StoreContext` 查询本产品的包。点「下载并安装」后交给 Windows 确认，取消后可继续使用。商店不可用时可以明确打开 Microsoft Store 的「更新和下载」页，界面只报告打开请求。测试包会直接说明没有正式商店身份。个人 RC 仍走现有本机更新及正常退出流程。 [商店更新 API](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/package-updates-from-store) · [商店更新页 URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-store-app)
 
 软件7集成时保持 `storeEdition:true`、包内 `service.json` 的 `mode`、同一 `Identity` 和 `Application/Id`。打包器从 `store-update.cpp` 编译 `resources/app/store-update.node`，收录它的 SHA-256。IPC 仍由本机设置页发起，社交 WebContents 无法使用。以下验证使用已解包的测试 MSIX 和 headless Edge，将商店返回值与 URI 启动替换为可观测替身。
 

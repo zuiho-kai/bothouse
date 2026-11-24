@@ -158,6 +158,7 @@ async function verifyUnifiedFeatures({a,b,ca,scratch,serviceRoot,payload,evidenc
   await settings.page.getByRole('button',{name:'重试',exact:true}).waitFor({timeout:15000});
   await settings.page.locator('#store-more').click();
   await settings.page.locator('#store-settings').click();
+  await settings.page.locator('#settings-nav-updates').click();
   await settings.page.locator('#app-update-panel').waitFor({timeout:10000});
   await settings.page.locator('#app-update-panel').scrollIntoViewIfNeeded();
   const appVersion=JSON.parse(fs.readFileSync(path.join(payload,'package.json'),'utf8')).version;
