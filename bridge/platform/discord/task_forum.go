@@ -161,14 +161,21 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 			return core.TaskForum{}, err
 		}
 	}
-	list, err := api.GuildChannels(ch.GuildID, options...)
-	if err != nil {
-		return core.TaskForum{}, err
-	}
+	// The category is read by its own ID, not from the guild channel list: a private channel's
+	// post needs nothing else, so it never waits on the guild-wide channels bucket.
 	var cat *discordgo.Channel
-	for _, c := range list {
-		if c != nil && c.ID == ch.ParentID {
-			cat = c
+	var list []*discordgo.Channel
+	if ch.ParentID != "" {
+		if cat, err = api.Channel(ch.ParentID, options...); err != nil {
+			cat = nil
+			if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
+				return core.TaskForum{}, err
+			}
+			for _, c := range list {
+				if c != nil && c.ID == ch.ParentID {
+					cat = c
+				}
+			}
 		}
 	}
 	scope, err := taskForumScope(ch, cat)
@@ -178,6 +185,11 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	if scope.Channel != "" {
 		scope.ID = scope.Channel
 		return scope, nil
+	}
+	if list == nil {
+		if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
+			return core.TaskForum{}, err
+		}
 	}
 	forum := findTaskForum(list, scope.CategoryID, remembered)
 	if forum == nil {

@@ -15,8 +15,13 @@ type privateThreadAPI struct {
 	forum   int
 	edited  []*discordgo.MessageEdit
 	tagged  bool
+	listed  int
 }
 
+func (a *privateThreadAPI) GuildChannels(g string, o ...discordgo.RequestOption) ([]*discordgo.Channel, error) {
+	a.listed++
+	return a.categoryForumAPI.GuildChannels(g, o...)
+}
 func (a *privateThreadAPI) GuildThreadsActive(string, ...discordgo.RequestOption) (*discordgo.ThreadsList, error) {
 	return &discordgo.ThreadsList{}, nil
 }
@@ -58,7 +63,8 @@ func TestTaskForumPrivateChannelPostsInItself(t *testing.T) {
 	}}}
 	p := &Platform{}
 	f, err := p.ensureTaskForum(api, "mine", "", []string{core.TaskForumTagRunning})
-	if err != nil || f.ID != "mine" || f.Channel != "mine" || len(api.created) != 0 {
+	// agentm 11-24: the guild channel list was closed for hours; a private channel must not need it.
+	if err != nil || f.ID != "mine" || f.Channel != "mine" || len(api.created) != 0 || api.listed != 0 {
 		t.Fatalf("private channel: %+v %v created=%v", f, err, api.created)
 	}
 	open, err := p.ensureTaskForum(api, "open", "", []string{core.TaskForumTagRunning})
