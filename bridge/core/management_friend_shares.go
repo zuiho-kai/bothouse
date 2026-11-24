@@ -2,18 +2,27 @@ package core
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
 var arcadeAccountNumber = regexp.MustCompile("^[A-Za-z0-9_]{4,24}$")
+var friendLookupKey = regexp.MustCompile("^[a-f0-9]{64}$")
 var arcadeAccountIdentity = regexp.MustCompile("^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
 var errFriendMissing = errors.New("friend not found")
 
@@ -23,24 +32,49 @@ type friendRecipient struct {
 	Identity    string `json:"identity"`
 }
 
-// The credential is dedicated to the local Friends lookup and never reaches the page.
-func lookupFriendRecipient(ctx context.Context, number string) (friendRecipient, error) {
+// The Friends service prepares this alongside the active instance's private config.
+func lookupFriendRecipient(ctx context.Context, configFile, number string) (friendRecipient, error) {
 	var result friendRecipient
-	token := os.Getenv("SOCIAL_BOTHOUSE_FRIEND_LOOKUP_TOKEN")
-	port := os.Getenv("BOTHOUSE_FRIENDS_LOOKUP_PORT")
-	if port == "" {
-		port = "57883"
-	}
-	parsed, err := strconv.ParseUint(port, 10, 16)
-	if err != nil || parsed < 1024 || len(token) < 32 {
+	if configFile == "" {
 		return result, errors.New("friend lookup not configured")
 	}
-	url := "http://127.0.0.1:" + strconv.FormatUint(parsed, 10) + "/api/v1/bothouse-share-recipient?number=" + number
+	file := filepath.Join(filepath.Dir(configFile), ".agent-arcade-friend-lookup.json")
+	info, err := os.Lstat(file)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 512 ||
+		(runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
+		return result, errors.New("friend lookup not configured")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return result, err
+	}
+	var settings struct {
+		Host  string `json:"host"`
+		Port  uint16 `json:"port"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil || (settings.Host != "127.0.0.1" && settings.Host != "::1") ||
+		settings.Port < 1024 || !friendLookupKey.MatchString(settings.Token) {
+		return result, errors.New("invalid friend lookup configuration")
+	}
+	address := net.JoinHostPort(settings.Host, strconv.FormatUint(uint64(settings.Port), 10))
+	url := fmt.Sprintf("http://%s/api/v1/bothouse-share-recipient?number=%s", address, number)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return result, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return result, err
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+	challenge := number + "\n" + timestamp + "\n" + nonce
+	mac := hmac.New(sha256.New, []byte(settings.Token))
+	mac.Write([]byte("lookup\n" + challenge))
+	req.Header.Set("X-Friends-Lookup-Time", timestamp)
+	req.Header.Set("X-Friends-Lookup-Nonce", nonce)
+	req.Header.Set("X-Friends-Lookup-Proof", hex.EncodeToString(mac.Sum(nil)))
 	client := http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := client.Do(req)
 	if err != nil {
@@ -53,7 +87,18 @@ func lookupFriendRecipient(ctx context.Context, number string) (friendRecipient,
 	if res.StatusCode != http.StatusOK {
 		return result, errors.New("friend lookup unavailable")
 	}
-	err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&result)
+	body, err := io.ReadAll(io.LimitReader(res.Body, 4097))
+	if err != nil || len(body) > 4096 {
+		return result, errors.New("invalid friend lookup response")
+	}
+	mac.Reset()
+	mac.Write([]byte("result\n" + challenge + "\n"))
+	mac.Write(body)
+	proof, err := hex.DecodeString(res.Header.Get("X-Friends-Lookup-Proof"))
+	if err != nil || !hmac.Equal(proof, mac.Sum(nil)) {
+		return result, errors.New("unverified friend lookup response")
+	}
+	err = json.Unmarshal(body, &result)
 	if err != nil || result.Number != number || result.DisplayName == "" || !arcadeAccountIdentity.MatchString(result.Identity) {
 		return friendRecipient{}, errors.New("invalid friend lookup response")
 	}
@@ -82,7 +127,7 @@ func (m *ManagementServer) handleFriendShares(w http.ResponseWriter, r *http.Req
 	switch r.Method {
 	case http.MethodGet, http.MethodPut:
 		if number != "" {
-			recipient, err := lookupFriendRecipient(r.Context(), number)
+			recipient, err := lookupFriendRecipient(r.Context(), m.configFilePath, number)
 			if errors.Is(err, errFriendMissing) {
 				mgmtError(w, http.StatusNotFound, "friend not found")
 				return
