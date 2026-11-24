@@ -46,6 +46,10 @@ func (e *Engine) quotaOwns(owner string) bool {
 func (e *Engine) quotaWorkItems() []quotaWork {
 	var out []quotaWork
 	coveredBoards := map[int]bool{}
+	// openBoards: the ids still on board.jsonl; nil when the board is unknown. A watch whose
+	// board row is gone belongs to a finished task: taking it over would hand a done task to
+	// someone and reset the watch (11-25: eight finished tasks re-handed when the lead cooled).
+	openBoards := e.openBoardIDs()
 	if e.team != nil {
 		for _, it := range readTeamTaskBoard(e.team.dir) {
 			if it.Paused != "" || it.Backlog != "" || !e.quotaOwns(it.Who) {
@@ -86,6 +90,9 @@ func (e *Engine) quotaWorkItems() []quotaWork {
 		for key, rows := range group.rows {
 			for _, h := range rows {
 				if !teamHandoffOpen(h) || coveredBoards[h.Board] || !e.quotaOwns(h.Owner) {
+					continue
+				}
+				if h.Board != 0 && openBoards != nil && !openBoards[h.Board] {
 					continue
 				}
 				out = append(out, quotaWork{
