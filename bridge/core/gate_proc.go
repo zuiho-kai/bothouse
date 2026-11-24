@@ -205,19 +205,20 @@ type GateSupervisor struct {
 	dir      string // <data_dir>/gate
 	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = RoleWikiDir(dataDir)
 
-	op       sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
-	mu       sync.Mutex
-	want     bool
-	external bool   // the gate port was taken by a gate bothouse did not start: leave it alone
-	failedFP string // inputs of the last start that failed quickly: no retry until they change
-	cmd      *exec.Cmd
-	stdin    io.Closer
-	exited   chan struct{}
-	started  time.Time
-	backoff  time.Duration
-	kick     chan struct{}
-	done     chan struct{}
-	stopOnce sync.Once
+	op           sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
+	mu           sync.Mutex
+	want         bool
+	external     bool   // the gate port was taken by a gate bothouse did not start: leave it alone
+	externalAddr string // localGateAddr() where external was seen; cleared if port moves or frees (#1961)
+	failedFP     string // inputs of the last start that failed quickly: no retry until they change
+	cmd          *exec.Cmd
+	stdin        io.Closer
+	exited       chan struct{}
+	started      time.Time
+	backoff      time.Duration
+	kick         chan struct{}
+	done         chan struct{}
+	stopOnce     sync.Once
 }
 
 var (
@@ -381,6 +382,19 @@ func exitedOrNever(c chan struct{}) <-chan struct{} {
 // step looks at the gate once and returns when to look again.
 func (g *GateSupervisor) step() time.Duration {
 	g.mu.Lock()
+	ext, extAddr := g.external, g.externalAddr
+	g.mu.Unlock()
+	if ext && (extAddr != localGateAddr() || portFree(LocalGatePort())) {
+		// #1961: re-evaluate external when the gate moved to another port or a
+		// transient holder released the port, rather than latching for life.
+		g.mu.Lock()
+		if g.external && g.externalAddr == extAddr {
+			g.external = false
+			g.externalAddr = ""
+		}
+		g.mu.Unlock()
+	}
+	g.mu.Lock()
 	need := g.want && !g.external && g.cmd == nil
 	g.mu.Unlock()
 	if need {
@@ -429,6 +443,7 @@ func (g *GateSupervisor) step() time.Duration {
 			// this data dir's gate, or an older one that cannot say whose it is, started before
 			// bothouse: by hand / launchd / systemd
 			g.external = true
+			g.externalAddr = localGateAddr()
 			if h == gateHolderUnknown {
 				slog.Warn("gate: a gate without /whoami is already listening; bothouse will not start its own", "addr", localGateAddr())
 			} else {

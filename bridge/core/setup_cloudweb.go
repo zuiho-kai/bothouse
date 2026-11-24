@@ -718,6 +718,20 @@ func PickFreePort(preferred int) int {
 	if preferred > 0 && portFree(preferred) {
 		return preferred
 	}
+	// Ask the OS on the wildcard address first so the picked port is free on [::],
+	// [::1] and non-loopback interfaces too, then confirm portFree (both "" and
+	// 127.0.0.1, #1961).
+	for range 8 {
+		l, err := net.Listen("tcp", ":0")
+		if err != nil {
+			break
+		}
+		p := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		if portFree(p) {
+			return p
+		}
+	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return preferred

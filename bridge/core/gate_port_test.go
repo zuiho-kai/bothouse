@@ -302,3 +302,67 @@ func TestDSHOpenMovesOffTakenGatePort(t *testing.T) {
 	})
 	waitGate(t, "own gate on the new port", 10*time.Second, func() bool { return gateIsOurs(dataDir) })
 }
+
+// #1961: a transient listener on the gate port must not latch g.external for the
+// supervisor's lifetime; once the port becomes free, the supervisor starts its own gate.
+func TestGateSupervisorRecoversAfterTransientExternalPort(t *testing.T) {
+	dataDir := setupFakeGate(t, false)
+	holder, err := net.Listen("tcp", localGateAddr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := NewGateSupervisor(dataDir)
+	g.Run(true)
+	defer g.Stop()
+	waitGate(t, "external latched while port held", 3*time.Second, func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.external
+	})
+	_ = holder.Close()
+	waitGate(t, "own gate after transient holder releases port", 3*time.Second, func() bool { return gateIsOurs(dataDir) })
+}
+
+// #1961: moving the gate port after an external gate was observed on the old port
+// clears the latched external state so the supervisor starts its own gate on the new port.
+func TestGateSupervisorClearsExternalWhenPortMoves(t *testing.T) {
+	dataDir := setupFakeGate(t, false)
+	taken := localGateAddr()
+	oldGateServer(t, taken)
+	g := NewGateSupervisor(dataDir)
+	g.Run(true)
+	defer g.Stop()
+	waitGate(t, "external latched on old port", 3*time.Second, func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.external
+	})
+	SetLocalGatePort(PickFreePort(0))
+	g.Want()
+	waitGate(t, "own gate after port moves off external gate", 3*time.Second, func() bool { return gateIsOurs(dataDir) })
+}
+
+// #1961: PickFreePort(0) must pick a port that satisfies portFree (both wildcard and
+// 127.0.0.1), not one only free on 127.0.0.1 while held on [::] / [::1].
+func TestPickFreePortChecksWildcardAndLoopback(t *testing.T) {
+	wl, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wl.Close()
+	wPort := wl.Addr().(*net.TCPAddr).Port
+	var v6Port int
+	if l6, err := net.Listen("tcp6", "[::1]:0"); err == nil {
+		defer l6.Close()
+		v6Port = l6.Addr().(*net.TCPAddr).Port
+	}
+	for range 20 {
+		p := PickFreePort(0)
+		if p <= 0 || p == wPort || (v6Port > 0 && p == v6Port) {
+			t.Fatalf("PickFreePort(0) = %d (held wildcard=%d v6=%d)", p, wPort, v6Port)
+		}
+		if !portFree(p) {
+			t.Fatalf("PickFreePort(0) returned %d which failed portFree", p)
+		}
+	}
+}
