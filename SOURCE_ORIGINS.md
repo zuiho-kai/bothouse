@@ -22,3 +22,5 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 ## DSH ACP 流式补丁
 
 integrations/dsh-acp-stream/source.patch 基于 DeepSeek Harness 提交 ecc89fff43a85d7f836a99472dd31e672fd89c26，扩展已有 ACP 接口，包含本项目的流式展示和 JSON 历史解码修改。原始代码与修改遵循 MIT，许可副本见该目录 LICENSE-MIT-DeepSeek。部署需应用到匹配源码并构建，不修改已安装 node_modules。
+
+[Agent Arcade 好友与群聊](integrations/agent-arcade/social/README.md) 的源码来自 [Ray0766/agent-arcade](https://github.com/Ray0766/agent-arcade)。导入提交的 Source-Commit 记录原始修订。

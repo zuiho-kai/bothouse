@@ -1,0 +1,14 @@
+{
+  "name": "agent-arcade-social",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=24.18.0 <25"
+  },
+  "scripts": {
+    "start": "node server/main.cjs",
+    "test:lan": "node server/lan.cjs",
+    "test": "node --test server/social.test.cjs",
+    "moderate": "node server/moderate.cjs"
+  }
+}
