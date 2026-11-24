@@ -845,14 +845,20 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 		mgmtError(w, http.StatusMethodNotAllowed, "GET only")
 		return
 	}
+	connectionNames := m.savedCloudWebConnectionNames()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	projects := make([]map[string]any, 0, len(m.engines))
 	for name, e := range m.engines {
 		platNames := make([]string, len(e.platforms))
+		platLabels := make([]string, len(e.platforms))
 		for i, p := range e.platforms {
 			platNames[i] = p.Name()
+			platLabels[i] = p.Name()
+			if label := connectionNames[connectionProfileID(p)]; label != "" {
+				platLabels[i] = label
+			}
 		}
 
 		sessCount := len(e.sessions.AllSessions())
@@ -869,6 +875,7 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 			"display_name":      e.DisplayName(),
 			"agent_type":        e.agent.Name(),
 			"platforms":         platNames,
+			"platform_labels":   platLabels,
 			"sessions_count":    sessCount,
 			"heartbeat_enabled": hbEnabled,
 		})
@@ -956,6 +963,7 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 
 func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Request, name string, e *Engine) {
 	if r.Method == http.MethodGet {
+		connectionNames := m.savedCloudWebConnectionNames()
 		// connected is the runtime readiness bit (platformReady), not "this platform is written in
 		// config.toml": a platform whose Start failed, or an async one still reconnecting, is listed
 		// but not connected. Same map and same lock bridgeRoles reads (management_roles_devices.go),
@@ -969,10 +977,17 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			if _, ok := p.(*BridgePlatform); ok {
 				continue
 			}
-			platInfos = append(platInfos, map[string]any{
+			info := map[string]any{
 				"type":      p.Name(),
 				"connected": e.platformReady[p],
-			})
+			}
+			if id := connectionProfileID(p); id != "" {
+				info["connection_id"] = id
+				if label := connectionNames[id]; label != "" {
+					info["connection_name"] = label
+				}
+			}
+			platInfos = append(platInfos, info)
 		}
 		e.platformLifecycleMu.Unlock()
 

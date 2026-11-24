@@ -78,8 +78,8 @@ function PlatformTags({ platforms, max = 3 }: { platforms: string[]; max?: numbe
   const rest = platforms.length - shown.length;
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {shown.map((pl) => (
-        <Badge key={pl} variant="outline" className="font-normal">
+      {shown.map((pl, i) => (
+        <Badge key={`${i}:${pl}`} variant="outline" className="font-normal">
           {pl}
         </Badge>
       ))}
@@ -96,7 +96,7 @@ function PlatformTags({ platforms, max = 3 }: { platforms: string[]; max?: numbe
 export function ProjectCard({ project, selected, onToggleSelect, onPreview }: ProjectItemProps) {
   const { t } = useTranslation();
   const name = shownName(project);
-  const platforms = project.platforms ?? [];
+  const platforms = project.platform_labels ?? project.platforms ?? [];
 
   return (
     <article
@@ -171,7 +171,7 @@ export function ProjectCard({ project, selected, onToggleSelect, onPreview }: Pr
 export function ProjectRow({ project, selected, onToggleSelect, onPreview }: ProjectItemProps) {
   const { t } = useTranslation();
   const name = shownName(project);
-  const platforms = project.platforms ?? [];
+  const platforms = project.platform_labels ?? project.platforms ?? [];
 
   return (
     <div

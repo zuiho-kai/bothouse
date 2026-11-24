@@ -58,7 +58,9 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
 
   if (!project) return null;
 
-  const platforms = detail?.platforms ?? (project.platforms ?? []).map((type) => ({ type, connected: true }));
+  const platforms: ProjectDetail['platforms'] = detail?.platforms ?? (project.platforms ?? []).map((type, i) => ({
+    type, connected: true, connection_name: project.platform_labels?.[i],
+  }));
 
   return (
     <div className="fixed inset-0 z-[9998]" role="presentation">
@@ -131,14 +133,14 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
             <p className="text-sm text-ink-mute">{t('projects.noPlatforms', '未连接平台')}</p>
           ) : (
             <ul className="space-y-1.5">
-              {platforms.map((pl) => (
+              {platforms.map((pl, i) => (
                 <li
-                  key={pl.type}
+                  key={pl.connection_id ?? `${pl.type}:${i}`}
                   className="flex items-center justify-between rounded-control bg-surface-sunken px-3 py-2"
                 >
                   <span className="inline-flex items-center gap-2 text-sm text-ink">
                     <Plug size={14} className="text-ink-mute" />
-                    {pl.type}
+                    {pl.connection_name || pl.type}
                   </span>
                   <Badge variant={pl.connected ? 'success' : 'outline'}>
                     {pl.connected ? t('projects.connected', '已连接') : t('projects.disconnected', '未连接')}

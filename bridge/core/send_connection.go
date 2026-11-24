@@ -45,7 +45,7 @@ func (s *APIServer) resolveConnectionSend(w http.ResponseWriter, engine *Engine,
 
 	var platform Platform
 	for _, candidate := range engine.platforms {
-		if p, ok := candidate.(interface{ ConnectionProfileID() string }); ok && p.ConnectionProfileID() == profile.ID {
+		if connectionProfileID(candidate) == profile.ID {
 			if platform != nil {
 				http.Error(w, fmt.Sprintf("connection %q has multiple attachments on this project", profile.Name), http.StatusConflict)
 				return nil, ""

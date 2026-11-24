@@ -114,6 +114,14 @@ describe('ProjectList', () => {
     expect(container.textContent).not.toContain('写字机');
   });
 
+  it('shows saved connection names and finds projects by those names', async () => {
+    state.projects[0] = { ...state.projects[0], platforms: ['cloud_web'], platform_labels: ['Work Hub'] };
+    await render();
+    await search('work hub');
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].textContent).toContain('Work Hub');
+  });
+
   it('shows a distinct empty state when filters match nothing', async () => {
     await render();
     await search('不存在的项目');

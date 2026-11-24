@@ -2,12 +2,13 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProjectDetail as ProjectDetailData } from '@/api/projects';
 import ProjectDetail from './ProjectDetail';
 
 const updateProject = vi.fn(async (_name: string, _body: unknown) => ({ message: 'ok' }));
 const project = {
   name: 'coder', display_name: 'Codex', name_customized: false, agent_type: 'codex',
-  work_dir: '/tmp/work', agent_mode: 'default', provider_refs: [], platforms: [], sessions_count: 0,
+  work_dir: '/tmp/work', agent_mode: 'default', provider_refs: [], platforms: [] as ProjectDetailData['platforms'], sessions_count: 0,
   active_session_keys: [], platform_configs: [],
   settings: { admin_from: '', language: 'zh', disabled_commands: [] },
 };
@@ -33,7 +34,7 @@ vi.mock('@/api/status', () => ({ restartSystem: vi.fn() }));
 
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement;
-beforeEach(() => { updateProject.mockClear(); });
+beforeEach(() => { updateProject.mockClear(); project.platforms = []; });
 afterEach(() => { act(() => root?.unmount()); container?.remove(); });
 
 const render = async () => {
@@ -66,6 +67,16 @@ const setSelect = async (el: HTMLSelectElement, value: string) => {
 };
 
 describe('project detail settings naming', () => {
+  it('shows the saved profile name on its Cloud Web badge', async () => {
+    project.platforms = [
+      { type: 'cloud_web', connected: true, connection_id: 'work', connection_name: 'Work Hub' },
+      { type: 'cloud_web', connected: false },
+    ];
+    await render();
+    expect(container.textContent).toContain('Work Hub');
+    expect(container.textContent).toContain('cloud_web');
+  });
+
   it('keeps unsaved settings and shows the server error when saving fails', async () => {
     updateProject.mockRejectedValueOnce(new Error('config is read-only'));
     await render();

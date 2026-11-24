@@ -372,9 +372,9 @@ export default function ProjectDetail() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {project.platforms?.map((p) => (
-                <Badge key={p.type} variant={p.connected ? 'success' : 'danger'}>
-                  <Plug size={12} className="mr-1" /> {p.type} {p.connected ? <Check size={12} className="ml-1 text-emerald-600 dark:text-emerald-400" aria-label="connected" /> : <X size={12} className="ml-1 text-rose-600 dark:text-rose-400" aria-label="offline" />}
+              {project.platforms?.map((p, i) => (
+                <Badge key={p.connection_id ?? `${p.type}:${i}`} variant={p.connected ? 'success' : 'danger'}>
+                  <Plug size={12} className="mr-1" /> {p.connection_name || p.type} {p.connected ? <Check size={12} className="ml-1 text-emerald-600 dark:text-emerald-400" aria-label="connected" /> : <X size={12} className="ml-1 text-rose-600 dark:text-rose-400" aria-label="offline" />}
                 </Badge>
               ))}
             </div>

@@ -24,7 +24,7 @@ export function projectMatches(p: ProjectSummary, f: ProjectFilters): boolean {
   if (f.agents.length > 0 && !f.agents.includes(p.agent_type)) return false;
   const q = f.query.trim().toLowerCase();
   if (!q) return true;
-  const hay = [shownName(p), p.name, p.agent_type, ...(p.platforms ?? [])].join(' ').toLowerCase();
+  const hay = [shownName(p), p.name, p.agent_type, ...(p.platforms ?? []), ...(p.platform_labels ?? [])].join(' ').toLowerCase();
   return hay.includes(q);
 }
 

@@ -6,6 +6,7 @@ export interface ProjectSummary {
   display_name?: string;
   agent_type: string;
   platforms: string[];
+  platform_labels?: string[];
   sessions_count: number;
   heartbeat_enabled: boolean;
 }
@@ -35,7 +36,7 @@ export interface ProjectDetail {
   inject_sender?: boolean;
   provider_refs?: string[];
   platform_configs?: PlatformConfigInfo[];
-  platforms: { type: string; connected: boolean }[];
+  platforms: { type: string; connected: boolean; connection_id?: string; connection_name?: string }[];
   sessions_count: number;
   active_session_keys: string[];
   heartbeat: {

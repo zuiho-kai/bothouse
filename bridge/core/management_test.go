@@ -366,6 +366,70 @@ func TestMgmt_ProjectDetail(t *testing.T) {
 	}
 }
 
+func TestMgmt_ProjectPlatformsUseCurrentSavedConnectionName(t *testing.T) {
+	dir := t.TempDir()
+	profiles := `[{"id":"work","name":"Work Hub","url":"https://hub.test","token":"fixture-secret"}]`
+	if err := os.WriteFile(filepath.Join(dir, "cloud-web-connections.json"), []byte(profiles), 0600); err != nil {
+		t.Fatal(err)
+	}
+	named := &profileSendPlatform{id: "work"}
+	named.stubPlatformEngine.n = "cloud_web"
+	manual := &stubPlatform{n: "cloud_web"}
+	engine := NewEngine("relay", &stubAgent{}, []Platform{named, manual}, "", LangEnglish)
+	engine.markPlatformReady(named)
+	m := NewManagementServer(0, "management-test", nil)
+	m.SetWizard(nil, dir)
+	m.RegisterEngine("relay", engine)
+	handler := m.buildHandler(http.NewServeMux())
+	request := func(method, path, body string, into any) {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer management-test")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		var response mgmtResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || !response.OK {
+			t.Fatalf("%s %s failed: %s (%v)", method, path, rec.Body, err)
+		}
+		if strings.Contains(rec.Body.String(), "fixture-secret") {
+			t.Fatal("project display exposed the saved token")
+		}
+		if into != nil {
+			if err := json.Unmarshal(response.Data, into); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	var detail struct {
+		Platforms []struct {
+			Type           string `json:"type"`
+			Connected      bool   `json:"connected"`
+			ConnectionID   string `json:"connection_id"`
+			ConnectionName string `json:"connection_name"`
+		} `json:"platforms"`
+	}
+	request(http.MethodGet, "/api/v1/projects/relay", "", &detail)
+	if len(detail.Platforms) != 2 || detail.Platforms[0].Type != "cloud_web" || !detail.Platforms[0].Connected ||
+		detail.Platforms[0].ConnectionID != "work" || detail.Platforms[0].ConnectionName != "Work Hub" ||
+		detail.Platforms[1].ConnectionName != "" || detail.Platforms[1].Connected {
+		t.Fatalf("project platforms = %+v", detail.Platforms)
+	}
+
+	request(http.MethodPut, "/api/v1/cloud-web/connections/work", `{"name":"Renamed Hub","url":"https://hub.test"}`, nil)
+	var list struct {
+		Projects []struct {
+			Platforms []string `json:"platforms"`
+			Labels    []string `json:"platform_labels"`
+		} `json:"projects"`
+	}
+	request(http.MethodGet, "/api/v1/projects", "", &list)
+	if len(list.Projects) != 1 || strings.Join(list.Projects[0].Platforms, ",") != "cloud_web,cloud_web" ||
+		strings.Join(list.Projects[0].Labels, ",") != "Renamed Hub,cloud_web" {
+		t.Fatalf("projects = %+v", list.Projects)
+	}
+}
+
 // connected on the project detail page is the runtime readiness bit, not "this platform is
 // written in config.toml". A configured platform that came up, one that never did, and the
 // bridge transport (attached after Engine.Start, not a chat platform) must be told apart;

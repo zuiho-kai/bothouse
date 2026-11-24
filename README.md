@@ -179,7 +179,7 @@ QQ via OneBot/NapCat, remote access from your phone with Tailscale, and hardware
 
 QQ via OneBot/NapCat can also [watch selected groups silently](docs/platforms/qq.md#静默监听群消息): keep owner messages, filter other text locally, and batch useful updates to your private QQ chat without creating conversation turns for group traffic.
 
-Save named Cloud Web server settings in **Bridge → Saved Cloud Web connections**. Pick a saved connection under **Projects → Add platform → Cloud Web**. **Advanced options** lets you set a project-specific WebSocket URL, allowed users, and group behavior. Select the connection again to apply updated settings to that project, then restart the service when prompted.
+Save named Cloud Web server settings in **Bridge → Saved Cloud Web connections**. Pick a saved connection under **Projects → Add platform → Cloud Web**. The running project shows the saved connection name. **Advanced options** lets you set a project-specific WebSocket URL, allowed users, and group behavior. Select the connection again to apply updated settings to that project, then restart the service when prompted.
 
 To send through a saved connection attached to a running project, use `bothouse send --connection "Work Hub" --project relay --session cloud_web:room-42 --message "Hello"`. The profile selects the hub and the session key selects the room.
 

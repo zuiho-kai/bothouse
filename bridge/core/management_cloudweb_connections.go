@@ -77,6 +77,29 @@ func readCloudWebConnections(dataDir string) ([]cloudWebConnection, error) {
 	return connections, nil
 }
 
+func connectionProfileID(p Platform) string {
+	if profiled, ok := p.(interface{ ConnectionProfileID() string }); ok {
+		return profiled.ConnectionProfileID()
+	}
+	return ""
+}
+
+func (m *ManagementServer) savedCloudWebConnectionNames() map[string]string {
+	if m.wizardDataDir == "" {
+		return nil
+	}
+	connections, err := readCloudWebConnections(m.wizardDataDir)
+	if err != nil {
+		slog.Warn("management: read Cloud Web connection names", "error", err)
+		return nil
+	}
+	names := make(map[string]string, len(connections))
+	for _, c := range connections {
+		names[c.ID] = c.Name
+	}
+	return names
+}
+
 func (m *ManagementServer) handleCloudWebConnections(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	switch {

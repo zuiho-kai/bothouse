@@ -176,7 +176,7 @@ _左上是真实频道录屏，其余是作者自己在用的团队工作台和�
 
 QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个硬件身体，见[平台细节](docs/readme-details.md#平台细节)。
 
-在 **桥接 → 已保存的 Cloud Web 连接** 中按名称保存服务器设置，然后在 **项目 → 添加平台 → Cloud Web** 中选用。展开 **高级选项** 可以按项目设置 WebSocket 地址、允许的用户和群聊行为。设置变更后，可在项目中重新选择该连接，并按提示重启服务。
+在 **桥接 → 已保存的 Cloud Web 连接** 中按名称保存服务器设置，然后在 **项目 → 添加平台 → Cloud Web** 中选用。运行中的项目会显示已保存的连接名称。展开 **高级选项** 可以按项目设置 WebSocket 地址、允许的用户和群聊行为。设置变更后，可在项目中重新选择该连接，并按提示重启服务。
 
 向正在运行的项目所接入的 Cloud Web 发送消息时，可以用 `bothouse send --connection "工作平台" --project relay --session cloud_web:room-42 --message "你好"`。连接名称选择平台，session key 选择频道。
 
