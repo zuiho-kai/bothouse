@@ -1,0 +1,8 @@
+# Files whose bytes are checked, not only their text. A checkout made with
+# core.autocrlf=true (what Git for Windows sets up by default) would otherwise
+# rewrite their line endings, and the hash check of the vendored three.js files
+# (test/pet-model.test.cjs) and `node scripts/build-pets.cjs --check` then fail.
+src/vendor/three/** -text
+src/pet/models/*.json -text
+src/pet/models/*.glb binary
+hardware/pet-robot/firmware/assets/*.aaps binary

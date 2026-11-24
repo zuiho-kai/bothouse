@@ -1,0 +1,15 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; cursor: default; }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* A soft contact shadow so she reads as standing on something. */
+#ground { position: absolute; left: 50%; bottom: 0.6%; width: 44%; height: 5.5%; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, rgba(40, 24, 20, 0.34), rgba(40, 24, 20, 0)); transition: opacity 0.25s, transform 0.25s; }
+body.held #ground { opacity: 0; transform: translateX(-50%) scale(0.6); }
+body.grab, body.grab #stage { cursor: grab; }
+body.held, body.held #stage { cursor: grabbing; }
+/* A small state cue above her head. It never carries message text. */
+#cue { position: absolute; left: 62%; top: 4%; display: flex; gap: 3px; }
+#cue span { min-width: 26px; height: 26px; padding: 0 7px; box-sizing: border-box; border-radius: 13px; background: #fffaf3; border: 2px solid #5a2f22; color: #5a2f22; font: 700 15px/22px -apple-system, "PingFang SC", "Segoe UI", sans-serif; text-align: center; }
+#cue[hidden], #cue span[hidden] { display: none; }
+body.preview #ground, body.preview #cue { display: none; }
+body.portrait #ground { display: none; }
+body.portrait #cue { top: 1%; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #ground { transition: none; } }

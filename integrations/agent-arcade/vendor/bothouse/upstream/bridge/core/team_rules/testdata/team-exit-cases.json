@@ -1,0 +1,708 @@
+{
+  "_doc": [
+    "工作区交回规则（team-exit-rules.json）的共用样例：Go（bridge/core/team_exit_rules_test.go TestTeamExitSharedCases）和 Node（team-exit.test.mjs）都跑这一份，一边不一致就红。",
+    "problems 里写规则键（ask.missing_self_check 这种），带编号的写 headline.unknown_id:9；跑的时候换成 team-exit-rules.json 里的文案。",
+    "judge：reply 是整条回复；known 是任务板上有的编号；bounces 是此前连续退回几次。want.kind 为空表示第一行没有标记，不转也不退。forward = 没有 problems。",
+    "pick：选回复说的是哪件：第一行编号那件绑在本工作区就是它，否则本工作区最后绑上的那件，都没有就是 0。",
+    "bounce：退回文案，整句写死，改了文案要一起改这里。",
+    "split：exitSplit 把编号后的正文分成贴给用户的三段（summary）和细节（detail）。"
+  ],
+  "evidence": [
+    {
+      "body": "用 A 还是 B？",
+      "want": [
+        "ask.missing_self_check",
+        "ask.missing_category"
+      ]
+    },
+    {
+      "body": "用 A 还是 B？\n类别：验收",
+      "want": [
+        "ask.missing_self_check"
+      ]
+    },
+    {
+      "body": "用 A 还是 B？\n自验：go test 通过",
+      "want": [
+        "ask.missing_category"
+      ]
+    },
+    {
+      "body": "用 A 还是 B？\n自验：\n类别：",
+      "want": [
+        "ask.missing_self_check",
+        "ask.missing_category"
+      ]
+    },
+    {
+      "body": "合不合？\n自验：无需\n类别：验收",
+      "want": [
+        "ask.no_check_not_exempt"
+      ]
+    },
+    {
+      "body": "选哪条路？\n自验：无需\n类别：方向",
+      "want": []
+    },
+    {
+      "body": "要充值 20 美元\n自验：无需\n类别：花钱",
+      "want": []
+    },
+    {
+      "body": "看一下成片\n自验：无需\n类别：需要用户看的成品",
+      "want": []
+    },
+    {
+      "body": "点一下授权\n自验: 无需\n类别: 权限确认",
+      "want": []
+    },
+    {
+      "body": "合不合？\n自验：\n```\nok  core 1.2s\n```\n类别：验收",
+      "want": []
+    },
+    {
+      "body": "合不合？\n类别：验收\n自验：截图 /tmp/a.png",
+      "want": []
+    },
+    {
+      "body": "选哪条路？\n自验　：无需　\n类别　：方向",
+      "want": []
+    },
+    {
+      "body": "合不合？\n自验：无需　看过\n类别：验收",
+      "want": [
+        "ask.no_check_not_exempt"
+      ]
+    },
+    {
+      "body": "合不合？\n自验：免。\n类别：验收",
+      "want": [
+        "ask.no_check_not_exempt"
+      ]
+    },
+    {
+      "body": "合不合？\n自验：无关的日志已看过\n类别：验收",
+      "want": []
+    }
+  ],
+  "judge": [
+    {
+      "name": "report in three parts",
+      "reply": "[report] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "mark is case-insensitive",
+      "reply": "[REPORT] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "blank lines after the mark",
+      "reply": "[report]  \n\n  #1：背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n细节",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "full-width separators after the id",
+      "reply": "[report] #12　，背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        12
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 12,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "parts may start on the line after the id",
+      "reply": "[report] #1\n背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n\n细节：\n跑了测试",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "todo inside the done line",
+      "reply": "[report] #1 背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "one sentence only",
+      "reply": "[report] #1 第一阶段做完",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "第一阶段做完",
+        "problems": [
+          "summary.missing_background",
+          "summary.missing_done",
+          "summary.missing_todo",
+          "summary.missing_added"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "no background",
+      "reply": "[report] #1 做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "summary.missing_background",
+          "summary.missing_done"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "no done part",
+      "reply": "[report] #1 背景：你让我修汇报。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你让我修汇报。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "summary.missing_done"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "no todo: the first paragraph is judged",
+      "reply": "[report] #1 背景：你让我修汇报。\n做完了。\n\n细节在这",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "背景：你让我修汇报。\n做完了。",
+        "problems": [
+          "summary.missing_todo",
+          "summary.missing_added"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "mark not on the first line",
+      "reply": "先说明\n[report] #1 做完",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": ""
+      }
+    },
+    {
+      "name": "mark with nothing after it",
+      "reply": "[ask]   ",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": ""
+      }
+    },
+    {
+      "name": "report without an id",
+      "reply": "[report] 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 0,
+        "line": "",
+        "problems": [
+          "headline.missing_id"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "report with an id and nothing after it",
+      "reply": "[report] #1",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "",
+        "problems": [
+          "headline.missing_line"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "report with a bare #",
+      "reply": "[report] #\n细节",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 0,
+        "line": "",
+        "problems": [
+          "headline.missing_id",
+          "headline.missing_line"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "report naming an id not on the board",
+      "reply": "[report] #9 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 9,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "headline.unknown_id:9"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "after the bounce limit a wrong headline goes to the lead",
+      "reply": "[report] 做完了",
+      "known": [
+        1
+      ],
+      "bounces": 2,
+      "want": {
+        "kind": "report",
+        "id": 0,
+        "line": "",
+        "problems": [],
+        "legacy": true
+      }
+    },
+    {
+      "name": "below the bounce limit it still goes back",
+      "reply": "[report] 做完了",
+      "known": [
+        1
+      ],
+      "bounces": 1,
+      "want": {
+        "kind": "report",
+        "id": 0,
+        "line": "",
+        "problems": [
+          "headline.missing_id"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "after the bounce limit missing parts go to the lead",
+      "reply": "[report] #1 第一阶段做完",
+      "known": [
+        1
+      ],
+      "bounces": 2,
+      "want": {
+        "kind": "report",
+        "id": 1,
+        "line": "第一阶段做完",
+        "problems": [],
+        "legacy": true
+      }
+    },
+    {
+      "name": "complete ask",
+      "reply": "[ask] #1 背景：你让我选路线。\n两条都试过了，A 快 B 稳。\n要你定的：选 A 还是 B？\n我加的：无\n自验：无需\n类别：方向",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "ask",
+        "id": 1,
+        "line": "背景：你让我选路线。\n两条都试过了，A 快 B 稳。\n要你定的：选 A 还是 B？\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "ask lacking evidence and headline lists both",
+      "reply": "[ask]\n用 A 还是 B？\n类别：验收",
+      "known": [
+        1
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "ask",
+        "id": 0,
+        "line": "",
+        "problems": [
+          "ask.missing_self_check",
+          "headline.missing_id"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "ask lacking evidence still goes back after the bounce limit",
+      "reply": "[ask] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n自验：无需\n类别：验收",
+      "known": [
+        1
+      ],
+      "bounces": 5,
+      "want": {
+        "kind": "ask",
+        "id": 1,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "ask.no_check_not_exempt"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "ask with evidence but unknown id after the bounce limit goes to the lead",
+      "reply": "[ask] #9 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n自验：go test ok\n类别：验收",
+      "known": [
+        1
+      ],
+      "bounces": 2,
+      "want": {
+        "kind": "ask",
+        "id": 9,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": true
+      }
+    },
+    {
+      "name": "parts name a PR and a workspace",
+      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "jargon.line:!9300、工作区2"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "parts name a branch",
+      "reply": "[report] #7 背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "jargon.line:fix/retro-forward"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "parts name a path, a file and identifiers",
+      "reply": "[report] #7 背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "jargon.line:~/code/x、team_exit.go、postExitHeadline、ws-forward"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "plain product words and fractions are fine",
+      "reply": "[report] #7 背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "parts hold a table",
+      "reply": "[report] #7 背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n我加的：无",
+        "problems": [
+          "jargon.table"
+        ],
+        "legacy": false
+      }
+    },
+    {
+      "name": "numbers and tables in the details are fine",
+      "reply": "[report] #7 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\nPR !9300，分支 fix/x，工作区2\n| a | b |\n|---|---|",
+      "known": [
+        7
+      ],
+      "bounces": 0,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": false
+      }
+    },
+    {
+      "name": "wording goes to the lead after the wake limit",
+      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n我加的：无",
+      "known": [
+        7
+      ],
+      "bounces": 2,
+      "want": {
+        "kind": "report",
+        "id": 7,
+        "line": "背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n我加的：无",
+        "problems": [],
+        "legacy": true
+      }
+    }
+  ],
+  "pick": [
+    {
+      "name": "named and bound here",
+      "named": 3,
+      "items": [
+        {
+          "id": 3,
+          "here": true,
+          "bound": "2026-10-30T08:00:00Z"
+        },
+        {
+          "id": 4,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        }
+      ],
+      "want": 3
+    },
+    {
+      "name": "named but bound elsewhere: last bound here",
+      "named": 3,
+      "items": [
+        {
+          "id": 3,
+          "here": false,
+          "bound": "2026-10-30T10:00:00Z"
+        },
+        {
+          "id": 4,
+          "here": true,
+          "bound": "2026-10-30T08:00:00Z"
+        },
+        {
+          "id": 5,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        }
+      ],
+      "want": 5
+    },
+    {
+      "name": "no id: last bound here",
+      "named": 0,
+      "items": [
+        {
+          "id": 4,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        },
+        {
+          "id": 5,
+          "here": true,
+          "bound": "2026-10-30T08:00:00Z"
+        }
+      ],
+      "want": 4
+    },
+    {
+      "name": "named id not on the board",
+      "named": 9,
+      "items": [
+        {
+          "id": 4,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        }
+      ],
+      "want": 4
+    },
+    {
+      "name": "same bound time: the first listed",
+      "named": 0,
+      "items": [
+        {
+          "id": 6,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        },
+        {
+          "id": 7,
+          "here": true,
+          "bound": "2026-10-30T09:00:00Z"
+        }
+      ],
+      "want": 6
+    },
+    {
+      "name": "nothing here",
+      "named": 3,
+      "items": [
+        {
+          "id": 3,
+          "here": false,
+          "bound": "2026-10-30T09:00:00Z"
+        }
+      ],
+      "want": 0
+    }
+  ],
+  "bounce": [
+    {
+      "kind": "report",
+      "problems": [
+        "第一行缺任务板编号（#编号）"
+      ],
+      "want": "这条 [report] 没有转给用户：第一行缺任务板编号（#编号）。补上后重发：第一行写 [report] #任务板编号 背景：……，再起一行写做了什么，再一行写「要你做的：……」，这三段系统原样贴到聊天频道；之后的行是细节，贴在那条消息下的子话题。"
+    },
+    {
+      "kind": "ask",
+      "problems": [
+        "缺「自验：」（附证据：截图或命令输出）",
+        "第一行缺任务板编号（#编号）"
+      ],
+      "want": "这条 [ask] 没有转给用户：缺「自验：」（附证据：截图或命令输出）；第一行缺任务板编号（#编号）。补上后重发：第一行写 [ask] #任务板编号 背景：……，再起一行写做了什么，再一行写「要你做的：……」，这三段系统原样贴到聊天频道；之后的行是细节，贴在那条消息下的子话题，正文写「自验：」附证据和「类别：」；方向、花钱、需要用户看的成品、权限确认四类可写「自验：无需」。"
+    }
+  ],
+  "split": [
+    {
+      "body": "#1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n\n细节：\n跑了测试\n通过",
+      "want": {
+        "summary": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。",
+        "detail": "跑了测试\n通过"
+      }
+    },
+    {
+      "body": "#1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。",
+      "want": {
+        "summary": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。",
+        "detail": ""
+      }
+    },
+    {
+      "body": "#1\n\n背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n| a |",
+      "want": {
+        "summary": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。",
+        "detail": "| a |"
+      }
+    }
+  ]
+}

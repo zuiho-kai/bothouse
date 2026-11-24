@@ -1,0 +1,12 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #2b2a30; user-select: none; -webkit-user-select: none; }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#preview-controls { position: absolute; inset: auto 0 5%; display: grid; justify-items: center; gap: 8px; pointer-events: none; color: #f5ece6; font: 14px/1.4 "Segoe UI", "Microsoft YaHei UI", sans-serif; }
+.portrait-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.portrait-preview #stage { position: static; min-height: 0; }
+.portrait-preview #preview-controls { position: static; padding: 0 12px clamp(10px, 3vh, 22px); }
+#feedback { min-height: 1.4em; text-align: center; }
+#view-controls { display: flex; padding: 3px; border: 1px solid #827779; border-radius: 20px; background: #29262c; pointer-events: auto; }
+#view-controls[hidden] { display: none; }
+#view-controls button { min-width: 60px; padding: 5px 12px; border: 0; border-radius: 16px; background: transparent; color: #f2e8e4; font: inherit; cursor: pointer; }
+#view-controls button[aria-pressed="true"] { background: #f0ddd0; color: #332a28; }
+#view-controls button:focus-visible { outline: 2px solid #ffb370; outline-offset: 2px; }

@@ -1,0 +1,126 @@
+/* First-run key entry (first-run.js). One card: the chat page's empty state while no AI is
+   usable, and the body of #first-run-dialog elsewhere. Tokens only; layout-specific rules are
+   scoped with html[data-layout] at the end. */
+/* margin:auto centres the card while it fits and keeps its top reachable when it does not. */
+#bot-messages:has(>#first-run-card){display:flex;min-height:100%;box-sizing:border-box;padding:var(--sp-4) 0}
+#first-run-card{box-sizing:border-box;width:100%;max-width:560px;margin:auto;padding:var(--sp-6);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);box-shadow:var(--elev-1);text-align:left;color:var(--text)}
+#first-run-card .first-run-title{margin:0 0 var(--sp-1);font-size:var(--fs-xl);line-height:1.3;font-weight:650;letter-spacing:0}
+#first-run-card .first-run-lead{margin:0 0 var(--sp-5);font-size:var(--fs-md);line-height:1.7;color:var(--muted)}
+#first-run-card .first-run-choices{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--sp-2);margin:0 0 var(--sp-5)}
+#first-run-card .first-run-choice{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;min-height:0;padding:var(--sp-3) var(--sp-1);border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);color:var(--text);font:inherit;text-align:center;cursor:pointer;transition:background var(--ease),border-color var(--ease)}
+#first-run-card .first-run-choice:hover:not(:disabled){background:var(--surface-2);border-color:var(--line-strong)}
+#first-run-card .first-run-choice[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+#first-run-card .first-run-choice:disabled{opacity:.6;cursor:default}
+#first-run-card .first-run-choice img{width:44px;height:44px;border-radius:50%;object-fit:cover;object-position:top;background:var(--surface-2)}
+#first-run-card .first-run-choice-text{display:flex;flex-direction:column;min-width:0;max-width:100%}
+#first-run-card .first-run-choice strong{max-width:100%;font-size:var(--fs-sm);line-height:1.5;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#first-run-card .first-run-choice small{font-size:var(--fs-xs);line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+#first-run-card .first-run-form{display:flex;flex-direction:column;gap:var(--sp-2);margin:0}
+#first-run-card .first-run-label-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap}
+#first-run-card .first-run-label-row label{font-size:var(--fs-sm);line-height:1.55;font-weight:600}
+#first-run-card .first-run-guide,#first-run-card .first-run-import button,#first-run-card #first-run-open-wizard{min-height:28px;padding:2px 6px;color:var(--accent-ink);font-size:var(--fs-sm);text-decoration:underline;text-underline-offset:3px;text-align:left;white-space:normal}
+#first-run-card .first-run-key-row{display:flex;align-items:stretch;gap:var(--sp-2)}
+#first-run-card .first-run-key-row input{flex:1 1 auto;min-width:0;min-height:40px;box-sizing:border-box;padding:8px 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-md)}
+#first-run-card .first-run-key-row input[aria-invalid=true]{border-color:var(--error,#a13c52)}
+#first-run-card .first-run-reveal{flex:none;min-height:40px;padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:var(--fs-sm)}
+#first-run-card .first-run-fine{margin:0;font-size:var(--fs-xs);line-height:1.6;color:var(--muted)}
+#first-run-card .first-run-status{margin:0;font-size:var(--fs-sm);line-height:1.6;color:var(--muted)}
+#first-run-card .first-run-status[data-error=true]{color:var(--error,#a13c52)}
+#first-run-card .first-run-save{align-self:flex-start;min-height:40px;margin-top:var(--sp-2);padding:8px 20px;font-size:var(--fs-md);white-space:normal}
+#first-run-card .first-run-import{display:flex;align-items:center;flex-wrap:wrap;gap:0 var(--sp-1);margin:var(--sp-5) 0 0;padding-top:var(--sp-4);border-top:1px solid var(--line);font-size:var(--fs-sm);line-height:1.6;color:var(--muted)}
+#first-run-card .first-run-other{margin:var(--sp-2) 0 0;font-size:var(--fs-sm);color:var(--muted)}
+#first-run-card .first-run-other>summary{display:list-item;list-style:disclosure-closed inside;width:fit-content;min-height:28px;padding:2px 0;font-size:var(--fs-sm);line-height:1.6;color:var(--muted);cursor:pointer}
+#first-run-card .first-run-other[open]>summary{list-style-type:disclosure-open}
+#first-run-card .first-run-other>summary:hover{color:var(--text)}
+#first-run-card .first-run-other-body{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp-2);padding:var(--sp-2) 0 0}
+#first-run-card .first-run-other-body .secondary{white-space:normal;text-align:left}
+
+/* Dialog form */
+#first-run-dialog{width:min(600px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:0;overflow:auto}
+#first-run-dialog::backdrop{background:var(--veil)}
+#first-run-dialog #first-run-card{max-width:none;border:0;border-radius:0;box-shadow:none;padding:var(--sp-6) var(--sp-6) var(--sp-5)}
+#first-run-dialog #first-run-card .first-run-title{padding-right:44px}
+#first-run-dialog .first-run-close{position:absolute;top:var(--sp-3);right:var(--sp-3);z-index:1;font-size:22px;line-height:1}
+
+/* Send failures in the App conversation (desktop-chat.js) */
+.desktop-chat-recover{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-2);margin:var(--sp-1) 0 0}
+.desktop-chat-recover[hidden]{display:none}
+.desktop-chat .desktop-chat-recover button.secondary{min-height:30px;padding:4px 14px;border-radius:var(--r-full);font-size:var(--fs-sm)}
+
+/* Channel wording under the thread is off for a profile without a channel (bot.js). */
+.bot-input-note.bot-note-off{display:none!important}
+
+/* Conversation settings panel (bot.js): App conversation note and pause, the link to the
+   character's own settings, and the "Channels and tasks (advanced)" disclosure. */
+.bot-local-controls{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp-2);margin:0 0 var(--sp-4)}
+.bot-local-controls[hidden],.bot-character-settings[hidden]{display:none}
+.bot-setup .bot-local-controls .bot-fine{margin:0;font-size:var(--fs-xs);line-height:1.6;color:var(--muted)}
+#bot-advanced .setup-step legend,#bot-advanced .bot-advanced-project label,#bot-advanced>#bot-claude-budget label{color:var(--text)}
+.bot-setup .bot-character-settings{display:block;margin:0 0 var(--sp-4);padding:2px 0;color:var(--accent-ink);font-size:var(--fs-sm);text-align:left;text-decoration:underline;text-underline-offset:3px;white-space:normal}
+#bot-advanced{margin:0 0 var(--sp-4);padding:0}
+#bot-advanced>summary{min-height:32px;font-size:var(--fs-sm);font-weight:600;color:var(--text);cursor:pointer}
+#bot-advanced[open]>summary{margin-bottom:var(--sp-3)}
+#bot-advanced .bot-advanced-project{margin:0 0 var(--sp-4)}
+#bot-advanced .bot-advanced-project label,#bot-advanced>#bot-claude-budget label{display:block;margin:0 0 var(--sp-1)}
+#bot-advanced>#bot-claude-budget{margin:0 0 var(--sp-4)}
+
+/* AI and channels page (connections.js): everything optional is one disclosure. The parts stay
+   siblings of the toggle, so they are hidden here while it is closed. */
+#connections-content .onboarding-optional-toggle{display:flex;align-items:center;gap:var(--sp-2);width:100%;min-height:48px;margin:0 0 var(--sp-4);padding:var(--sp-3) var(--sp-4);border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-md);font-weight:600;line-height:1.5;text-align:left;cursor:pointer}
+#connections-content .onboarding-optional-toggle:hover{background:var(--surface-2);border-color:var(--line-strong)}
+#connections-content .onboarding-optional-toggle::before{content:"";flex:none;width:7px;height:7px;margin:0 4px 0 2px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform var(--ease)}
+#connections-content .onboarding-optional-toggle[aria-expanded=true]::before{transform:rotate(45deg)}
+#connections-content[data-optional=closed]>:is(.onboarding-chat,.social-panel,.onboarding-extra,.onboarding-advanced,.onboarding-sample){display:none!important}
+#connections-content .onboarding-sample{margin-top:var(--sp-4)}
+@media(prefers-reduced-motion:reduce){#connections-content .onboarding-optional-toggle::before{transition:none}}
+
+/* Narrow column: tiles keep one row, text shrinks first. */
+@media(max-width:560px){
+  #first-run-card{padding:var(--sp-4)}
+  #first-run-card .first-run-title{font-size:var(--fs-lg)}
+}
+/* The card is its own size container: what matters is the column it sits in (a side panel may be
+   open next to it), not the window. */
+#first-run-card{container-type:inline-size;container-name:firstrun}
+@container firstrun (max-width:460px){
+  #first-run-card .first-run-choices{gap:6px}
+  #first-run-card .first-run-choice{padding:var(--sp-2) 2px}
+  #first-run-card .first-run-choice img{width:36px;height:36px}
+  #first-run-card .first-run-choice strong{font-size:var(--fs-xs)}
+  #first-run-card .first-run-choice small{display:none}
+  #first-run-card .first-run-save{align-self:stretch}
+}
+@container firstrun (max-width:300px){
+  #first-run-card .first-run-choices{grid-template-columns:repeat(3,minmax(0,1fr))}
+  #first-run-card .first-run-title{font-size:var(--fs-lg)}
+  #first-run-card .first-run-key-row{flex-wrap:wrap}
+}
+/* Short window: the primary button stays in view without scrolling. */
+@media(max-height:720px){
+  #bot-messages:has(>#first-run-card){padding:var(--sp-2) 0}
+  #first-run-card{padding:var(--sp-4) var(--sp-5)}
+  #first-run-card .first-run-title{font-size:var(--fs-lg)}
+  #first-run-card .first-run-lead{margin-bottom:var(--sp-3);font-size:var(--fs-sm)}
+  #first-run-card .first-run-choices{margin-bottom:var(--sp-3)}
+  #first-run-card .first-run-choice{padding:var(--sp-2) 2px;gap:2px}
+  #first-run-card .first-run-choice img{width:32px;height:32px}
+  #first-run-card .first-run-choice small{display:none}
+  #first-run-card .first-run-save{margin-top:0}
+  #first-run-card .first-run-import{margin-top:var(--sp-3);padding-top:var(--sp-2)}
+}
+.compact #first-run-card{padding:var(--sp-4)}
+.compact #first-run-card .first-run-choice small{display:none}
+.compact #first-run-card .first-run-choice img{width:36px;height:36px}
+.compact #first-run-card .first-run-title{font-size:var(--fs-lg)}
+.compact #first-run-card .first-run-save{align-self:stretch}
+
+/* Immersive: the card sits in the glass column; keep it readable over the stage. */
+html[data-layout="immersive"] #first-run-card{background:color-mix(in oklab,var(--surface) 92%,transparent)}
+/* Minimal: one quiet column, no raised card. */
+html[data-layout="minimal"] #bot-messages>#first-run-card{border-radius:var(--r-md);box-shadow:none}
+html[data-layout="minimal"] #first-run-card .first-run-choice{border-radius:var(--r-sm)}
+
+/* Recovery retains the existing key and conversation files until explicitly confirmed. */
+#first-run-card .first-run-recovery{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp-3)}
+#first-run-card .first-run-recovery button{max-width:100%;min-height:40px;white-space:normal;text-align:left}
+#first-run-card .first-run-recovery .plain{padding-inline:0}
