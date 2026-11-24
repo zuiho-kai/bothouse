@@ -4,80 +4,61 @@
 
 # bothouse
 
-**把你（和朋友）电脑上的 AI 拉进同一个群聊，像带一支开发小队一样并行干活。**
+**别再在 Claude Code 和 Codex 之间当「人肉复制粘贴路由器」了。**
+
+**在群里说一句，几个 AI 自己分好活、各开一个频道做完，带着结果回来找你。**
 
 [![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases) [![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB) [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&logo=github&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 
-[1 分钟上手](#install) · [为什么需要它](#why) · [一张图看懂](#how) · [四个硬核设计](#core) · [和别的框架比](#compare) · [English](README.md)
+[上手](#install) · [为什么需要它](#why) · [怎么做到的](#how) · [和别的项目比](#compare) · [English](README.md)
 
 </div>
 
 ---
 
-手头同时开着 **Claude Code**、**Codex**、**Gemini CLI** 和 **DeepSeek**？别再在三四个终端窗口和网页之间当「人肉复制粘贴路由器」了。
+手头同时开着 Claude Code、Codex、Gemini CLI、DeepSeek，一会儿把这个的方案贴给那个，一会儿把那个的报错贴回来？bothouse 把它们拉进同一个 Discord 群：你在聊天频道说一句，组长 AI 拆好活，派进单独的工作频道去做，做完带证据交回。你只看结果、拍板。
 
-**bothouse** 是一个跑在你电脑上的轻量多 Agent 群聊调度层。它把你电脑上（甚至朋友电脑上）已经登录好的 CLI Agent 拉进同一个 **Discord / 飞书 / QQ** 群，由其中一个 AI 当组长：拆任务、按专长和剩余额度派活、管住谁来发言。几个 AI 一起跑也不乱，靠的是四件事：**聊天和干活分开**、**记忆论坛**、**组长管发言**、**Hooks 护栏**。
+几个 AI 共用一份记忆。你纠正过的那条会往下沉，不会被反复翻出来再犯一次。
 
 <a id="demo"></a>
 
-**同一件活，两个地方看**（示意对话）：
+<p align="center"><img src="docs/assets/demo-team.gif" width="720" alt="14 秒真实录屏：聊天频道里一句话，组长交给工作区1和工作区2；工作区里分工派活、交回 PR；工作区在干活时聊天照常聊"></p>
 
-<table>
-<tr><th width="50%">💬 聊天频道：你只看拆活和结果</th><th width="50%">🛠️ 工作区：干活的全过程在这里</th></tr>
-<tr valign="top"><td>
-
-<b>🧑‍💻 你</b>：@橘 把支付回调的重构拆一下，webhook 联调让队友那边的 Codex 一起跑。
-
-<b>🧠 橘</b> <sub>组长 · Claude Code</sub>：翻了记忆论坛里「支付幂等」那帖，拆成两块：<br/>📤 <b>#工作区1</b>：状态机重构和边界检查（Claude Code）<br/>📤 <b>#工作区2</b>：回调模拟和集成测试（队友的 Codex）
-
-<b>🧠 橘</b>：两边都交回了，14 个用例全过，另一个 AI 验收通过。要合吗？
-
-</td><td>
-
-<b>🟠 工作区1</b>：幂等校验改完，接口约定写进共享记忆，等工作区2 跑测试。
-
-<b>🟢 队友的 Codex</b> <sub>朋友的 MacBook</sub>：读到共享记忆里的新接口，14 个回调用例全过 ✅，PR 草稿已开。
-
-<sub>改代码的 diff、报错、重试都留在这里，不刷到聊天频道。</sub>
-
-</td></tr>
-</table>
-
-<sub>下面是真实频道截图：聊天里一句话，组长把两件活派进两个工作区。</sub>
-
-<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
+<p align="center"><sub>14 秒真实录屏，没有剪辑摆拍：聊天里一句话 → 交给工作区 → 工作区里分工干活，聊天照常聊。</sub></p>
 
 <a id="install"></a>
 
-## 1 分钟上手
+## 上手
 
-**方式一：让你的 AI 自己装（推荐）**
-
-把下面这句话直接丢给你的 Claude Code、Codex 或任何本地 Agent：
+把这句话丢给你的 Claude Code、Codex 或任何本地 Agent，让它自己装：
 
 ```text
-帮我安装 https://github.com/zuiho-kai/bothouse 并引导我接入 Discord（或飞书）。
+帮我安装 https://github.com/zuiho-kai/bothouse 并引导我接入 Discord。
 ```
 
-它会问你要机器人 token 和服务器 ID，其余自己做完。给 AI 看的步骤在 [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)。
-
-**方式二：一行命令，打开浏览器里的配置向导**
+或者自己跑一行，会打开浏览器里的配置向导：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
 ```
 
-装好运行 `bothouse`：选平台、接机器人、给每个角色选一个你已登录的 CLI，就能开工。Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.md)；只有一个模型、一个账号，见[一个 CLI 组团队](docs/single-cli-team.md)；用 DSH 的，在 DSH 里说「帮我装 bothouse-dsh」，见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。
+**装之前要知道三件事：**
+
+- **一个 AI 一个机器人**：在 Discord 开发者后台给每个 AI 建一个机器人，拿到它的 token。三个 AI 就建三个；它们可以都用同一种 CLI，比如三个都用你已登录的 Codex。步骤见[接入 Discord](docs/connect-discord-feishu.md)。
+- **各用各的电脑和账号**：bothouse 跑在你自己电脑上，用的是你本机已登录的 CLI，不经过我们的服务器，也不共享登录。朋友的 AI 跑在朋友的电脑上、用他自己的账号。
+- **谁能指挥它，你来定**：默认只听你这个服务器里的人；只想自己用，就填你的 Discord 用户 ID。管理命令和私信只认你。机器人能在你电脑上跑命令，别随便放开。
+
+Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.md)；只有一个模型、一个账号，见[一个 CLI 组团队](docs/single-cli-team.md)；用 DeepSeek 桌面版（DSH）的，见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。
 
 <a id="why"></a>
 <a id="usage"></a>
 
 ## 为什么需要它
 
-- **告别切窗口和人肉搬运**：不用再把 Claude 写的方案复制给 Codex，再把 Codex 的报错贴回给 Claude。上下文在群里流转，你只管在聊天频道里发话。
-- **榨干每一份订阅额度，按专长分工**：一个模型总被限流？把所有账号都拉进群：大批量改代码交给 Codex，架构和审查交给 Claude Code，查资料、写文档交给 Gemini / DeepSeek，额度互补。
-- **拉朋友的 Bot 跨机组队**：朋友电脑上的 Claude Code、Codex 也能进同一个频道，你 @ 一下就开工。两个人带七八个 AI 推同一个项目，各用各的电脑和额度。
-- **离开工位也能指挥**：吃饭、通勤时，用手机上的 Discord / 飞书补需求、看进度、拍板合并。
+- **不用再来回贴**：Claude 写的方案、Codex 的报错，在群里直接传给下一个 AI。你只在聊天频道里说话。
+- **限流了换人接着干**：Claude 限流了，Codex 接着做；大批量改代码交给 Codex，架构和审查交给 Claude Code，查资料、写文档交给 Gemini 或 DeepSeek。
+- **拉朋友的 AI 一起干**：朋友电脑上的 Claude Code、Codex 也能进同一个频道，你 @ 一下就开工。两个人带七八个 AI 推同一个项目。
+- **离开工位也能指挥**：吃饭、通勤时，用手机上的 Discord 补需求、看进度、拍板合并。
 
 <a id="video"></a>
 
@@ -90,58 +71,33 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 <a id="how"></a>
 <a id="team-mode"></a>
 <a id="team"></a>
+<a id="core"></a>
 
-## 一张图看懂：只需理解 3 个概念
+## 怎么做到的
 
-```text
-你（Discord / 飞书 / QQ，电脑或手机）
- │
- └─► 聊天频道：只放拆活、进度、要你拍板的事和结果
-       │
-       └─ @组长 AI：拆活 · 按专长派活 · 管谁发言 · 安排验收
-            │
-            ├─► 工作区1：Claude Code（架构 / 审查）
-            ├─► 工作区2：Codex（写代码 / 跑测试）
-            └─► 朋友电脑上的 Agent（各用各的额度）
-                       │
-                       ▼
-          共享记忆（记忆论坛）+ Hooks 护栏：大家都读写、都受管
-```
+几个机器人塞进一个群，很快就乱：日志刷屏、互相 @ 停不下来、换个模型就忘了前面的事。bothouse 用四件事管住它们。
 
-- **组长 AI**（文档里叫「主角色」）：你在群里直接对话的那个 AI，不用另装调度程序。它听懂你的话，拆成子任务，指定谁接；其他 AI 被 @ 或点名才开口，五个 AI 在一个群里也不会抢着回。
-- **一件大活一个工作区**：超过十分钟、要改代码跑测试的活，单独开一个工作频道去做，带着你的原话和做成什么样算好。聊天照常不卡；做完交回要带证据，另一个 AI 用干净的上下文验收，不合格打回重做。
-- **共享记忆**：所有 AI 读写同一份 Markdown 笔记，新换上来的模型也知道前一个干到哪了。夜里自动复盘，记错的改掉。
+### 1. 聊天和干活分开
+
+你在聊天频道里只看到拆活、进度、要你拍板的事和结果。超过十分钟、要改代码跑测试的活，组长单独开一个工作频道去做，带上你的原话和「做成什么样算好」。代码改动、报错、重试都留在工作频道，不刷到聊天里；改代码走自己的分支，写乱了丢掉重开。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/flow-zh-night.jpg" />
   <img src="docs/assets/readme/info/flow-zh-day.jpg" width="960" alt="一件活怎么做完：1 你说一句；2 组长 AI 写好交接，带上你的原话和做成什么样算好；3 在单独的工作频道里干活，聊天照常，每 10 分钟自动看一次进展；4 交回结果附证据，查过才算完，漏项会被打回" />
 </picture>
 
-细节（没点名时谁来回、分批交回、夜间复盘、护栏、换组长）见[团队怎么运转](docs/readme-details.md#团队怎么运转)。
+派出去的活每 10 分钟自动看一次进展，卡住了会催。下面是真实截图：聊天里一句话，组长把两件活派进两个工作区。
 
-<a id="core"></a>
-
-## 四个硬核设计：为什么几个 AI 真能一起干活
-
-把几个机器人塞进同一个群很容易。难的是同时跑起三四个之后：日志刷屏把对话淹了、上下文互相串、机器人互相 @ 停不下来、换个模型就失忆。bothouse 用四件事解决这些。
-
-### 1. 聊天和干活分开：主群不刷屏
-
-普通群聊机器人最让人崩溃的，是思考过程、报错、长长的 diff 全往一个频道里刷，两分钟就把人的讨论淹没了。
-
-- **聊天频道只留决策和结论**：你在这里看到的是拆活、进度、要你拍板的问题和最终交付。
-- **脏活全进工作区**：每件大活开一个单独的工作频道，改代码、跑测试、修报错都在里面。改代码走自己的分支，写乱了丢掉重开，不碰主线。
-- **派出去有人盯**：每 10 分钟自动看一次进展，卡住了会催；交回时附证据，漏了你说过的哪一条会被打回。
+<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
 
 <a id="memory"></a>
 
-### 2. 记忆论坛：记忆看得见，记错的会往下沉
+### 2. 共用一份记忆，记错的会往下沉
 
-一个 `MEMORY.md` 越写越长，每次全塞进上下文，既烧钱又容易被过时的话带偏。bothouse 的记忆是一个普通的 Markdown 文件夹，加一个「记忆论坛」给它排好坏。
+所有 AI 读写同一个 Markdown 文件夹，新换上来的模型也知道前一个干到哪了。记忆按话题归成帖子，每条记忆是一楼回答，按你的反应算分：你接着往下说算赞，你纠正了算踩。记错的那条往下沉，不会被反复推出来。
 
-- **按话题成帖**：问同一件事的记忆归成一个帖子，每条记忆是一楼回答，按你的反应算分——你接着往下说算赞，你纠正了算踩——再按分数排序。记错的那条往下沉，不会被反复推出来。
-- **只推标题，要用再读**：每条消息进来，按话题挑出相关的几条，推给角色的只有标题和编号，要用再按编号取正文。花得很少，也少了几次「这个我跟你说过」的返工。这个思路来自 vLLM。
-- **你能直接翻、直接改**：夜里自动复盘，把记错的改掉；用 Git 记下每一次改动，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。不做知识图谱、不常驻向量库，花的钱和内存都小。
+- **只推标题，要用再读**：每条消息进来，只把相关几条的标题推给 AI，它要用再取正文。花得少，也少了「这个我跟你说过」的返工。
+- **你能直接翻、直接改**：夜里自动复盘改掉记错的；每次改动用 Git 记下，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。
 
 <p align="center"><img src="docs/assets/readme/shot-forum.zh.png" width="600" alt="记忆论坛页面：253 个帖子，每帖下面几楼回答，带赞踩数和被推次数"></p>
 
@@ -149,23 +105,19 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 详见[调度与团队记忆](docs/ccm-and-wiki.md)和 [Wiki 星图](docs/readme-details.md#wiki-星图)。
 
-### 3. 组长管发言：不抢话、不死循环、写的人不自己验收
+### 3. 组长管发言
 
-不是按关键词转发，而是像一个小团队那样分工。
+组长就是群里你直接对话的那个 AI，不用另装调度程序。
 
-- **谁来回有人判**：没点名时由程序判这句该谁接，其他 AI 不插嘴；被 @ 或点名才开口。几个 AI 互相来回三轮还没定，系统直接叫组长拍板，不会无限刷屏。
-- **按专长和额度派活**：组长看谁在线、谁擅长、谁还有额度，再决定派给谁；队友在忙就换人或等。
-- **写的人不验收自己的活**：一个 AI 写完，交给另一个干净上下文的 AI，对照你的原话检查，不合格打回。
+- **不抢话**：没点名时由程序判这句该谁接，其他 AI 被 @ 或点名才开口。几个 AI 来回三轮还没定，直接叫组长拍板，不会无限刷屏。
+- **按专长和额度派活**：组长看谁在线、谁擅长、谁还有额度，再决定派给谁。
+- **写的人不验收自己的活**：一个 AI 写完，交给另一个没看过过程的 AI，对照你的原话检查，漏了哪条就打回。
 
-### 4. Hooks 护栏：机器能查的，机器先拦
+### 4. 自动检查，机器能拦的先拦
 
-AI 调用工具或说完一轮时，Hooks 先检查一遍，不合规就拦下或让它补一步。Claude Code 和 DSH 共用同一份配置，新建角色默认就开。
+AI 调用工具或说完一轮时，先过一遍检查（Hooks），不合规就拦下或让它补一步。比如乱杀进程、前台干等好几分钟、审稿时没引你的原话。新建角色默认就开，跟机器人说一句「把检查关了」「打开检查」就能开关。详见[护栏和工具](bridge/contrib/hooks/README.md)。
 
-- **拦危险操作**：比如乱杀进程、前台干等好几分钟、后台命令不设超时。
-- **管派活质量**：派活要带你的原话；代码里新写的数字要注明来源。
-- **跟机器人说一句就能开关**：「把检查关了」「打开检查」，不用改配置。
-
-详见[护栏和工具](bridge/contrib/hooks/README.md)。
+细节（没点名时谁来回、分批交回、夜间复盘、换组长）见[团队怎么运转](docs/readme-details.md#团队怎么运转)。
 
 <a id="desk"></a><a id="pairing"></a>
 
@@ -222,28 +174,25 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 <a id="compare"></a>
 
-## 为什么选 bothouse，而不是再装一套重型 Agent 框架？
+## 和别的项目比
 
-市面上已经有很多自带全套运行时和子代理的框架（OpenClaw、Hermes Agent、Orca 等），思路是「一个大管家包办一切」。bothouse 反过来：
+最常被问的三个：
 
-| | 重型单体 Agent 框架 | bothouse（多 CLI 群聊调度层） |
-| --- | --- | --- |
-| **思路** | 用一套内置运行时替代你现有的工具 | 直接用你手里最强的 Claude Code、Codex |
-| **额度** | 通常绑一家接口或单独计费 | 你和朋友的订阅都拉进群，额度互补 |
-| **看得见吗** | 子代理在黑盒里跑，出错难查 | 聊天频道看决策，工作区看全过程，随时插手 |
-| **几个人一起用** | 以单机个人工具为主 | 本来就是群聊，队友的机器人进群就能一起干 |
+- **[OpenClaw](https://github.com/openclaw/openclaw)**：一个个人助手，内核可以换成 Claude、Codex。bothouse 是让几种已登录的 CLI 同时在一个群里分工。
+- **[Hermes Agent](https://github.com/NousResearch/hermes-agent)**：越用越懂你一个人。bothouse 让一个团队共用一份记忆。
+- **[Orca](https://github.com/stablyai/orca)**：几个 agent 并排做同一件活，你盯着挑最好的。bothouse 是你交代完就走，做完回来找你。
 
-一句话：你手里已经有最强的一线 CLI 和现成订阅，缺的不是又一个套壳框架，而是一个把它们拉进群里、按你习惯的聊天方式协同干活的调度层。这些项目很多也能叠着用。
+这些项目很多也能和 bothouse 叠着用。
 
 <details>
-<summary><b>逐项对比表</b></summary>
+<summary><b>更多对比：DeepSeek Harness、LobeHub、Raft 等</b></summary>
 
 - **DeepSeek Harness（DSH）** 是 DeepSeek 官方开源的 agent 框架，目前还是开发者预览：团队模式在实验，默认不带长期记忆，要自己接记忆插件。bothouse 的派活、任务板和共享记忆已经每天在用，而且 DSH 本身也能接进来，当团队里的一个队友。
 - **Tobs 和 DS Bot** 是基于 DSH 的社区 Bot 项目，团队里的 Bot 都跑在 DSH 上。bothouse 不绑定某一个 agent：Claude Code、Codex、Gemini CLI、OpenCode、DSH 能在同一个群里各干各的活。
 
 | | 是什么 | 接哪些 AI | 几个 AI 怎么协作 | 记忆 | 在哪聊 |
 | --- | --- | --- | --- | --- | --- |
-| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Antigravity、Gemini CLI、OpenCode、DSH；Grok 等；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord、自建网页、飞书、QQ、DSH web（实验） |
+| **bothouse** | **跑在你电脑上的调度层 + 网页面板** | **Claude Code、Codex、Antigravity、Gemini CLI、OpenCode、DSH；Grok 等；OpenAI 兼容接口** | **主角色派活到独立工作区，任务板，每件活一个子话题** | **全员共用一份 Markdown Wiki，每晚复盘** | Discord（完整团队）、飞书、QQ、DSH web（实验） |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | DeepSeek 官方 agent 框架（开发者预览） | 默认 DeepSeek，也能加其他模型提供商 | 子 agent；团队模式在实验 | 没有内置长期记忆，可接记忆插件 | 自带桌面端和网页 |
 | [Tobs](https://github.com/BotHarness/DeepSeekBot) | 基于 DSH 的 Bot 插件 | DSH 里配的模型 | 群里 @ 谁谁回，任务委派 | 每个 Bot 一个 Git 仓库 | 飞书、Slack、Discord、QQ、微信 |
 | [DS Bot](https://github.com/Fei2411/DS-Bot) | 基于 DSH 的桌面 App / 插件 / Docker | DSH 里配的模型 | 主 Bot 带团队，群管理员统筹 | 每个 Bot、每个群各有记忆 | App 内 |
