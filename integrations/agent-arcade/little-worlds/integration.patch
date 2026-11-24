@@ -609,28 +609,29 @@ index af46a0e52754af0f16119b6056df5c529454dee6..fb9b2ec315a9892be7b8651a0ce89058
 + }
   model.stats.generationMs+=performance.now()-adaptedAt;
 diff --git a/src/client/town-residents.ts b/src/client/town-residents.ts
-index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..8817a0bb8579cc1e6e913cb20bebc2a9872f9b5c 100644
+index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..f17cf1cb912de18b4cd0c64f9a54106ab63f9909 100644
 --- a/src/client/town-residents.ts
 +++ b/src/client/town-residents.ts
-@@ -2,2 +2,4 @@ import * as T from 'three';
+@@ -2,2 +2,5 @@ import * as T from 'three';
  import { applyArtMaterial, ART_PALETTE } from './art-profile.ts';
 +import { sampleCourier } from './character-sample.ts';
++import { townResidentLedger } from './town-resident-ledger.ts';
 +import { defaultAppearance, type Appearance } from '../shared/appearance.ts';
  import { GroundWorld } from '../shared/physics/world.ts';
-@@ -9,3 +11,4 @@ import type { Vec3 } from '../shared/world.ts';
+@@ -9,3 +12,4 @@ import type { Vec3 } from '../shared/world.ts';
  type Shape = 'box' | 'sphere' | 'cylinder' | 'cone';
 -interface Piece { node: T.Object3D; shape: Shape; color: T.Color; detail: boolean; slot: number }
 +type BatchKey = Shape | T.BufferGeometry;
 +interface Piece { node: T.Object3D; shape: BatchKey; color: T.Color; detail: boolean; slot: number }
  interface Rig {
-@@ -24,4 +27,4 @@ export interface TownResidentFrame {
+@@ -24,4 +28,4 @@ export interface TownResidentFrame {
  const palette = { clay: ART_PALETTE.clay, sage: ART_PALETTE.sage, cream: ART_PALETTE.cream, blue: '#6b8796', ochre: '#bb914f' };
 -const skin = ['#d9b78c', '#b98765', '#805b46', '#e0bf9e'];
 -const ink = ART_PALETTE.ink, timber = ART_PALETTE.wood, cream = ART_PALETTE.cream;
 +const skins: Appearance['skin'][] = ['sand', 'bronze', 'deep', 'porcelain', 'warm'];
 +const timber = ART_PALETTE.wood, cream = ART_PALETTE.cream;
  const zero = new T.Matrix4().makeScale(0, 0, 0);
-@@ -44,5 +47,4 @@ function workReach(rig: Rig, side: 'left' | 'right', height: number, forward: nu
+@@ -44,5 +48,4 @@ function workReach(rig: Rig, side: 'left' | 'right', height: number, forward: nu
  
 -/** Original host-owned residents, using the same village material adapter and
 - * metre scale as the courier. Four instanced primitive batches share all models;
@@ -638,12 +639,12 @@ index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..8817a0bb8579cc1e6e913cb20bebc2a9
 +/** The courier supplies the meshes at the town's existing animated joints.
 + * Resident bodies and props are drawn in shared geometry batches. */
  function residentRig(definition: TownResidentDefinition, index: number): Rig {
-@@ -52,3 +54,3 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -52,3 +55,3 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
    anchor.add(body, leftLeg, rightLeg); body.position.y = .89;
 -  body.add(head, leftArm, rightArm); head.position.y = .36;
 +  body.add(head, leftArm, rightArm); head.position.y = .43;
    leftArm.position.set(-.25, .22, 0); rightArm.position.set(.25, .22, 0);
-@@ -61,28 +63,34 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -61,28 +64,34 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
    };
 -  const coat = palette[definition.coat], face = skin[index % skin.length];
 -  const broad = definition.occupation === 'repairer' || definition.occupation === 'porter';
@@ -704,26 +705,34 @@ index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..8817a0bb8579cc1e6e913cb20bebc2a9
 +  useJoint(model.legs[0].knee, leftKnee);
 +  useJoint(model.legs[1].knee, rightKnee);
    const apron = () => {
-@@ -98,4 +106,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -98,4 +107,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
        piece(hammer, 'box', ART_PALETTE.iron, [0, .5, 0], [3.5, .25, 1.8], true);
 -      piece(head, 'cylinder', coat, [0, .21, 0], [.35, .12, .35]);
 -      piece(head, 'box', coat, [0, .17, .11], [.34, .035, .28]);
 +      piece(head, 'cylinder', coat, [0, .242, 0], [.47, .10, .46]);
 +      piece(head, 'box', coat, [0, .198, .13], [.44, .035, .36]);
        break;
-@@ -103,4 +111,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -103,4 +112,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
      case 'sunhat':
 -      piece(head, 'cylinder', '#c9af72', [0, .185, 0], [.58, .04, .55]);
 -      piece(head, 'cone', '#c9af72', [0, .265, 0], [.35, .16, .33]);
 +      piece(head, 'cylinder', '#c9af72', [0, .245, 0], [.62, .04, .58]);
 +      piece(head, 'cone', '#c9af72', [0, .325, 0], [.39, .16, .37]);
        apron();
-@@ -111,4 +119,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -111,4 +120,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
        piece(body, 'box', cream, [.24, -.2, .124], [.16, .07, .018], true);
 -      piece(head, 'cylinder', coat, [0, .22, 0], [.33, .08, .32]);
 -      piece(head, 'box', coat, [0, .185, .13], [.28, .025, .25]);
 +      piece(head, 'cylinder', coat, [0, .249, 0], [.45, .07, .43]);
 +      piece(head, 'box', coat, [0, .217, .16], [.38, .025, .28]);
+       break;
+@@ -116,5 +125,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+     case 'book':
+-      piece(body, 'box', ART_PALETTE.clay, [0, -.01, .33], [.39, .065, .27]);
+-      piece(body, 'box', cream, [0, .03, .33], [.35, .025, .23]);
+-      piece(body, 'box', timber, [0, .047, .33], [.018, .012, .23], true);
++      for (const {color, offset:[x,y,z], size, detail} of townResidentLedger)
++        piece(body, 'box', color, [x,y-.01,z+.33], size, detail);
        break;
 @@ -131,4 +139,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
      case 'cap':

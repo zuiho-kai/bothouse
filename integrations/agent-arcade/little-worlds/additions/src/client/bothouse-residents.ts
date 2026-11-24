@@ -26,6 +26,7 @@ class ResidentFigure {
   private right=new T.Vector3();
   private basis=new T.Matrix4();
   private turn=new T.Quaternion();
+  private readonly dockFacing: T.Vector3;
   private phase:number;
   private elapsed=0;
   private step=0;
@@ -41,6 +42,7 @@ class ResidentFigure {
     this.model=createBothouseResidentModel(key);
     this.model.animate(role.activity,0,true);
     const start=feet.clone().normalize(), pad=portPoint(world.planetId);
+    this.dockFacing=new T.Vector3(...pad);
     const outward=start.clone().sub(new T.Vector3(...pad)).projectOnPlane(start).normalize();
     const end=start.clone().addScaledVector(outward,1.15/world.baseRadius).normalize().toArray() as Vec3;
     this.phase=slot*.75;
@@ -93,6 +95,10 @@ class ResidentFigure {
     const {motion,model}=this;
     this.up.fromArray(motion.pose.position);
     this.forward.fromArray(motion.heading).projectOnPlane(this.up).normalize();
+    if(this.role.activity==='working'){
+      // Keep the safe foot position and angle the ledger toward the dock-side path.
+      this.forward.copy(this.dockFacing).projectOnPlane(this.up).normalize().applyAxisAngle(this.up,.36);
+    }
     this.right.crossVectors(this.up,this.forward).normalize();
     this.forward.crossVectors(this.right,this.up).normalize();
     this.turn.setFromRotationMatrix(this.basis.makeBasis(this.right,this.up,this.forward));
@@ -110,7 +116,7 @@ class ResidentFigure {
       this.step+=dt;
       if(this.step>=.05){this.motion.tick(this.step,viewer,neighbours);this.step=0;}
     }else{this.motion.moving=false;this.step=0;}
-    this.align(false,live&&!reduced?dt:0);
+    this.align(reduced&&live,live&&!reduced?dt:0);
     this.model.animate(activity,this.elapsed+this.phase,reduced||!live,Number(this.motion.moving));
   }
   setVisible(visible:boolean) {this.model.root.visible=this.label.visible=visible;}
@@ -271,7 +277,7 @@ export class BothouseResidents {
       for(const role of residents){
         if(!Object.hasOwn(actions,role.activity))role.activity='unknown';
         const portrait=residentPortrait(planet,role);
-        const key=portrait===undefined?role.appearanceKey:'default';
+        const key=role.appearanceKey;
         let figure=this.figures.get(role.id);
         if(!figure||figure.key!==key){
           const slot=figure?.slot??seats.findIndex((_,i)=>!used.has(i));

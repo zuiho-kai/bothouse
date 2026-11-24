@@ -17,6 +17,10 @@ python install.py .\LittleWorlds --run
 
 For a costume that survives portrait changes, use a Bothouse build with the **3D appearance on the planet** member setting. The publisher syncs that stored selection automatically. Older Bothouse builds still work with their existing avatar presets and the default resident models.
 
+工作中的居民会停步举起账册，工作结束后收起。房主明确分享的公开头像可以作为徽牌显示，龙娘仍保留三维身体、龙角与背翼。
+
+Working residents stop and hold a ledger until the work ends. An explicitly shared portrait can appear as a badge while the dragon resident keeps its 3D body, horns, and wings.
+
 ## 与 Agent Arcade 好友共用星球
 
 房主先在配套好友 App 登录，再在小星球设置中允许好友来访。部署者第一次配对时，按[好友端 Windows 打包说明](https://github.com/Ray0766/bothouse/blob/6e52ff3de58789eed9eed9c5dc1633ee2e43879f/integrations/agent-arcade/social/windows/README.md)解包匹配的测试 MSIX，选取解包目录内的 `Social/resources/app/service.json`。该文件随配套 Windows 包生成，世界安装器读取其中的 `origin` 与 `littleWorldsOrigin`，并保存到这份世界存档的配对配置。

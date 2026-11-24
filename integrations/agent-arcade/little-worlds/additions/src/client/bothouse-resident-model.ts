@@ -4,6 +4,7 @@ import {Sculpture,finish,joint} from './bothouse-sculpt-model.ts';
 import {clothing,costumes,hairAndHeadwear,type Look} from './bothouse-costume-model.ts';
 
 import {attachResidentFace} from './bothouse-face-model.ts';
+import {townResidentLedger} from './town-resident-ledger.ts';
 
 type Activity=PlanetResident['activity'];
 const cream='#f6ead3',skin='#f0ceac',ink='#42353f';
@@ -62,6 +63,9 @@ function sculpt(look:Look){
     s.strand(head,'#9c6a60',[[-.033,-.103,.177],[0,-.111,.184],[.034,-.098,.179]],.006,.005);
   }
   hairAndHeadwear(s,head,look);clothing(s,body,look);
+  const ledger=joint(root.getObjectByName('elbow1')!,'work-ledger',.09,-.217,.025);
+  for(const {color,offset,size} of townResidentLedger)s.box(ledger,color,offset,size);
+  ledger.visible=false;
   if(look==='generic'){
     for(const side of [-1,1])s.strand(body,'#745b41',[[side*.062,.209,.048],[side*.094,.148,.127],[0,.069,.165]],.009,.008);
     s.shape(body,new T.CylinderGeometry(.098,.093,.025,24),'#b79b69',[0,.001,.162],[1,1,1],[Math.PI/2,0,0]);
@@ -82,18 +86,22 @@ export function createBothouseResidentModel(appearanceKey:string){
   const root=asset.root.clone(true);
   const get=(name:string)=>root.getObjectByName(name)!;
   const body=get('body'),rig=get('rig'),head=get('head');
+  const ledger=get('work-ledger');
   const face=root.getObjectByName('authored-face') as T.Mesh|undefined;
   const limbs=[-1,1].map(side=>({side,arm:get('upper'+side),elbow:get('elbow'+side),hip:get('hip'+side),knee:get('knee'+side),eye:get('eye'+side)}));
-  const badge=look==='generic'?new T.Mesh(new T.CircleGeometry(.082,32),
-    new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:0})):null;
-  if(badge){badge.name='public-portrait-badge';badge.position.set(0,.001,.195);badge.visible=false;body.add(badge);}
+  const badge=new T.Mesh(new T.CircleGeometry(.082,32),new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:0}));
+  badge.name='public-portrait-badge';
+  badge.position.set(0,.001,look==='generic'?.195:.22);
+  badge.visible=false;
+  body.add(badge);
   let disposed=false;
   const animate=(activity:Activity,seconds:number,reducedMotion:boolean,walk=0)=>{
     const t=reducedMotion?0:seconds,pace=reducedMotion?0:T.MathUtils.clamp(walk,0,1);
     const rest=activity==='offline',think=activity==='thinking',talk=activity==='talking',work=activity==='working';
     const swing=Math.sin(t*6.2)*pace;
     rig.position.y=-standingSoleOffset+Math.abs(swing)*.014;
-    body.rotation.x=work?.072:rest?.045:.018*pace;
+    ledger.visible=work;
+    body.rotation.x=work?.10:rest?.045:.018*pace;
     head.rotation.set(think?.10:work?.14:rest?.19:talk?-.025:0,reducedMotion?0:Math.sin(t*.73)*.042,think?-.105:0);
     if(face?.morphTargetInfluences&&face.morphTargetDictionary){
       const weights=face.morphTargetInfluences, keys=face.morphTargetDictionary;
@@ -105,20 +113,29 @@ export function createBothouseResidentModel(appearanceKey:string){
       if(l.eye)l.eye.scale.y=rest?.40:!reducedMotion&&t%5.1>.12&&t%5.1<.23?.16:1;
       l.hip.rotation.x=sign*swing*.48;l.knee.rotation.x=Math.max(0,-sign*swing)*.56;
       const book=look==='orange';
-      l.arm.rotation.set(work?-.71+sign*Math.sin(t*4)*.038:think&&sign===1?-.82:talk&&sign===1?-.49:book?-.50:sign*swing*.31,0,
-        -sign*(book?.09:work?.06:talk&&sign===1?.33:think&&sign===1?.10:.07));
-      l.elbow.rotation.set(work?-.64:think&&sign===1?-1.55:talk&&sign===1?-.85:book?-.92:-.18,0,think&&sign===1?-.37:book?-sign*.43:0);
+      if(work){
+        // Hold the reader's ledger beside the hair and sleeves. The free
+        // hand repeats the town sorter's small reach as the resident works.
+        const holding=sign===1;
+        l.arm.rotation.set(holding?-.61:-.68+(reducedMotion?0:Math.sin(t*2.8)*.10),0,holding?.84:-.42);
+        l.elbow.rotation.set(holding?-.79:-.77,0,holding?-.25:.18);
+      }else{
+        l.arm.rotation.set(think&&sign===1?-.82:talk&&sign===1?-.49:book?-.50:sign*swing*.31,0,
+          -sign*(book?.09:talk&&sign===1?.33:think&&sign===1?.10:.07));
+        l.elbow.rotation.set(think&&sign===1?-1.55:talk&&sign===1?-.85:book?-.92:-.18,0,think&&sign===1?-.37:book?-sign*.43:0);
+      }
     }
+    if(work)ledger.rotation.set(1.37,.08,-.36);
   };
   animate('idle',0,true);
   return {root,animate,
     setBadge(texture:T.Texture|null){
-      if(!badge||disposed)return;
+      if(disposed)return;
       badge.material.map=texture;badge.material.needsUpdate=true;badge.visible=!!texture;
     },
     dispose(){
       if(disposed)return;disposed=true;root.removeFromParent();
-      if(badge){badge.material.map=null;badge.material.dispose();badge.geometry.dispose();}
+      badge.material.map=null;badge.material.dispose();badge.geometry.dispose();
       if(--asset.users===0){
         asset.root.traverse(node=>{if(node instanceof T.Mesh)node.geometry.dispose();});
         asset.releaseFace?.();asset.material.dispose();templates.delete(look);

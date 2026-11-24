@@ -2,11 +2,11 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "7c60785848bc9440ceb4122c683a5d3dc362e716",
-  "worldTree": "a4667f787bd08759f4d0c2d90d7c5fc3074f373b",
-  "patchSHA256": "0df0292ad78360df437f9ddfe0a42140806e58b1118a7d9bb9d8f95c2184e799",
+  "worldRevision": "2e96603d9afc1648bcf3ae1a8e3ba805e3989f43",
+  "worldTree": "ff8b91857a51ca7714710c41e4abaf2914c0a58e",
+  "patchSHA256": "f6aec7815c56e0d7ef3368bfbe9757438bc5c24b505b1fa119f26145243c1416",
   "windowsPublisherSHA256": {
-    "publish-residents.py": "5b921bc405941feef45d9cd9459571c534dc0ff5e19ceebd3af1ba2e4e62fe8b",
+    "publish-residents.py": "e8ad43f595f85f9ca48944a2b776aedebc0194bd9b1c06009c948fe7048230e5",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
   },
   "files": [
@@ -67,8 +67,8 @@
     {
       "action": "A",
       "path": "scripts/publish-residents.py",
-      "blob": "97e37f53077d7f1e946052b97eb1c4c882d866c0",
-      "sha256": "c87dc3ef3a5c523f3edd5376b107e41cf94a87de53f9969b57a35b78499ae976"
+      "blob": "273ee40a52ef677fd6004d70c9ea2b8b158c8a92",
+      "sha256": "0d50d743e2a30de7354a7271767355abed7b407fdd241c532aeee0694e44eb75"
     },
     {
       "action": "A",
@@ -117,6 +117,12 @@
       "path": "scripts/verify-residents.mjs",
       "blob": "822a239ded31e0e4f30b7842db1d7f5aa9590a2c",
       "sha256": "3a4fd00afc305928ab798abf736a33e629ee66567f0f54af1e28c0fca8942de6"
+    },
+    {
+      "action": "A",
+      "path": "spec/bothouse-work-pose.test.ts",
+      "blob": "d1906f7e1ea9239e8a87ceaf93a824e1a3ccbc80",
+      "sha256": "ba5c27adc64728c4d7cf1b8d6915e5eb6f649ac2cbc44c07f0d3d6ff61d6d40e"
     },
     {
       "action": "M",
@@ -397,8 +403,8 @@
     {
       "action": "A",
       "path": "src/client/bothouse-costume-model.ts",
-      "blob": "305473c2f0aacf81c866c11fb3283d355c410271",
-      "sha256": "7ae5261c22b5ca59b9be18ec5a43c491ab3376dbca0ee6c486acddd7b3ca8048"
+      "blob": "602397f31cf8f043c3781745920e5aaea339922a",
+      "sha256": "85b4e845c6e956c262908206bd30435cc9dd0a2769bd5439324d348a5b2c8633"
     },
     {
       "action": "A",
@@ -409,14 +415,14 @@
     {
       "action": "A",
       "path": "src/client/bothouse-resident-model.ts",
-      "blob": "6d65ac40b2ed85d45e808b32963dfa84fea26f49",
-      "sha256": "f022cfa919b279c9480f199f4906c7afdc5c64b7181578d9ba9be977c0deaf46"
+      "blob": "59daddb522c382d874315b51136e1ae174e2e6b1",
+      "sha256": "6542e254ba1815788c76cd6bf5ff04ecaa31be21714edabb801f0738277fc41e"
     },
     {
       "action": "A",
       "path": "src/client/bothouse-residents.ts",
-      "blob": "cab6e5fa94d325d2863197d09aa52193a19eb467",
-      "sha256": "529660dc2d1755cca8a45c91296370f07c3e8c43294fc31628cb1b281e48bcc7"
+      "blob": "1b48fe95b49f31ef88137b64484708311b0af2fe",
+      "sha256": "645b38ab6bc85873aff791d33a09c1a9a2cef753b1a061794d1827fb0657d555"
     },
     {
       "action": "A",
@@ -527,10 +533,16 @@
       "sha256": "0d468863cacb2ea701aa9a3c417727515f1ef51f260334fd2d39e23e05e42806"
     },
     {
+      "action": "A",
+      "path": "src/client/town-resident-ledger.ts",
+      "blob": "0f73c0cb703f44112c1865d69418a673de45900c",
+      "sha256": "6fef0ebfb11d7ff659db33dceaa08689cbccb256dcb0e2a7cdbbc6b544c27cc3"
+    },
+    {
       "action": "M",
       "path": "src/client/town-residents.ts",
-      "blob": "8817a0bb8579cc1e6e913cb20bebc2a9872f9b5c",
-      "sha256": "f8221f6dc79c984f915cf27b4da06b2cb09505108cf406e9be80244dd5032091"
+      "blob": "f17cf1cb912de18b4cd0c64f9a54106ab63f9909",
+      "sha256": "451fa0b3be3ccefe735eb6e9d496a8704bafb3bcbfeeed645f0d8c1f110f5757"
     },
     {
       "action": "A",
@@ -595,8 +607,8 @@
     {
       "action": "A",
       "path": "src/server/resident-art.ts",
-      "blob": "6a172f086459b39b309d5c1d8772b99562cdfe6f",
-      "sha256": "2fe3405bab7f26dea21c9d08b1b2f6556d57830e77fc0dc2395ab5674f01e039"
+      "blob": "1dbc937ee23c9ae2703a5611d81c9d4ac7b680d5",
+      "sha256": "a64576996e9bcce23ccdab450a1fae66a89c25040f9aaffd619f73c4eb471ba1"
     },
     {
       "action": "A",
@@ -613,8 +625,8 @@
     {
       "action": "A",
       "path": "src/shared/planet-residents.ts",
-      "blob": "55760708019fe71d07ba6db61cf0a2e75b2ba634",
-      "sha256": "f5c6b965a463461a2c2108eaf0a6dd6744bc086e6e69bfb543af76a942ed5075"
+      "blob": "1c8be445c6722ab637fa4854906855fc0b2d22a5",
+      "sha256": "1411506c1344fd45609822e782bc05e1be3590e392c04130960bf3113a86f2bb"
     },
     {
       "action": "A",

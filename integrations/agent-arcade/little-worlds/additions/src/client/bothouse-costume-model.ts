@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {Sculpture,type Point} from './bothouse-sculpt-model.ts';
+import type {residentBodyLooks} from '../shared/planet-residents.ts';
 
 const ivory='#ffedcf',inky='#393440',gold='#d8a354',silver='#b8afce',skin='#efd0ae';
 export const costumes={
@@ -10,7 +11,7 @@ export const costumes={
   grok:{hair:'#e5be82',light:'#ffe4b4',tips:'#c89e69',coat:'#342c39',sleeve:'#3f3340',skirt:'#382e3d',eye:'#5487ba'},
   lanxi:{hair:'#e58055',light:'#ffad79',tips:'#db7a86',coat:'#f3dfbe',sleeve:'#ffe9c9',skirt:'#dd8b87',eye:'#ab653e'},
   generic:{hair:'#5a4542',light:'#77594d',tips:'#5a4542',coat:'#4f7577',sleeve:'#62888a',skirt:'#54696a',eye:'#5b6d5f'}
-};
+} satisfies Record<(typeof residentBodyLooks)[number] | 'generic', Record<string,string>>;
 export type Look=keyof typeof costumes;
 function bow(s:Sculpture,p:T.Object3D,x:number,y:number,z:number,color:string,size:number){
   for(const side of [-1,1]){

@@ -72,7 +72,7 @@ def finalize_looks(wire):
         if explicit in BRANDS or explicit in BRANDS.values():
             row["appearanceKey"] = BRANDS.get(explicit, explicit)
             # A known built-in remains drawable without a library pack. An
-            # approved replacement retains its descriptor and wins on screen.
+            # approved portrait keeps its descriptor beside the built-in body.
             if row.get("portrait") is None:
                 row.pop("portrait", None)
 

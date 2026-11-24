@@ -5,6 +5,7 @@ import {crc32,inflateSync} from 'node:zlib';
 import {RequestError} from './errors.ts';
 import type {planetResidents} from './planet-residents.ts';
 import type {ResidentPortrait} from '../shared/resident-portrait.ts';
+import {residentBodyLooks} from '../shared/planet-residents.ts';
 
 const limit=2*1024*1024;
 const hash=(bytes:Buffer|string)=>createHash('sha256').update(bytes).digest('hex');
@@ -110,9 +111,11 @@ export function withResidentArt(db:DatabaseSync, base:ReturnType<typeof planetRe
       const art=new Map(onPlanet(planet).map(a=>[String(a.resident),a]));
       return {residents:residents.map(r=>{
         const a=art.get(r.id);
-        // An older client ignores portrait. Do not let it paint a different host's same-slug asset.
-        const portrait=a?.ready?{...JSON.parse(String(a.descriptor)) as ResidentPortrait,slug:r.appearanceKey}:null;
-        return a?{...r,appearanceKey:'default',portrait}:r;
+        if(!a)return r;
+        // A custom pack slug identifies its portrait without naming a common 3D body.
+        const portrait=a.ready?{...JSON.parse(String(a.descriptor)) as ResidentPortrait,slug:r.appearanceKey}:null;
+        const knownBody=residentBodyLooks.some(key=>key===r.appearanceKey);
+        return {...r,appearanceKey:knownBody?r.appearanceKey:'default',portrait};
       })};
     },
     checkUpload(token:string,id:string,digest:string){
