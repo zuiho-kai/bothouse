@@ -2870,7 +2870,12 @@ function showOriginalImage(message) {
     image.alt=sticker.label;
     const details=$('#dialog-body');
     const source=sticker.source;
-    if(source){
+    const drawingSource=sticker.drawingSource;
+    if(drawingSource){
+      note.textContent='聊天中收藏的角色绘图。';
+      details.append(el('p','作画角色：'+drawingSource.author.displayName,'minor'),
+        el('p','原标题：'+drawingSource.title,'minor'));
+    }else if(source){
       note.textContent='另存或转发时，请保留下面的署名、许可与出处。';
       details.append(el('p',source.title+' · '+source.author+' · '+source.license+'（原图未修改）','minor'),
         el('p','出处 '+source.url,'minor image-source'),el('p','许可 '+source.licenseUrl,'minor image-source'));

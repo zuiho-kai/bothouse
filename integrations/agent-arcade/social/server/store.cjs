@@ -451,8 +451,14 @@ class SocialStore {
     const file=!r.removed && !image && !voice && r.body==='' &&
       this.one('SELECT name,length(bytes) AS bytes FROM message_files WHERE message=?',r.id);
     const {label,source_code,drawing,...picture}=image||{};
-    const source=source_code?attribution(JSON.parse(source_code)):null;
-    const attachment=image?{type:'image',...picture,...(label&&{sticker:{label,...(source&&{source})}}),
+    const credit=source_code?JSON.parse(source_code):null;
+    const source=attribution(credit);
+    const drawingSource=credit?.drawing&&{
+      title:credit.drawing.title,
+      author:{number:credit.drawing.author,displayName:this.one('SELECT name FROM users WHERE number=? AND kind=?',
+        credit.drawing.author,'ai')?.name??credit.drawing.author},
+    };
+    const attachment=image?{type:'image',...picture,...(label&&{sticker:{label,...(source&&{source}),...(drawingSource&&{drawingSource})}}),
       ...(drawing!==null&&{drawing:{title:drawing}})}:
       voice?{type:'voice',mime:'audio/wav',...voice}:file&&{type:'file',...file};
     const webResults=!r.removed&&r.nonce.startsWith('ai-reply-')&&
@@ -531,9 +537,15 @@ class SocialStore {
       nextBefore:rows.length>limit?String(page.at(-1).position):null};
   }
   savedSticker(a,id) {
-    const item=this.one(`SELECT i.mime,i.width,i.height,i.digest,i.bytes,p.source_code AS sourceCode
-      FROM message_images i LEFT JOIN message_sticker_sources p ON p.message=i.message
-      JOIN (SELECT s.message ${savedStickerVisibility} AND s.id=?) favorite ON favorite.message=i.message`,a,id);
+    // Keep drawing credit with the sticker while leaving its delivery independent of the source chat.
+    const item=this.one(`SELECT i.mime,i.width,i.height,i.digest,i.bytes,coalesce(p.source_code,
+        CASE WHEN artist.kind='ai' THEN json_object('drawing',json_object('author',artist.number,'title',d.title)) END) AS sourceCode
+      FROM (SELECT s.message ${savedStickerVisibility} AND s.id=?) favorite
+      JOIN message_images i ON i.message=favorite.message
+      LEFT JOIN message_sticker_sources p ON p.message=i.message
+      LEFT JOIN message_drawings d ON d.message=i.message
+      LEFT JOIN messages original ON original.id=d.original
+      LEFT JOIN users artist ON artist.number=original.sender`,a,id);
     if(!item)fail(404,'unknown_sticker','此收藏已不可用');
     return {...item,label:'收藏表情'};
   }
