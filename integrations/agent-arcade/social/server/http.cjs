@@ -82,7 +82,19 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     case 'GET personal-ai/private-profile': return {profile:personal.publicProfile(a,true)};
     case 'POST personal-ai/private-profile': return {profile:personal.saveProfile(a,body,true)};
     case 'GET me': return {user:store.profile(a)};
-    case 'GET stickers': return {stickers:bundledStickerOptions()};
+    case 'GET stickers': return {stickers:bundledStickerOptions(),favorites:store.savedStickers(a)};
+    case 'POST stickers/save': {
+      if(body.expectedAccount!==a)fail(409,'image_session','账号已切换，请重新打开会话');
+      if(typeof body.chat!=='string'||!Number.isSafeInteger(body.message)||body.message<1)
+        fail(400,'image_request','请选择一张聊天图片');
+      return store.saveSticker(a,body.chat,body.message);
+    }
+    case 'POST stickers/remove': {
+      if(body.expectedAccount!==a)fail(409,'image_session','账号已切换，请重新打开会话');
+      if(typeof body.id!=='string'||!body.id.startsWith('saved-'))fail(400,'image_request','请选择一张收藏表情');
+      store.removeSavedSticker(a,body.id);
+      return {ok:true};
+    }
     case 'GET feedback': return params.get('view')==='history'
       ? {account:a,...store.feedbackPage(a,params.get('before'))}
       : {account:a,feedback:store.feedback(a)};
@@ -398,7 +410,10 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       const stickerFile=collection==='stickers'&&parts.length===2&&req.method==='GET';
       if(avatarFile||stickerFile){
         const account=current(store,req);
-        const file=avatarFile?store.humanAvatar(account,number(chat),action):bundledSticker(chat);
+        if(stickerFile&&url.searchParams.has('account')&&url.searchParams.get('account')!==account)
+          fail(409,'image_session','账号已切换，请重新打开会话');
+        const file=avatarFile?store.humanAvatar(account,number(chat),action)
+          :chat.startsWith('saved-')?store.savedSticker(account,chat):bundledSticker(chat);
         if(!file)fail(404,'unknown_sticker','没有找到这个表情');
         res.setHeader('Content-Type',file.mime);
         res.setHeader('Content-Length',file.bytes.byteLength);
@@ -412,9 +427,14 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           fail(409,'image_session','账号已切换，请重新打开会话');
         if(typeof body.clientId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/u.test(body.clientId))
           fail(400,'client_id','消息重试编号无效');
-        const sticker=bundledSticker(body.sticker);
-        if(!sticker)fail(404,'unknown_sticker','没有找到这个表情');
-        const message=store.transaction(()=>store.sendHumanSticker(account,chat,body.clientId,sticker));
+        const saved=typeof body.sticker==='string'&&body.sticker.startsWith('saved-');
+        const message=store.transaction(()=>{
+          if(saved&&store.humanAttachmentAccess(account,chat,'image').membershipRevision!==body.revision)
+            fail(409,'image_session','会话权限已变更，请重新打开表情包');
+          const sticker=saved?store.savedSticker(account,body.sticker):bundledSticker(body.sticker);
+          if(!sticker)fail(404,'unknown_sticker','没有找到这个表情');
+          return store.sendHumanSticker(account,chat,body.clientId,sticker);
+        });
         res.setHeader('Content-Type','application/json; charset=utf-8');
         return res.end(JSON.stringify({message}));
       }
@@ -502,7 +522,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
         const account = current(store,req);
         if(req.method==='GET'&&req.headers['x-social-account']!==undefined&&
            req.headers['x-social-account']!==account&&
-           (['ai-contacts','ai-contacts/pair','personal-ai','conversations'].includes(key)||
+           (['ai-contacts','ai-contacts/pair','personal-ai','conversations','stickers'].includes(key)||
             collection==='conversations'&&(!action||action==='messages')))
           fail(409,'account_changed','请回到当前账号');
         if((key==='world-session-ticket'&&req.method==='POST')||key==='planet-visits'){

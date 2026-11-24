@@ -1852,6 +1852,9 @@ function showMessageActions(id,control){
   const reply=$('#reply-message');
   if(reply)reply.hidden=messageBox.readOnly||sending.has(chat)||!$('#reply-target');
   $('#copy-message').hidden=!!row.attachment;
+  const favorite=$('#save-message-sticker');
+  favorite.hidden=row.attachment?.type!=='image'||row.sender.kind!=='human';
+  favorite.disabled=false;favorite.textContent='收藏为表情';
   $('#message-action-status').textContent='';
   messageActions.showPopover({source:control});
   positionMessageActions();
@@ -1890,6 +1893,27 @@ $('#copy-message').addEventListener('click',async()=>{
   if(!row||row.attachment)return;
   try{await navigator.clipboard.writeText(row.text);messageActions.hidePopover();}
   catch{$('#message-action-status').textContent='可选中消息文字手动复制。';}
+});
+$('#save-message-sticker').addEventListener('click',async event=>{
+  const row=resolveMessageAction(),control=event.currentTarget;
+  if(!row||row.attachment?.type!=='image'||row.sender.kind!=='human'||control.disabled)return;
+  const account=user.number, epoch=generation, visit=chatVisit, action=messageAction;
+  const current=()=>generation===epoch&&chatVisit===visit&&messageAction===action&&user?.number===account;
+  control.disabled=true;
+  try{
+    await api('/stickers/save',{expectedAccount:account,chat:row.conversationId,message:row.id},{expectedAccount:account});
+    if(current()){
+      control.textContent='已收藏';
+      $('#message-action-status').textContent='在表情包的「我的收藏」中使用。';
+      positionMessageActions();
+    }
+  }catch(error){
+    if(current()){
+      control.disabled=false;
+      $('#message-action-status').textContent=textError(error);
+      positionMessageActions();
+    }
+  }
 });
 $('#report-message').addEventListener('click',()=>{
   const row=resolveMessageAction();
@@ -2264,23 +2288,29 @@ $('#composer-media').prepend(stickerButton);
 async function showStickerPicker() {
   if(!canAttach(conversation))return;
   const id=chat,epoch=generation,visit=chatVisit,account=user.number;
+  const revision=membershipRevision;
   const panel=el('div',null,'sticker-picker');
+  const savedPanel=el('div',null,'sticker-picker'), savedTitle=el('h3','我的收藏');
+  savedTitle.hidden=true;
   const status=el('p','正在读取表情…');status.setAttribute('role','status');
-  const scope=openDialog('表情包',[status,panel],id);
-  const current=()=>scope===dialogGeneration&&epoch===generation&&visit===chatVisit&&chat===id&&user?.number===account;
+  const scope=openDialog('表情包',[status,savedTitle,savedPanel,panel],id);
+  const current=()=>scope===dialogGeneration&&epoch===generation&&visit===chatVisit&&chat===id&&
+    user?.number===account&&membershipRevision===revision;
   await perform(async()=>{
-    const {stickers}=await api('/stickers');
+    const {stickers,favorites=[]}=await api('/stickers',undefined,{expectedAccount:account});
     if(!current())return;
-    status.textContent=stickers.length?'':'暂时没有可用的表情。';
+    status.textContent=stickers.length||favorites.length?'':'暂时没有可用的表情。';
     let sendingSticker=false;
-    for(const {id:sticker,label} of stickers){
+    savedTitle.hidden=!favorites.length;
+    for(const [index,{id:sticker,label}] of [...favorites,...stickers].entries()){
+      const saved=sticker.startsWith('saved-');
       const clientId=clientNonce();
       const choice=button('',()=>{
         if(sendingSticker||!current()||!canAttach(conversation))return;
         sendingSticker=true;
         void perform(async()=>{
           try {
-            const {message}=await api(thread(id)+'/stickers',{expectedAccount:account,clientId,sticker});
+            const {message}=await api(thread(id)+'/stickers',{expectedAccount:account,clientId,sticker,revision},{expectedAccount:account});
             if(!current())return;
             merge([message],'end');
             closeDialog();
@@ -2288,12 +2318,26 @@ async function showStickerPicker() {
           } finally {sendingSticker=false;}
         },choice,scope);
       });
-      choice.setAttribute('aria-label','发送 '+label);
-      const image=el('img');image.alt='';image.src='./api/v1/stickers/'+encodeURIComponent(sticker);
+      const accessibleLabel=saved?label+' '+(index+1):label;
+      choice.setAttribute('aria-label','发送 '+accessibleLabel);
+      const image=el('img');image.alt='';image.loading='lazy';
+      image.src='./api/v1/stickers/'+encodeURIComponent(sticker)+(saved?'?account='+encodeURIComponent(account):'');
       choice.append(image,el('span',label));
-      panel.append(choice);
+      if(!saved){panel.append(choice);continue;}
+      const item=el('div',null,'saved-sticker');
+      const remove=button('取消收藏',()=>void perform(async()=>{
+        if(!current()||sendingSticker)return;
+        await api('/stickers/remove',{expectedAccount:account,id:sticker},{expectedAccount:account});
+        if(current()){
+          item.remove();savedTitle.hidden=!savedPanel.childElementCount;
+          status.textContent='已取消收藏。';
+          (savedPanel.querySelector('button')??panel.firstElementChild)?.focus();
+        }
+      },remove,scope));
+      remove.setAttribute('aria-label','取消收藏 '+accessibleLabel);
+      item.append(choice,remove);savedPanel.append(item);
     }
-    panel.firstElementChild?.focus();
+    (savedPanel.querySelector('button')??panel.firstElementChild)?.focus();
   },null,scope);
 }
 // Based on bothouse role-household/rh/static/rh-history.js at 8ec73a8f (Apache-2.0).
@@ -2800,7 +2844,7 @@ function showOriginalImage(message) {
       note.textContent='另存或转发时，请保留下面的署名、许可与出处。';
       details.append(el('p',source.title+' · '+source.author+' · '+source.license+'（原图未修改）','minor'),
         el('p','出处 '+source.url,'minor image-source'),el('p','许可 '+source.licenseUrl,'minor image-source'));
-    }else details.append(el('p',sticker.label+'。Agent Arcade 原创素材。','minor'));
+    }else details.append(el('p',sticker.label==='收藏表情'?'聊天中收藏的图片。':sticker.label+'。Agent Arcade 原创素材。','minor'));
   }
 }
 function fileSize(bytes){

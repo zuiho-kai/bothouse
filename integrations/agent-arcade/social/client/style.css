@@ -126,6 +126,7 @@ dialog:has(.ai-role-library) #dialog-body > button {
 .sticker-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .sticker-picker button{display:grid;justify-items:center;gap:5px;padding:8px 4px;font-size:.8rem}
 .sticker-picker img{width:64px;height:64px;max-width:100%;object-fit:contain}
+.saved-sticker{display:grid;align-content:start;gap:4px}
 .avatar.human-avatar img{width:100%;height:100%;object-fit:cover}
 .avatar-preview{width:96px;height:96px;object-fit:cover;border-radius:20px}
 @media(max-width:420px){
