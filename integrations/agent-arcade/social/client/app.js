@@ -35,28 +35,104 @@ const removedMessages=new Set();
 let authMode = 'login', authFlight = false;
 const drafts = new Map(), sending = new Set();
 const chatDraftKey = 'arcade.chat.drafts';
-let interruptedDrafts;
+const localDraftPrefix = 'arcade.chat.local.v1:';
+let interruptedDrafts, draftScope;
+
 function savedChatDrafts() {
   try { return JSON.parse(sessionStorage.getItem(chatDraftKey)); } catch { return null; }
 }
 function persistChatDrafts() {
   try {
-    const saved=user?{account:user.number,entries:[...drafts]}:interruptedDrafts;
+    const saved=user?{account:user.number,entries:[...drafts],draftEpoch:draftScope?.epoch}:interruptedDrafts;
     if(saved?.entries.length)sessionStorage.setItem(chatDraftKey,JSON.stringify(saved));
     else sessionStorage.removeItem(chatDraftKey);
   } catch {}
 }
+function openDraftScope(account) {
+  const root=localDraftPrefix+account+':';
+  try {
+    const epoch=localStorage.getItem(root)??'';
+    return {root,epoch,prefix:root+epoch+':',tabOnly:new Set()};
+  } catch { return undefined; }
+}
+function localDraftKeys(scope) {
+  if(!scope)return [];
+  try {
+    return Object.keys(localStorage).filter(key=>key.startsWith(scope.prefix));
+  } catch { return []; }
+}
+function readLocalDraft(key) {
+  try { return JSON.parse(localStorage.getItem(key))??undefined; } catch { return undefined; }
+}
+function writeLocalDraft(id,value) {
+  if(!draftScope)return;
+  const {root,epoch,prefix,tabOnly}=draftScope;
+  try {
+    if((localStorage.getItem(root)??'')!==epoch)return;
+    localStorage.setItem(prefix+id,JSON.stringify({draft:value??null,at:Date.now()}));
+    tabOnly.delete(id);
+  } catch { tabOnly.add(id); }
+}
+function clearLocalDrafts() {
+  if(!draftScope)return;
+  try {
+    // Invalidate still-open tabs before deleting the old account's drafts.
+    localStorage.setItem(draftScope.root,clientNonce());
+    for(const key of localDraftKeys(draftScope))localStorage.removeItem(key);
+  } catch {}
+}
 function restoreChatDrafts(account) {
   const saved=interruptedDrafts??savedChatDrafts();
+  const expiring=interruptedDrafts?.account===account;
   interruptedDrafts=undefined;
+  draftScope=openDraftScope(account);
   drafts.clear();
-  try {
-    if(saved?.account===account)
-      for(const [id,draft] of saved.entries)drafts.set(id,draft);
-  } catch { drafts.clear(); }
+  let latest;
+  for(const key of localDraftKeys(draftScope)){
+    const id=key.slice(draftScope.prefix.length),record=readLocalDraft(key);
+    if(!record?.draft)continue;
+    drafts.set(id,record.draft);
+    if(!latest||record.at>=latest.at)latest={id,at:record.at};
+  }
+  if(saved?.account===account&&Array.isArray(saved.entries)){
+    for(const entry of saved.entries){
+      if(!Array.isArray(entry))continue;
+      const [id,draft]=entry;
+      if(typeof id!=='string'||!draft||(draftScope?.epoch&&saved.draftEpoch!==draftScope.epoch)||
+         draftScope&&readLocalDraft(draftScope.prefix+id))continue;
+      drafts.set(id,draft);
+      writeLocalDraft(id,draft);
+      latest??={id,at:0};
+    }
+  }
   persistChatDrafts();
-  return drafts.has(saved?.resumeChat)?saved.resumeChat:undefined;
+  const resume=saved?.account===account&&saved.resumeChat;
+  return drafts.has(resume)?resume:(!expiring&&latest?.id)||undefined;
 }
+function refreshLocalDraft(id) {
+  if(!draftScope||draftScope.tabOnly.has(id))return false;
+  const record=readLocalDraft(draftScope.prefix+id);
+  if(!record)return false;
+  let draft=record.draft??undefined;
+  if(id===chat&&conversation&&draft&&
+     (draft.floor!==historyFloor||draft.membershipRevision&&draft.membershipRevision!==membershipRevision))
+    draft=undefined;
+  if(JSON.stringify(drafts.get(id))===JSON.stringify(draft))return false;
+  if(draft)drafts.set(id,draft);
+  else drafts.delete(id);
+  persistChatDrafts();
+  if(id===chat&&conversation){
+    if(messageBox.value!==(draft?.text||''))messageBox.value=draft?.text||'';
+    showChatHeader();
+  }
+  return true;
+}
+window.addEventListener('storage',event=>{
+  const scope=draftScope;
+  if(!user||!scope||event.storageArea!==localStorage)return;
+  if(event.key===scope.root){leaveSession();return;}
+  if(event.key?.startsWith(scope.prefix))refreshLocalDraft(event.key.slice(scope.prefix.length));
+});
 function suspendChatDrafts(account,entries,resumeChat) {
   if(!account||!Array.isArray(entries))return;
   const eligible=[];
@@ -80,6 +156,7 @@ function updateChatDraft(id,changes) {
   const draft={...drafts.get(id),...(id===chat&&conversation&&{membershipRevision}),...changes};
   if(draft.text||draft.target||draft.replyTo||draft.attempt)drafts.set(id,draft);
   else drafts.delete(id);
+  writeLocalDraft(id,drafts.get(id));
   persistChatDrafts();
 }
 const feedbackDraftKey = 'arcade.feedback.pending';
@@ -254,8 +331,18 @@ function toggleAuthMode(mode) {
 }
 function leaveSession({discardFeedback=false,expired=false}={}) {
   closeStartMenu();
+  if(expired)for(const key of localDraftKeys(draftScope))refreshLocalDraft(key.slice(draftScope.prefix.length));
   interruptedDrafts=expired?suspendChatDrafts(user?.number,[...drafts],chat):undefined;
-  if(discardFeedback&&currentFeedbackDraft(user?.number))feedbackPending(null);
+  if(interruptedDrafts){
+    interruptedDrafts.draftEpoch=draftScope?.epoch;
+    const safeDrafts=new Map(interruptedDrafts.entries);
+    for(const id of drafts.keys())writeLocalDraft(id,safeDrafts.get(id));
+  }
+  if(discardFeedback){
+    clearLocalDrafts();
+    if(currentFeedbackDraft(user?.number))feedbackPending(null);
+  }
+  draftScope=undefined;
   stopVoicePlayback();
   ++generation;
   user = null;
@@ -575,6 +662,7 @@ function forgetConversation(id) {
     $('#chat-avatar').replaceChildren();
   } else renderDirectory();
   drafts.delete(id);
+  writeLocalDraft(id);
   persistChatDrafts();
 }
 tabs.forEach(node=>node.addEventListener('click',()=>goTab(node.dataset.tab)));
@@ -1364,11 +1452,13 @@ async function openChat(id,expectedAccount) {
     moderationCursor=data.moderation?.cursor??0;
     historyFloor=data.moderation?.historyFloor??0;
     membershipRevision=data.moderation?.membershipRevision;
-    const draft=drafts.get(id);
+    const record=draftScope&&!draftScope.tabOnly.has(id)&&readLocalDraft(draftScope.prefix+id);
+    const draft=record?record.draft:drafts.get(id);
     if(draft&&(draft.floor!==historyFloor||(draft.membershipRevision&&draft.membershipRevision!==membershipRevision))){
       drafts.delete(id);
+      writeLocalDraft(id);
       persistChatDrafts();
-    }
+    }else refreshLocalDraft(id);
     messageBox.value=drafts.get(id)?.text||'';
     historyAfter=messages.at(-1)?.id??0;
     readThrough.set(id,Math.max(readThrough.get(id)??0,conversation.readThrough??0));
@@ -1773,7 +1863,10 @@ async function sync() {
     friends=people.friends;incoming=requests.incoming;outgoing=requests.outgoing;conversations=threads.conversations;
     const accessible=new Set(conversations.map(item=>item.id));
     const removedDrafts=[...drafts.keys()].filter(id=>!accessible.has(id));
-    for(const id of removedDrafts)drafts.delete(id);
+    for(const id of removedDrafts){
+      drafts.delete(id);
+      writeLocalDraft(id);
+    }
     if(removedDrafts.length)persistChatDrafts();
     for(const item of conversations)readThrough.set(item.id,Math.max(readThrough.get(item.id)??0,item.readThrough??0));
     if(changed)renderDirectory();
@@ -1807,7 +1900,7 @@ window.addEventListener('arcade-social-deactivate',()=>{socialVisible=false;});
 window.addEventListener('arcade-social-activate',()=>{socialVisible=true;void sync();});
 window.addEventListener('online',()=>void sync());
 messageBox.addEventListener('input',()=>{
-  if(!chat||!conversation)return;
+  if(!chat||!conversation||refreshLocalDraft(chat))return;
   const saved=drafts.get(chat),target=editedMention(saved?.text||'',messageBox.value,saved?.target);
   updateChatDraft(chat,{floor:historyFloor,text:messageBox.value,target});
   dismissedMention=undefined;
@@ -1889,6 +1982,7 @@ messageBox.addEventListener('keydown',event=>{
 composer.addEventListener('submit',async event=>{
   event.preventDefault();
   const id=chat, epoch=generation, visit=chatVisit;
+  if(id&&refreshLocalDraft(id))return;
   const target=drafts.get(id)?.target;
   const text=withoutMention(messageBox.value,target).trim();
   if(!id||!conversation||!text||composingMessage||sendButton.disabled||!mentionAvailable(target)) return;
@@ -1912,12 +2006,14 @@ composer.addEventListener('submit',async event=>{
     const response=await api(thread(id)+'/messages',attempt,
       {expectedAccount:user.number,timeoutMs:conversation?.type==='group'?65000:30000});
     if(generation!==epoch) return;
+    refreshLocalDraft(id);
     const saved=drafts.get(id);
     const unchanged=saved?.replyTo===replyTo&&saved?.target?.number===mentionAccount&&withoutMention(saved?.text||'',saved?.target).trim()===text;
-    if(saved?.attempt?.clientId===attempt.clientId)
+    const sameAttempt=saved?.attempt?.clientId===attempt.clientId;
+    if(sameAttempt)
       updateChatDraft(id,unchanged?{text:undefined,target:undefined,replyTo:undefined,attempt:undefined}:{attempt:undefined});
     if(chatVisit===visit) {
-      if(unchanged)messageBox.value='';
+      if(sameAttempt&&unchanged)messageBox.value='';
       showMention();
       drawMentionSuggestions();
       merge([response.message,...(response.reply?[response.reply]:[])],'end');
@@ -2705,7 +2801,9 @@ function photoDialog(screenshot,droppedFile){
           const response=await api(route,selected.attempt);
           if(!current())return;
           merge([response.message,...(response.reply?[response.reply]:[])],'end');
-          if(previousDraft.trim()===chosenQuestion&&messageBox.value===previousDraft){
+          refreshLocalDraft(id);
+          if(previousDraft.trim()===chosenQuestion&&messageBox.value===previousDraft&&
+             drafts.get(id)?.submittedPhotoText===chosenQuestion){
             messageBox.value='';
             updateChatDraft(id,{floor:historyFloor,text:''});
           }
@@ -3889,6 +3987,7 @@ async function restoreInitialSession() {
       const saved=savedChatDrafts();
       if(saved?.account){
         interruptedDrafts=suspendChatDrafts(saved.account,saved.entries,saved.resumeChat??routeId());
+        if(interruptedDrafts)interruptedDrafts.draftEpoch=saved.draftEpoch;
         persistChatDrafts();
         if(location.hash)window.history.replaceState(null,'',location.pathname+location.search);
         noticeExpiredSession();
