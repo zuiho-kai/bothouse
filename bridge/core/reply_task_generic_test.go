@@ -43,7 +43,7 @@ func TestReplyTaskIDOnlyPlatformEndToEnd(t *testing.T) {
 	var postID, post string
 	p.mu.Lock()
 	for id, text := range p.ids {
-		if strings.HasPrefix(text, "📬「") {
+		if strings.HasPrefix(text, "③做完【") {
 			postID, post = id, text
 		}
 	}
