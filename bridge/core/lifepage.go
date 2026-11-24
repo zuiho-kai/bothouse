@@ -10,8 +10,8 @@ import (
 )
 
 // life_page (project option): one file that says how the role is doing right now — what is in her pocket, where
-// she lives, what she promised, what she is working on. Each turn sent to the agent (user, cron, timer, queued,
-// relay) gets the page before it, with a note that she edits the page in place when something changes instead of
+// she lives, what she promised, what she is working on. The first turn of each agent context (user, cron, timer,
+// queued, relay; see injectBlock) gets the page before it, with a note that she edits the page in place when something changes instead of
 // appending to it. A missing file is created from lifePageTemplate. Empty option = off, the default.
 
 const (
@@ -62,6 +62,6 @@ func (e *Engine) lifePageBlock() string {
 	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(shown, home+"/") {
 		shown = "~" + shown[len(home):]
 	}
-	return fmt.Sprintf("%s%s，系统每轮自动附上：这是你现在的样子；有变化直接改这个文件，不要往下追加）\n%s\n%s",
+	return fmt.Sprintf("%s%s，系统每个会话第一轮附上，之后不再附：这是你现在的样子；有变化直接改这个文件，不要往下追加）\n%s\n%s",
 		lifePageHead, shown, body, lifePageEnd)
 }
