@@ -101,6 +101,7 @@ func TestTaskForumUncategorizedNoticeAndRecovery(t *testing.T) {
 		t.Fatal("restart repeated category notice")
 	}
 	p.scopes["111"] = TaskForum{ID: "forumA", GuildID: "g1", CategoryID: "A"}
+	e.taskForumRT().failedOpen = nil // the failed chat's wait is over
 	e.syncTaskForum()
 	if p.opens != 2 || readForumTestState(t, e).CategoryNotices["discord:111"] {
 		t.Fatal("classification did not resume pending posts")

@@ -273,8 +273,13 @@ func TestTaskForumMissingPermissionDoesNotBlock(t *testing.T) {
 	if p.opens != 0 || len(readForumState(t, e).Posts) != 0 {
 		t.Fatalf("posted without permission: opens=%d", p.opens)
 	}
-	// once permission is there, the next pass opens the post
+	// once permission is there, the next pass after the failed chat's wait opens the post
 	p.ensureErr = nil
+	e.syncTaskForum()
+	if p.opens != 0 {
+		t.Fatalf("a failed chat must wait before trying again: opens=%d", p.opens)
+	}
+	e.taskForumRT().failedOpen = nil
 	e.syncTaskForum()
 	if p.opens != 1 {
 		t.Fatalf("permission granted, opens=%d", p.opens)
