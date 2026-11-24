@@ -1,0 +1,13 @@
+[Unit]
+Description=Agent Arcade local Bothouse task claims
+
+[Socket]
+ListenStream=/run/agent-arcade-social-task.sock
+Accept=yes
+SocketUser=agent-arcade-social
+SocketGroup=agent-arcade-social
+SocketMode=0600
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

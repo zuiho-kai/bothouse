@@ -1,0 +1,18 @@
+[Unit]
+Description=Agent Arcade Bothouse task handback
+
+[Service]
+User=agent-arcade-social
+Group=agent-arcade-social
+WorkingDirectory=/opt/agent-arcade-social/current/social
+EnvironmentFile=/etc/agent-arcade-social/service.env
+ExecStart=/usr/local/bin/node server/bothouse/task-executor.cjs
+StandardInput=socket
+StandardOutput=inherit
+StandardError=journal
+ReadWritePaths=/var/lib/agent-arcade-social
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict

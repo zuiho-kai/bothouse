@@ -237,6 +237,8 @@ def run(file, request):
 
     from websockets.sync.client import connect
     target = roles[0]["id"]
+    if request.get("project") is not None and target != request["project"]:
+        raise ValueError("changed task recipient")
     platform = "arcade-" + secrets.token_hex(10)
     ref = secrets.token_hex(16)
     route = bridge.get("path") or "/bridge/ws"

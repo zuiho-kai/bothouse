@@ -80,7 +80,7 @@ function createWorkOrders(store,receiver){
       text:'任务 #'+job.prompt+' · '+text});
   }
   function cancel(job){
-    receiver.cancel?.(job.request);
+    receiver.cancel?.(job.request,job);
     save(job,'cancelled');
   }
   async function advance(job){

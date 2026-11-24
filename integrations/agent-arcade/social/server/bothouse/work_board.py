@@ -50,6 +50,10 @@ def main():
             os.replace(tmp, pointer)
         lease = artifacts / (key + ".worker")
         token = request.get("claim")
+        if action == "cancel" and not item.get("returned_at"):
+            board.update(number, "已撤回")
+            lease.unlink(missing_ok=True)
+            item = board.item_by_id(number)
         if token and (not lease.exists() or lease.read_text(encoding="ascii") != token):
             raise ValueError("obsolete worker claim")
         if lease.exists() and time.time() - lease.stat().st_mtime > 150 and not item.get("returned_at"):

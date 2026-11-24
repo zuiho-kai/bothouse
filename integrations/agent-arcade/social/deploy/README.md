@@ -122,6 +122,16 @@ systemctl is-active agent-arcade-social caddy
 
 ### 正常升级
 
+使用本机 Bothouse 派活的 systemd 部署，在首次启用此版或从旧版切入前，从已暂存的发行目录安装独立任务单元。它与好友服务使用同一服务账号，仅该账号能向本机 Unix 套接字提交认领信息。日常更新只停止好友服务，执行中的任务单元继续使用原发行目录并把结果写回原看板。保留旧发行目录直至这些任务结束。若配置了自定义看板目录，请让任务单元具有与好友服务相同的目录写权限。
+
+```sh
+sudo install -m 0644 "$release/social/deploy/agent-arcade-social-task.socket" \
+  "$release/social/deploy/agent-arcade-social-task@.service" /etc/systemd/system/ &&
+sudo systemctl daemon-reload &&
+sudo systemctl enable --now agent-arcade-social-task.socket &&
+sudo systemctl is-active --quiet agent-arcade-social-task.socket
+```
+
 先按「交付此版对应源码」暂存新发行。沿用现有服务用户、unit、`service.env`、代理和持久库。检查发行说明中的同库升级要求以及新旧随包 unit 差异。若随包 unit 有改动，先核对本机 unit 的兼容性并单独安排该改动。以下命令在一次升级操作中执行，`db` 与 `origin` 按已生效的 `SOCIAL_DB` 与 `SOCIAL_PUBLIC_ORIGIN` 填写，保持原配置文件私密。
 
 ```sh
