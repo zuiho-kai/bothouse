@@ -1,6 +1,7 @@
 'use strict';
 const {directoryBoardReceiver}=require('./bothouse/board-receiver.cjs');
 const {createWorkOrders}=require('./bothouse/work-orders.cjs');
+const {commentPage,commentsRoute}=require('./feed-comments.cjs');
 const {chatFeedbackReview} = require('./chat-feedback-review.cjs');
 
 const http = require('node:http');
@@ -125,10 +126,19 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
       return {conversation:conversationView(store.conversation(a,direct.id))};
     }
     case 'POST groups': return {conversation:store.createGroup(a,body.title,humanMembers(store,body.memberNumbers))};
-    case 'GET friend-feed': return {...store.friendFeed(a,params),role:aiFeed.subscription(a),roles:aiFeed.subscriptions(a)};
+    case 'GET friend-feed': {
+      const page=store.friendFeed(a,params);
+      if(params.get('comments')==='1')for(const post of page.posts){
+        const {comments}=commentPage(store,a,post,null,2);
+        post.recentComments=comments.reverse();
+      }
+      return {...page,role:aiFeed.subscription(a),roles:aiFeed.subscriptions(a)};
+    }
     case 'POST friend-feed': return {post:store.publishFriendPost(a,body)};
     case 'POST friend-feed/follow': return aiFeed.follow(a,body);
   }
+  if(root==='friend-feed'&&parts.length===3&&action==='comments'&&['GET','POST'].includes(method))
+    return commentsRoute(store,a,id,method,params,body);
   if (root==='friend-feed'&&parts.length===3&&method==='POST'&&action==='delete')
     return store.deleteFriendPost(a,id,body);
   if (root==='friend-feed'&&parts.length===3&&method==='POST'&&action==='report')

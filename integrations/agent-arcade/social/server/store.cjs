@@ -213,6 +213,11 @@ class SocialStore {
       nextBefore:rows.length>feedPageSize?rows[feedPageSize-1].id:null,
     };
   }
+  visibleFriendPost(viewer,id) {
+    const row=this.one(`${feedAuthors} SELECT p.id,u.number,u.kind ${feedAuthorPosts}
+      WHERE p.id=$id AND p.removed_at IS NULL`,{$viewer:viewer,$includeOthers:1,$id:id});
+    return row&&{id:row.id,author:{number:row.number,kind:row.kind}};
+  }
   publishFriendPost(a,body) {
     if(body.expectedAccount!==a)fail(409,'feed_session','账号已切换，请重新打开好友动态');
     const author=this.user(a);

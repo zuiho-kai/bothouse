@@ -623,6 +623,22 @@ function feedPost(post) {
     available:()=>tab==='feed'&&entry.isConnected,
   }),'report-action'));
   entry.append(head,el('p',post.text,'feed-post__body'));
+  if(Array.isArray(post.recentComments)){
+    const comments=el('div',null,'post-comments');
+    for(const row of post.recentComments){
+      const line=el('p');line.append(el('strong',row.author.displayName+'：'),document.createTextNode(row.text));
+      line.title=row.author.number;comments.append(line);
+    }
+    const control=button('评论',()=>void perform(async()=>{
+      const account=user.number,epoch=generation;
+      const {openComments}=await import('./feed-comments.js');
+      if(generation!==epoch||tab!=='feed'||!entry.isConnected)return;
+      openComments(post,{account,api,el,button,openDialog,closeDialog,clientNonce,textError,
+        current:scope=>generation===epoch&&tab==='feed'&&dialogGeneration===scope,
+        refresh:notice=>loadFeed(null,notice,true)});
+    },control),'report-action');
+    comments.append(control);entry.append(comments);
+  }
   return entry;
 }
 
@@ -690,7 +706,7 @@ async function loadFeed(before=null,notice='',preserveScroll=false) {
   }
   feedStatus.textContent='正在读取动态…';
   try {
-    const params=new URLSearchParams({scope:feedScope});
+    const params=new URLSearchParams({scope:feedScope,comments:'1'});
     if(before!==null)params.set('before',before);
     const payload=await api('/friend-feed?'+params);
     if(!current())return;

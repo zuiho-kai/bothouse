@@ -191,6 +191,10 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 .feed-post__head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px}
 .feed-post__author{min-width:0;overflow-wrap:anywhere}
 .feed-post__author .minor{display:flex;gap:0 9px;flex-wrap:wrap;line-height:1.5}
+.post-comments{margin-inline-start:52px;overflow-wrap:anywhere}
+.post-comments p{white-space:pre-wrap;line-height:1.6}
+.post-comments button{margin-top:4px}
+@media(max-width:600px){.post-comments{margin-inline-start:0}}
 .feed-post__body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;padding-inline-start:52px}
 #older-posts{margin-top:16px}
 .feed-composer-author{color:var(--muted);font-size:.85rem;overflow-wrap:anywhere}
@@ -404,7 +408,7 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
 }
 
 /* Conversation controls share the Friends list's palette and touch targets. */
-.conversation-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;margin-top:4px}
+.conversation-search{flex:1 0 100%;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;margin-top:4px}
 .conversation-search input{grid-column:1/-1;grid-row:1;padding-inline-end:3.4rem}
 .conversation-search input::-webkit-search-cancel-button{display:none}
 .conversation-search button{grid-column:2;grid-row:1;padding-inline:.6rem;font-size:.8rem}

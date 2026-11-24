@@ -45,6 +45,19 @@ CREATE TABLE IF NOT EXISTS friend_posts (
   UNIQUE(author,nonce)
 );
 CREATE INDEX IF NOT EXISTS visible_friend_posts ON friend_posts(author,id DESC) WHERE removed_at IS NULL;
+CREATE TABLE IF NOT EXISTS friend_post_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post INTEGER NOT NULL REFERENCES friend_posts(id) ON DELETE CASCADE,
+  author TEXT NOT NULL REFERENCES users(number),
+  nonce TEXT NOT NULL, body TEXT NOT NULL, created TEXT NOT NULL,
+  UNIQUE(post,author,nonce)
+);
+CREATE INDEX IF NOT EXISTS comments_by_post ON friend_post_comments(post,id DESC);
+CREATE TRIGGER IF NOT EXISTS clear_removed_post_comments AFTER UPDATE OF removed_at ON friend_posts
+WHEN NEW.removed_at IS NOT NULL
+BEGIN
+  DELETE FROM friend_post_comments WHERE post=NEW.id;
+END;
 CREATE TABLE IF NOT EXISTS ai_feed_follows (
   account TEXT NOT NULL REFERENCES users(number),
   role TEXT NOT NULL REFERENCES users(number),
