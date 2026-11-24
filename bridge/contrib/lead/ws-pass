@@ -71,6 +71,12 @@ def find_task(key: str, notes, nid: int = 0):
     if notes:
         path = os.path.abspath(os.path.expanduser(notes))
         rec = tasks.get(path) or next((v for v in tasks.values() if v.get("file") == path), {})
+        if not rec and not os.path.isfile(path):
+            # #1103：11-24 --notes 少写一段，文件不存在也没记录，认不出任务号，挂着的文字汇报没放行、附件照发，
+            # 10 分钟后文字又按「主角色未验收」贴出，用户收到两遍（「刚才不是发过一次 怎么又重复发」）
+            mine = [k for k, v in tasks.items() if v.get("chat") == key]
+            sys.exit(f"ws-pass: 交接文件不存在，也没有这份交接的记录：{path}，什么都没发。"
+                     + (f"本频道交出去的：{'；'.join(mine)}" if mine else "用 --id <任务号> 写明是哪件"))
         return path, rec, 0
     mine = {k: v for k, v in tasks.items() if v.get("chat") == key}
     if len(mine) > 1:
@@ -240,14 +246,16 @@ def close_text(rec, path, verdict, nid=0):
     原话「为什么这会老有卡你的地方 为什么」。先放文字再发附件：文字放不行（如疑点要引用户原话）就整条不发，
     免得附件发出去、重跑时再发一遍。桥上没有挂着的（已用 --verdict 放行过，或还没交回）照常只发附件。"""
     nid = nid or board_id(rec, path)
-    if not nid:
-        return
+    if not nid:  # #1103：认不出是哪件就不知道有没有挂着的文字，静默只发附件，文字 10 分钟后会再贴一遍
+        sys.exit(f"ws-pass: 认不出这是任务板上哪件活（{rec.get('file') or path or '未指定交接'}），附件也没发；用 --id <任务号> 或 --notes <交接> 写明")
     # --with-files：这次放行自己带着成品，桥不再拦「要用户审却没东西」（#1097）
     r = subprocess.run([cc_bin(), "report", "pass", "--id", str(nid), "--verdict", verdict, "--with-files"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode == 0:
         print(f"ws-pass: #{nid} 挂着的文字汇报一并放行，桥已照原文贴出", file=sys.stderr)
         return True
+    elif r.returncode == 3 and held_body(nid) is not None:  # #1103：本地记录挂着、桥却答没有，对不上就停
+        sys.exit(f"ws-pass: #{nid} 的文字汇报还挂着，桥却答没有等验收的，附件也没发：{(r.stderr or r.stdout).strip()}")
     elif r.returncode != 3:  # 3：桥上没有这件活等验收的文字汇报
         sys.exit(f"ws-pass: #{nid} 挂着的文字汇报放行失败，附件也没发（改好 --verdict 重跑即可）：{(r.stderr or r.stdout).strip()}")
 

@@ -108,5 +108,49 @@ class PassClosesTextTest(unittest.TestCase):
         self.assertNotIn("--mention-assigner", self.send_args())
 
 
+    # #1103（11-24 #1099）：桥扣着一份带疑点的文字汇报，主角色带附件 + --notes 放行，--notes 少写了一段文件名。
+    # 以前认不出任务号就静默只发附件，文字 10 分钟后按「主角色未验收」又贴一遍，用户收到两遍。
+    def hold_locally(self):
+        d = self.tmp / "data" / "team-reports"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "lead-proj.json").write_text(json.dumps({"k1": {
+            "key": "k1", "board": 1398, "held": True, "body": "#1398 背景：修汇报", "verdict": "",
+            "doubt": "拿不准大豆包是否仍用用户定的模型"}}, ensure_ascii=False), encoding="utf-8")
+
+    def test_missing_notes_file_sends_nothing(self):
+        self.state("held")
+        self.hold_locally()
+        typo = self.tmp / "handof.md"  # 不存在、ws-handoff 也没记过
+        r = self.run_pass("--notes", str(typo), "--verdict", VERDICT, str(self.shot), "样片给你看")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("交接文件不存在", r.stderr)
+        self.assertIn(str(self.notes), r.stderr)  # 列出本频道交出去的那份，照着改就行
+        self.assertEqual(self.kinds(), [])  # 附件没发，挂着的文字也没动
+        self.assertEqual(json.loads(self.held.read_text())["1398"], "held")
+
+    def test_unknown_task_sends_nothing(self):
+        stray = self.tmp / "stray.md"
+        stray.write_text("# 没交出去的交接\n", encoding="utf-8")
+        r = self.run_pass("--notes", str(stray), "--verdict", VERDICT, str(self.shot), "样片给你看")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("附件也没发", r.stderr)
+        self.assertNotIn("send", self.kinds())
+
+    def test_held_locally_but_bridge_says_none_sends_nothing(self):
+        self.hold_locally()  # 本地记录挂着带疑点的文字，假桥答 3（没有等验收的）
+        r = self.run_pass("--notes", str(self.notes), "--verdict", VERDICT, str(self.shot), "样片给你看")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("还挂着", r.stderr)
+        self.assertEqual(self.kinds(), ["report pass"])
+
+    def test_held_with_doubt_released_with_attachments(self):
+        self.state("held")
+        self.hold_locally()
+        r = self.run_pass("--notes", str(self.notes), "--verdict", VERDICT, str(self.shot), "样片给你看")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.kinds(), ["report pass", "send"])
+        self.assertIn("一并放行", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
