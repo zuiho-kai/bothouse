@@ -8,9 +8,10 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const {execFile} = require('node:child_process');
 const {promisify} = require('node:util');
+const {worldResidentControls}=require('./world-resident-controls.cjs');
 const run = promisify(execFile);
 const fail = code => { throw Object.assign(new Error(code), {code}); };
-const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled']);
+const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled', 'login', 'friends-offline']);
 const localFile = file => typeof file === 'string' && /^[a-z]:[\\/]/i.test(file);
 
 function defaultConfig(home=os.homedir(), dataDir=process.env.BOTHOUSE_DATA_DIR) {
@@ -95,15 +96,87 @@ const belongs=(value,origin)=>{
   try {
     const url=new URL(value);
     return !url.username && !url.password && (url.origin===origin ||
-      (url.protocol==='ws:' && 'http://'+url.host===origin));
+      (['ws:','wss:'].includes(url.protocol) && url.protocol.replace('ws','http')+'//'+url.host===origin));
   }catch{return false;}
 };
 const sameProcess=(a,b)=>a.pid===b.pid&&a.started===b.started&&a.file===b.file&&a.sha256===b.sha256;
 
-function mountBothouse({window,WebContentsView,session,dialog,profile,language,inspect=listener}) {
+function worldOrigin(value) {
+  let url;
+  try { url=new URL(value); } catch { fail('config'); }
+  const loopback=['localhost','127.0.0.1','[::1]'].includes(url.hostname);
+  if(url.username||url.password||url.pathname!=='/'||url.search||url.hash||
+    !(url.protocol==='https:' || (loopback && url.protocol==='http:')))fail('config');
+  return url.origin;
+}
+
+async function worldTarget(origin,socialOrigin,friends) {
+  let response;
+  try {
+    response=await friends.fetch(socialOrigin+'/api/v1/me',{
+      credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(5000),
+    });
+    if(response.status===401)fail('login');
+    if(!response.ok)fail('friends-offline');
+    const {user}=await response.json();
+    if(typeof user?.number!=='string'||!/^[a-z0-9_]{4,24}$/u.test(user.number))fail('friends-offline');
+    const scope=JSON.stringify([socialOrigin,user.number,origin]);
+    return {account:user.number,origin,partition:'persist:little-worlds-'+crypto.createHash('sha256').update(scope).digest('hex')};
+  } catch(error) {
+    if(error.code==='login')throw error;
+    fail('friends-offline');
+  } finally {
+    if(response && !response.bodyUsed)await response.body?.cancel();
+  }
+}
+
+function mountBothouse({window,WebContentsView,session,dialog,profile,language,inspect=listener,littleWorldsOrigin,socialOrigin}) {
   const bindingFile=path.join(profile,'bothouse-management.json');
   const tr=(cn,en)=>language()==='zh'?cn:en;
-  let guest, epoch=0, running=false, top=44;
+  async function managementTarget(action,current) {
+    let saved;
+    try{saved=JSON.parse(await fs.promises.readFile(bindingFile,'utf8'));}catch(e){if(e.code!=='ENOENT'&&action!=='choose')fail('identity');}
+    let file=saved?.config || defaultConfig();
+    if(action==='choose'){
+      const result=await dialog.showOpenDialog(window,{title:tr('选择本机 Bothouse 配置','Choose the local Bothouse configuration'),defaultPath:file,
+        properties:['openFile','dontAddToRecent'],filters:[{name:'Bothouse TOML',extensions:['toml']}]});
+      if(result.canceled||!current())fail('cancelled');
+      file=result.filePaths[0];
+    }
+    if(!localFile(file)||path.extname(file).toLowerCase()!=='.toml')fail('config');
+    const stat=await fs.promises.stat(file).catch(()=>fail('config'));
+    if(!stat.isFile()||stat.size>4*1024*1024)fail('config');
+    const address=readAddress(await fs.promises.readFile(file,'utf8'));
+    const identity=await inspect(address);
+    const matches=saved?.config===file && saved.executable===identity.file && saved.sha256===identity.sha256 && saved.origin===address.origin;
+    if(!matches){
+      if(saved&&action!=='choose')fail('identity');
+      if(!current())fail('cancelled');
+      const result=await dialog.showMessageBox(window,{
+        type:'question',buttons:[tr('取消','Cancel'),tr('信任并打开','Trust and open')],cancelId:0,defaultId:0,noLink:true,
+        message:tr('允许打开这个本机 Bothouse 管理界面？','Open this local Bothouse management dashboard?'),
+        detail:[file,identity.file,address.origin,'SHA-256 '+identity.sha256].join('\n')
+      });
+      if(result.response!==1||!current())fail('cancelled');
+    }
+    if(!current())fail('cancelled');
+    await dashboard(address.origin);
+    if(!sameProcess(identity,await inspect(address)))fail('identity');
+    if(!current())fail('cancelled');
+    if(!matches){
+      const temp=bindingFile+'.'+crypto.randomUUID()+'.tmp';
+      try{
+        await fs.promises.writeFile(temp,JSON.stringify({config:file,executable:identity.file,sha256:identity.sha256,origin:address.origin}),{flag:'wx',mode:0o600});
+        if(!current())fail('cancelled');
+        await fs.promises.rename(temp,bindingFile);
+      }finally{await fs.promises.rm(temp,{force:true}).catch(()=>{});}
+    }
+    if(!current())fail('cancelled');
+    // In-memory storage belongs only to this authenticated executable lifetime and origin.
+    const partition='bothouse-ui-'+crypto.createHash('sha256').update([address.origin,identity.sha256,identity.pid,identity.started].join('|')).digest('hex');
+    return {origin:address.origin,partition,pid:identity.pid};
+  }
+  let guest, epoch=0, opening, detachAccountWatch, top=44;
   function fit(){
     if(!guest||window.isDestroyed())return;
     const [width,height]=window.getContentSize();
@@ -112,6 +185,7 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
   }
   function close(){
     ++epoch;
+    detachAccountWatch?.();detachAccountWatch=undefined;
     if(!guest)return;
     const previous=guest;guest=undefined;
     if(!window.isDestroyed())window.contentView.removeChildView(previous.view);
@@ -123,67 +197,65 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
   window.webContents.on('did-start-navigation',(_e,_url,inPlace,main)=>{if(main&&!inPlace)close();});
   return async value=>{
     if(value?.action==='close'){close();return 'closed';}
-    if(!['open','choose'].includes(value?.action)||!Number.isFinite(value.headerBottom)||value.headerBottom<1||value.headerBottom>200)return 'config';
-    if(running)return 'busy';
-    running=true;close();
-    const seq=epoch;
+    if(['residents-open','residents-connect','residents-disconnect'].includes(value?.action)){
+      return guest?.residents ? guest.residents(value.action.slice('residents-'.length)) : {state:'closed'};
+    }
+    if(value?.action==='world-layout'){
+      if(guest?.residents && Number.isFinite(value.headerBottom)&&value.headerBottom>=1&&value.headerBottom<=200){
+        top=value.headerBottom;fit();
+      }
+      return;
+    }
+    if(!['open','choose','world'].includes(value?.action)||!Number.isFinite(value.headerBottom)||value.headerBottom<1||value.headerBottom>200)return 'config';
+    if(opening===epoch)return 'busy';
+    close();
+    const seq=opening=epoch;
     const current=()=>seq===epoch&&!window.isDestroyed();
-    let newView;
     try{
-      let saved;
-      try{saved=JSON.parse(await fs.promises.readFile(bindingFile,'utf8'));}catch(e){if(e.code!=='ENOENT'&&value.action!=='choose')fail('identity');}
-      let file=saved?.config || defaultConfig();
-      if(value.action==='choose'){
-        const result=await dialog.showOpenDialog(window,{title:tr('选择本机 Bothouse 配置','Choose the local Bothouse configuration'),defaultPath:file,
-          properties:['openFile','dontAddToRecent'],filters:[{name:'Bothouse TOML',extensions:['toml']}]});
-        if(result.canceled||!current())fail('cancelled');
-        file=result.filePaths[0];
-      }
-      if(!localFile(file)||path.extname(file).toLowerCase()!=='.toml')fail('config');
-      const stat=await fs.promises.stat(file).catch(()=>fail('config'));
-      if(!stat.isFile()||stat.size>4*1024*1024)fail('config');
-      const address=readAddress(await fs.promises.readFile(file,'utf8'));
-      const identity=await inspect(address);
-      const matches=saved?.config===file && saved.executable===identity.file && saved.sha256===identity.sha256 && saved.origin===address.origin;
-      if(!matches){
-        if(saved&&value.action!=='choose')fail('identity');
-        if(!current())fail('cancelled');
-        const result=await dialog.showMessageBox(window,{
-          type:'question',buttons:[tr('取消','Cancel'),tr('信任并打开','Trust and open')],cancelId:0,defaultId:0,noLink:true,
-          message:tr('允许打开这个本机 Bothouse 管理界面？','Open this local Bothouse management dashboard?'),
-          detail:[file,identity.file,address.origin,'SHA-256 '+identity.sha256].join('\n')
-        });
-        if(result.response!==1||!current())fail('cancelled');
-      }
+      const world=value.action==='world';
+      let target;
+      if(world){
+        const origin=worldOrigin(littleWorldsOrigin);
+        const friends=session.fromPartition('persist:arcade-social');
+        const hostname=new URL(socialOrigin).hostname;
+        const accountChanged=(_event,cookie)=>{
+          if(cookie.name!=='arcade_social'||!current())return;
+          const domain=cookie.domain?.replace(/^\./u,'');
+          if(domain && (hostname===domain || hostname.endsWith('.'+domain))){
+            close();
+            window.webContents.send('arcade:storeBothouseReturn');
+          }
+        };
+        friends.cookies.on('changed',accountChanged);
+        detachAccountWatch=()=>friends.cookies.removeListener('changed',accountChanged);
+        target=await worldTarget(origin,socialOrigin,friends);
+      } else target=await managementTarget(value.action,current);
       if(!current())fail('cancelled');
-      await dashboard(address.origin);
-      if(!sameProcess(identity,await inspect(address)))fail('identity');
-      if(!current())fail('cancelled');
-      if(!matches){
-        const temp=bindingFile+'.'+crypto.randomUUID()+'.tmp';
-        try{
-          await fs.promises.writeFile(temp,JSON.stringify({config:file,executable:identity.file,sha256:identity.sha256,origin:address.origin}),{flag:'wx',mode:0o600});
-          if(!current())fail('cancelled');
-          await fs.promises.rename(temp,bindingFile);
-        }finally{await fs.promises.rm(temp,{force:true}).catch(()=>{});}
-      }
-      if(!current())fail('cancelled');
-      // In-memory storage belongs only to this authenticated executable lifetime and origin.
-      const partition='bothouse-ui-'+crypto.createHash('sha256').update([address.origin,identity.sha256,identity.pid,identity.started].join('|')).digest('hex');
+      const {partition,origin}=target;
       const isolated=session.fromPartition(partition,{cache:false});
-      await isolated.setProxy({mode:'direct'});
+      if(!world || origin.startsWith('http:'))await isolated.setProxy({mode:'direct'});
       if(!current())fail('cancelled');
       isolated.setPermissionRequestHandler((_c,_p,cb)=>cb(false));
       isolated.setPermissionCheckHandler(()=>false);
       isolated.setDevicePermissionHandler(()=>false);
+      let rollbackPending=false;
       isolated.webRequest.onBeforeRequest((details,cb)=>{
         let alive=current();
-        if(alive)try{process.kill(identity.pid,0);}catch{alive=false;}
-        cb({cancel:!alive||!belongs(details.url,address.origin)});
+        if(alive&&target.pid)try{process.kill(target.pid,0);}catch{alive=false;}
+        // The old view may close during its first opt-in. Allow only the
+        // host's conditional rollback in this same game partition.
+        const rollback=rollbackPending && !details.webContentsId && details.method==='POST' &&
+          details.url===origin+'/api/app-residents';
+        cb({cancel:!(alive||rollback) || !belongs(details.url,origin)});
       });
       const view=new WebContentsView({webPreferences:{session:isolated,nodeIntegration:false,contextIsolation:true,sandbox:true,devTools:false,
         webSecurity:true,webviewTag:false,navigateOnDragDrop:false}});
-      newView=view;guest={view};top=value.headerBottom;
+      guest={view};top=value.headerBottom;
+      if(world){
+        guest.residents=worldResidentControls({world:isolated,worldOrigin:origin,socialOrigin,
+          friends:session.fromPartition('persist:arcade-social'),account:target.account,current,
+          onRollback:value=>{rollbackPending=value;}});
+      }
       const wc=view.webContents;
       wc.on('before-input-event',(event,input)=>{
         if(current()&&input.type==='keyDown'&&input.alt&&!input.control&&!input.meta&&input.key==='ArrowLeft'){
@@ -195,16 +267,19 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       isolated.on('will-download',denyDownload);
       wc.once('destroyed',()=>isolated.removeListener('will-download',denyDownload));
       for(const event of ['will-navigate','will-frame-navigate','will-redirect'])wc.on(event,(e,url)=>{
-        const target=typeof url==='string'?url:e.url;
-        if(!belongs(target,address.origin))e.preventDefault();
+        const destination=typeof url==='string'?url:e.url;
+        if(!belongs(destination,origin))e.preventDefault();
       });
       wc.on('render-process-gone',()=>{if(current()){close();window.webContents.send('arcade:storeBothouseUnavailable');}});
       view.setVisible(false);window.contentView.addChildView(view);fit();
-      await wc.loadURL(address.origin+'/');
+      const deadline=world?setTimeout(()=>{if(current()&&!wc.isDestroyed())wc.stop();},15000):undefined;
+      try { await wc.loadURL(origin+'/'); } finally { clearTimeout(deadline); }
       if(!current())fail('cancelled');
       // The SPA may finish its lazy route after did-finish-load. Wait for a
       // real login form or dashboard navigation instead of accepting a spinner.
-      const rendered=await wc.executeJavaScript(`new Promise(resolve=>{
+      const rendered=world
+        ? await wc.executeJavaScript("document.title.startsWith('Little Worlds') && !!document.querySelector('#welcome-start,canvas')")
+        : await wc.executeJavaScript(`new Promise(resolve=>{
         const ready=()=>document.title.toLowerCase().includes('bothouse') &&
           !!document.querySelector('#root input[type=password], #root a[href="/roles"]');
         if(ready()){resolve(true);return;}
@@ -213,14 +288,15 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
         const timer=setTimeout(()=>finish(false),8000);
         observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true});
       })`);
-      if(!rendered)fail('dashboard');
+      if(!current())fail('cancelled');
+      if(!rendered)fail(world?'offline':'dashboard');
       view.setVisible(true);wc.focus();
       return 'ready';
     }catch(error){
-      if(guest?.view===newView && newView)close();
+      if(current())close();
       return outcomes.has(error.code)?error.code:'offline';
-    }finally{running=false;}
+    }finally{if(opening===seq)opening=undefined;}
   };
 }
 
-module.exports={defaultConfig,readAddress,listener,mountBothouse};
+module.exports={defaultConfig,readAddress,listener,mountBothouse,worldOrigin};

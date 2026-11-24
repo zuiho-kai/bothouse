@@ -51,6 +51,51 @@
   let supportData, supportPanel, supportLabel, supportAddress, supportCopy, supportStatus;
   const socialTools=[];
   let bothouseActive=false,bothouseEpoch=0,bothousePanel,bothouseBack,bothouseCopy,bothouseRetry,bothouseChoose;
+  let worldActive=false,residentStrip,residentButton,residentRetry,residentNote,residentState,residentBusy=false;
+  const residentMessages={
+    ready:['访客可见本账号已获准角色的名称、形象和活动。','Visitors can see the names, appearances and activity of your authorized AI.'],
+    home:['请先回到自己的星球。','Land on your own planet first.'],
+    connected:['已连接，返回聊天后仍会同步。','Connected. Sync continues while you chat.'],
+    disconnected:['已从本星球移除这组居民。','These residents have been removed from this planet.'],
+    paused:['居民同步已暂停。','Resident sync is paused.'],
+    roles:['请先在通讯录连接可用的 Bothouse 角色。','Connect an authorized Bothouse role in Contacts first.'],
+    other:['这个账号或星球已有其他连接，请在原档案核对。','A different connection exists. Check the original profile.'],
+    unavailable:['暂时连不上居民发布服务，请重试。','Could not reach the resident publisher. Try again.'],
+    configuration:['请让主机管理员核对本世界的居民发布配置。','Ask the host to check publishing for this world.'],
+    login:['好友账号已变，请返回消息后重开。','The Friends account changed. Return to messages and reopen.'],
+    session:['请在游戏中进入自己的星球后再试。','Enter your planet in the game and try again.'],
+    capacity:['发布服务正忙，请稍后重试。','The publisher is busy. Try again shortly.'],
+    busy:['正在同步…','Syncing…']
+  };
+  function drawResidents(){
+    if(!residentStrip||residentStrip.hidden)return;
+    const {state,connected}=residentState;
+    residentButton.textContent=connected?tr('断开我的 AI','Disconnect my AI'):tr('连接我的 AI','Connect my AI');
+    residentButton.disabled=residentBusy;
+    residentRetry.textContent=tr('恢复同步','Resume sync');
+    residentRetry.hidden=!connected||state==='connected';
+    residentRetry.disabled=residentBusy;
+    setText(residentNote,pair(residentMessages[residentBusy?'busy':state]||residentMessages.unavailable));
+  }
+  async function residentsAction(action){
+    if(residentBusy||!worldActive||!bothouseActive)return;
+    const visit=bothouseEpoch;
+    residentBusy=true;drawResidents();
+    try{
+      const value=await window.arcade.storeBothouse({action:'residents-'+action});
+      if(visit===bothouseEpoch&&bothouseActive&&worldActive && value?.state!=='closed'){
+        residentState=value?.state?value:{state:'unavailable',connected:residentState.connected};
+      }
+    }catch{if(visit===bothouseEpoch)residentState={state:'unavailable',connected:residentState.connected};}
+    finally{if(visit===bothouseEpoch){residentBusy=false;drawResidents();}}
+  }
+  const worldMessage={
+    loading:['正在打开小星球…','Opening Little Worlds…'],
+    login:['请先返回消息，登录好友账号后再进入小星球。','Return to messages and sign in before opening Little Worlds.'],
+    'friends-offline':['暂时无法核对好友账号。请确认好友服务可用，再重试。','Could not verify your Friends account. Check the Friends service and retry.'],
+    config:['尚未配置可用的小星球地址。','A valid Little Worlds address has not been configured.'],
+    offline:['暂时打不开小星球。请确认世界服务已运行，再重试。','Little Worlds is unavailable. Check the world service and retry.'],
+  };
   const bothouseMessage={
     loading:['正在核对本机 Bothouse…','Checking local Bothouse…'],
     config:['请选择已有的 Bothouse TOML 配置。管理服务须已开启，并写明回环地址和端口。','Choose an existing Bothouse TOML configuration with management enabled and an explicit loopback address and port.'],
@@ -60,15 +105,18 @@
     cancelled:['已取消打开 Bothouse。','Opening Bothouse was cancelled.'],
   };
   function paintBothouse(state){
-    const text=bothouseMessage[state] || bothouseMessage.offline;
+    const messages=worldActive?worldMessage:bothouseMessage;
+    const text=messages[state] || messages.offline;
     bothousePanel.hidden=state==='ready';
     bothouseCopy.textContent=pair(text);
-    bothouseRetry.hidden=bothouseChoose.hidden=state==='loading'||state==='ready';
+    bothouseRetry.hidden=state==='loading'||state==='ready';
+    bothouseChoose.hidden=worldActive||bothouseRetry.hidden;
   }
   async function showBothouse(action='open'){
     toggleSocialMenu(false,{focus:false});
     leaveSocial();
-    bothouseActive=true;
+    bothouseActive=true;worldActive=action==='world';
+    residentStrip.hidden=true;residentBusy=false;delete bar.dataset.worldResidents;
     const visit=++bothouseEpoch;
     document.documentElement.dataset.storeSocial='open';
     document.documentElement.dataset.storeBothouse='open';
@@ -78,11 +126,19 @@
     paintBothouse('loading');
     let state='offline';
     try{state=await window.arcade.storeBothouse({action,headerBottom:bar.getBoundingClientRect().bottom});}catch{}
-    if(bothouseActive&&visit===bothouseEpoch)paintBothouse(state);
+    if(bothouseActive&&visit===bothouseEpoch){
+      paintBothouse(state);
+      if(worldActive&&state==='ready'){
+        residentState={state:'ready',connected:false};
+        residentStrip.hidden=false;bar.dataset.worldResidents='open';
+        void residentsAction('open');
+      }
+    }
   }
   function leaveBothouse(){
     if(!bothouseActive)return;
     bothouseActive=false;++bothouseEpoch;
+    residentStrip.hidden=true;residentBusy=false;delete bar.dataset.worldResidents;
     delete document.documentElement.dataset.storeBothouse;
     delete document.documentElement.dataset.storeSocial;
     main.inert=false;
@@ -167,14 +223,28 @@
       entry.onclick=()=>void showBothouse();
       socialTools.push({label:['Bothouse 管理','Bothouse management'],button:entry});
       socialMenu.append(entry);
+      const world=el('button','shell-ws-button');world.type='button';world.id='store-world';
+      world.onclick=()=>void showBothouse('world');
+      socialTools.push({label:['小星球','Little Worlds'],button:world});socialMenu.append(world);
       bothouseBack=el('button','shell-ws-button');bothouseBack.type='button';bothouseBack.id='store-bothouse-back';
       bothouseBack.hidden=true;bothouseBack.onclick=()=>void showSocial(true);ws.append(bothouseBack);
+      residentStrip=el('div','store-resident-controls');residentStrip.hidden=true;
+      residentButton=el('button','shell-ws-button');residentButton.type='button';residentButton.id='store-residents';
+      residentButton.onclick=()=>void residentsAction(residentState.connected?'disconnect':'connect');
+      residentRetry=el('button','shell-ws-button');residentRetry.type='button';
+      residentRetry.onclick=()=>void residentsAction('connect');
+      residentNote=el('span','store-resident-note');residentNote.id='store-resident-status';residentNote.setAttribute('role','status');
+      residentButton.setAttribute('aria-describedby',residentNote.id);
+      residentStrip.append(residentButton,residentRetry,residentNote);bar.append(residentStrip);
+      new ResizeObserver(()=>{if(!residentStrip.hidden&&bothouseActive&&worldActive){
+        void window.arcade.storeBothouse({action:'world-layout',headerBottom:bar.getBoundingClientRect().bottom}).catch(()=>{});
+      }}).observe(bar);
       bothousePanel=el('section','shell-social-status');bothousePanel.id='store-bothouse-panel';bothousePanel.hidden=true;
       bothouseCopy=el('p','');bothouseCopy.setAttribute('role','status');
-      bothouseRetry=el('button','shell-ws-button');bothouseRetry.type='button';bothouseRetry.onclick=()=>void showBothouse();
+      bothouseRetry=el('button','shell-ws-button');bothouseRetry.type='button';bothouseRetry.onclick=()=>void showBothouse(worldActive?'world':'open');
       bothouseChoose=el('button','shell-ws-button');bothouseChoose.type='button';bothouseChoose.onclick=()=>void showBothouse('choose');
       bothousePanel.append(bothouseCopy,bothouseRetry,bothouseChoose);document.body.append(bothousePanel);
-      window.arcade.onStoreBothouseUnavailable?.(()=>{if(bothouseActive)paintBothouse('offline');});
+      window.arcade.onStoreBothouseUnavailable?.(()=>{if(bothouseActive){residentStrip.hidden=true;delete bar.dataset.worldResidents;paintBothouse('offline');}});
       window.arcade.onStoreBothouseReturn?.(()=>{if(bothouseActive)void showSocial(true);});
     }
     imageReturn=el('button','shell-ws-button');
@@ -428,6 +498,7 @@
     if(socialButton){
       setText(socialButton,tr('返回消息','Back to messages'));setText(socialMore,tr('更多','More'));
       if(bothouseBack){
+        drawResidents();
         setText(bothouseBack,tr('返回消息','Back to messages'));
         setText(bothouseRetry,tr('重试','Retry'));
         setText(bothouseChoose,tr('选择 Bothouse 配置…','Choose Bothouse configuration…'));

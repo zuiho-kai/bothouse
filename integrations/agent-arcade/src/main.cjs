@@ -2561,7 +2561,8 @@ else {
       const configuration=require('../service.json');
       const {mountBothouse}=require('./core/bothouse-management.cjs');
       register('storeBothouse',mountBothouse({window:win,WebContentsView:require('electron').WebContentsView,
-        session,dialog,profile:root,language:()=>config.language}));
+        session,dialog,profile:root,language:()=>config.language,socialOrigin:new URL(configuration.origin).origin,
+        littleWorldsOrigin:process.env.LITTLE_WORLDS_ORIGIN ?? configuration.littleWorldsOrigin}));
       register('storeSupport',()=>configuration.mode==='store'?
         {mode:'store',contact:configuration.offlineSupport} : {mode:'test'});
       register('storeSocial', mountSocial({

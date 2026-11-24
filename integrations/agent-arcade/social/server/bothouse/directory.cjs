@@ -9,11 +9,15 @@ const {dimensions,modelPhoto} = require('../../../src/core/static-image.cjs');
 
 const portraitLimit = 2 * 1024 * 1024;
 
-function localInstance(env = process.env) {
+function instanceSettings(env) {
   const preferred = path.join(os.homedir(), '.bothouse');
   const legacy = path.join(os.homedir(), '.cc-connect');
   const config = path.join(env.BOTHOUSE_DATA_DIR || (existsSync(preferred) || !existsSync(legacy) ? preferred : legacy), 'config.toml');
   const python = env.SOCIAL_BOTHOUSE_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+  return {config,python};
+}
+function localInstance(env = process.env) {
+  const {config,python}=instanceSettings(env);
   let active = 0;
   return async function request(data) {
     if (active >= 24 || !path.isAbsolute(config) || !existsSync(config)) return {error:'unavailable'};
@@ -140,4 +144,4 @@ function bothouseDirectory(store, request) {
   }
   return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
-module.exports = {localInstance,bothouseDirectory};
+module.exports = {localInstance,bothouseDirectory,instanceSettings};

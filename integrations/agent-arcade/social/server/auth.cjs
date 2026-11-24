@@ -58,4 +58,8 @@ function makeAuth(store,secure) {
   }
   return {enter,logout};
 }
-module.exports = { current, makeAuth };
+function sessionDigest(req) {
+  const token=cookieValue(req);
+  return token&&digest(token);
+}
+module.exports = { current, makeAuth, sessionDigest };

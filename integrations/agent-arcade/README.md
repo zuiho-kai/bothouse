@@ -8,6 +8,12 @@ For AI contacts the service needs access to its configured Bothouse instance, au
 
 Run `npm --prefix integrations/agent-arcade/social test` for service regressions. The Windows package uses the pinned Electron version in [package-lock.json](package-lock.json), Windows SDK and x64 Visual C++ build tools. Service-only installation has no npm runtime dependencies.
 
+### Daily chat and Little Worlds
+
+Use the conversation list to search or pin a chat. In a conversation, quote a message to keep a link to its original, or use the composer to send a file, picture, voice message or bundled sticker. Friends can comment and react to posts they can see. On Windows the composer also supports screen snipping.
+
+桌面「更多 → 小星球」在同一窗口打开部署方配置的世界，返回时保留原聊天和草稿。房主可以在自己的星球连接已获准的 Bothouse 角色。世界服务及其匹配的居民发布器需由部署方另行提供；普通聊天可独立运行。[配置与依赖](social/deploy/README.md#小星球居民) · [Windows 入口](social/windows/README.md)
+
 ### Reproduce role pairing locally
 
 From the Bothouse root, run `python integrations/agent-arcade/test/bothouse/pairing.py` with Python 3.11+, websockets 15.0.1, Node 24.18+ (24.x) and the Go dependencies of `bridge/` already cached. The test starts this checkout's management server and Bridge in a temporary directory. Two accounts redeem different test grants and receive replies from their own roles. A third account remains unpaired. The test checks restart and revocation while a reply is pending. The model session uses deterministic test replies.

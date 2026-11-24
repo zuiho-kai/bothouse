@@ -10,7 +10,8 @@ const path = require('node:path');
 const net = require('node:net');
 const {createHash} = require('node:crypto');
 const {fail,number} = require('./store.cjs');
-const {current,makeAuth} = require('./auth.cjs');
+const {current,makeAuth,sessionDigest} = require('./auth.cjs');
+const {planetPublishers}=require('./bothouse/planet-residents.cjs');
 const {createAiDirect} = require('./ai-direct.cjs');
 const {provisionAi}=require('./ai-adapter.cjs');
 const {AI_NUMBER,AI_JU_NUMBER,AI_DRAGON_NUMBER,providerForRole}=require('./ai-roles.cjs');
@@ -290,6 +291,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
   let loadedClient;
   const clientRelease=()=>loadedClient??=loadClientRelease(client);
   const auth = makeAuth(store,Boolean(publicOrigin));
+  const residents=planetPublishers({store,bothouse,socialOrigin:()=>publicOrigin||'http://127.0.0.1:'+server.address().port});
   const workOrders=createWorkOrders(store,taskReceiver);
   const web=createConversationWeb(store,webSearchFetch);
   const voiceReplies = createAiVoice(store,voiceEngine);
@@ -472,10 +474,21 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       const body = req.method === 'POST' ? await jsonBody(req,cardSave||privateCardSave?
         65536+PORTRAIT_BASE64_LIMIT:undefined) : null;
       let result;
-      if (req.method === 'POST' && ['register','login'].includes(key)) result = await auth.enter(key === 'register',body,req,res);
-      else if (req.method === 'POST' && key === 'logout') result = auth.logout(req,res);
+      if (req.method === 'POST' && ['register','login'].includes(key)) {
+        result = await auth.enter(key === 'register',body,req,res);
+        residents.endSession(sessionDigest(req));
+      } else if (req.method === 'POST' && key === 'logout') {
+        result = auth.logout(req,res);
+        residents.endSession(sessionDigest(req));
+      }
       else {
         const account = current(store,req);
+        if(key==='planet-residents'){
+          const answer=req.method==='GET'?residents.view(account):await residents.change(account,sessionDigest(req),body);
+          if(current(store,req)!==account)fail(409,'planet_session','账号已切换，请重新打开自己的小星球。');
+          res.setHeader('Content-Type','application/json; charset=utf-8');
+          return res.end(JSON.stringify(answer));
+        }
         if(req.method==='POST'&&collection==='conversations'&&action==='messages'&&parts.length===3&&
             req.headers['x-social-account']!==undefined&&req.headers['x-social-account']!==account)
           fail(409,'message_session','账号已切换，请重新打开会话');
@@ -495,6 +508,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           if(req.method==='POST' && key==='ai-contacts/unpair'){
             bothousePairing.checkAccount(account,body.expectedAccount);
             answer=bothousePairing.revoke(store,account);
+            residents.unpair(account);
           }
           if(req.method==='GET'&&key==='ai-contacts')answer=await bothouse.list(account);
           if(req.method==='POST'&&key==='ai-contacts/start')answer=await bothouse.start(account,body);
@@ -625,6 +639,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
   });
   server.once('listening',workOrders.start);
   server.once('close',workOrders.stop);
+  server.once('close',residents.close);
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   server.once('listening',aiFeed.start);
