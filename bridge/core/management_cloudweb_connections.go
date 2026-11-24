@@ -27,6 +27,38 @@ type cloudWebConnection struct {
 
 var errCloudWebConnectionMissing = errors.New("saved Cloud Web connection not found")
 
+// validateSavedCloudWebOverrides keeps profile credentials and transport under server control.
+func validateSavedCloudWebOverrides(options map[string]any) error {
+	for key, value := range options {
+		switch key {
+		case "ws_url", "allow_from":
+			text, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("Cloud Web option %q must be text", key)
+			}
+			text = strings.TrimSpace(text)
+			if text == "" {
+				delete(options, key)
+				continue
+			}
+			if key == "ws_url" {
+				u, err := url.Parse(text)
+				if err != nil || u.Hostname() == "" || (u.Scheme != "ws" && u.Scheme != "wss") {
+					return errors.New("WebSocket URL must use ws:// or wss://")
+				}
+			}
+			options[key] = text
+		case "share_session_in_channel", "group_reply_all":
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("Cloud Web option %q must be true or false", key)
+			}
+		default:
+			return fmt.Errorf("option %q cannot be set when using a saved Cloud Web connection", key)
+		}
+	}
+	return nil
+}
+
 func (m *ManagementServer) readCloudWebConnections() ([]cloudWebConnection, error) {
 	if m.wizardDataDir == "" {
 		return nil, errors.New("data directory is unavailable")
@@ -155,12 +187,10 @@ func (m *ManagementServer) savedCloudWebOptions(id, project string) (map[string]
 			return nil, fmt.Errorf("invalid saved Cloud Web URL for connection %s", id)
 		}
 		return map[string]any{
-			"connection_id":            id,
-			"transport":                "websocket",
-			"ws_url":                   cloudWebBotURL(base, project, "", "", ""),
-			"token":                    c.Token,
-			"allow_from":               cloudWebPresets["cloud_web"].AllowFrom,
-			"share_session_in_channel": true,
+			"connection_id": id,
+			"transport":     "websocket",
+			"ws_url":        cloudWebBotURL(base, project, "", "", ""),
+			"token":         c.Token,
 		}, nil
 	}
 	return nil, errCloudWebConnectionMissing

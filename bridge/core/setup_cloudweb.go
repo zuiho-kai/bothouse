@@ -45,11 +45,14 @@ type cloudWebPreset struct {
 	AllowFrom string // user_id of the person the bots take orders from
 }
 
+// DefaultCloudWebAllowFrom is the owner ID used by the self-hosted hub.
+const DefaultCloudWebAllowFrom = "user"
+
 // cloudWebPresets: request platform name → preset. All write [[projects.platforms]] type = "cloud_web".
 // 来源：rh/cloudweb.py 文件头与 rh/hub.py：hub 里人类成员的 user_id 是 "user"（线上 ~/.cc-connect/config.toml
 // 的 cloud_web 段也是 allow_from = "user"）。DSH 网页以后加一条 {AllowFrom: "owner"}（任务说明 2026-10-21）。
 var cloudWebPresets = map[string]cloudWebPreset{
-	"cloud_web": {AllowFrom: "user"},
+	"cloud_web": {AllowFrom: DefaultCloudWebAllowFrom},
 }
 
 func isCloudWebPlatform(p string) bool {

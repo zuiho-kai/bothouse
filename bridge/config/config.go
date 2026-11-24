@@ -5,6 +5,7 @@ import (
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -4279,18 +4280,27 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	if platform.Options == nil {
 		platform.Options = map[string]any{}
 	}
+	connectionID, _ := platform.Options["connection_id"].(string)
+	savedCloudWeb := platform.Type == "cloud_web" && connectionID != ""
+	platformToAdd := platform
+	if savedCloudWeb {
+		platformToAdd.Options = map[string]any{
+			"allow_from":               core.DefaultCloudWebAllowFrom,
+			"share_session_in_channel": true,
+		}
+		maps.Copy(platformToAdd.Options, platform.Options)
+	}
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
-			if connectionID, _ := platform.Options["connection_id"].(string); platform.Type == "cloud_web" && connectionID != "" {
+			if savedCloudWeb {
 				for _, attached := range cfg.Projects[i].Platforms {
 					if attached.Type == platform.Type && attached.Options["connection_id"] == connectionID {
-						attached.Options["ws_url"] = platform.Options["ws_url"]
-						attached.Options["token"] = platform.Options["token"]
+						maps.Copy(attached.Options, platform.Options)
 						return saveConfig(cfg)
 					}
 				}
 			}
-			cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms, platform)
+			cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms, platformToAdd)
 			return saveConfig(cfg)
 		}
 	}
@@ -4314,7 +4324,7 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	cfg.Projects = append(cfg.Projects, ProjectConfig{
 		Name:      projectName,
 		Agent:     agentCfg,
-		Platforms: []PlatformConfig{platform},
+		Platforms: []PlatformConfig{platformToAdd},
 	})
 	return saveConfig(cfg)
 }

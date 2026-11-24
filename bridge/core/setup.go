@@ -505,14 +505,21 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		return
 	}
 	if req.ConnectionID != "" {
-		if req.Type != "cloud_web" || len(req.Options) != 0 {
-			mgmtError(w, http.StatusBadRequest, "connection_id requires Cloud Web without manual options")
+		if req.Type != "cloud_web" {
+			mgmtError(w, http.StatusBadRequest, "connection_id requires Cloud Web")
+			return
+		}
+		if err := validateSavedCloudWebOverrides(req.Options); err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		options, err := m.savedCloudWebOptions(req.ConnectionID, projectName)
 		if err != nil {
 			writeCloudWebConnectionError(w, err)
 			return
+		}
+		for key, value := range req.Options {
+			options[key] = value
 		}
 		req.Options = options
 	}

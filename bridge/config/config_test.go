@@ -2925,18 +2925,20 @@ func TestAddPlatformToProject_ReapplySavedCloudWebConnection(t *testing.T) {
 	configPath := writeConfigFixture(t, feishuConfigFixture)
 	patchConfigPath(t, configPath)
 	existingCount := len(readConfigFixture(t, configPath).Projects[0].Platforms)
-	add := func(id, wsURL, token, allowFrom string) {
+	add := func(id, wsURL, token string, overrides map[string]any) {
 		t.Helper()
-		err := AddPlatformToProject("alpha", PlatformConfig{Type: "cloud_web", Options: map[string]any{
-			"connection_id": id, "ws_url": wsURL, "token": token, "allow_from": allowFrom,
-		}}, "", "")
+		options := map[string]any{"connection_id": id, "ws_url": wsURL, "token": token}
+		for key, value := range overrides {
+			options[key] = value
+		}
+		err := AddPlatformToProject("alpha", PlatformConfig{Type: "cloud_web", Options: options}, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	add("work", "wss://old.test/ws", "old", "project-owner")
-	add("personal", "wss://personal.test/ws", "personal", "user")
-	add("work", "wss://new.test/ws", "new", "user")
+	add("work", "wss://old.test/ws", "old", map[string]any{"allow_from": "project-owner", "share_session_in_channel": true})
+	add("personal", "wss://personal.test/ws", "personal", nil)
+	add("work", "wss://new.test/ws", "new", map[string]any{"share_session_in_channel": false})
 
 	platforms := readConfigFixture(t, configPath).Projects[0].Platforms
 	if len(platforms) != existingCount+2 || platforms[existingCount+1].Options["connection_id"] != "personal" {
@@ -2944,8 +2946,12 @@ func TestAddPlatformToProject_ReapplySavedCloudWebConnection(t *testing.T) {
 	}
 	work := platforms[existingCount].Options
 	if work["connection_id"] != "work" || work["ws_url"] != "wss://new.test/ws" ||
-		work["token"] != "new" || work["allow_from"] != "project-owner" {
+		work["token"] != "new" || work["allow_from"] != "project-owner" || work["share_session_in_channel"] != false {
 		t.Fatalf("reapplying a connection did not refresh its credentials while preserving project options: %v", work)
+	}
+	personal := platforms[existingCount+1].Options
+	if personal["allow_from"] != "user" || personal["share_session_in_channel"] != true {
+		t.Fatalf("saved connection did not keep the default access and session settings: %v", personal)
 	}
 }
 

@@ -45,8 +45,8 @@ it('creates, applies, edits, and removes a connection without putting its token 
     expect(button).toBeDefined();
     await act(async () => button?.click());
   };
-  const fill = async (label: string, value: string) => {
-    const input = document.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="${label}"]`)!;
+  const fill = async (label: string, value: string, scope = '[role="dialog"]') => {
+    const input = document.querySelector<HTMLInputElement>(`${scope} input[aria-label="${label}"]`)!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -68,10 +68,20 @@ it('creates, applies, edits, and removes a connection without putting its token 
     picker.value = saved.id;
     picker.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await click('Add platform', container.querySelector('#project-form')!);
+  const projectForm = container.querySelector('#project-form')!;
+  await click('Advanced options (4)', projectForm);
+  await fill('WebSocket URL', 'wss://work.test/custom', '#project-form');
+  await fill('Allowed users', 'owner', '#project-form');
+  const sharedSession = projectForm.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  expect(sharedSession.checked).toBe(true);
+  await act(async () => sharedSession.click());
+  await click('Add platform', projectForm);
   expect(applied).toHaveBeenCalledOnce();
   expect(service).toHaveBeenLastCalledWith('/api/v1/projects/relay/add-platform', expect.objectContaining({
-    body: JSON.stringify({ type: 'cloud_web', connection_id: saved.id }),
+    body: JSON.stringify({
+      type: 'cloud_web', connection_id: saved.id,
+      options: { ws_url: 'wss://work.test/custom', allow_from: 'owner', share_session_in_channel: false },
+    }),
   }));
 
   await click('Edit connection');

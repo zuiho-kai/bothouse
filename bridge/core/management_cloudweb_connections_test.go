@@ -67,6 +67,15 @@ func TestCloudWebConnectionLifecycle(t *testing.T) {
 		attached["ws_url"] != "wss://hub.test/new/cloud-web/ws?bot=relay" {
 		t.Fatal("attachment did not resolve the edited URL, preserved token, and saved ID")
 	}
+	attachWith := func(options string) string { return strings.TrimSuffix(body, "}") + `,"options":` + options + "}" }
+	request("POST", addPlatform, attachWith(`{"token":"different"}`), 400)
+	request("POST", addPlatform, attachWith(`{"ws_url":"https://hub.test"}`), 400)
+	request("POST", addPlatform, attachWith(`{"share_session_in_channel":"false"}`), 400)
+	request("POST", addPlatform, attachWith(`{"ws_url":"wss://hub.test/custom","allow_from":"owner","share_session_in_channel":false,"group_reply_all":true}`), 201)
+	if attached["ws_url"] != "wss://hub.test/custom" || attached["allow_from"] != "owner" ||
+		attached["share_session_in_channel"] != false || attached["group_reply_all"] != true || attached["token"] != "test-secret" {
+		t.Fatal("attachment did not apply the project's advanced options with the saved token")
+	}
 	request("DELETE", path+"/"+id, "", 200)
 	request("POST", addPlatform, body, 404)
 	if res := request("GET", path, "", 200); !strings.Contains(res.Body.String(), `"connections":[]`) {

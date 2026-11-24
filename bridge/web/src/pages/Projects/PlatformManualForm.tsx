@@ -5,7 +5,7 @@ import { Eye, EyeOff, ChevronDown, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { addPlatformToProject } from '@/api/projects';
 import { listCloudWebConnections, type CloudWebConnection } from '@/api/cloudWebConnections';
-import { validateCloudWebForm } from '@/lib/cloudWebFormValidation';
+import { isWsUrl, validateCloudWebForm } from '@/lib/cloudWebFormValidation';
 import { platformMeta, type FieldDef } from '@/lib/platformMeta';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +35,7 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
   const [error, setError] = useState('');
   const [connections, setConnections] = useState<CloudWebConnection[]>([]);
   const [connectionID, setConnectionID] = useState('');
+  const [connectionOptions, setConnectionOptions] = useState<Record<string, string | boolean>>({});
   const [connectionsUnavailable, setConnectionsUnavailable] = useState(false);
 
   useEffect(() => {
@@ -56,10 +57,13 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
     );
   }
 
+  const useSavedConnection = platformType === 'cloud_web' && connectionID !== '';
+  const formValues = useSavedConnection ? { transport: 'websocket', share_session_in_channel: true, ...connectionOptions } : values;
+
   function fieldVisible(f: FieldDef): boolean {
     if (!f.showWhen) return true;
     for (const [depKey, allowed] of Object.entries(f.showWhen)) {
-      const current = String(values[depKey] ?? '');
+      const current = String(formValues[depKey] ?? '');
       if (!allowed.includes(current)) return false;
     }
     return true;
@@ -72,9 +76,14 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
   const basicFields = visibleFields(meta.fields.filter(f => f.group !== 'advanced'));
   const advancedFields = visibleFields(meta.fields.filter(f => f.group === 'advanced'));
 
-  const useSavedConnection = platformType === 'cloud_web' && connectionID !== '';
   const handleSave = async () => {
-    if (!useSavedConnection) {
+    if (useSavedConnection) {
+      const wsUrl = String(connectionOptions.ws_url ?? '').trim();
+      if (wsUrl && !isWsUrl(wsUrl)) {
+        setError(t('setup.cloudWeb.invalidWsUrl'));
+        return;
+      }
+    } else {
       const missing = meta.fields.filter(f => fieldVisible(f) && f.required && !values[f.key]);
       if (missing.length > 0) {
         setError(missing.map(f => t(f.labelKey)).join(', ') + ' required');
@@ -94,7 +103,7 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
     setSaving(true);
     setError('');
     try {
-      const settings = useSavedConnection ? { connection_id: connectionID } : {
+      const settings = useSavedConnection ? { connection_id: connectionID, options: connectionOptions } : {
         options: Object.fromEntries(meta.fields.filter(f => fieldVisible(f) && values[f.key] !== undefined && values[f.key] !== '')
           .map(f => [f.key, values[f.key]])),
       };
@@ -107,7 +116,10 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
     }
   };
 
-  const set = (key: string, val: any) => setValues(prev => ({ ...prev, [key]: val }));
+  const set = (key: string, value: any) => {
+    if (useSavedConnection) setConnectionOptions(prev => ({ ...prev, [key]: value }));
+    else setValues(prev => ({ ...prev, [key]: value }));
+  };
 
   return (
     <div className="space-y-4 py-2">
@@ -118,7 +130,11 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
           {connections.length > 0 && (
             <label className="block space-y-1 text-sm text-ink-soft">
               <span>{t('cloudWebConnections.picker')}</span>
-              <select value={connectionID} onChange={event => { setConnectionID(event.target.value); setError(''); }}
+              <select value={connectionID} onChange={event => {
+                setConnectionID(event.target.value);
+                setConnectionOptions({});
+                setError('');
+              }}
                 className="w-full rounded-control border border-hairline bg-surface px-3 py-2 text-ink">
                 <option value="">{t('cloudWebConnections.manual')}</option>
                 {connections.map(connection => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
@@ -136,7 +152,7 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
         <FieldInput key={f.key} field={f} value={values[f.key]} onChange={v => set(f.key, v)} t={t} />
       ))}
 
-      {!useSavedConnection && advancedFields.length > 0 && (
+      {advancedFields.length > 0 && (
         <>
           <button
             type="button"
@@ -147,7 +163,7 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
             {t('setup.advancedOptions', 'Advanced options')} ({advancedFields.length})
           </button>
           {showAdvanced && advancedFields.map(f => (
-            <FieldInput key={f.key} field={f} value={values[f.key]} onChange={v => set(f.key, v)} t={t} />
+            <FieldInput key={f.key} field={f} value={formValues[f.key]} onChange={v => set(f.key, v)} t={t} />
           ))}
         </>
       )}
