@@ -179,6 +179,8 @@ QQ via OneBot/NapCat, remote access from your phone with Tailscale, and hardware
 
 QQ via OneBot/NapCat can also [watch selected groups silently](docs/platforms/qq.md#静默监听群消息): keep owner messages, filter other text locally, and batch useful updates to your private QQ chat without creating conversation turns for group traffic.
 
+Save named Cloud Web server settings in **Bridge → Saved Cloud Web connections**. Pick a saved connection under **Projects → Add platform → Cloud Web**. Select it again to apply an updated URL or token to that project, then restart the service when prompted.
+
 <a id="compare"></a>
 
 ## bothouse and other projects

@@ -2921,6 +2921,34 @@ func TestAddPlatformToProject_NewProjectClonesAgentWhenAgentTypeEmpty(t *testing
 	}
 }
 
+func TestAddPlatformToProject_ReapplySavedCloudWebConnection(t *testing.T) {
+	configPath := writeConfigFixture(t, feishuConfigFixture)
+	patchConfigPath(t, configPath)
+	existingCount := len(readConfigFixture(t, configPath).Projects[0].Platforms)
+	add := func(id, wsURL, token, allowFrom string) {
+		t.Helper()
+		err := AddPlatformToProject("alpha", PlatformConfig{Type: "cloud_web", Options: map[string]any{
+			"connection_id": id, "ws_url": wsURL, "token": token, "allow_from": allowFrom,
+		}}, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("work", "wss://old.test/ws", "old", "project-owner")
+	add("personal", "wss://personal.test/ws", "personal", "user")
+	add("work", "wss://new.test/ws", "new", "user")
+
+	platforms := readConfigFixture(t, configPath).Projects[0].Platforms
+	if len(platforms) != existingCount+2 || platforms[existingCount+1].Options["connection_id"] != "personal" {
+		t.Fatalf("project lost a platform or gained a duplicate: %v", platforms)
+	}
+	work := platforms[existingCount].Options
+	if work["connection_id"] != "work" || work["ws_url"] != "wss://new.test/ws" ||
+		work["token"] != "new" || work["allow_from"] != "project-owner" {
+		t.Fatalf("reapplying a connection did not refresh its credentials while preserving project options: %v", work)
+	}
+}
+
 func TestFormatTOML(t *testing.T) {
 	tests := []struct {
 		name, input, want string

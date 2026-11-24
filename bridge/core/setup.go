@@ -473,10 +473,11 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 var ErrACPCommandRequired = errors.New(`an ACP project needs its launch command (agent_type "acp:<command>")`)
 
 type AddPlatformRequest struct {
-	Type      string         `json:"type"`
-	Options   map[string]any `json:"options"`
-	WorkDir   string         `json:"work_dir"`
-	AgentType string         `json:"agent_type"`
+	Type         string         `json:"type"`
+	Options      map[string]any `json:"options"`
+	WorkDir      string         `json:"work_dir"`
+	AgentType    string         `json:"agent_type"`
+	ConnectionID string         `json:"connection_id"`
 }
 
 func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *http.Request, projectName string) {
@@ -502,6 +503,18 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 	if m.addPlatformToProject == nil {
 		mgmtError(w, http.StatusServiceUnavailable, "config persistence not available")
 		return
+	}
+	if req.ConnectionID != "" {
+		if req.Type != "cloud_web" || len(req.Options) != 0 {
+			mgmtError(w, http.StatusBadRequest, "connection_id requires Cloud Web without manual options")
+			return
+		}
+		options, err := m.savedCloudWebOptions(req.ConnectionID, projectName)
+		if err != nil {
+			writeCloudWebConnectionError(w, err)
+			return
+		}
+		req.Options = options
 	}
 	if err := m.addPlatformToProject(projectName, req.Type, req.Options, req.WorkDir, req.AgentType); err != nil {
 		if errors.Is(err, ErrACPCommandRequired) {

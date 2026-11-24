@@ -263,6 +263,24 @@
     "lastRun": "Last run",
     "notEnabled": "Heartbeat is not configured for this project. Add [heartbeat] section in config.toml to enable."
   },
+  "cloudWebConnections": {
+    "title": "Saved Cloud Web connections",
+    "description": "Save a server URL and bot token to reuse when adding Cloud Web to a project.",
+    "add": "Add connection",
+    "edit": "Edit connection",
+    "remove": "Remove connection",
+    "removeAction": "Remove",
+    "removeConfirm": "Remove {{name}} from the saved list? Projects that already use it keep their current settings.",
+    "empty": "No Cloud Web connections saved",
+    "name": "Connection name",
+    "url": "Server URL",
+    "keepToken": "Leave blank to keep the saved token",
+    "futureUse": "Select this connection again in a project to apply its updated URL or token.",
+    "picker": "Cloud Web connection",
+    "manual": "Enter settings manually",
+    "unavailable": "Saved connections could not be loaded. You can still enter settings manually.",
+    "manage": "Manage saved Cloud Web connections"
+  },
   "bridge": {
     "title": "Bridge",
     "platform": "Platform",

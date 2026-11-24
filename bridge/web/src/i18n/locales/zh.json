@@ -263,6 +263,24 @@
     "lastRun": "上次运行",
     "notEnabled": "该项目未配置心跳功能。请在 config.toml 中添加 [heartbeat] 配置段以启用。"
   },
+  "cloudWebConnections": {
+    "title": "已保存的 Cloud Web 连接",
+    "description": "保存服务器地址和机器人令牌，给项目添加 Cloud Web 时可直接选用。",
+    "add": "添加连接",
+    "edit": "编辑连接",
+    "remove": "移除连接",
+    "removeAction": "移除",
+    "removeConfirm": "从已保存列表中移除 {{name}}？已使用该连接的项目将保留当前设置。",
+    "empty": "还没有保存 Cloud Web 连接",
+    "name": "连接名称",
+    "url": "服务器地址",
+    "keepToken": "留空以保留已保存的令牌",
+    "futureUse": "在项目中重新选择此连接，即可应用更新后的地址或令牌。",
+    "picker": "Cloud Web 连接",
+    "manual": "手动填写设置",
+    "unavailable": "无法加载已保存的连接，仍可手动填写设置。",
+    "manage": "管理已保存的 Cloud Web 连接"
+  },
   "bridge": {
     "title": "桥接",
     "platform": "平台",

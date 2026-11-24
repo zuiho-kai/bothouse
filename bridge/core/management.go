@@ -109,6 +109,8 @@ type ManagementServer struct {
 	wizardStore   WizardStore
 	wizardDataDir string
 
+	cloudWebConnectionsMu sync.Mutex
+
 	// 接入应用 (#150): config.toml module states, wired by cmd/cc-connect
 	// (management_modules.go). nil = no config read, every row shows not_configured.
 	platformModules func() map[string]PlatformModule
@@ -341,6 +343,8 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// 接入应用 (#150): which chat apps are wired, and where each one is added
 	mux.HandleFunc(prefix+"/modules", m.wrap(m.handleModules))
+	mux.HandleFunc(prefix+"/cloud-web/connections", m.wrap(m.handleCloudWebConnections))
+	mux.HandleFunc(prefix+"/cloud-web/connections/{id}", m.wrap(m.handleCloudWebConnections))
 
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))

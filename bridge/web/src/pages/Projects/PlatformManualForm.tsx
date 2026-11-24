@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { Eye, EyeOff, ChevronDown, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { addPlatformToProject } from '@/api/projects';
+import { listCloudWebConnections, type CloudWebConnection } from '@/api/cloudWebConnections';
 import { validateCloudWebForm } from '@/lib/cloudWebFormValidation';
 import { platformMeta, type FieldDef } from '@/lib/platformMeta';
 import { cn } from '@/lib/utils';
@@ -31,6 +33,20 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [connections, setConnections] = useState<CloudWebConnection[]>([]);
+  const [connectionID, setConnectionID] = useState('');
+  const [connectionsUnavailable, setConnectionsUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (platformType !== 'cloud_web') return;
+    let active = true;
+    listCloudWebConnections().then(({ connections }) => {
+      if (active) setConnections(connections);
+    }).catch(() => {
+      if (active) setConnectionsUnavailable(true);
+    });
+    return () => { active = false; };
+  }, [platformType]);
 
   if (!meta) {
     return (
@@ -56,34 +72,33 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
   const basicFields = visibleFields(meta.fields.filter(f => f.group !== 'advanced'));
   const advancedFields = visibleFields(meta.fields.filter(f => f.group === 'advanced'));
 
+  const useSavedConnection = platformType === 'cloud_web' && connectionID !== '';
   const handleSave = async () => {
-    const missing = meta.fields.filter(f => fieldVisible(f) && f.required && !values[f.key]);
-    if (missing.length > 0) {
-      setError(missing.map(f => t(f.labelKey)).join(', ') + ' required');
-      return;
-    }
-
-    if (platformType === 'cloud_web') {
-      const issue = validateCloudWebForm(values);
-      if (issue) {
-        const field = issue.fieldLabelKey ? t(issue.fieldLabelKey) : undefined;
-        setError(t(issue.messageKey, field ? { field } : undefined));
+    if (!useSavedConnection) {
+      const missing = meta.fields.filter(f => fieldVisible(f) && f.required && !values[f.key]);
+      if (missing.length > 0) {
+        setError(missing.map(f => t(f.labelKey)).join(', ') + ' required');
         return;
+      }
+
+      if (platformType === 'cloud_web') {
+        const issue = validateCloudWebForm(values);
+        if (issue) {
+          const field = issue.fieldLabelKey ? t(issue.fieldLabelKey) : undefined;
+          setError(t(issue.messageKey, field ? { field } : undefined));
+          return;
+        }
       }
     }
 
     setSaving(true);
     setError('');
     try {
-      const opts: Record<string, any> = {};
-      for (const f of meta.fields) {
-        if (!fieldVisible(f)) continue;
-        const v = values[f.key];
-        if (v !== undefined && v !== '') {
-          opts[f.key] = v;
-        }
-      }
-      await addPlatformToProject(projectName, { type: platformType, options: opts, work_dir: workDir, agent_type: agentType });
+      const settings = useSavedConnection ? { connection_id: connectionID } : {
+        options: Object.fromEntries(meta.fields.filter(f => fieldVisible(f) && values[f.key] !== undefined && values[f.key] !== '')
+          .map(f => [f.key, values[f.key]])),
+      };
+      await addPlatformToProject(projectName, { type: platformType, ...settings, work_dir: workDir, agent_type: agentType });
       onComplete();
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -98,11 +113,30 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
     <div className="space-y-4 py-2">
       <p className="text-sm font-medium text-gray-900 dark:text-white">{meta.label}</p>
 
-      {basicFields.map(f => (
+      {platformType === 'cloud_web' && (
+        <div className="space-y-2">
+          {connections.length > 0 && (
+            <label className="block space-y-1 text-sm text-ink-soft">
+              <span>{t('cloudWebConnections.picker')}</span>
+              <select value={connectionID} onChange={event => { setConnectionID(event.target.value); setError(''); }}
+                className="w-full rounded-control border border-hairline bg-surface px-3 py-2 text-ink">
+                <option value="">{t('cloudWebConnections.manual')}</option>
+                {connections.map(connection => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
+              </select>
+            </label>
+          )}
+          {connectionsUnavailable && <p role="status" className="text-sm text-ink-soft">{t('cloudWebConnections.unavailable')}</p>}
+          <Link to="/bridge" className="text-sm text-accent-text hover:underline">
+            {t('cloudWebConnections.manage')}
+          </Link>
+        </div>
+      )}
+
+      {!useSavedConnection && basicFields.map(f => (
         <FieldInput key={f.key} field={f} value={values[f.key]} onChange={v => set(f.key, v)} t={t} />
       ))}
 
-      {advancedFields.length > 0 && (
+      {!useSavedConnection && advancedFields.length > 0 && (
         <>
           <button
             type="button"

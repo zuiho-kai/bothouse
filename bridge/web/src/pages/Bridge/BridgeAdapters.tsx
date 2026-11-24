@@ -8,6 +8,7 @@ import { listProjects, shownNames, type ProjectSummary } from '@/api/projects';
 import { connectedSources, dshStatus, getDSHSummary, type DSHSummary } from '@/api/dsh';
 import { DSHNotice, errorMessage } from '@/components/DSHNotice';
 import { formatTime } from '@/lib/utils';
+import CloudWebConnections from './CloudWebConnections';
 
 // Two different things, two different lists. The page used to count only the bridge adapters —
 // external WebSocket clients — so a healthy panel whose roles were on Discord and Cloud Web still
@@ -73,6 +74,8 @@ export default function BridgeAdapters() {
           </Badge>
         }
       />
+
+      <CloudWebConnections />
 
       {loading && !status && !statusReadFailed ? (
         <LoadingState label={t('common.loading')} />

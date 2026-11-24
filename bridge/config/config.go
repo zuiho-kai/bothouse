@@ -4281,6 +4281,15 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	}
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
+			if connectionID, _ := platform.Options["connection_id"].(string); platform.Type == "cloud_web" && connectionID != "" {
+				for _, attached := range cfg.Projects[i].Platforms {
+					if attached.Type == platform.Type && attached.Options["connection_id"] == connectionID {
+						attached.Options["ws_url"] = platform.Options["ws_url"]
+						attached.Options["token"] = platform.Options["token"]
+						return saveConfig(cfg)
+					}
+				}
+			}
 			cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms, platform)
 			return saveConfig(cfg)
 		}
