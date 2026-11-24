@@ -799,6 +799,29 @@ index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..8817a0bb8579cc1e6e913cb20bebc2a9
 +      batch.dispose();
 +    }
      materials.forEach(material => material.dispose()); this.root.clear();
+diff --git a/src/client/tutorial.css b/src/client/tutorial.css
+index 5a6310c1d13acbc0cb7847f723b4b8d424f46d84..8f7601a799ef54756ad05764e0317eb5d87f58a8 100644
+--- a/src/client/tutorial.css
++++ b/src/client/tutorial.css
+@@ -26 +26,9 @@ body.home-interior-active .core-tutorial{top:142px;max-height:calc(100dvh - 340p
+ @media(max-width:699px){body.tutorial-active:has(#home-controls:not([hidden])) .core-tutorial{max-height:max(82px,calc(100dvh - 494px));overflow:auto}}
++
++/* On visits, leave room for both the destination and the walking directions. */
++#travel-guidance:has(> #friend-visit-route:not([hidden])) > .core-tutorial {
++  position: static;
++  box-sizing: border-box;
++  max-height: min(28dvh, 16rem);
++  overflow: auto;
++}
+diff --git a/src/client/tutorial.ts b/src/client/tutorial.ts
+index fe2d73710c28b3c18654ea14a8b1f377be925f85..fd93bd9dd610d8a1960b20fb987e8e920540c219 100644
+--- a/src/client/tutorial.ts
++++ b/src/client/tutorial.ts
+@@ -117,3 +117,3 @@ export function mountTutorial(options: TutorialOptions) {
+   root.innerHTML = '<div class="tutorial-heading"><span class="tutorial-eyebrow"></span><button type="button" class="tutorial-skip"></button></div><p class="tutorial-progress"></p><h2></h2><p class="tutorial-copy"></p><p class="tutorial-route-status" role="status" aria-live="polite" hidden></p><p class="tutorial-feedback" role="status" aria-live="polite"></p><p class="tutorial-controls"></p><p class="tutorial-home-state" role="status"></p><button type="button" class="tutorial-retry"></button>';
+-  document.body.append(root);
++  document.getElementById('travel-guidance')!.append(root);
+   const get = <E extends HTMLElement = HTMLElement>(name: string) => root.querySelector<E>(name)!;
 diff --git a/src/client/village-polish.ts b/src/client/village-polish.ts
 index fb01ffaebf2bdb880563ee0e1fdbbc7a26ddaae6..ecb98897cb97a494611a31cdc641d69d165be265 100644
 --- a/src/client/village-polish.ts
@@ -818,7 +841,7 @@ index fb01ffaebf2bdb880563ee0e1fdbbc7a26ddaae6..ecb98897cb97a494611a31cdc641d69d
 +      }
        box(frame, ART_PALETTE.wood, 1.42, .43, .065, 0, 2.37, -.04);
 diff --git a/src/client/world-guide.ts b/src/client/world-guide.ts
-index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd1790314c79f 100644
+index f533e71cfc73d2be94e83498c99214dc9d9a3057..1cc0782009230650b88263a8406b1380f04ad5a9 100644
 --- a/src/client/world-guide.ts
 +++ b/src/client/world-guide.ts
 @@ -22,2 +22,5 @@ interface Frame {
@@ -827,7 +850,7 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd179
 +  const hostChat = entry.get('appChat') === 'bothouse';
 +  const embedded = hostChat || ['zh', 'en'].includes(entry.get('appLang') ?? '');
    let current: Frame | null=null, topic:GuideTopic='home', selected:GuideTopic|null=null, routePlanet='', roomKey='', lastPaint='', talking=false;
-@@ -34,9 +37,10 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -34,10 +37,17 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
    chat.innerHTML='<header><h2 id="world-guide-chat-title"></h2><button id="world-guide-chat-close" type="button" aria-label="Close chat">×</button></header><details id="world-guide-disclosure"><summary id="world-guide-disclosure-title"></summary><p id="world-guide-ai-status"></p></details><p id="world-guide-ai-quota"></p><div id="world-guide-messages" role="log" aria-live="polite"><p id="world-guide-ai-answer"></p></div><p id="world-guide-ai-result" role="status"></p><form id="world-guide-form"><label for="world-guide-question" id="world-guide-question-label"></label><div class="world-guide-input"><textarea id="world-guide-question" maxlength="500" rows="2"></textarea><button id="world-guide-ask" type="submit"></button></div></form><footer><button id="world-guide-ai-stop" type="button" hidden></button><button id="world-guide-refresh" type="button"></button><button id="world-guide-local" type="button"></button></footer>';
 -  document.body.append(chat);
 -  const chatOpen=document.createElement('button');chatOpen.id='world-guide-chat-open';chatOpen.type='button';document.querySelector('.minimal-bar')?.append(chatOpen);
@@ -840,10 +863,18 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd179
    const language=()=>document.documentElement.lang.startsWith('zh')?'zh' as const:'en' as const;
 -  const ai=createGuideConversation({language,answer(text){el('ai-answer').textContent=text;const log=el('messages');log.scrollTop=log.scrollHeight;},changed(){lastPaint='';paint();}});
 -  function close(focus=false){ai.cancel();talking=false;bubble.hidden=true;chat.hidden=true;actor.root.visible=false;document.body.classList.remove('world-guide-talking');release();if(focus)document.querySelector<HTMLCanvasElement>('#world canvas')?.focus({preventScroll:true});}
+-  function select(value:GuideTopic){topic=value;selected=value==='save'?null:value;routePlanet=current?.universe.currentPlanet.id??'';route.root.visible=false;document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();paint();}
 +  const ai=embedded?null:createGuideConversation({language,answer(text){el('ai-answer').textContent=text;const log=el('messages');log.scrollTop=log.scrollHeight;},changed(){lastPaint='';paint();}});
 +  function close(focus=false){ai?.cancel();talking=false;bubble.hidden=true;chat.hidden=true;actor.root.visible=false;document.body.classList.remove('world-guide-talking');release();if(focus)document.querySelector<HTMLCanvasElement>('#world canvas')?.focus({preventScroll:true});}
-   function select(value:GuideTopic){topic=value;selected=value==='save'?null:value;routePlanet=current?.universe.currentPlanet.id??'';route.root.visible=false;document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();paint();}
-@@ -45,7 +49,9 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
++  function skipTutorialOutsideFriendVisit() {
++    // The destination, walking directions and tutorial share room during a friend visit.
++    if (!document.querySelector('#friend-visit-route:not([hidden])')) {
++      document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();
++    }
++  }
++  function select(value:GuideTopic){topic=value;selected=value==='save'?null:value;routePlanet=current?.universe.currentPlanet.id??'';route.root.visible=false;skipTutorialOutsideFriendVisit();paint();}
+   function paint(){
+@@ -45,7 +55,9 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
      const aboard=current?.universe.player.flight.mode==='space',nearShip=topic==='visit'&&!current?.indoor&&!!current&&distance(current.position,portPoint(current.universe.currentPlanet.id),current.world.baseRadius)<BOARD_RADIUS-.12;
 -    const key=[lang,topic,selected,available,aboard,nearShip,current?.indoor,current?.online,route.diagnostics.reason,actor.root.visible,talking,ai.revision].join('|');if(key===lastPaint)return;lastPaint=key;
 -    homeChat.textContent=chatOpen.textContent=zh?'聊天 · DeepSeek':'Chat · DeepSeek';el('chat-close').setAttribute('aria-label',zh?'收起聊天':'Close chat');
@@ -856,17 +887,19 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd179
 -    el('intro').textContent=actor.root.visible?(zh?'我在你身边。可在右侧聊天，或展开固定帮助查看地面路线。':'I am beside you. Chat on the right, or open fixed help for ground directions.'):(zh?'附近没有安全的站立空位，仍可在此聊天或查看固定帮助。':'There is no safe standing space nearby; chat and fixed help remain available here.');
 +    el('intro').textContent=embedded?(zh?'选择玩法帮助或查看地面路线。':'Choose a help topic or view ground directions.'):actor.root.visible?(zh?'我在你身边。可在右侧聊天，或展开固定帮助查看地面路线。':'I am beside you. Chat on the right, or open fixed help for ground directions.'):(zh?'附近没有安全的站立空位，仍可在此聊天或查看固定帮助。':'There is no safe standing space nearby; chat and fixed help remain available here.');
      el('topics').replaceChildren(...GUIDE_TOPICS.map((value,i)=>{const b=document.createElement('button');b.type='button';b.textContent=names[lang][i];b.dataset.topic=value;b.setAttribute('aria-pressed',String(topic===value));b.onclick=()=>select(value);return b;}));
-@@ -53,3 +59,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -53,3 +65,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
      el('availability').textContent=aboard?(zh?'你已在飞船中，请使用目的地与航程控制。':'You are already aboard; use the destination and trip controls.'):!current?.online?(zh?'当前离线。可以阅读本地帮助；重连后再继续路线。':'Offline. Local help is available; reconnect before continuing the route.'):current.indoor?(topic==='visit'?(zh?'第 1 步：关闭对话，从房门出去。第 2 步：室外地面箭头会继续指向飞船。':'Step 1: close this chat and leave through the room door. Step 2: ground arrows outside continue to your ship.'):(zh?'室内可交谈；请先出门，再显示室外目的地路线。':'You can talk indoors. Go outside before showing a route to an outdoor destination.')):nearShip?(zh?'飞船就在这里。关闭对话，按 E 或点击“登上飞船”，再选择目的地。':'Your ship is here. Close this chat, press E or choose Board your ship, then pick a destination.'):!available?(zh?'这里没有可用的步行目的地；请使用固定帮助。':'There is no walking destination here; use the fixed help.'):selected?(route.diagnostics.connected?(zh?'地面箭头已显示。向导不会领路；请自己沿路线行走。':'Ground arrows are shown. Sprout stays here; walk the route yourself.'):(zh?'正在确认安全路线。若无法连通，请回到附近石板路再试。':'Checking a safe route. If no route connects, return to the nearby stone path and try again.')):(zh?'点一个目的地，显示地面导航。':'Choose a destination to show ground directions.');
 -    ai.paint();
 +    ai?.paint();
      el('walk').textContent=zh?'关闭并行走':'Close and walk';el('details').textContent=zh?'与向导交谈':'Talk to guide';el('stop').textContent=zh?'清除路线':'Clear route';el('close').setAttribute('aria-label',zh?'关闭向导':'Close guide');
-@@ -57,3 +63,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -57,4 +69,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
    }
 -  function show(panel:'help'|'chat'|'both'='both'){
+-    if(!current?.visible)return;release();document.querySelector<HTMLDialogElement>('#menu-dialog')?.close();document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();
 +  function show(panel:'help'|'chat'|'both'=embedded?'help':'both'){
-     if(!current?.visible)return;release();document.querySelector<HTMLDialogElement>('#menu-dialog')?.close();document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();
-@@ -62,8 +68,14 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
++    if(!current?.visible)return;release();document.querySelector<HTMLDialogElement>('#menu-dialog')?.close();skipTutorialOutsideFriendVisit();
+     const p=nearbyGuidePoint(current.feet,current.up,current.forward,current.stand);talking=true;document.body.classList.add('world-guide-talking');if(panel!=='chat')bubble.hidden=false;if(panel!=='help')chat.hidden=false;roomKey=current.roomKey;
+@@ -62,8 +74,14 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
      if(p){actor.root.position.copy(p);const up=current.up.clone().normalize(),forward=current.feet.clone().sub(p).projectOnPlane(up).normalize(),right=new T.Vector3().crossVectors(up,forward).normalize();actor.root.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(right,up,forward));actor.greet(current.time);}
 -    lastPaint='';paint();if(panel!=='help')void ai.refresh();el(panel==='help'?'close':'question').focus({preventScroll:true});
 +    lastPaint='';paint();if(panel!=='help')void ai?.refresh();el(panel==='help'?'close':'question').focus({preventScroll:true});
@@ -886,23 +919,23 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd179
 -  el('local').addEventListener('click',()=>show('help'));
 -  el('chat-close').onclick=()=>{ai.cancel();chat.hidden=true;if(bubble.hidden)close(true);else el('close').focus();};
    el('close').onclick=()=>{bubble.hidden=true;if(chat.hidden)close(true);else el('question').focus();};
-@@ -71,3 +83,2 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -71,3 +89,2 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
    el('stop').onclick=()=>{selected=null;route.root.visible=false;hud.hidden=true;paint();};
 -  el('form').onsubmit=event=>{event.preventDefault();void ai.ask();};
    let shortcutHeld=false;
-@@ -77,3 +88,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -77,3 +94,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
      if(shortcutHeld&&(event.code==='Space'||event.key===' ')){event.preventDefault();event.stopImmediatePropagation();return;}
 -    if(guideShortcut(event)&&current?.visible&&!document.querySelector('dialog[open]')){shortcutHeld=true;event.preventDefault();event.stopImmediatePropagation();if(talking)close(true);else show('both');}
 +    if(guideShortcut(event)&&current?.visible&&!document.querySelector('dialog[open]')){shortcutHeld=true;event.preventDefault();event.stopImmediatePropagation();if(talking)close(true);else show();}
    },{capture:true});
-@@ -81,4 +92,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -81,4 +98,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
    return {get active(){return selected!==null;},get talking(){return talking;},close,findShip(){if(!current?.visible)return;select('visit');show();el<HTMLDetailsElement>('help').open=true;},frame(input:Frame){
 -    ai.tick(!chat.hidden);current=input;chatOpen.disabled=!input.visible;open.disabled=menuOpen.disabled=!input.visible;homeOpen.hidden=!input.visible||!input.indoor||!input.universe.player.location||input.universe.player.location.kind!=='interior';
 -    homeChat.hidden=homeOpen.hidden;
 +    ai?.tick(!chat.hidden);current=input;chatOpen.disabled=!input.visible;open.disabled=menuOpen.disabled=!input.visible;homeOpen.hidden=!input.visible||!input.indoor||!input.universe.player.location||input.universe.player.location.kind!=='interior';
 +    homeChat.hidden=homeOpen.hidden||(embedded&&!hostChat);
      if(talking&&(!input.visible||input.roomKey!==roomKey||!!document.querySelector('dialog[open]')))close();
-@@ -93,3 +104,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -93,3 +110,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
      }
 -    paint();return {mode:talking?'talking':selected?'route':'idle',position:actor.root.visible?actor.root.position.toArray():null,topic,selected,route:route.root.visible?route.diagnostics.reason:'hidden',routeVisible:route.root.visible,aiEnabled:ai.enabled,actorVisible:actor.root.visible};
 +    paint();return {mode:talking?'talking':selected?'route':'idle',position:actor.root.visible?actor.root.position.toArray():null,topic,selected,route:route.root.visible?route.diagnostics.reason:'hidden',routeVisible:route.root.visible,aiEnabled:ai?.enabled??false,actorVisible:actor.root.visible};

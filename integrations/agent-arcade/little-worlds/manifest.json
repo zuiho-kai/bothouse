@@ -2,9 +2,9 @@
   "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
   "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
   "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
-  "worldRevision": "5837299a39c62b7699ca17ba15b88ba2e7277f52",
-  "worldTree": "ac7a0d92304dce48065d22bba4396954f3ca4920",
-  "patchSHA256": "c2ba2e2501a8b5ce0ec6f8946807ce3cea4028dfa28d976cd2cc7a9bcf5a548e",
+  "worldRevision": "587e017970fc10976fd41a71bbfc69cd500698ca",
+  "worldTree": "b3bfac97c0790d76521768ae8bf2e5f17c3dcdfb",
+  "patchSHA256": "84bc8838914b87274a262f752b00abffead9ce9fbcda0e5d81b0c4429f3b57a3",
   "windowsPublisherSHA256": {
     "publish-residents.py": "5b921bc405941feef45d9cd9459571c534dc0ff5e19ceebd3af1ba2e4e62fe8b",
     "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
@@ -540,6 +540,18 @@
     },
     {
       "action": "M",
+      "path": "src/client/tutorial.css",
+      "blob": "8f7601a799ef54756ad05764e0317eb5d87f58a8",
+      "sha256": "e0c1059d96beeacdb8a4b9722ea5d9778214e2c075cb4ab9e47fb21e76a26943"
+    },
+    {
+      "action": "M",
+      "path": "src/client/tutorial.ts",
+      "blob": "fd93bd9dd610d8a1960b20fb987e8e920540c219",
+      "sha256": "7f3f1a809700213bcd35f4e0747d6b7061924cd26e48762a7f6ea376ae161dde"
+    },
+    {
+      "action": "M",
       "path": "src/client/village-polish.ts",
       "blob": "ecb98897cb97a494611a31cdc641d69d165be265",
       "sha256": "125a0861057c12ef2cc61017ebc9847ad6b45a4f7a92eee404ec79c70ed8f168"
@@ -547,8 +559,8 @@
     {
       "action": "M",
       "path": "src/client/world-guide.ts",
-      "blob": "a3b835432c45a0c8b10d51731b2cd1790314c79f",
-      "sha256": "5ba9c80ee3b2d4326d24c491e26be9021c78c083e1cf839244801eea96f3d520"
+      "blob": "1cc0782009230650b88263a8406b1380f04ad5a9",
+      "sha256": "a6a8fb92b8ff4f0c56889815dc065eec39637359cdc74d5778b718bc1f87b065"
     },
     {
       "action": "A",
@@ -625,8 +637,8 @@
     {
       "action": "A",
       "path": "tools/check-friend-dock-guide.mjs",
-      "blob": "ae9d05feabb1891dc39a47759c418ed76aa2cf69",
-      "sha256": "017c08ddd2c98b9443ca5949812802efbc1e13fe71017bf59beba4ecd15ce739"
+      "blob": "f9c177fc4005e8f365e1f28334b8d0c13e8f27c6",
+      "sha256": "06b609617e27b1c5226ab4fa2b4342b376a07c6965a430422ba3ee975c6fd1e5"
     },
     {
       "action": "A",
