@@ -925,6 +925,8 @@ func (m *ManagementServer) handleProjectRoutes(w http.ResponseWriter, r *http.Re
 		m.handleProjectDetail(w, r, projName, engine)
 	case "sessions":
 		m.handleProjectSessions(w, r, projName, engine, rest)
+	case "text-task":
+		handleProjectTextTask(w, r, engine)
 	case "send":
 		m.handleProjectSend(w, r, engine)
 	case "providers":

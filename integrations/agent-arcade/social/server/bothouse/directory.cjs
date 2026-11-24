@@ -21,15 +21,16 @@ function localInstance(env = process.env,settings=instanceSettings(env)) {
   let active = 0;
   async function request(data,{signal} = {}) {
     if (active >= 24 || !path.isAbsolute(config) || !existsSync(config)) return {error:'unavailable'};
+    const isTask=data.action==='task'||data.action==='text_task';
     active++;
     try {
       return await new Promise(resolve => {
         const child = execFile(python, ['-I','-B','-X','utf8',path.join(__dirname,'instance.py'),config],
           {windowsHide:true, signal,
-            timeout:data.action === 'task' ? 0 : data.action === 'chat' ? 70000 : 9000,
+            timeout:isTask ? 0 : data.action === 'chat' ? 70000 : 9000,
             maxBuffer:data.action === 'portrait' ? 3 * 1024 * 1024 : 256 * 1024}, (error,out) => {
             if (!error) try {return resolve(JSON.parse(out));} catch {}
-            resolve({error:data.action === 'task' ? 'receipt_unknown' : 'unavailable'});
+            resolve({error:isTask ? 'receipt_unknown' : 'unavailable'});
           });
         child.stdin.on('error',()=>{});
         child.stdin.end(JSON.stringify(data));
@@ -174,13 +175,16 @@ function bothouseDirectory(store, request) {
     return {reply,bothouseStatus:'replied'};
   }
   // The task board records progress and sends the result to the originating conversation.
-  function taskRequest(turn) {
-    return {...turn,number:nativeNumber(turn.number),link:pairing.active(store,turn.account),action:'task'};
+  function textTaskCapability(turn) {
+    return request(taskRequest(turn,'text_capability'));
+  }
+  function taskRequest(turn,action='text_task') {
+    return {...turn,number:nativeNumber(turn.number),link:pairing.active(store,turn.account),action};
   }
   function runTextTask(turn,signal) {
     return request(taskRequest(turn),{signal});
   }
   const startBoardTask=request.startBoardTask && ((turn,work)=>request.startBoardTask(taskRequest(turn),work));
-  return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,startBoardTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
+  return {list,resolveMember,start,group,portrait,stage,finish,runTextTask,textTaskCapability,startBoardTask,isRole:number=>typeof number==='string' && targetNumber.test(number.toLowerCase())};
 }
 module.exports = {localInstance,bothouseDirectory,instanceSettings};

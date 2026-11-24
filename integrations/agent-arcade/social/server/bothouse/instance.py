@@ -19,11 +19,14 @@ def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def read_json(endpoint, token, route):
-    conn = http.client.HTTPConnection("127.0.0.1", endpoint, timeout=3)
+def read_json(endpoint, token, route, body=None, optional=False):
+    conn = http.client.HTTPConnection("127.0.0.1", endpoint, timeout=None if body is not None else 3)
     try:
-        conn.request("GET", route, headers={"Authorization": "Bearer " + token})
+        conn.request("POST" if body is not None else "GET", route, body=json.dumps(body) if body is not None else None,
+                     headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
         res = conn.getresponse()
+        if optional and res.status in (404, 405):
+            return {"defer": "backend"}  # Older management service.
         if res.status != 200:
             raise ValueError("unavailable")
         raw = res.read(1024 * 1024 + 1)
@@ -232,7 +235,7 @@ def run(file, request):
                 "directoryReason": "no_roles" if instance is None else "not_shared"}
     if not any(r["configured"] for r in roles):
         return {"contacts": roles, "directoryStatus": "offline"} if listing else {"error": "unavailable"}
-    if not listing and (request["action"] not in ("chat", "task") or len(roles) != 1):
+    if not listing and (request["action"] not in ("chat", "task", "text_task", "text_capability") or len(roles) != 1):
         raise ValueError("invalid target")
 
     from websockets.sync.client import connect
@@ -262,8 +265,46 @@ def run(file, request):
             return {"contacts": roles, "directoryStatus": "ready" if any(r["configured"] for r in roles) else "offline"}
         if not roles[0]["configured"]:
             return {"error": "unavailable"}
-        session = "arcade:" + digest(json.dumps([instance, actor, target, request["scope"]]))[:48]
         task = request["action"] == "task"
+        if request["action"] in ("text_task", "text_capability"):
+            project_route = "projects/" + quote(target, safe="")
+            port = mgmt.get("port") or 9820
+            endpoint = "/api/v1/" + project_route + "/text-task"
+            capability = read_json(port, mgmt["token"], endpoint, optional=True)
+            if capability.get("available") is True:
+                route_kind = "provider"
+            elif capability.get("defer") == "backend":
+                # Older bridges have the role and its normal permission mode on
+                # the project detail endpoint. Never change mode or provider here.
+                detail = get(project_route)
+                if detail.get("agent_type") == "codex" and detail.get("agent_mode") == "suggest":
+                    route_kind = "native"
+                elif detail.get("agent_type") == "dsh" and target in native and native[target][1]:
+                    # An explicitly shared native Channels member already has a
+                    # board executor. Its own approvals remain in force.
+                    route_kind = "native"
+                else:
+                    route_kind = None
+            else:
+                return {"error": "unavailable"}
+            if not route_kind:
+                if request["action"] == "text_task" and request.get("executor") == "legacy":
+                    route_kind = "legacy"  # Board admitted an existing transformation.
+                else:
+                    return {"defer": "backend", "legacyNative": True}
+            if request["action"] == "text_capability":
+                return {"available": True, "executor": route_kind}
+            if route_kind != request.get("executor"):
+                return {"defer": "backend"}  # Do not change executor after intake.
+            if route_kind == "provider":
+                try:
+                    return read_json(port, mgmt["token"], endpoint, {"text": request["text"]}, optional=True)
+                except (OSError, http.client.HTTPException):
+                    return {"error": "receipt_unknown"}
+            # Use the same authenticated identity, project, Bridge and approvals
+            # as an assigned native turn. suggest does not mean all tools are absent.
+            task = True
+        session = "arcade:" + digest(json.dumps([instance, actor, target, request["scope"]]))[:48]
         # The board worker owns this adapter until handback or cancellation.
         # Ordinary chat keeps its short observation deadline.
         deadline = None if task else time.monotonic() + 60

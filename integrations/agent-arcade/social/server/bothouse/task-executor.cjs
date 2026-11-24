@@ -22,7 +22,6 @@ function callBoard(board,action,text,claim){
 // can publish into a conversation, after checking the live permission scope.
 async function executeClaim(board,claim,text,run,controller){
   const transform=textTask(text);
-  if(!transform)throw Error('Unsupported board task');
   const renew=()=>callBoard(board,'renew',undefined,claim);
   await renew();
   let renewing=false;
@@ -37,6 +36,9 @@ async function executeClaim(board,claim,text,run,controller){
       if(controller.signal.aborted)return;
       const answer=await run(transform.prompt,controller.signal);
       if(answer?.error==='receipt_unknown')action='uncertain';
+      else if(answer?.defer==='backend'){action='defer';result='backend';}
+      else if(answer?.defer==='external'||answer?.text?.trim()==='[NEEDS_WORKER]'){action='defer';result='external';}
+      else if(answer?.text?.trim()==='[NEEDS_INPUT]'){action='defer';result='input';}
       else {result=transform.render(answer?.text);action='return';}
     }catch{}
     if(!controller.signal.aborted)await callBoard(board,action,result,claim);

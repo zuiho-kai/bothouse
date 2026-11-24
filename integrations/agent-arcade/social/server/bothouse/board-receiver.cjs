@@ -1,6 +1,6 @@
 'use strict';
 const {callBoard,executeClaim}=require('./task-executor.cjs');
-const {textTask}=require('./text-delivery.cjs');
+const {requiresExternalWorker,legacyBoardTask}=require('./text-delivery.cjs');
 const path=require('node:path');
 const {createHash}=require('node:crypto');
 
@@ -10,7 +10,7 @@ function scopeDirectory(root,number,chat){
   return path.join(root,createHash('sha256').update(JSON.stringify([number,chat])).digest('hex'));
 }
 
-function boardReceiver({resolveMember,runTextTask,startBoardTask,gate,boardDir,python=process.platform==='win32'?'python':'python3'}){
+function boardReceiver({resolveMember,runTextTask,startBoardTask,textTaskCapability,gate,boardDir,python=process.platform==='win32'?'python':'python3'}){
   if(typeof resolveMember!=='function'||!path.isAbsolute(gate)||!path.isAbsolute(boardDir))
     throw Error('Bothouse work requires the connected role directory and absolute board paths');
   const workers=new Map();
@@ -28,13 +28,19 @@ function boardReceiver({resolveMember,runTextTask,startBoardTask,gate,boardDir,p
     const board=boardFor(job);
     const receipt=await callBoard(board,action,text);
     if(receipt.state!=='accepted')return receipt;
-    if(!runTextTask||!textTask(text))return {...receipt,awaitingWorker:true};
     if(action!=='status'||workers.size>=4||workers.has(job.request)||!permitted())return receipt;
-    const claim=await callBoard(board,'claim');
-    if(!claim.claimed)return claim;
-    if(!permitted()||await identity(job.human,job.ai)!==job.identity||!permitted())return claim;
     const turn={account:job.human,number:job.ai,project:job.identity,chat:job.chat,direct:job.direct,
       messageId:job.request+'-'+job.attempt,scope:[job.chat,job.scope,job.request]};
+    const capability=runTextTask&&textTaskCapability ? await textTaskCapability(turn) : {defer:'backend'};
+    if(!permitted()||await identity(job.human,job.ai)!==job.identity||!permitted())return receipt;
+    if(!capability?.available&&capability?.defer!=='backend')throw Error('Executor unavailable');
+    if(capability.defer==='backend'&&capability.legacyNative&&legacyBoardTask(text))turn.executor='legacy';
+    else turn.executor=capability.executor;
+    const handoff=!turn.executor?'backend':
+      turn.executor==='native'&&requiresExternalWorker(text)?'external':undefined;
+    const claim=await callBoard(board,'claim');
+    if(!claim.claimed||!permitted())return claim;
+    if(handoff)return callBoard(board,'defer',handoff,claim.claimed);
     // An installed native receiver owns its connection beyond this service process.
     // Embedded receivers keep their existing abortable in-process lifecycle.
     const controller=startBoardTask?null:new AbortController();
@@ -64,7 +70,8 @@ function directoryBoardReceiver(directory,filename,env=process.env){
   const gate=env.SOCIAL_BOTHOUSE_GATE||path.join(installed,'gate');
   const boardDir=env.SOCIAL_BOTHOUSE_WORK_DIR||(filename&&path.join(path.dirname(filename),'bothouse-work'));
   if(!boardDir||!existsSync(path.join(gate,'board.py')))return;
-  return boardReceiver({runTextTask:directory.runTextTask?.bind(directory),startBoardTask:directory.startBoardTask?.bind(directory),async resolveMember(account,number){
+  return boardReceiver({runTextTask:directory.runTextTask?.bind(directory),startBoardTask:directory.startBoardTask?.bind(directory),
+    textTaskCapability:directory.textTaskCapability?.bind(directory),async resolveMember(account,number){
     const role=await directory.resolveMember(account,number);
     if(role&&!role.configured)throw Error('Bothouse role offline');
     if(!role&&directory.list&&(await directory.list(account,number)).directoryStatus==='offline')

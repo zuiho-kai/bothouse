@@ -13,7 +13,7 @@ const {createOpenAIGroupProvider}=require('./ai-openai.cjs');
 
 test('normal direct and group sends hand a task to the addressed Bothouse board member', {
   skip:!process.env.BOTHOUSE_TEST_GATE&&'set BOTHOUSE_TEST_GATE to the upstream bridge/contrib/gate directory',
-  timeout:90000
+  timeout:120000
 },async t=>{
   const gate=path.resolve(process.env.BOTHOUSE_TEST_GATE);
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'arcade-work-'));
@@ -21,8 +21,14 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
   const ids=new Map([['arcade_whale','fixture-whale'],['arcade_dragon','fixture-dragon']]);
   const requests=[];
   const release=Promise.withResolvers();
-  const directory={async runTextTask(turn){
+  let whaleSupported=false,nativeMode=false;
+  const textResults=[];
+  const directory={async textTaskCapability({number:role}){return role==='arcade_dragon'||whaleSupported ? {available:true,executor:nativeMode?'native':'provider'} : {defer:'backend',legacyNative:true};}, async runTextTask(turn){
     requests.push(turn);
+    if(turn.text.includes('给海边读书会想两个名字'))return {text:'潮汐书页、海岸夜读'};
+    if(turn.text.includes('Name two seaside book clubs'))return {text:'Tide Readers, The Shoreline Shelf'};
+    if(turn.text.includes('出版商寄合同'))return {defer:'external'};
+    if(turn.text.includes('总结附件'))return {text:'[NEEDS_INPUT]'};
     if(turn.text.includes('梨和苹果'))return {text:'梨、苹果'};
     if(turn.text.includes('早安朋友'))return {text:'Good morning, friend.'};
     if(turn.text.includes('两班船'))return {text:'今天有两班船。'};
@@ -184,7 +190,10 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
   assert(!hidden.some(message=>message.text.includes(late)));
   assert((await a(route(dm))).messages.some(row=>row.text.includes('等待执行者接手')));
   ids.set('arcade_whale','fixture-whale');
+  whaleSupported=true;
   for(const [chat,role,text,result,nonce] of [
+    [group,'arcade_dragon','给你一个任务：给海边读书会想两个名字','潮汐书页、海岸夜读','names-zh'],
+    [dm,'arcade_whale','给你一个任务：Name two seaside book clubs','Tide Readers, The Shoreline Shelf','names-en'],
     [dm,'arcade_whale','给你一个任务：按拼音给梨和苹果排序','梨、苹果','sort-test'],
     [group,'arcade_dragon','请翻译成英文：早安朋友','Good morning, friend.','translate-test'],
     [group,'arcade_dragon','给你一个任务：总结下面这段：两班船分别上午和下午开。','今天有两班船。','summary-test'],
@@ -200,8 +209,37 @@ test('normal direct and group sends hand a task to the addressed Bothouse board 
     assert.equal(requests.length,count+1);
     assert.equal(requests.at(-1).chat,chat);
     assert.equal(requests.at(-1).number,role);
+    textResults.push({text,executor:requests.at(-1).executor,calls:requests.length-count,result,source:message.id,reply:hits[0].id});
   }
-  const evidence={passed:true,revokedLateResultDelivered:false,roleDirectoryScopedBySender:true,chat:group,sourceMessage:groupRequest.id,resultMessage:results[0].id,
+  for(const [text,wanted] of [['请替我给出版商寄合同','waiting_external'],['帮我总结附件','waiting_input']]){
+    const {message}=await send(dm,'给你一个任务：'+text,wanted);
+    const history=await state(dm,message.id,wanted);
+    assert(!history.some(row=>row.text.startsWith('任务 #'+message.id+' · 已交回')));
+    if(wanted==='waiting_external'){
+      const item=(await rows(directBoard)).find(row=>row.what==='给你一个任务：'+text);
+      const before=requests.length;
+      execFileSync(process.platform==='win32'?'python':'python3',['-I','-B','-X','utf8',
+        path.join(__dirname,'bothouse/work_board.py'),gate,directBoard,item.who,item.sk.slice(7),'return'],
+        {input:JSON.stringify({text:'执行者交回的合成回执'}),encoding:'utf8',windowsHide:true});
+      const after=await state(dm,message.id,'returned');
+      assert.equal(after.filter(row=>row.text.endsWith('已交回\n执行者交回的合成回执')).length,1);
+      assert.equal(requests.length,before);
+    }
+  }
+  nativeMode=true;
+  const callsBeforeExternal=requests.length;
+  const external=(await send(dm,'给你一个任务：把合同发给出版商','native-external')).message;
+  await state(dm,external.id,'waiting_external');
+  assert.equal(requests.length,callsBeforeExternal);
+  whaleSupported=false;
+  const countBeforeLegacy=requests.length;
+  const legacy=(await send(dm,'给你一个任务：按拼音给梨和苹果排序','legacy-original')).message;
+  const restored=await state(dm,legacy.id,'returned');
+  const legacyReplies=restored.filter(m=>m.text==='任务 #'+legacy.id+' · 已交回\n梨、苹果');
+  assert.equal(legacyReplies.length,1);
+  assert.equal(requests.at(-1).executor,'legacy');
+  assert.equal(requests.length,countBeforeLegacy+1);
+  const evidence={passed:true,textResults,externalNativeModelCalls:0,legacySortingReplies:legacyReplies.length,revokedLateResultDelivered:false,roleDirectoryScopedBySender:true,chat:group,sourceMessage:groupRequest.id,resultMessage:results[0].id,
     browserComposer:Boolean(page),boardId:taken.id,member:taken.who,request:key,artifact,sha256:createHash('sha256').update(output).digest('hex'),
     boardEvents:(await fs.readFile(path.join(groupBoard,'board-events.jsonl'),'utf8')).trim().split(/\r?\n/).map(JSON.parse),
     modelStatementsAcceptedAsCompletion:0,taskAttempts:requests.length,chatCalls:chats,upstream:'Bothouse board.add / update / returned',worker:'real board and artifact worker; synthetic role returned category labels'};
@@ -214,4 +252,12 @@ test('a task inserted in the composer keeps the same classification items as a n
   const prefixed=textTask('给你一个任务：'+direct);
   assert.equal(prefixed.prompt,textTask(direct).prompt);
   assert.equal(prefixed.render('["文具","书籍"]'),'文具：蓝笔\n书籍：旧书');
+});
+
+test('native text edits can use ordinary English verbs while an external operation stays on the board',()=>{
+  const {requiresExternalWorker,legacyBoardTask}=require('./bothouse/text-delivery.cjs');
+  assert.equal(requiresExternalWorker('Delete the last sentence of this paragraph: A. B.'),false);
+  assert.equal(requiresExternalWorker('Execute the script on disk'),true);
+  assert.equal(legacyBoardTask('给你一个任务：按拼音给梨和苹果排序'),true);
+  assert.equal(legacyBoardTask('给你一个任务：给海边读书会想两个名字'),false);
 });

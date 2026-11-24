@@ -73,6 +73,11 @@ def main():
             lease.write_text(claimed, encoding="ascii")
             board.update(number, "正在处理")
             item = board.item_by_id(number)
+        waiting = {"input": "等待用户补充材料", "external": "待外部执行者", "backend": "待纯文字执行者"}
+        if action == "defer" and token and not item.get("returned_at"):
+            board.update(number, waiting[request["text"]])
+            lease.unlink(missing_ok=True)
+            item = board.item_by_id(number)
         if action in {"start", "return", "fail", "uncertain"}:
             # These operations are only available to the local role worker.
             if not item.get("returned_at"):
@@ -95,6 +100,9 @@ def main():
             item = board.item_by_id(number)
         result = {"claimed": claimed, "boardId": number, "key": key, "role": role,
                   "state": {"正在处理": "running", "处理失败": "failed", "回执待核实": "uncertain"}.get(item["status"], "accepted")}
+        for reason, status in waiting.items():
+            if item["status"] == status:
+                result.update(state="waiting_" + reason)
         if item.get("returned_at"):
             data = json.loads(artifact.read_text(encoding="utf-8"))
             if data["key"] != key or not isinstance(data["result"], str) or not 0 < len(data["result"].strip()) <= 3000:
