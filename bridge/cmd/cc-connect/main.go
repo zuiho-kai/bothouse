@@ -774,6 +774,7 @@ func runMain() {
 			})
 		})
 		mgmtSrv.SetGetProjectConfig(config.GetProjectConfigDetails)
+		mgmtSrv.SetFriendShares(config.FriendShares)
 		mgmtSrv.SetQQSettingsFuncs(
 			func(name string) (*core.QQSettings, error) {
 				s, err := config.GetQQSettings(name)

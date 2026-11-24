@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import PersonaPanel from './PersonaPanel';
 import SocialPanel from './SocialPanel';
+import FriendSharesPanel from './FriendSharesPanel';
 import QQSettingsPanel from './QQSettingsPanel';
 import QQBotSettingsPanel from './QQBotSettingsPanel';
 import { DSHLocalPlatformForm } from '@/components/dsh/DSHLocalPlatformForm';
@@ -617,6 +618,7 @@ export default function ProjectDetail() {
 
       {tab === 'settings' && project && (
         <div className="space-y-4">
+            <FriendSharesPanel key={project.name} project={project.name} />
         {project.platform_configs?.some(p => p.type === 'qq') && <QQSettingsPanel project={project.name} platforms={project.platforms} restartSeq={restartSeq} />}
         {/* The official Bot is its own platform ("qqbot") with its own options, so it gets
             its own panel; sharing one block with the OneBot bridge would offer keys the

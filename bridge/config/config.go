@@ -125,14 +125,14 @@ type Config struct {
 	// Cleanup: the janitor (core/janitor.go, #1825). On unless enabled = false; dirs adds places
 	// whose children nobody touched for a week are removed, on top of the bridge's own (bgrun runs,
 	// iso-check test dirs, walkthrough runs).
-	Cleanup         CleanupConfig `toml:"cleanup"`
+	Cleanup CleanupConfig `toml:"cleanup"`
 	// Proactive: the door for messages roles send on their own (core/proactive_outbox.go, #1857):
 	// merge reminders due together, per-chat budget, back off when nobody answers. Off unless
 	// enabled = true (#1860).
-	Proactive ProactiveConfig `toml:"proactive"`
-	Hooks           []HookConfig  `toml:"hooks"`
-	IdleTimeoutMins *int          `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
-	MaxTurnTimeMins *int          `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
+	Proactive       ProactiveConfig `toml:"proactive"`
+	Hooks           []HookConfig    `toml:"hooks"`
+	IdleTimeoutMins *int            `toml:"idle_timeout_mins,omitempty"`  // max minutes between consecutive agent events; 0 = no timeout; default 120
+	MaxTurnTimeMins *int            `toml:"max_turn_time_mins,omitempty"` // absolute wall-clock cap per turn in minutes; 0 = disabled (default)
 	// TeamWatchCheckMins: minutes after a handoff before the watch looks at the workspace
 	// (core/team_watch.go). Process-wide. Unset or <= 0 = 10.
 	TeamWatchCheckMins *int `toml:"team_watch_check_mins,omitempty"`
@@ -824,7 +824,8 @@ type ProjectConfig struct {
 	InjectSender     *bool        `toml:"inject_sender,omitempty"`     // prepend sender identity (platform + user ID) to each message sent to the agent
 	DisabledCommands []string     `toml:"disabled_commands,omitempty"` // commands to disable for this project (e.g. ["restart", "upgrade"])
 	AdminFrom        string       `toml:"admin_from,omitempty"`        // comma-separated user IDs allowed to run privileged commands; "*" = all allowed users
-	Users            *UsersConfig `toml:"users,omitempty"`             // per-user role config; nil = legacy behavior
+	ArcadeFriends    []string     `toml:"arcade_friends,omitempty"`
+	Users            *UsersConfig `toml:"users,omitempty"` // per-user role config; nil = legacy behavior
 	// WorkspaceIdleTimeoutMinsLegacy is the deprecated per-project form of
 	// the workspace idle reaper timeout. New configs should set the top-level
 	// Config.WorkspaceIdleTimeoutMins instead. When the top-level field is
