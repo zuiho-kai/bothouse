@@ -276,3 +276,22 @@ node social/deploy/rehearse.cjs /path/to/caddy /path/to/openssl /path/to/new-reh
 已有 Windows 本机启动器沿用它选中的 Bothouse 实例及好友服务端口。若在同一台主机独立运行 Bothouse，先将实例配置放在服务账号有读写权的私有目录。systemd 示例可用 `/var/lib/agent-arcade-social/bothouse`，该目录应由 `agent-arcade-social` 所有。让 Bothouse 以同一账号使用 `--config <目录>/config.toml`，在现有好友服务配置中把 `BOTHOUSE_DATA_DIR` 指向这一目录，并保持 `SOCIAL_HOST=127.0.0.1`、固定 `SOCIAL_PORT`。首次启动好友服务后即可用 Bothouse 管理页查号。
 
 凭据由好友服务自动写到该实例配置旁的私有文件，原安装包和服务日志不含凭据。重启沿用原实例目录与监听地址。已有账号只需正常登录 App，在通讯录打开获准角色。
+
+#### 独立运行 Bothouse
+
+在同一个 Linux 账号下，从两个终端启动。示例假定 Bothouse 已通过自己的向导保存过角色、管理认证和 Bridge 状态，好友服务已在指定目录解包。把示例路径换成实际私有路径，并使用实际的固定好友服务端口。
+
+```sh
+instance_dir="$HOME/.bothouse"
+bothouse --headless --config "$instance_dir/config.toml"
+```
+
+```sh
+instance_dir="$HOME/.bothouse"
+cd "$HOME/agent-arcade-social/social"
+BOTHOUSE_DATA_DIR="$instance_dir" SOCIAL_HOST=127.0.0.1 SOCIAL_PORT=8787 node server/main.cjs
+```
+
+使用本项目提供的 systemd 服务时，把同样的 `BOTHOUSE_DATA_DIR`、`SOCIAL_HOST` 和 `SOCIAL_PORT` 写入既有 `service.env`。实例目录须位于该服务单元可写的位置，例如 `/var/lib/agent-arcade-social/bothouse`。Bothouse 也用服务账号启动，并把 `--config` 指向该目录。首次成功监听时会自动创建权限为 `0600` 的查号配置。以后按原命令重启即可。改变实例目录或监听地址时应先对齐服务部署配置。
+
+Ubuntu 24.04 WSL2 已用临时 systemd 用户服务跑通首次启动、管理查号、正常用户收角色，以及两端重启后同一角色和旧会话的读取。Windows 本机启动器另有独立实测。
