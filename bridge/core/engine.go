@@ -8559,6 +8559,11 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		// A time limit claimed for the turn that just ended finishes its stop
+		// first: it drops the queue itself, so a message dequeued meanwhile is
+		// never sent to the session it is closing (same boundary as
+		// chainQueuedTurn).
+		state.awaitScheduledCancelLocked()
 		if e.isStoppingForJournal() {
 			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
 			// turn after Stop has begun; the journal already holds its queue.
@@ -8729,6 +8734,12 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 					err = as.Send(attemptPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				if err != nil && (state.isStopped() || !as.Alive()) {
+					// #2132: already off the queue when the session went away — it
+					// ends like the dropped queued messages, not as a turn error
+					// on a dead process.
+					err = fmt.Errorf("agent session ended")
+				}
 				return err
 			},
 			false, // a message drained from the queue was already offered its probe
