@@ -14,7 +14,7 @@
 
 用户原话（11-07）：「我可以不断的在上面加新回答，就可以减少我们的那个条目跟就是我们的那个帖子的数量」。
 """
-import collections, hashlib, json, os, re, subprocess, sys, tempfile
+import collections, hashlib, json, os, re, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -198,6 +198,7 @@ def grams(s):
 
 def ask(prompt):
     if BASE:
+        import urllib.error
         import urllib.request
         body = {"model": MODEL, "response_format": {"type": "json_object"},
                 "messages": [{"role": "system", "content": "你只输出 JSON。"}, {"role": "user", "content": prompt}]}
@@ -205,11 +206,17 @@ def ask(prompt):
             body["reasoning_effort"] = os.environ["FORUM_THREADS_EFFORT"]
         req = urllib.request.Request(BASE.rstrip("/") + "/chat/completions", headers={"Content-Type": "application/json"},
                                      data=json.dumps(body).encode())
-        try:
-            with urllib.request.urlopen(req, timeout=ASK_TIMEOUT) as r:
-                txt = json.load(r)["choices"][0]["message"]["content"]
-        except TimeoutError as e:
-            raise subprocess.TimeoutExpired("ask", ASK_TIMEOUT) from e
+        for n in range(6):  # 号池 key 按分钟限次数（429，约 1 分钟恢复）：等一分钟再试，不当失败（#1978 全量 8 并发撞满 125 页）
+            try:
+                with urllib.request.urlopen(req, timeout=ASK_TIMEOUT) as r:
+                    txt = json.load(r)["choices"][0]["message"]["content"]
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429 or n == 5:
+                    raise
+                time.sleep(65)
+            except TimeoutError as e:
+                raise subprocess.TimeoutExpired("ask", ASK_TIMEOUT) from e
         return json.loads(re.search(r"\{.*\}", txt, re.S).group(0)), 0.0
     r = subprocess.run([os.environ.get("CLAUDE_BIN", "claude"), "-p", "--model", MODEL, "--output-format", "json", "--tools", "",
                         "--system-prompt", "你只输出 JSON。", "--setting-sources", ""],
