@@ -1,14 +1,15 @@
 # Little Worlds with Bothouse residents
 
-从原作者的公开课程基线安装完整 Little Worlds 游戏和本次居民功能。在 Windows 终端进入本仓库的 integrations/agent-arcade/little-worlds 目录，准备 Python 3.11+、Git、Node.js 24+ 及 pnpm 11.9.0（也可用 Corepack 获取此版本），运行：
+从原作者的公开课程基线安装完整 Little Worlds 游戏和本次居民功能。准备 Python 3.11+、Git、Node.js 24+ 及 pnpm 11.9.0（也可用 Corepack 获取此版本）。从本仓库根目录打开 Windows 终端，运行：
 
 ```powershell
+cd integrations/agent-arcade/little-worlds
 python install.py .\LittleWorlds --run
 ```
 
 在浏览器打开 http://127.0.0.1:18746/，进入游戏并着陆自己的星球。使用独立浏览器时，在同一浏览器打开 /resident-settings，选择「连接我的 Bothouse」，然后双击安装目录里的「星球居民.cmd」，选择本机预览，按提示在自己的电脑填入连接码。由 Agent Arcade 打开的世界可从星球页点「连接我的 AI」，需要兼容的 App 和本人已配对的 Bothouse。从 Agent Arcade 的真人好友私聊点「会话设置 → 拜访好友星球」。目标房主已允许好友拜访时，登船后可确认目的地并起飞。访友需要 #2180 中相应的新版社交端。单独玩游戏无需 AI 服务。发布器细节见 additions/docs/integration/bothouse-residents.md。
 
-关闭终端后的再次启动：`python LittleWorlds/serve.py`。默认保存于安装目录的 .data/resident-preview/world.sqlite。请使用空目录首次安装；端口已占用可选 `--port 18749`，此时选择该回环地址，同一端口使用同一存档。已有 Bothouse 角色和模型配置由房主在 Bothouse 中管理。
+关闭终端后，从仓库根重新进入 `integrations/agent-arcade/little-worlds`，运行 `python .\LittleWorlds\serve.py` 重开同一处存档。默认保存于安装目录的 .data/resident-preview/world.sqlite。请使用空目录首次安装；端口已占用可选 `--port 18749`，此时选择该回环地址，同一端口使用同一存档。已有 Bothouse 角色和模型配置由房主在 Bothouse 中管理。
 
 ## 自定义居民的三维造型
 
@@ -18,15 +19,28 @@ For a costume that survives portrait changes, use a Bothouse build with the **3D
 
 ## 与 Agent Arcade 好友共用星球
 
-房主只需在好友 App 里登录。部署者第一次安装时可指定可信桌面包的 service.json，安装器读取其中的 `origin` 和 `littleWorldsOrigin`。同一份世界存档下次直接运行 serve.py 仍会使用这两个地址。
+房主先在配套好友 App 登录，再在小星球设置中允许好友来访。部署者第一次配对时，按[好友端 Windows 打包说明](https://github.com/Ray0766/bothouse/blob/6e52ff3de58789eed9eed9c5dc1633ee2e43879f/integrations/agent-arcade/social/windows/README.md)解包匹配的测试 MSIX，选取解包目录内的 `Social/resources/app/service.json`。该文件随配套 Windows 包生成，世界安装器读取其中的 `origin` 与 `littleWorldsOrigin`，并保存到这份世界存档的配对配置。
 
 ```powershell
-python install.py .\LittleWorlds --desktop-service .\desktop\resources\app\service.json --run
+python install.py .\LittleWorlds --desktop-service "<MSIX 解包目录>\Social\resources\app\service.json" --run
 ```
 
 自建服务也可用 `--friends-origin` 与 `--world-origin` 指定两个完整 HTTPS 原点，好友服务的 `LITTLE_WORLDS_ORIGIN` 应与游戏原点相同。回环开发可用 HTTP。游戏监听在回环，异地访问使用部署者自己的 HTTPS 反向代理。独立课程游戏继续使用上方无服务参数的安装命令。
 
 换设备登录同一好友账号后，已核实的存档会恢复原玩家。旧存档若只留在旧设备，请先在原 App 档案打开一次。允许好友拜访和连接居民分别设置；没有 AI 的房主也能分享，撤回后，已着陆的访客会看到来访已关闭，可直接返回原聊天。居民活动随访问权限收回，未发草稿保留。升级时若旧访客看到重进提示，可返回原聊天，再从同一好友的会话设置打开星球。详见 [双端部署](additions/docs/integration/friends-home.md)。
+
+## Install and reopen in English
+
+From the Bothouse checkout root, run:
+
+```powershell
+cd integrations/agent-arcade/little-worlds
+python install.py .\LittleWorlds --run
+```
+
+Open http://127.0.0.1:18746/ to play. To reopen the same save, return to that directory and run `python .\LittleWorlds\serve.py`.
+
+To enable Friends visits, use a matching Agent Arcade Friends build. [Unpack the Windows test MSIX](https://github.com/Ray0766/bothouse/blob/6e52ff3de58789eed9eed9c5dc1633ee2e43879f/integrations/agent-arcade/social/windows/README.md) into an empty directory. The service settings are at `Social/resources/app/service.json` under the unpacked directory. For a new world installation, pass that file with `--desktop-service "<unpacked MSIX directory>\Social\resources\app\service.json"` before `--run`. The same save remembers the two addresses when reopened. The host signs in and enables visits. A friend opens their private conversation settings in Agent Arcade and selects **拜访好友星球** (Visit friend's planet). They can return to that conversation without sending the draft.
 
 ## How the installation works
 
