@@ -501,6 +501,12 @@ func applyWizardWiki(res *WizardResult, env WizardEnv, req WizardRequest, projec
 			rd = "added: " + reflectorCronDesc
 		}
 		addStep(res, "forum reflector cron", ferr, rd)
+		ok, ferr = AddThreadsCronJob(c, project, sessionKey, filepath.Join(env.DataDir, "gate"), mainDir)
+		td := "already there: " + threadsCronDesc
+		if ok {
+			td = "added: " + threadsCronDesc
+		}
+		addStep(res, "forum threads cron", ferr, td)
 	}
 }
 
@@ -532,6 +538,36 @@ func AddForumCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string)
 	noLimit := 0
 	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "30 5 * * *",
 		Exec: cmd, Description: forumCronDesc, Enabled: true, Mute: true, TimeoutMins: &noLimit, CreatedAt: time.Now()}
+	return true, c.Add(j)
+}
+
+// threadsCronDesc: the nightly memory-forum threading (contrib/gate/forum_threads.py assign). Same description = same job.
+const threadsCronDesc = "记忆论坛夜间归帖"
+
+// AddThreadsCronJob adds the nightly `forum_threads.py assign` unless it is there: new forum entries are put, one model
+// call per wiki page, under the thread that asks the same thing (a new floor) or open a new thread, so the forum page
+// shows one thread per question instead of one per entry. 06:00 = the author's launchd job (com.zuiho.gate-exp-threads),
+// after the 05:30 settlement. It runs `claude -p` on the bridge's own credentials; the first night threads every
+// entry, later nights only the new ones. Muted. User 11-24 「1+2」: agentm and every install thread nightly.
+func AddThreadsCronJob(c WizardCron, project, sessionKey, gateDir, wikiDir string) (bool, error) {
+	jobs, err := c.List()
+	if err != nil {
+		return false, err
+	}
+	for _, j := range jobs {
+		if j.Description == threadsCronDesc {
+			return false, nil
+		}
+	}
+	cmd := shellRun(wikiPython(), "-X", "utf8", "-I", cmdQuote(filepath.Join(gateDir, "forum_threads.py")), "assign")
+	if runtime.GOOS == "windows" {
+		cmd = "$env:GATE_WIKI=" + cmdQuote(wikiDir) + "; " + cmd
+	} else {
+		cmd = "GATE_WIKI=" + cmdQuote(wikiDir) + " " + cmd
+	}
+	noLimit := 0
+	j := &CronJob{ID: GenerateCronID(), Project: project, SessionKey: sessionKey, CronExpr: "0 6 * * *",
+		Exec: cmd, Description: threadsCronDesc, Enabled: true, Mute: true, TimeoutMins: &noLimit, CreatedAt: time.Now()}
 	return true, c.Add(j)
 }
 
@@ -570,6 +606,9 @@ const wikiCronEnsuredFile = ".wiki-cron-ensured-v1"
 // mark, so installs that already had the v1 check get only the reflector, not again the wiki/forum jobs a user deleted.
 const reflectorCronEnsuredFile = ".reflector-cron-ensured-v1"
 
+// threadsCronEnsuredFile: the same once-per-data-dir check for the nightly threading job (#1891).
+const threadsCronEnsuredFile = ".threads-cron-ensured-v1"
+
 // EnsureWizardWikiCron adds, once per data dir, the wiki cron jobs and the nightly forum settlement a wizard install
 // should have but lacks: installs from before the wizard added them without a default channel (agentm, 2026-11-04)
 // or before the forum job existed get them on the first start of the new build, with no wizard rerun. Same rules as
@@ -580,10 +619,12 @@ func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, e
 		return nil, nil
 	}
 	mark, rmark := filepath.Join(dataDir, wikiCronEnsuredFile), filepath.Join(dataDir, reflectorCronEnsuredFile)
+	tmark := filepath.Join(dataDir, threadsCronEnsuredFile)
 	_, werr := os.Stat(mark)
 	_, rerr := os.Stat(rmark)
-	doWiki, doRefl := werr != nil, rerr != nil
-	if !doWiki && !doRefl {
+	_, terr := os.Stat(tmark)
+	doWiki, doRefl, doThreads := werr != nil, rerr != nil, terr != nil
+	if !doWiki && !doRefl && !doThreads {
 		return nil, nil
 	}
 	st := LoadSetupState(dataDir)
@@ -641,7 +682,21 @@ func EnsureWizardWikiCron(dataDir string, c WizardCron, sub string) ([]string, e
 				added = append(added, reflectorCronDesc)
 			}
 		}
-		return added, os.WriteFile(rmark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
+		if err := os.WriteFile(rmark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644); err != nil {
+			return added, err
+		}
+	}
+	if doThreads {
+		if mainDir != "" {
+			ok, ferr := AddThreadsCronJob(c, project, session, filepath.Join(dataDir, "gate"), mainDir)
+			if ferr != nil {
+				return added, ferr
+			}
+			if ok {
+				added = append(added, threadsCronDesc)
+			}
+		}
+		return added, os.WriteFile(tmark, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
 	}
 	return added, nil
 }
