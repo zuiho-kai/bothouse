@@ -1,7 +1,9 @@
 package core
 
 import (
+	"errors"
 	"log/slog"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +28,20 @@ import (
 const (
 	// waitExternalRetryGap: a failed resume (no free workspace script, bridge busy) is tried again after this.
 	waitExternalRetryGap = 10 * time.Minute
+	// waitExternalConfigExit: ws-handoff's exit code for a failure retrying cannot fix (EXIT_CONFIG).
+	waitExternalConfigExit = 3
 )
+
+// waitExternalConfigWhy: the line of ws-handoff's output that says what is misconfigured, for the board.
+func waitExternalConfigWhy(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.Contains(l, "不能用") || strings.Contains(l, "没切成") {
+			return shortLabel(strings.TrimPrefix(l, "ws-handoff: "), 150)
+		}
+	}
+	return "配置错，再试也一样"
+}
 
 // waitingExternal: the board item is paused waiting on something outside (board.py wait).
 func (it teamTaskBoardItem) waitingExternal() bool {
@@ -122,6 +137,18 @@ func (e *Engine) resumeWaitingExternal(it teamTaskBoardItem) {
 	}
 	out, err := e.runLeadScript(it.Chat, "ws-handoff", "--resume", strconv.Itoa(it.ID), note)
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == waitExternalConfigExit {
+			// #1972: a config failure (the recorded model is not in the list, or will not switch) fails the
+			// same way every ten minutes (11-24: 210 failed retries, all 「模型 保持现状 没切成」). Stop the
+			// retries once; the item stays paused and the chat hears ② once (team_chat_state.go).
+			why := waitExternalConfigWhy(string(out))
+			if sout, serr := e.runLeadScript(it.Chat, "board", "wait-stop", strconv.Itoa(it.ID), why); serr != nil {
+				slog.Warn("team workspace: stopping retries of a misconfigured task failed", "board_item", it.ID, "error", serr, "output", strings.TrimSpace(string(sout)))
+			}
+			slog.Warn("team workspace: retry of a task waiting on external stopped: config error", "board_item", it.ID, "why", why)
+			return
+		}
 		slog.Warn("team workspace: retry of a task waiting on external failed", "board_item", it.ID, "error", err, "output", strings.TrimSpace(string(out)))
 		return
 	}

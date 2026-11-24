@@ -609,9 +609,20 @@ def own_workspace(previous, nid) -> str:
     return str(t.get("session_ws") or previous.get("ws_was") or "")
 
 
+# 配置错（记的模型不在列表、切不成）：再试也一样败，退出码用它，桥到点重试收到就停、不再每 10 分钟重派（#1972）。
+# 来源：11-24 等外部重试日志 210 次失败全是「模型 保持现状 没切成」，#1893 重派 81 次。
+EXIT_CONFIG = 3
+
+
 def start(path, task, chat, nid, project, answer=None, reassigned=False):
     """续做：挑工作区（原来占着的优先，没有空的 pick_pool 会新建或退出）、绑任务板 #nid、叫醒。"""
     previous = next((i for i in board.items() if i["id"] == nid), {})
+    # 接回前先核记着的模型，和首次交活同一个校验（_model.check）；不对就不占工作区、不动板，按配置错退出
+    bad = _model.check(previous.get("model"), previous.get("effort"), project) if previous.get("model") else None
+    if bad:
+        print(f"ws-handoff: #{nid} 记着的模型 {_model.label(previous.get('model'), previous.get('effort'))} 不能用：{bad}",
+              file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
     reassigned = reassigned or bool(previous.get("dispatcher") and project and project != previous.get("dispatcher"))
     preferred = "" if reassigned else own_workspace(previous, nid)
     ws, name, parent = (None if reassigned else held(previous, chat)) or pick_pool(chat, task, nid, preferred)
@@ -626,9 +637,13 @@ def start(path, task, chat, nid, project, answer=None, reassigned=False):
         # 没叫醒：工作区放回、任务板整条退回改前（#1492 L3：原先只放工作区，板停在「已交接」绑着那个工作区）
         parked = board._park_once(cc_bin(), ws, parent)
         back = board.restore(previous) if previous else False
-        sys.exit(f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}；"
-                 f"任务板{'已退回改前（' + str(previous.get('status') or '') + '）' if back else '没退回（板上找不到这条，原样留着）'}，"
-                 f"工作区{'已放回' if parked else '没放回（桥没放或本就不归这件，见上面的报错）'}")
+        msg = (f"ws-handoff: #{nid} 叫醒 {name} 失败：{r.stderr.strip() or r.stdout.strip()}；"
+               f"任务板{'已退回改前（' + str(previous.get('status') or '') + '）' if back else '没退回（板上找不到这条，原样留着）'}，"
+               f"工作区{'已放回' if parked else '没放回（桥没放或本就不归这件，见上面的报错）'}")
+        if why is not None:  # 模型切不成是配置错，再试也一样
+            print(msg, file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
+        sys.exit(msg)
     record_last(path, ws, task, chat, nid, project)
     board.arm_guard(nid, GUARD)
     md = _model.label(previous.get("model"), previous.get("effort"))
@@ -701,6 +716,9 @@ def resume_answered(nid, answer, project=None, model=None, effort=None):
         # 下次接回时照常再走（#1492 L3）
         board.restore(it)
         board.append_forward(it["where"], f"{board._now()} ⚠️ 上面这条{source}没送到工作区（叫醒失败），#{nid} 已退回接回前的状态。")
+        if e.code == EXIT_CONFIG:  # 配置错：原因 start 已打到 stderr，退出码原样交给桥
+            print(f"ws-handoff: #{nid} 已退回接回前（{it.get('status') or ''}），答复没送到", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
         sys.exit(f"{e.code}；#{nid} 已退回接回前（{it.get('status') or ''}），答复没送到")
 
 

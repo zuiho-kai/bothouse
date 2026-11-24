@@ -119,17 +119,20 @@ class ResumeModelTest(unittest.TestCase):
         self.item = {"id": 961, "what": "交活指定模型", "status": "暂停", "model": "opus", "effort": "high"}
         self.applied = []
         self.apply_err = None
+        self.check_err = None
+        self.stderr = io.StringIO()
         self.board = types.SimpleNamespace(items=lambda: [self.item], update=Mock(), rebind=Mock(), arm_guard=Mock(),
                                            _park_once=Mock(return_value=True), restore=Mock(return_value=True))
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="timer-1", stderr=""))
         import subprocess as sp
         self.ns = functions("ws-handoff", {"start"}, dict(
             board=self.board, held=lambda prev, chat: ("discord:ws5", "工作区5", "discord:main"),
-            pick_pool=Mock(), _lead_name=lambda p: "C酱", append_skeleton=Mock(), record_last=Mock(),
+            pick_pool=Mock(), own_workspace=lambda prev, nid: "", _lead_name=lambda p: "C酱", append_skeleton=Mock(), record_last=Mock(),
             timer_cmd=lambda *a: ["cc", "timer", "add"], cc_bin=lambda: "cc", GUARD=None,
             subprocess=types.SimpleNamespace(run=self.run, CompletedProcess=sp.CompletedProcess),
-            sys=types.SimpleNamespace(exit=lambda m: (_ for _ in ()).throw(SystemExit(m)), stderr=io.StringIO()),
-            _model=types.SimpleNamespace(label=_model.label,
+            sys=types.SimpleNamespace(exit=lambda m: (_ for _ in ()).throw(SystemExit(m)), stderr=self.stderr),
+            EXIT_CONFIG=3,
+            _model=types.SimpleNamespace(label=_model.label, check=lambda m, e, p=None: self.check_err,
                                          apply=lambda ws, m, e, p=None: self.applied.append((ws, m, e, p)) or self.apply_err)))
 
     def test_resume_reapplies_task_model(self):
@@ -138,13 +141,27 @@ class ResumeModelTest(unittest.TestCase):
         self.run.assert_called_once()
 
     def test_switch_failure_rolls_back(self):
+        # 切不成是配置错：退出码 3，桥到点重试收到就停（#1972）
         self.apply_err = "model list unavailable"
         with self.assertRaises(SystemExit) as cm:
             self.ns["start"]("/n.md", "交活指定模型", "discord:main", 961, "cjiang", "答复")
-        self.assertIn("没切成", str(cm.exception))
+        self.assertEqual(cm.exception.code, 3)
+        self.assertIn("没切成", self.stderr.getvalue())
         self.run.assert_not_called()
         self.board._park_once.assert_called_once()
         self.board.restore.assert_called_once_with(self.item)
+
+    def test_bad_recorded_model_stops_before_claiming(self):
+        # #1972：记着的模型不在列表（11-24 的「保持现状」）：接回前同首次交活一样先核，不对就不占工作区、不动板，退出码 3
+        self.check_err = "模型 保持现状 不在本项目的模型列表里"
+        self.ns["held"] = Mock()
+        with self.assertRaises(SystemExit) as cm:
+            self.ns["start"]("/n.md", "交活指定模型", "discord:main", 961, "cjiang", "答复")
+        self.assertEqual(cm.exception.code, 3)
+        self.assertIn("不能用", self.stderr.getvalue())
+        self.board.update.assert_not_called()
+        self.board.rebind.assert_not_called()
+        self.run.assert_not_called()
 
 
 class HandoffJoinModelTest(unittest.TestCase):
