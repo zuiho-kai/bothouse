@@ -1,6 +1,7 @@
 import { mountConversationList } from './conversation-list.js';
 import { quoteControl,focusOriginal } from './message-reply.js';
 import { VoiceQueuePlayer } from './voice-queue-player.js';
+import { humanAvatarUrl, prepareAvatar, readImageData } from './avatar-image.js';
 const startupUrl=new URL(location.href);
 if(startupUrl.searchParams.has('friends-reload')){
   startupUrl.searchParams.delete('friends-reload');
@@ -152,7 +153,7 @@ function field(label, name, max, value = '') {
   return {node,input};
 }
 const roleArt=new Map([['arcade_ju','ju'],['arcade_whale','whale'],['arcade_dragon','dragon']]);
-function avatar(name, seed = name, artwork) {
+function avatar(name, seed = name, artwork, artworkClass='role-avatar') {
   const node = el('span', Array.from(name?.trim() || '聊')[0], 'avatar');
   node.dataset.tone = String(Array.from(seed || '').reduce((n,c) => n + c.codePointAt(0),0)%4);
   node.setAttribute('aria-hidden','true');
@@ -161,18 +162,22 @@ function avatar(name, seed = name, artwork) {
     portrait.alt='';
     portrait.src=artwork;
     portrait.addEventListener('error',()=>{
-      node.classList.remove('role-avatar');
+      node.classList.remove(artworkClass);
       node.textContent=Array.from(name?.trim()||'聊')[0];
     },{once:true});
-    node.classList.add('role-avatar');
+    node.classList.add(artworkClass);
     node.replaceChildren(portrait);
   }
   return node;
 }
+const personAvatar=person=>avatar(person.displayName,person.number,humanAvatarUrl(person),'human-avatar');
 function time(value, format=date) {
   return value && !Number.isNaN(Date.parse(value)) ? format.format(new Date(value)) : '';
 }
 function textError(error) {
+  if(error.message==='file_name')return '文件名含不支持的字符，请重命名后再选择。';
+  if(error.message==='file_too_large')return '文件超过 16 MiB，请选择较小的文件。';
+  if(error.message==='file_session')return '账号或群成员身份已变化，请重新打开目标会话。';
   if(error.message==='invalid_pair')return '这个配对码已过期、已使用或属于其他好友账号。请向分享者索取新码。';
   if(error.message==='pair_code')return '请粘贴分享者给你的完整配对码。';
   if(error.message==='bothouse_unavailable')return '这位角色暂不可用。请到桌面 App 的「更多 → Bothouse」查看。';
@@ -207,14 +212,16 @@ function textError(error) {
   if (error.status === 429) return '操作太频繁，请稍后再试。';
   return error.status === 400 ? '请检查填写内容后重试。' : '服务暂时不可用，请稍后再试。';
 }
-async function api(route, body, {session = true, expectedAccount, image, voice, timeoutMs=12000} = {}) {
+async function api(route, body, {session = true, expectedAccount, image, voice, fileUpload, timeoutMs=12000} = {}) {
   const epoch = generation;
-  const attachment = image || voice;
+  const attachment = image || voice || fileUpload;
   const response = await fetch('./api/v1' + route, {
     method:body === undefined ? 'GET' : 'POST',
     headers:{'X-Social-Claude-UI':'1','X-Social-AI-Friend-Roles':'1',...(expectedAccount && {'X-Social-Account':expectedAccount}),
       ...(body !== undefined && {'Content-Type':attachment?.mime||'application/json',
-      ...(attachment && {'X-Social-Client-Id':attachment.clientId})})},
+      ...(attachment && {'X-Social-Client-Id':attachment.clientId}),
+      ...(attachment?.revision && {'X-Social-Member-Revision':attachment.revision}),
+      ...(fileUpload && {'X-Social-File-Name':encodeURIComponent(fileUpload.name)})})},
     ...(body !== undefined && {body:attachment?body:JSON.stringify(body)}),
     credentials:'same-origin', cache:'no-store', signal:AbortSignal.timeout(timeoutMs)
   });
@@ -372,7 +379,7 @@ $('#auth-form').addEventListener('submit', async event => {
     if(focusLogin)authSwitch.focus();
   }
 });
-function row(name, description, seed, action, extra = '', identity = '', unread = false) {
+function row(name, description, seed, action, extra = '', identity = '', unread = false, person) {
   const content = el('span');
   const title = el('strong',name);
   if(identity||unread) {
@@ -384,7 +391,7 @@ function row(name, description, seed, action, extra = '', identity = '', unread 
   } else content.append(title);
   content.append(el('small',description));
   const node = button('',action,'row');
-  node.append(avatar(name,seed),content);
+  node.append(person?personAvatar(person):avatar(name,seed),content);
   if(identity||unread)node.setAttribute('aria-label',[name,identity,description,extra,unread?'未读':''].filter(Boolean).join('，'));
   if(extra) node.append(el('time',extra));
   return node;
@@ -503,7 +510,7 @@ function renderDirectory() {
       const identity=peer?.kind==='ai'?'AI 联系人':
         peer&&(directNames.get(item.title.normalize('NFC'))>1)?peer.number:'';
       const unread=hasUnread(item);
-      const node=row(item.title,summary,peer?.kind==='ai'?peer.number:item.id,event=>goChat(item.id,event.detail===0),listTime(latest?.createdAt),identity,unread);
+      const node=row(item.title,summary,peer?.kind==='ai'?peer.number:item.id,event=>goChat(item.id,event.detail===0),listTime(latest?.createdAt),identity,unread,peer);
       // OpenIM ConversationItem's two-line grid: name/time above, preview across the second line.
       const content=node.children[1], stamp=node.querySelector('time');
       content.classList.add('conversation-copy');
@@ -520,12 +527,12 @@ function renderDirectory() {
       const response=await api('/direct',{number:person.number});
       goChat(response.conversation.id);
       void sync();
-    })));
+    }),'','',false,person));
     directory.replaceChildren(...(rows.length?rows:[empty('通讯录还没有好友。用用户号添加朋友。')]));
   }
   if(tab==='profile') {
     const profile=el('div',null,'profile');
-    profile.append(avatar(user.displayName,user.number),el('h2',user.displayName),
+    profile.append(personAvatar(user),el('h2',user.displayName),button('更换头像',()=>showAvatarEditor(profile)),
       ...ownNumberControls(),button('意见反馈',showFeedback),button('我的举报',showMyReports),
       policyLink('内容准则','./conduct.html'),policyLink('隐私说明','./privacy.html'),
       policyLink('开源与版本','./source.html'),
@@ -1004,14 +1011,14 @@ function showChatHeader() {
   const aiPeer=directAiPeer(meta);
   const avatarSeed=aiPeer?.number??meta.id;
   const builtinArt=roleArt.get(aiPeer?.number);
+  const humanPeer=meta.type==='direct'&&peer?.kind==='human'?peer:null;
   const artwork=builtinArt?'./art/'+builtinArt+'.png':
-    aiPeer&&chatPortrait?.visit===chatVisit&&chatPortrait.number===aiPeer.number?chatPortrait.data:undefined;
+    aiPeer&&chatPortrait?.visit===chatVisit&&chatPortrait.number===aiPeer.number?chatPortrait.data:humanAvatarUrl(humanPeer);
   if(!chatAvatar.firstElementChild||chatAvatar.dataset.seed!==avatarSeed||
-    chatAvatar.dataset.name!==meta.title||chatAvatar.dataset.hasArtwork!==String(!!artwork)){
+    chatAvatar.dataset.name!==meta.title||chatAvatar.firstElementChild.querySelector('img')?.getAttribute('src')!==artwork){
     chatAvatar.dataset.seed=avatarSeed;
     chatAvatar.dataset.name=meta.title;
-    chatAvatar.dataset.hasArtwork=String(!!artwork);
-    chatAvatar.replaceChildren(avatar(meta.title,avatarSeed,artwork));
+    chatAvatar.replaceChildren(humanPeer?personAvatar(humanPeer):avatar(meta.title,avatarSeed,artwork));
   }
   $('#members').hidden=meta.type!=='group';
   $('#ai-cloud').hidden=legacyPersonal?!cloud?.enabled:!cloud&&!awaitingAiConsent;
@@ -1033,7 +1040,10 @@ function showChatHeader() {
   composer.querySelector('button[type="submit"]').disabled=legacyPersonal||paused||awaitingAiConsent||sending.has(meta.id)||
     !mentionAvailable(drafts.get(meta.id)?.target);
   $('#composer-media').hidden=!canSendPhoto(meta);
+  stickerButton.hidden=!canAttach(meta);
   $('#record-voice').hidden=!canAttach(meta);
+  if($('#attach-file'))$('#attach-file').hidden=!canAttach(meta);
+  if($('#chat-screenshot'))$('#chat-screenshot').hidden=!canSendPhoto(meta);
   $('#mention-member').hidden=meta.type!=='group';
   if(mentionSuggestions)messageBox.setAttribute('aria-autocomplete',meta.type==='group'?'list':'none');
   showMention();
@@ -1471,7 +1481,8 @@ function renderHistory(scroll) {
     bubble.dataset.sequence=continued?(continues?'middle':'last'):(continues?'first':'single');
     if(historyContext?.anchor===message.id){bubble.classList.add('history-anchor');bubble.tabIndex=-1;}
     const content=el('div',null,'bubble-content');
-    bubble.append(avatar(message.sender.displayName,message.sender.number),content);
+    const senderProfile=mine?user:conversation?.members.find(member=>member.number===message.sender.number)??message.sender;
+    bubble.append(personAvatar(senderProfile),content);
     const aiLabel=message.sender.aiOwner?' · '+message.sender.aiOwner+' 的 AI':message.sender.kind==='ai'?' · AI':'';
     const sender=mine?'我':message.sender.displayName+aiLabel;
     const address=message.mention?.aiOwner?'@'+message.mention.displayName+'（'+message.mention.aiOwner+' 的 AI）':message.mention&&mentionLabel(message.mention);
@@ -1506,6 +1517,12 @@ function renderHistory(scroll) {
       content.append(meta,open);
       const sticker=message.attachment.sticker;
       if(sticker?.source)content.append(el('p',sticker.label,'minor'));
+    }else if(message.attachment?.type==='file'&&!message.removed){
+      const {name,bytes}=message.attachment;
+      const save=el('a','保存文件','save-chat-file');
+      save.href='./api/v1'+thread(message.conversationId)+'/messages/'+message.id+'/file/download?account='+encodeURIComponent(user.number);
+      save.download=name;
+      content.append(meta,el('strong',name,'chat-file-name'),el('small',fileSize(bytes),'minor'),save);
     }else if(message.attachment?.type==='voice'&&!message.removed){
       let control=voiceButtons.get(message.id);
       if(!control){
@@ -1733,9 +1750,12 @@ async function sync() {
             active.webSearch?.revision!==conversation.webSearch?.revision)applyCloudConversation(active);
         }
         else if(active.title!==conversation.title||active.webSearch?.revision!==conversation.webSearch?.revision||
-          JSON.stringify(active.members)!==JSON.stringify(conversation.members)) {
+            JSON.stringify(active.members)!==JSON.stringify(conversation.members)) {
+          const avatarsChanged=active.members.some(member=>member.avatarRevision!==
+            conversation.members.find(previous=>previous.number===member.number)?.avatarRevision);
           conversation=active;showChatHeader();
           if(dialog.open&&dialog.dataset.memberPanel===active.id)showGroupMembers(active);
+          if(avatarsChanged)renderHistory();
         }
       }
 
@@ -1918,6 +1938,89 @@ function openDialog(title, nodes, groupId, memberPanel=false) {
   $('#dialog-body').replaceChildren(...nodes);
   if(!dialog.open){if(dock)dialog.show();else dialog.showModal();}
   return dialogGeneration;
+}
+function showAvatarEditor(profile) {
+  const account=user.number,epoch=generation;
+  const form=el('form'),label=el('label','选择图片（PNG 或 JPEG，4 MB 以内）');
+  const input=el('input');input.type='file';input.accept='image/png,image/jpeg';
+  const preview=el('img',null,'avatar-preview');preview.alt='圆角头像预览';preview.hidden=true;
+  const submit=el('button','保存头像','primary');submit.type='submit';submit.disabled=true;
+  label.append(input);
+  form.append(label,preview,submit);
+  const scope=openDialog('更换头像',[form]);
+  const current=()=>scope===dialogGeneration&&epoch===generation&&user?.number===account;
+  const feedback=$('#dialog-error');
+  let selection;
+  input.addEventListener('change',async()=>{
+    const file=input.files[0];
+    selection=undefined;submit.disabled=true;preview.hidden=true;feedback.textContent='';
+    if(!file)return;
+    try {
+      const prepared=await prepareAvatar(file);
+      if(!current()||input.files[0]!==file)return;
+      selection={...prepared,clientId:clientNonce()};
+      preview.src=prepared.preview;preview.hidden=false;submit.disabled=false;
+    } catch(error) {
+      if(current()&&input.files[0]===file)feedback.textContent=error.message;
+    }
+  });
+  form.addEventListener('submit',event=>{
+    event.preventDefault();
+    if(!current()||!selection||submit.disabled)return;
+    input.disabled=true;
+    void perform(async()=>{
+      try {
+        const {user:saved}=await api('/me/avatar',selection.blob,{expectedAccount:account,
+          image:{mime:'image/png',clientId:selection.clientId}});
+        if(saved?.number!==account||!saved.avatarRevision)throw Error('avatar_unconfirmed');
+        user=saved;
+        if(profile.isConnected)profile.querySelector('.avatar').replaceWith(personAvatar(saved));
+        if(chat){showChatHeader();renderHistory();}
+        if(current())closeDialog();
+      } finally {input.disabled=false;}
+    },submit,scope);
+  });
+}
+
+const stickerButton=button('☺',showStickerPicker);
+stickerButton.setAttribute('aria-label','表情包');
+stickerButton.setAttribute('aria-haspopup','dialog');
+stickerButton.classList.add('sticker-trigger');
+$('#composer-media').prepend(stickerButton);
+async function showStickerPicker() {
+  if(!canAttach(conversation))return;
+  const id=chat,epoch=generation,visit=chatVisit,account=user.number;
+  const panel=el('div',null,'sticker-picker');
+  const status=el('p','正在读取表情…');status.setAttribute('role','status');
+  const scope=openDialog('表情包',[status,panel],id);
+  const current=()=>scope===dialogGeneration&&epoch===generation&&visit===chatVisit&&chat===id&&user?.number===account;
+  await perform(async()=>{
+    const {stickers}=await api('/stickers');
+    if(!current())return;
+    status.textContent=stickers.length?'':'暂时没有可用的表情。';
+    let sendingSticker=false;
+    for(const {id:sticker,label} of stickers){
+      const clientId=clientNonce();
+      const choice=button('',()=>{
+        if(sendingSticker||!current()||!canAttach(conversation))return;
+        sendingSticker=true;
+        void perform(async()=>{
+          try {
+            const {message}=await api(thread(id)+'/stickers',{expectedAccount:account,clientId,sticker});
+            if(!current())return;
+            merge([message],'end');
+            closeDialog();
+            void sync();
+          } finally {sendingSticker=false;}
+        },choice,scope);
+      });
+      choice.setAttribute('aria-label','发送 '+label);
+      const image=el('img');image.alt='';image.src='./api/v1/stickers/'+encodeURIComponent(sticker);
+      choice.append(image,el('span',label));
+      panel.append(choice);
+    }
+    panel.firstElementChild?.focus();
+  },null,scope);
 }
 // Based on bothouse role-household/rh/static/rh-history.js at 8ec73a8f (Apache-2.0).
 // Cursor search and latest-response wins are kept; the local service supplies a bounded context page.
@@ -2426,14 +2529,45 @@ function showOriginalImage(message) {
     }else details.append(el('p',sticker.label+'。Agent Arcade 原创素材。','minor'));
   }
 }
-$('#attach-image').addEventListener('click',()=>{
+function fileSize(bytes){
+  return bytes.toLocaleString()+' 字节';
+}
+$('#attach-file')?.addEventListener('click',()=>{
+  if(!canAttach(conversation))return;
+  const id=chat, account=user.number, visit=chatVisit, epoch=generation, revision=membershipRevision;
+  const label=el('label','选择文件（最多 16 MiB）'),input=el('input'),info=el('p',null,'minor');
+  input.type='file';label.append(input);
+  let selected,clientId;
+  const submit=button('发送文件',()=>void perform(async()=>{
+    if(!current()||!selected)return;
+    if(!revision||membershipRevision!==revision)throw Error('file_session');
+    input.disabled=true;
+    try{
+      const sent=await api(thread(id)+'/files',selected,{expectedAccount:account,
+        fileUpload:{name:selected.name,clientId,revision,mime:'application/octet-stream'},timeoutMs:60000});
+      if(current()){merge([sent.message],'end');closeDialog();void sync();}
+    }finally{input.disabled=false;}
+  },submit,scope),'primary');
+  submit.disabled=true;
+  const scope=openDialog('发送文件',[label,info,submit],id);
+  const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation;
+  input.addEventListener('change',()=>{
+    selected=input.files[0];clientId=clientNonce();
+    submit.disabled=!selected || selected.size>16*1024*1024;
+    info.textContent=selected?selected.name+' · '+fileSize(selected.size)+(submit.disabled?'，超过 16 MiB':''):'';
+  });
+});
+$('#attach-image').addEventListener('click',()=>photoDialog(false));
+$('#chat-screenshot')?.addEventListener('click',()=>photoDialog(true));
+function photoDialog(screenshot){
   if(!canSendPhoto(conversation))return;
   const id=chat, visit=chatVisit, epoch=generation, account=user.number;
+  const revision=membershipRevision;
   const form=el('form'), label=el('label','选择一张图片'), input=el('input'), preview=el('img',null,'attachment-preview');
-  input.type='file';input.accept='image/png,image/jpeg';input.required=true;
+  input.type='file';input.accept='image/png,image/jpeg';input.required=!screenshot;
   label.append(input);preview.alt='发送预览';preview.hidden=true;
   const submit=el('button','发送图片','primary');submit.type='submit';submit.disabled=true;
-  const direct=conversation.type==='direct'&&conversation.cloudChat?.enabled;
+  const direct=!screenshot && conversation.type==='direct'&&conversation.cloudChat?.enabled;
   const role=direct&&conversation.members.find(member=>member.kind==='ai');
   const provider=conversation.aiProvider;
   const previousDraft=messageBox.value;
@@ -2444,44 +2578,54 @@ $('#attach-image').addEventListener('click',()=>{
   const disclose=el('p',null,'minor');
   const notice=el('p',(direct?
     '留空问题即可只发图片。也可以之后打开图片并选「问 AI」。':
-    '会话成员可以查看和另存。')+' 原图可能保留拍摄时间或位置。','minor');
+    '会话成员可以查看和另存。')+(screenshot?'':' 原图可能保留拍摄时间或位置。'),'minor');
   form.append(label,notice,preview);
   if(direct)form.append(questionLabel,disclose);
   form.append(submit);
   const updateSendLabel=()=>{
     const asks=direct&&question.value.trim();
-    submit.textContent=asks?'发送图片和问题':'发送图片';
+    submit.textContent=asks?'发送图片和问题':screenshot?'发送截图':'发送图片';
     disclose.textContent=asks?'本次会把所选照片的画面和问题发给'+role.displayName+'使用的 '+aiService(provider)+'。拍摄信息会移除，JPEG 仅保留显示方向。':'';
   };
   question.addEventListener('input',updateSendLabel);
   updateSendLabel();
-  const scope=openDialog('发送图片',[form],id);
+  if(screenshot){
+    label.firstChild.textContent='或选择已保存的截图';
+    form.prepend(el('p','选区后回到这里按 Ctrl+V 预览。也可以按 Win+Shift+S 开始新的选区。'));
+  }
+  const scope=openDialog(screenshot?'发送截图':'发送图片',[form],id);
   const current=()=>scope===dialogGeneration&&visit===chatVisit&&epoch===generation;
-  let selected;
-  input.addEventListener('change',async()=>{
+  let selected,latestFile;
+  input.addEventListener('change',()=>void selectPhoto(input.files[0]));
+  if(screenshot){
+    form.tabIndex=-1;
+    form.addEventListener('paste',onPaste);
+    form.focus();
+  }
+  function onPaste(event){
+    if(!current()||input.disabled)return;
+    const file=[...event.clipboardData?.files||[]].find(item=>item.type.startsWith('image/'));
+    if(file){event.preventDefault();void selectPhoto(file);}
+  }
+  async function selectPhoto(file){
+    latestFile=file;
     selected=undefined;submit.disabled=true;preview.hidden=true;preview.removeAttribute('src');
     $('#dialog-error').textContent='';
-    const file=input.files[0];
     if(!file)return;
     try {
       if(!file.size||file.size>4*1024*1024)throw Error('图片须在 4 MB 以内。');
       if(!['image/png','image/jpeg'].includes(file.type))throw Error('请选择静态 PNG 或 JPEG。');
-      const url=await new Promise((resolve,reject)=>{
-        const reader=new FileReader();
-        reader.onload=()=>resolve(reader.result);
-        reader.onerror=()=>reject(Error('无法读取这张图片。'));
-        reader.readAsDataURL(file);
-      });
-      if(!current()||input.files[0]!==file)return;
+      const url=await readImageData(file);
+      if(!current()||latestFile!==file)return;
       preview.src=url;
       try {await preview.decode();}catch {throw Error('无法打开这张图片。');}
-      if(!current()||input.files[0]!==file)return;
+      if(!current()||latestFile!==file)return;
       selected={file,mime:file.type,clientId:clientNonce()};
       preview.hidden=false;submit.disabled=false;
     } catch(error) {
-      if(current()&&input.files[0]===file)$('#dialog-error').textContent=error.message;
+      if(current()&&latestFile===file)$('#dialog-error').textContent=error.message;
     }
-  });
+  }
   form.addEventListener('submit',event=>{
     event.preventDefault();
     if(!selected||submit.disabled||!current())return;
@@ -2492,7 +2636,8 @@ $('#attach-image').addEventListener('click',()=>{
     input.disabled=question.disabled=true;
     void perform(async()=>{
       try {
-        const {message}=await api(thread(id)+'/images',file,{expectedAccount:account,image:{clientId,mime}});
+        if(screenshot && (!revision||membershipRevision!==revision))throw Error('file_session');
+        const {message}=await api(thread(id)+'/images',file,{expectedAccount:account,image:{clientId,mime,...(screenshot&&{revision})}});
         if(!current())return;
         merge([message],'end');
         if(chosenQuestion){
@@ -2521,7 +2666,7 @@ $('#attach-image').addEventListener('click',()=>{
       } finally {input.disabled=question.disabled=false;}
     },submit,scope);
   });
-});
+}
 async function askAboutPhoto(message){
   const id=chat,account=user.number,route=thread(id)+'/messages/'+message.id;
   const preview=el('img',null,'attachment-preview');

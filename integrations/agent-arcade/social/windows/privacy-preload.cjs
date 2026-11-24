@@ -11,6 +11,11 @@ if(process.isMainFrame&&location.pathname==='/'&&!location.search){
     if(desktopVersion)document.documentElement.dataset.arcadeFeedbackDesktopVersion=desktopVersion;
   },{once:true});
   document.addEventListener('click',async event=>{
+    const screenshot=event.target?.closest?.('button#chat-screenshot');
+    if(screenshot && event.isTrusted && event.button===0 && !screenshot.disabled && !screenshot.hidden){
+      try{await ipcRenderer.invoke('arcade:startChatSnip');}catch{}
+      return;
+    }
     const button=event.target?.closest?.('button[data-arcade-group-card-picker]');
     if(!button||!event.isTrusted||event.button!==0||button.disabled)return;
     const {groupId,roleId,roleRevision,kind,cardScope}=button.dataset;

@@ -44,7 +44,7 @@ function makeAuth(store,secure) {
       const key = await derive(body.password,salt,64);
       if (!register && (!expected || !timingSafeEqual(key,Buffer.from(expected,'hex')))) fail(401,'bad_login','用户号或密码有误');
       return store.transaction(() => {
-        const user = register ? store.register(account,string(body.displayName,48,'昵称'),'human',salt+'.'+key.toString('hex')) : store.user(account);
+        const user = register ? store.register(account,string(body.displayName,48,'昵称'),'human',salt+'.'+key.toString('hex')) : store.profile(account);
         issue(account,res,req);
         return {user};
       });

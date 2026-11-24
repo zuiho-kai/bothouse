@@ -5,6 +5,12 @@ CREATE TABLE IF NOT EXISTS users (
   number TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('human','ai')),
   password TEXT, CHECK ((kind='human') = (password IS NOT NULL))
 );
+CREATE TABLE IF NOT EXISTS human_avatars (
+  account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
+  revision TEXT NOT NULL,
+  mime TEXT NOT NULL CHECK(mime IN ('image/png','image/jpeg')),
+  bytes BLOB NOT NULL CHECK(length(bytes) BETWEEN 1 AND 1048576)
+);
 CREATE TABLE IF NOT EXISTS sessions (
   digest TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES users, expires INTEGER NOT NULL
 );
@@ -166,6 +172,11 @@ CREATE TABLE IF NOT EXISTS ai_image_turns (
 );
 CREATE INDEX IF NOT EXISTS ai_image_turn_time ON ai_image_turns(started,chat);
 CREATE UNIQUE INDEX IF NOT EXISTS ai_image_pending ON ai_image_turns(chat) WHERE state='pending';
+CREATE TABLE IF NOT EXISTS message_files (
+  message INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, digest TEXT NOT NULL,
+  bytes BLOB NOT NULL CHECK(length(bytes)<=16777216)
+);
 CREATE TABLE IF NOT EXISTS message_voices (
   message INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
   duration_ms INTEGER NOT NULL CHECK(duration_ms BETWEEN 200 AND 120000),

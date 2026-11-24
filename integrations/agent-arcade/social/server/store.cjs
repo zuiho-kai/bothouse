@@ -122,6 +122,27 @@ class SocialStore {
     if (!user) fail(404, 'unknown_user', '没有找到该用户号');
     return user;
   }
+  profile(account) {
+    const {avatarRevision,...user}=this.one(`SELECT u.number,u.name AS displayName,u.kind,a.revision AS avatarRevision
+      FROM users u LEFT JOIN human_avatars a ON a.account=u.number AND u.kind='human'
+      WHERE u.number=?`,account)??this.user(account);
+    return avatarRevision?{...user,avatarRevision}:user;
+  }
+  saveHumanAvatar(account,{mime,bytes}) {
+    if(this.user(account).kind!=='human')fail(403,'avatar_human_only','只有本人可以更换真人头像');
+    this.run(`INSERT INTO human_avatars(account,revision,mime,bytes) VALUES(?,?,?,?)
+      ON CONFLICT(account) DO UPDATE SET revision=excluded.revision,mime=excluded.mime,bytes=excluded.bytes`,
+      account,randomUUID(),mime,bytes);
+    return this.profile(account);
+  }
+  humanAvatar(viewer,account,revision) {
+    const allowed=viewer===account||this.one(`SELECT 1 FROM members here JOIN members other ON other.chat=here.chat
+      WHERE here.account=? AND other.account=? LIMIT 1`,viewer,account);
+    const image=allowed&&this.one(`SELECT a.mime,a.bytes FROM human_avatars a JOIN users u ON u.number=a.account
+      WHERE a.account=? AND a.revision=? AND u.kind='human'`,account,revision);
+    if(!image)fail(404,'unknown_avatar','没有找到头像');
+    return image;
+  }
   feedback(account) {
     return this.all(feedbackWithReplies+' WHERE account=? ORDER BY created DESC,id DESC LIMIT 50',account);
   }
@@ -192,9 +213,11 @@ class SocialStore {
     return this.one('SELECT id FROM chats WHERE first_user=? AND second_user=?', ...[a,b].sort());
   }
   friends(a) {
-    return this.all(`SELECT u.number,u.name AS displayName,u.kind FROM chats c
+    return this.all(`SELECT u.number,u.name AS displayName,u.kind,p.revision AS avatarRevision FROM chats c
       JOIN users u ON u.number=CASE WHEN c.first_user=? THEN c.second_user ELSE c.first_user END
-      WHERE c.first_user=? OR c.second_user=? ORDER BY u.name,u.number`, a,a,a);
+      LEFT JOIN human_avatars p ON p.account=u.number AND u.kind='human'
+      WHERE c.first_user=? OR c.second_user=? ORDER BY u.name,u.number`, a,a,a)
+      .map(({avatarRevision,...user})=>avatarRevision?{...user,avatarRevision}:user);
   }
   friendFeed(a,params) {
     const scope=params.get('scope')??'friends';
@@ -360,7 +383,7 @@ class SocialStore {
     return leaving ? {ok:true} : {conversation:this.conversation(a,id)};
   }
   messagePerson(account) {
-    const person=this.user(account);
+    const person=this.profile(account);
     if(person.kind==='ai')Object.assign(person,this.one('SELECT owner AS aiOwner FROM personal_ai WHERE ai=?',account));
     return person;
   }
@@ -375,16 +398,18 @@ class SocialStore {
       LEFT JOIN message_drawings d ON d.message=i.message WHERE i.message=?`,r.id);
     const voice=!r.removed&&!image&&this.one(
       'SELECT duration_ms AS durationMs,length(bytes) AS bytes FROM message_voices WHERE message=?',r.id);
+    const file=!r.removed && !image && !voice && r.body==='' &&
+      this.one('SELECT name,length(bytes) AS bytes FROM message_files WHERE message=?',r.id);
     const {label,source_code,drawing,...picture}=image||{};
     const source=source_code?attribution(JSON.parse(source_code)):null;
     const attachment=image?{type:'image',...picture,...(label&&{sticker:{label,...(source&&{source})}}),
       ...(drawing!==null&&{drawing:{title:drawing}})}:
-      voice&&{type:'voice',mime:'audio/wav',...voice};
+      voice?{type:'voice',mime:'audio/wav',...voice}:file&&{type:'file',...file};
     const webResults=!r.removed&&r.nonce.startsWith('ai-reply-')&&
       this.one('SELECT sources FROM message_web_results WHERE message=?',r.id)?.sources;
     return {id:r.id, conversationId:r.chat, sender:this.messagePerson(r.sender), clientId:r.nonce,
       ...(webResults&&{webResults:JSON.parse(webResults)}),
-      text:r.removed ? '[已移除]' : image?(drawing!==null?'[AI 绘图]':label?'[表情图]':'[图片]'):voice?'[语音]':r.body,
+      text:r.removed ? '[已移除]' : image?(drawing!==null?'[AI 绘图]':label?'[表情图]':'[图片]'):voice?'[语音]':file?'[文件] '+file.name:r.body,
       createdAt:r.created, removed:Boolean(r.removed),
       ...(aiReply && {aiReply}), ...(task&&{task}),
       ...(!r.removed&&pictureQuestion&&{imageQuestion:{image:pictureQuestion.image,role:this.user(pictureQuestion.ai)}}),
@@ -423,6 +448,10 @@ class SocialStore {
   sendImage(a,id,clientId,image) {
     const chat=this.imageUploadAccess(a,id);
     return this.writeImage(a,chat,clientId,image,null);
+  }
+  sendHumanSticker(a,id,clientId,image) {
+    const chat=this.humanAttachmentAccess(a,id,'image');
+    return this.writeImage(a,chat,clientId,image,image.label);
   }
   sendAiSticker(a,id,clientId,image) {
     const chat=this.access(a,id);
@@ -471,6 +500,26 @@ class SocialStore {
     if(!image)fail(404,'unknown_image','没有找到该图片');
     return image;
   }
+  sendFile(a,id,file,expectedRevision) {
+    const chat=this.humanAttachmentAccess(a,id,'file');
+    if(chat.membershipRevision!==expectedRevision)fail(409,'file_session','群成员身份已变化，请重新选择文件');
+    const old=this.one('SELECT * FROM messages WHERE chat=? AND sender=? AND nonce=?',id,a,file.clientId);
+    if(old){
+      const saved=this.one('SELECT name,digest FROM message_files WHERE message=?',old.id);
+      if(old.removed || old.id<=chat.since || saved?.digest!==file.digest || saved.name!==file.name)
+        fail(409,'message_conflict','此编号已被使用');
+      return this.message(old);
+    }
+    const row=this.run("INSERT INTO messages(chat,sender,nonce,body,created) VALUES(?,?,?,'',?)",id,a,file.clientId,now());
+    this.run('INSERT INTO message_files VALUES(?,?,?,?)',row.lastInsertRowid,file.name,file.digest,file.bytes);
+    return this.message(this.one('SELECT * FROM messages WHERE id=?',row.lastInsertRowid));
+  }
+  messageFile(a,id,message) {
+    const chat=this.access(a,id);
+    const file=this.one('SELECT f.name,f.bytes FROM message_files f JOIN messages m ON m.id=f.message WHERE m.chat=? AND m.id=? AND m.id>? AND m.removed=0',id,message,chat.since);
+    if(!file)fail(404,'unknown_file','该文件已无法下载');
+    return file;
+  }
   sendVoice(a,id,clientId,voice) {
     return this.writeVoice(a,this.humanAttachmentAccess(a,id,'voice'),clientId,voice,'');
   }
@@ -504,7 +553,10 @@ class SocialStore {
   }
   conversation(a,id) {
     const c = this.access(a,id);
-    const members = this.all('SELECT u.number,u.name AS displayName,u.kind FROM users u JOIN members m ON m.account=u.number WHERE m.chat=? ORDER BY u.number',id);
+    const members = this.all(`SELECT u.number,u.name AS displayName,u.kind,a.revision AS avatarRevision FROM users u
+      JOIN members m ON m.account=u.number LEFT JOIN human_avatars a ON a.account=u.number AND u.kind='human'
+      WHERE m.chat=? ORDER BY u.number`,id)
+      .map(({avatarRevision,...member})=>avatarRevision?{...member,avatarRevision}:member);
     const last = this.one('SELECT * FROM messages WHERE chat=? AND id>? ORDER BY id DESC LIMIT 1',id,c.since);
     const readThrough=Math.max(c.since,this.one('SELECT through FROM conversation_reads WHERE chat=? AND account=?',id,a)?.through??0);
     const unreadThrough=last?.id>readThrough?this.one(`SELECT id FROM messages

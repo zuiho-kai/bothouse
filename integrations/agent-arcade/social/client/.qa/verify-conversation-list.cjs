@@ -95,7 +95,11 @@ async function main(){
     assert.deepEqual(await order(),[group,dm]);
     checks.push('同一浏览器关闭再开仍置顶，未置顶私聊的新消息照常刷新');
 
+    await search().fill('读书');
+    await search().press('Enter');
+    await expect(page.locator('#message')).toBeFocused();
     await page.setViewportSize({width:360,height:760});
+    if(await page.locator('#back').isVisible())await page.locator('#back').click();
     await search().fill('  ＡＬＩＣＥ ');
     assert.deepEqual(await order(),[dm]);
     await expect(search()).toBeFocused();

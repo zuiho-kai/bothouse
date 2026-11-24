@@ -1,11 +1,8 @@
 'use strict';
 
-const fs=require('node:fs');
-const path=require('node:path');
-const {createHash}=require('node:crypto');
 const {string}=require('./store.cjs');
 const {AI_NUMBER,AI_DRAGON_NUMBER,AI_JU_NUMBER}=require('./ai-roles.cjs');
-const {dimensions}=require('../../src/core/static-image.cjs');
+const {bundledSticker,moods:labels}=require('./bundled-stickers.cjs');
 const {stickerChoice,stickerOptions}=require('../../src/core/sticker-reply.cjs');
 const {allowsStickerReply}=require('../../src/bot/companion-reply-preference.cjs');
 const {addressedMediaText,explicitStickerRequest,groupMediaCapabilityQuestion,groupMediaRequest}=require('../../src/bot/group-media-request.cjs');
@@ -16,10 +13,7 @@ const roles=new Map([
   [AI_DRAGON_NUMBER,{id:'codex-dragon',art:'dragon'}],
   [AI_JU_NUMBER,{id:'claude-ju',art:'ju',moods:['happy','approve','annoyed']}],
 ]);
-const labels={happy:'开心地笑',approve:'表示赞同',surprised:'惊讶',annoyed:'有点不满'};
 const defaultMoods=['happy','approve','surprised'];
-const catalog=new Map();
-const root=path.join(__dirname,'../assets/stickers');
 const unavailable='这次没找到合适的表情图。';
 const internalSticker=/`?\[\[\s*(?:sticker|public-reaction)\s*:[^\]\r\n]*\]\]`?/giu;
 // A reaction is optional for social turns. Clear questions or sensitive turns
@@ -30,16 +24,8 @@ const offlineGuide='这里能用角色自带的贴图或有署名的公开表情
 
 function picture(role,mood,name){
   if(!(role.moods??defaultMoods).includes(mood))return null;
-  const key=`${role.art}-${mood}`;
-  try{
-    if(!catalog.has(key)){
-      const bytes=fs.readFileSync(path.join(root,key+'.png'));
-      if(bytes.length>256*1024)throw Error('Sticker size exceeds the bundled limit');
-      catalog.set(key,{bytes,mime:'image/png',...dimensions(bytes,'.png'),
-        digest:createHash('sha256').update(bytes).digest('hex')});
-    }
-    return {image:{...catalog.get(key),label:`${name} · ${labels[mood]}`}};
-  }catch{return null;}
+  const image=bundledSticker(role.art+'-'+mood);
+  return image?{image:{...image,label:`${name} · ${labels[mood]}`}}:null;
 }
 
 async function sendPublicReaction(choice,{signal,assertCurrent}){

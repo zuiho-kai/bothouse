@@ -19,7 +19,9 @@ const {createAiGroup} = require('./ai-group.cjs');
 const {createAiFeed} = require('./ai-feed.cjs');
 
 const {createAiProactive} = require('./ai-proactive.cjs');
-const {readImageUpload} = require('./image-upload.cjs');
+const {readFileUpload}=require('./file-upload.cjs');
+const {readImageUpload,readAvatarUpload} = require('./image-upload.cjs');
+const {bundledSticker,bundledStickerOptions}=require('./bundled-stickers.cjs');
 const {readVoiceUpload} = require('./voice-upload.cjs');
 const {createAiVoice} = require('./ai-voice.cjs');
 const {createImageQuestions}=require('./ai-image-questions.cjs');
@@ -78,7 +80,8 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     case 'POST personal-ai/profile': return {profile:personal.saveProfile(a,body)};
     case 'GET personal-ai/private-profile': return {profile:personal.publicProfile(a,true)};
     case 'POST personal-ai/private-profile': return {profile:personal.saveProfile(a,body,true)};
-    case 'GET me': return {user:store.user(a)};
+    case 'GET me': return {user:store.profile(a)};
+    case 'GET stickers': return {stickers:bundledStickerOptions()};
     case 'GET feedback': return params.get('view')==='history'
       ? {account:a,...store.feedbackPage(a,params.get('before'))}
       : {account:a,feedback:store.feedback(a)};
@@ -351,6 +354,62 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       }
       if (!['GET','POST'].includes(req.method)) fail(405,'method','请求方法无效');
       const [collection,chat,action,message,asset,variant]=parts;
+      if(collection==='conversations'&&parts.length===3&&action==='files'&&req.method==='POST'){
+        const account=current(store,req);
+        if(req.headers['x-social-account']!==account)fail(409,'file_session','账号已切换，请重新打开会话');
+        const scope=store.humanAttachmentAccess(account,chat,'file');
+        if(req.headers['x-social-member-revision']!==scope.membershipRevision)fail(409,'file_session','请重新打开会话');
+        const file=await readFileUpload(req);
+        if(current(store,req)!==account)fail(409,'file_session','账号已切换，请重新打开会话');
+        const sent=store.transaction(()=>store.sendFile(account,chat,file,scope.membershipRevision));
+        res.setHeader('Content-Type','application/json; charset=utf-8');
+        return res.end(JSON.stringify({message:sent}));
+      }
+      if(collection==='conversations'&&action==='messages'&&asset==='file'&&variant==='download'&&
+          parts.length===6&&req.method==='GET'&&/^[1-9]\d*$/u.test(message)){
+        const account=current(store,req);
+        if(url.searchParams.get('account')!==account)fail(409,'file_session','账号已切换，请重新打开会话');
+        const file=store.messageFile(account,chat,message);
+        res.setHeader('Content-Type','application/octet-stream');
+        res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(file.name).replace(/['()*]/g,c=>'%'+c.charCodeAt(0).toString(16)));
+        res.setHeader('Content-Length',file.bytes.byteLength);
+        res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+        res.setHeader('X-Content-Type-Options','nosniff');
+        return res.end(file.bytes);
+      }
+      if(key==='me/avatar'&&req.method==='POST'){
+        const account=current(store,req);
+        if(req.headers['x-social-account']!==account)fail(409,'avatar_session','账号已切换，请重新打开资料');
+        const image=await readAvatarUpload(req);
+        if(current(store,req)!==account)fail(409,'avatar_session','账号已切换，请重新打开资料');
+        const user=store.transaction(()=>store.saveHumanAvatar(account,image));
+        res.setHeader('Content-Type','application/json; charset=utf-8');
+        return res.end(JSON.stringify({user}));
+      }
+      const avatarFile=collection==='avatars'&&parts.length===3&&req.method==='GET';
+      const stickerFile=collection==='stickers'&&parts.length===2&&req.method==='GET';
+      if(avatarFile||stickerFile){
+        const account=current(store,req);
+        const file=avatarFile?store.humanAvatar(account,number(chat),action):bundledSticker(chat);
+        if(!file)fail(404,'unknown_sticker','没有找到这个表情');
+        res.setHeader('Content-Type',file.mime);
+        res.setHeader('Content-Length',file.bytes.byteLength);
+        res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+        return res.end(file.bytes);
+      }
+      if(collection==='conversations'&&action==='stickers'&&parts.length===3&&req.method==='POST'){
+        const account=current(store,req);
+        const body=await jsonBody(req);
+        if(current(store,req)!==account||body.expectedAccount!==account)
+          fail(409,'image_session','账号已切换，请重新打开会话');
+        if(typeof body.clientId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/u.test(body.clientId))
+          fail(400,'client_id','消息重试编号无效');
+        const sticker=bundledSticker(body.sticker);
+        if(!sticker)fail(404,'unknown_sticker','没有找到这个表情');
+        const message=store.transaction(()=>store.sendHumanSticker(account,chat,body.clientId,sticker));
+        res.setHeader('Content-Type','application/json; charset=utf-8');
+        return res.end(JSON.stringify({message}));
+      }
       if(collection==='conversations'&&parts.length===3&&action==='voices'&&req.method==='POST') {
         const account=current(store,req);
         if(req.headers['x-social-account']!==account)fail(409,'voice_session','账号已切换，请重新打开会话');
@@ -374,10 +433,16 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       if(collection==='conversations'&&parts.length===3&&action==='images'&&req.method==='POST') {
         const account=current(store,req);
         if(req.headers['x-social-account']!==account)fail(409,'image_session','账号已切换，请重新打开会话');
-        store.imageUploadAccess(account,chat);
+        const captureRevision=req.headers['x-social-member-revision'];
+        const scope=store.imageUploadAccess(account,chat);
+        if(captureRevision!==undefined && captureRevision!==scope.membershipRevision)fail(409,'file_session','请重新打开会话');
         const image=await readImageUpload(req);
         if(current(store,req)!==account)fail(409,'image_session','账号已切换，请重新打开会话');
-        const sent=store.transaction(()=>store.sendImage(account,chat,image.clientId,image));
+        const sent=store.transaction(()=>{
+          if(captureRevision!==undefined && store.access(account,chat).membershipRevision!==captureRevision)
+            fail(409,'file_session','请重新打开会话');
+          return store.sendImage(account,chat,image.clientId,image);
+        });
         res.setHeader('Content-Type','application/json; charset=utf-8');
         return res.end(JSON.stringify({message:sent}));
       }

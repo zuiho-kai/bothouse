@@ -150,8 +150,8 @@ export function mountConversationList(directory, render) {
       const result = directory.querySelector('[data-chat-id]');
       if (!result) return;
       event.preventDefault();
+      result.focus({preventScroll:true});
       if (event.key === 'Enter') result.click();
-      else result.focus();
     }
   });
 

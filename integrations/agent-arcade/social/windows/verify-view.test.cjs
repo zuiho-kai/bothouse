@@ -271,6 +271,24 @@ test('only a direct friend-image download from the active main frame requests a 
   }
   const {view}=createSocialView({WebContentsView:Guest,session:{fromPartition:()=>isolated},
     configuration:{mode:'store',origin},isActive:()=>active,saveImage:async request=>{calls.push(request);}});
+  const fileUrl=url.replace('/image/download','/file/download?account=reader_a');
+  function checkFile(raw,name,allowed){
+    let blocked=false,options;
+    isolated.emit('will-download',{preventDefault(){blocked=true;}},{
+      getURL:()=>raw,getURLChain:()=>[raw],getMimeType:()=>'application/octet-stream',
+      getFilename:()=>name,setSaveDialogOptions:value=>{options=value;}
+    },view.webContents,frame);
+    assert.equal(blocked,!allowed);
+    if(allowed)assert.equal(options.defaultPath,name);
+  }
+  checkFile(fileUrl,'测量.bin',true);
+  checkFile(fileUrl,'../outside.bin',false);
+  checkFile(fileUrl,'..',false);
+  checkFile(fileUrl,'NUL.txt',false);
+  checkFile(fileUrl.replace('/27/','/0/'),'测量.bin',false);
+  checkFile(fileUrl.replace(id,'12345678-1111-2222-3333-123456789abe'),'测量.bin',false);
+  checkFile(fileUrl.replace(origin,'https://elsewhere.example'),'测量.bin',false);
+  active=false;checkFile(fileUrl,'测量.bin',false);active=true;
   function emit(raw,options={}){
     let cancelled=false;
     const {target=view.webContents,from=frame,chain=[raw],mime='image/png'}=options;
@@ -335,4 +353,28 @@ test('the visible social chat may request only its own top-frame microphone',asy
   active=true;
   caller.mainFrame.url=origin+'/';
   expect(false);
+});
+
+test('Windows rectangle tool launch is fixed and limited to the active chat frame',{skip:process.platform!=='win32'},async()=>{
+  const origin='https://social.arcade-example.com',frame={url:origin+'/#chat/12345678-1111-2222-3333-123456789abc'};
+  let active=true,launch,handler;
+  const isolated=Object.assign(new EventEmitter(),{webRequest:{onBeforeRequest(){}},setPermissionRequestHandler(){},setPermissionCheckHandler(){}});
+  class Guest{
+    constructor(){this.webContents=Object.assign(new EventEmitter(),{mainFrame:frame,isDestroyed:()=>false,setWindowOpenHandler(){},
+      ipc:{handle(name,callback){if(name==='arcade:startChatSnip')handler=callback;}}});}
+  }
+  const {view}=createSocialView({WebContentsView:Guest,session:{fromPartition:()=>isolated},configuration:{origin,mode:'store'},isActive:()=>active,
+    spawnSnip:(exe,args,options)=>{
+      launch={exe,args,options};
+      const child=Object.assign(new EventEmitter(),{unref(){}});
+      queueMicrotask(()=>child.emit('spawn'));return child;
+    }});
+  const event={sender:view.webContents,senderFrame:frame};
+  assert.equal(await handler({...event,senderFrame:{}}),false);
+  active=false;assert.equal(await handler(event),false);active=true;
+  assert.equal(launch,undefined);
+  assert.equal(await handler(event),true);
+  assert.equal(require('node:path').win32.basename(launch.exe),'SnippingTool.exe');
+  assert.deepEqual(launch.args,['/clip']);assert.equal(launch.options.shell,false);
+  frame.url=origin+'/privacy.html';assert.equal(await handler(event),false);
 });

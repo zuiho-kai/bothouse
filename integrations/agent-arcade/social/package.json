@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server/main.cjs",
     "test:client": "node client/.qa/verify.cjs",
+    "test:files": "node client/.qa/verify-files.cjs",
     "test:images": "node client/.qa/verify-images.cjs",
     "test:stickers": "node client/.qa/verify-stickers.cjs",
     "test:ai-voice": "node client/.qa/verify-ai-voice.cjs",

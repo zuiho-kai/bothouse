@@ -4,10 +4,11 @@ const { serviceOrigin } = require('./endpoint.cjs');
 const path = require('node:path');
 
 const imageDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\/messages\/[1-9]\d{0,15}\/image\/download$/u;
+const fileDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\/messages\/[1-9]\d{0,15}\/file\/download$/u;
 const chatFragment=/^#chat\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
 
 function createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, readSendShortcut, isActive=()=>false,
-  openExternal=url=>require('electron').shell.openExternal(url) }) {
+  spawnSnip=require('node:child_process').spawn, openExternal=url=>require('electron').shell.openExternal(url) }) {
   const origin = serviceOrigin(configuration.origin, configuration.mode);
   const {desktopVersion} = configuration;
   const browserSession = session.fromPartition('persist:arcade-social');
@@ -25,6 +26,18 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
         /^\/source\/[a-f0-9]{40}\/[a-f0-9]{64}\.zip$/u.test(raw.slice(origin.length))){
       item.setSaveDialogOptions({filters:[{name:'ZIP',extensions:['zip']}],properties:['dontAddToRecent']});
       return;
+    }
+    if(chain.length===1 && chain[0]===raw && isTrusted(raw) && item.getMimeType()==='application/octet-stream'){
+      const url=new URL(raw),match=fileDownloadPath.exec(url.pathname);
+      if(match&&/^\?account=[a-z0-9_]{4,24}$/u.test(url.search)&&!url.hash&&frame.url===origin+'/#chat/'+match[1]){
+        const name=item.getFilename();
+        if(name && Buffer.byteLength(name)<=240 && path.win32.basename(name)===name &&
+            !/[<>:"/\\|?*\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]|[. ]$/u.test(name) &&
+            !/^(?:con|prn|aux|nul|conin\$|conout\$|(?:com|lpt)[0-9¹²³]) *(?:\.|$)/iu.test(name)){
+          item.setSaveDialogOptions({title:'保存聊天文件',defaultPath:name,properties:['dontAddToRecent']});
+          return;
+        }
+      }
     }
     event.preventDefault();
     if(!saveImage)return;
@@ -53,6 +66,26 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
     },
   });
   const contents = view.webContents;
+  let openingSnip=false;
+  contents.ipc?.handle('arcade:startChatSnip',async(event)=>{
+    const frame=event.senderFrame;
+    if(process.platform!=='win32'||openingSnip||event.sender!==contents||!frame||frame!==contents.mainFrame||
+        !isActive()||contents.isDestroyed()||!isTrusted(frame.url))return false;
+    const address=new URL(frame.url);
+    if(address.pathname!=='/'||address.search||!chatFragment.test(address.hash))return false;
+    const local=process.env.LOCALAPPDATA;
+    if(!local||!path.isAbsolute(local))return false;
+    openingSnip=true;
+    try{
+      // Invoke the installed Windows package alias. Only the user's later paste enters the page.
+      const alias=path.join(local,'Microsoft','WindowsApps','Microsoft.ScreenSketch_8wekyb3d8bbwe','SnippingTool.exe');
+      const child=spawnSnip(alias,['/clip'],{shell:false,stdio:'ignore',windowsHide:false});
+      return await new Promise(resolve=>{
+        child.once('error',()=>resolve(false));
+        child.once('spawn',()=>{child.unref();resolve(true);});
+      });
+    }finally{openingSnip=false;}
+  });
   function publishSendShortcut() {
     if(!readSendShortcut||contents.isDestroyed()||!isTrusted(contents.mainFrame?.url)||
         new URL(contents.mainFrame.url).pathname!=='/')return;
