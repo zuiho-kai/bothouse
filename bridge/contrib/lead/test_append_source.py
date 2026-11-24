@@ -27,25 +27,29 @@ class AppendSourceTest(unittest.TestCase):
                          "s2": {"history": [{"role": "user", "content": "内嵌的旧条", "timestamp": self.t2}]}}}))
         (sess / "proj_ab.history" / "s1.jsonl").write_text("\n".join(json.dumps(m, ensure_ascii=False) for m in [
             {"role": "user", "content": "[17:50] zuiho: 都做吧", "timestamp": self.t1},
-            {"role": "assistant", "content": "好，我交出去", "timestamp": self.t1},
+            {"role": "assistant", "content": "好，我交出去。要不要连首页一起？", "timestamp": self.t1},
             {"role": "user", "content": "窗口外的旧话", "timestamp": old}]) + "\nnot json\n")
         self.handoff = self.tmp / "h.md"
         self.handoff.write_text("# 交接\n## 用户原话\n- x\n## 总目标\ny\n", encoding="utf-8")
         os.environ["CC_DATA_DIR"] = str(self.tmp)
 
-    def test_reads_history_dir_and_marks_lead(self):
+    def test_reads_history_dir_and_keeps_lead_asks_only(self):
         dump = wsh.append_source(str(self.handoff), "discord:42", project="proj")
         self.assertTrue(dump)
         text = Path(dump).read_text(encoding="utf-8")
         self.assertIn("，3 条）", text)
-        self.assertLess(text.index("都做吧"), text.index("好，我交出去"))
+        self.assertLess(text.index("都做吧"), text.index("要不要连首页一起？"))
         self.assertIn("都做吧", text)
         self.assertIn("内嵌的旧条", text)
         self.assertNotIn("窗口外的旧话", text)
-        self.assertIn("主角色（只作参考）\n好，我交出去", text)
+        self.assertIn("主角色（程序只留了她问用户的问句）\n要不要连首页一起？\n", text)  # 主角色的话只留问句
+        self.assertNotIn("好，我交出去", text)
+        lead = Path(wsh._source.lead_path(str(self.handoff)))
+        self.assertIn("主角色（只作参考）\n好，我交出去。要不要连首页一起？", lead.read_text(encoding="utf-8"))  # 全文另存
         h = self.handoff.read_text(encoding="utf-8")
         self.assertIn("讨论原文：", h)
-        self.assertIn("主角色的话只作参考", h)
+        self.assertIn("主角色的话只留了她问用户的问句", h)
+        self.assertIn(f"主角色的话全文：{lead}", h)
 
 
 if __name__ == "__main__":

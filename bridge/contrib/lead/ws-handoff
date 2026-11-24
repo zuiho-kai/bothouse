@@ -509,6 +509,8 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     #1631：交接全文直接附在提示末尾（2 万字以内），省掉开工先 Read 交接的那一轮；更长的照旧「先读交接」。
     11-24 用户批：开工话改成「照用户原话做，范围你自己定」；讨论原文全文（<交接>.原话.md，2 万字以内）紧跟在首句后面；
     首次交活（answer 是 None 且知道聊天频道 chat）让工作区先往聊天频道发一句「我理解做完是这样」，续做不发。
+    11-24 回放后：讨论原文里主角色的话只留问句（_source._write_dump），标题照这个口径写；「做完」里只写原话说到的结果，
+    原话没说定的做法单列成拿不准的选项（此前工作区把主角色的提议写成了「做完」）。
     首句「从主频道接手一整块大活：…」别改：contrib/gate/ctxsvc.py 的 _KICK_TASK 靠它认任务。"""
     kickoff_existing(path, task)  # 只写进交接「手里现成的」节；开工提示里不再重复一遍
     try:
@@ -529,9 +531,11 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
         talk = Path(dump).read_text(encoding="utf-8", errors="ignore").rstrip()
     except OSError:
         talk = ""
-    talk = (f"\n【讨论原文 {dump}：用户的话是准绳，主角色的话只作参考】\n{talk}\n\n" if 0 < len(talk) <= 20000 else
+    talk = (f"\n【讨论原文 {dump}：用户的话是准绳；主角色的话只留了她问用户的问句，她的提议没放进来】\n{talk}\n\n" if 0 < len(talk) <= 20000 else
             f"先读讨论原文 {dump}。" if talk else "")
-    say = (f"开工先在聊天频道发一句「我理解做完是这样：…」，逐句对上用户原话，发完接着做，不等批："
+    say = (f"开工先在聊天频道发一句「我理解做完是这样：…」，逐句对上用户原话，每句后面写你理解做完是什么样。"
+           f"「做完」里只写用户原话说到的结果；原话没说定、要你自己选的做法（选哪个工具、哪种方案、走哪条路）不写成做完，"
+           f"单列成拿不准的选项并标推荐。发完接着做，不等批："
            f"{cc_bin()} send -p {project or _team.project()} -s {chat} --stdin <<'EOF'，下面写这句，最后一行 EOF。"
            if answer is None and ":" in (chat or "") else "")
     draft = str(Path(path).with_suffix(".report.md"))
