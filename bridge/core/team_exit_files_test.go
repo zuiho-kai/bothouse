@@ -245,3 +245,70 @@ func TestExitFilesForDedupVideosAndKeepFinal(t *testing.T) {
 		}
 	})
 }
+
+// #1097 (11-24): the lead releases a held text [report] with `ws-pass --verdict` and no attachments;
+// the deliverable the workspace handed back must follow the text into the chat channel. #1095 used
+// no --file, said 「两份英文定稿和中文对照已写好」 and named the file in its details; the text went out
+// alone (「你没发我定稿啊 为什么会这样」).
+func TestVerdictPassCarriesDeliverables(t *testing.T) {
+	doc := filepath.Join(t.TempDir(), "rlt-1053-final-drafts-20261124.md")
+	if err := os.WriteFile(doc, []byte("# 两份英文定稿\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const head = "[report] #7 背景：你让我按审稿意见改两份英文材料。\n"
+	cases := []struct {
+		name  string
+		sent  []FileAttachment // what ws-up --report --file sent in the workspace before the exit
+		body  string
+		files []string
+	}{
+		{"file handed back with --file", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
+			head + "改完了。\n要你做的：审一下。\n我加的：无\n", []string{"final.md"}},
+		{"draft named by path (#1095)", nil,
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审两份定稿。\n我加的：无\n细节：\n入口自验：成品是定稿文件 " + doc + " 。\n", []string{filepath.Base(doc)}},
+		{"document with a link in the report", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审一下。\n我加的：无\n细节：定稿 " + doc + "，也贴在 https://gist.github.com/x/1\n", nil},
+		{"no deliverable", nil, head + "改完了。\n要你做的：没有。\n我加的：无\n", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resetTeamTurns(t)
+			p := &exitFilePlatform{exitImgPlatform: exitImgPlatform{exitTestPlatform: exitTestPlatform{inputTestPlatform: inputTestPlatform{stubPlatformEngine: stubPlatformEngine{n: "discord"}}}}}
+			as := &inputTestSession{events: make(chan Event, 32), prompts: make(chan string, 32), id: "t1"}
+			a := &inputTestAgent{session: as, requested: make(chan string, 32)}
+			e := NewEngine("orange", a, []Platform{p}, "", LangEnglish)
+			e.dataDir = t.TempDir()
+			e.SetWorkspaceParentResolver(mapParent{"ws1": "chat1"})
+			e.workspaceChatForTest = func(s string) bool { return strings.Contains(s, "ws1") }
+			t.Cleanup(func() { e.cancel(); _ = e.Stop() })
+			e.SetTeam(t.TempDir(), "橘", true)
+			e.platformReady = map[Platform]bool{p: true}
+			store, err := NewTimerStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.timerScheduler = NewTimerScheduler(store)
+			exitBoardItem(t, e, 7, "RLT 两份英文稿定稿")
+			exitSay(e, p, exitWSKey, "ws1", "开工")
+			inputPrompt(t, a)
+			inputDone(a, "好")
+			e.noteWorkspaceFiles(exitWSKey, c.sent)
+			exitByCommand(t, e, exitWSKey, c.body)
+			inputWait(t, func() bool { return e.heldReportFor(7) != nil })
+			if got := p.filesTo("discord:chat1"); len(got) != 0 {
+				t.Fatalf("files reached the chat before the lead passed the report: %v", got)
+			}
+			if err := e.deliverHeldReport(e.heldReportFor(7).Key, "逐条：已核", false); err != nil {
+				t.Fatal(err)
+			}
+			inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+			if len(c.files) > 0 {
+				inputWait(t, func() bool { return len(p.filesTo("discord:chat1")) == len(c.files) })
+			}
+			time.Sleep(50 * time.Millisecond) // nothing more may follow
+			if got := p.filesTo("discord:chat1"); strings.Join(got, ",") != strings.Join(c.files, ",") {
+				t.Fatalf("files posted with the passed report = %v, want %v", got, c.files)
+			}
+		})
+	}
+}

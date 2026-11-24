@@ -324,8 +324,11 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []
 	slog.Info("team exit: documents posted with the exit", "files", sent, "of", len(files))
 }
 
-// reportDocClaimRe: the user-facing part says a document was produced.
-var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|report|document)|(报告|文档|文稿|纪要|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
+// reportDocClaimRe: the user-facing part says a document was produced. #1097 (11-24): #1095
+// said 「两份英文定稿和中文对照已写好」 and named the file in its details; 定稿 was not a document
+// word here, so the lead's `ws-pass --verdict` released the text alone and the user asked
+// 「你没发我定稿啊 为什么会这样」. Drafts (定稿, 初稿, 终稿, 稿子, 稿件) count as documents.
+var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|定稿|初稿|终稿|稿子|稿件|report|document)|(报告|文档|文稿|纪要|定稿|初稿|终稿|稿子|稿件|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
 
 // reportDeliverableProblems: a report that says it produced a document must carry it — a local
 // file (named, sent, or found through its handoff) or a link. Only when the bridge finds none
