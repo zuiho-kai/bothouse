@@ -7,7 +7,7 @@ const imageDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4})
 const fileDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\/messages\/[1-9]\d{0,15}\/file\/download$/u;
 const chatFragment=/^#chat\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
 
-function createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, readSendShortcut, visitFriend, isActive=()=>false,
+function createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, pickCrop, readSendShortcut, visitFriend, isActive=()=>false,
   spawnSnip=require('node:child_process').spawn, openExternal=url=>require('electron').shell.openExternal(url) }) {
   const origin = serviceOrigin(configuration.origin, configuration.mode);
   const {desktopVersion} = configuration;
@@ -58,6 +58,7 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
     callback({ cancel: !isTrusted(details.url) && !localImage });
   });
   const preloadArgs=visitFriend?['--arcade-friend-visits']:[];
+  if(pickCrop && process.platform==='win32')preloadArgs.push('--arcade-chat-crop');
   if(typeof desktopVersion==='string'&&/^[1-9]\d{0,4}(?:\.(?:0|[1-9]\d{0,4})){2}\.0$/u.test(desktopVersion))
     preloadArgs.push('--arcade-feedback-desktop-version='+desktopVersion);
   const view = new WebContentsView({
@@ -85,6 +86,27 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
       visitFriend({account:input.account,number:input.number});
       return {state:'opened'};
     }catch{return {state:'offline'};}
+  });
+  let cropVisit;
+  const cancelCrop=()=>cropVisit?.abort();
+  contents.on('did-start-navigation',(_event,_url,_inPlace,mainFrame)=>{if(mainFrame)cancelCrop();});
+  contents.once('destroyed',cancelCrop);
+  contents.ipc?.on?.('arcade:cancelChatCrop',event=>{
+    if(event.sender===contents && event.senderFrame===contents.mainFrame)cancelCrop();
+  });
+  if(pickCrop)contents.ipc?.handle('arcade:pickChatCrop',async event=>{
+    const frame=event.senderFrame, address=frame?.url;
+    if(cropVisit || process.platform!=='win32' || !isActive() || event.sender!==contents ||
+        frame!==contents.mainFrame || !isTrusted(address))return null;
+    const url=new URL(address);
+    if(url.pathname!=='/' || url.search || !chatFragment.test(url.hash))return null;
+    const visit=new AbortController();
+    cropVisit=visit;
+    try {
+      const bytes=await pickCrop(visit.signal);
+      return !visit.signal.aborted && isActive() && !contents.isDestroyed() &&
+        contents.mainFrame===frame && frame.url===address ? bytes : null;
+    } finally { cropVisit=undefined; }
   });
   let openingSnip=false;
   contents.ipc?.handle('arcade:startChatSnip',async(event)=>{
@@ -268,6 +290,7 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
         void contents.executeJavaScript('window.dispatchEvent(new Event("arcade-social-activate"))').catch(()=>{});
     },
     deactivate() {
+      cancelCrop();
       cancelCardVisit();
       if(!contents.isDestroyed())
         void contents.executeJavaScript('window.dispatchEvent(new Event("arcade-social-deactivate"))').catch(()=>{});

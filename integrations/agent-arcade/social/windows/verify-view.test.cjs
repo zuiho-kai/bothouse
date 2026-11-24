@@ -451,3 +451,33 @@ test('both release commands reject unsafe world origins before packaging or netw
     }
   }
 });
+
+test('local crop is tied to one active chat visit and discards a late PNG', {skip:process.platform!=='win32'}, async()=>{
+  const origin='http://127.0.0.1:18747', route=origin+'/#chat/12345678-1111-2222-3333-123456789abc';
+  const frame={url:route}, handlers=new Map();
+  let pending, signal, starts=0;
+  const isolated=Object.assign(new EventEmitter(),{webRequest:{onBeforeRequest(){}},setPermissionRequestHandler(){},setPermissionCheckHandler(){}});
+  class Guest {
+    constructor(){this.webContents=Object.assign(new EventEmitter(),{mainFrame:frame,isDestroyed:()=>false,setWindowOpenHandler(){},
+      ipc:{handle:(name,fn)=>handlers.set(name,fn),on:(name,fn)=>handlers.set(name,fn)}});}
+  }
+  const {view}=createSocialView({WebContentsView:Guest,session:{fromPartition:()=>isolated},
+    configuration:{origin,mode:'test'},isActive:()=>true,pickCrop:current=>{
+      starts++;signal=current;return new Promise(resolve=>{pending=resolve;});
+    }});
+  const contents=view.webContents,event={sender:contents,senderFrame:frame};
+  const open=handlers.get('arcade:pickChatCrop');
+  assert.equal(await open({...event,senderFrame:{url:route}}),null);
+  frame.url=origin+'/privacy.html';assert.equal(await open(event),null);
+  frame.url='https://elsewhere.invalid/'+new URL(route).hash;assert.equal(await open(event),null);
+  assert.equal(starts,0);
+  frame.url=route;
+  const first=open(event);assert.equal(await open(event),null);
+  contents.emit('did-start-navigation',{},origin+'/',true,true);
+  assert(signal.aborted);pending(Uint8Array.of(1));assert.equal(await first,null);
+  const second=open(event);
+  handlers.get('arcade:cancelChatCrop')(event);assert(signal.aborted);
+  pending(Uint8Array.of(2));assert.equal(await second,null);
+  const third=open(event);pending(Uint8Array.of(3));assert.deepEqual(await third,Uint8Array.of(3));
+  assert.equal(starts,3);
+});

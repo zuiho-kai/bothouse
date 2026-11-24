@@ -51,7 +51,7 @@ def stage(scope, release, handoff_file, destination, expected_version):
         entries = ["src", "LICENSE", "LICENSE-MIT-HISTORICAL", "THIRD_PARTY_NOTICES.md", "LICENSES", "package.json", "package-lock.json"]
         entries.extend("social/windows/" + name for name in [
             "pack.cjs", "manifest.xml", "main.cjs", "endpoint.cjs", "social-view.cjs",
-            "social-host.cjs", "privacy-preload.cjs", "store-update.cpp",
+            "social-host.cjs", "privacy-preload.cjs", "chat-capture", "store-update.cpp",
         ])
     with zipfile.ZipFile(source) as archive:
         if archive.comment.decode("ascii") != commit:

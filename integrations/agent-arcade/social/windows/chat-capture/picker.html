@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; media-src blob:">
+<title>应用内截图</title>
+<style>
+:root{font:16px "Microsoft YaHei UI",sans-serif;color-scheme:light dark}
+body{margin:20px}button,select{font:inherit;padding:.4em .7em}select{max-width:100%}
+footer{display:flex;flex-wrap:wrap;gap:.6em;margin:12px 0}p{margin:.7em 0}
+#stage{position:relative;width:fit-content;max-width:100%;line-height:0}
+canvas{max-width:100%;max-height:calc(100vh - 170px);object-fit:contain;touch-action:none;cursor:crosshair}
+#box{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid white;outline:1px solid black;background:#458dda33}
+</style></head><body>
+<div id="choose"><label>选择要截取的窗口或屏幕 <select id="target"><option value="">请选择</option></select></label>
+<footer><button id="take" disabled>截取画面</button></footer></div>
+<p id="status" role="status"></p>
+<div id="stage" hidden><canvas id="frame" aria-label="拖动框选截图区域"></canvas><span id="box" hidden></span></div>
+<footer><button id="whole" hidden>全选画面</button><button id="use" disabled hidden>预览选区</button><button id="cancel">取消</button></footer>
+</body></html>

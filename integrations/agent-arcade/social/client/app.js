@@ -2847,14 +2847,22 @@ function photoDialog(screenshot,droppedFile,snipRequest){
   input.addEventListener('change',()=>void selectPhoto(input.files[0]));
   if(droppedFile)void selectPhoto(droppedFile);
   if(snipRequest){
+    const crop=el('button','应用内截图','outline');
+    crop.type='button';
+    crop.dataset.chatCrop='';
+    crop.hidden=true;
+    crop.addEventListener('arcade-crop-failed',()=>{if(current())captureStatus.textContent='无法打开应用内截图，请重试或选择已保存的截图。';});
+    captureStatus.after(crop);
     const result=event=>{
       if(!current()||typeof event.detail!=='string')return;
       let answer;
       try{answer=JSON.parse(event.detail);}catch{return;}
       if(answer?.request!==snipRequest)return;
+      crop.hidden=answer.started===true || document.documentElement.dataset.arcadeChatCrop!=='available';
       captureStatus.textContent=answer.started===true
         ? '完成系统框选后，回到这里按 Ctrl+V 粘贴。'
-        : '无法打开系统截图工具。可选择已保存的截图，或按 Ctrl+V 粘贴已有截图。';
+        : crop.hidden?'无法打开系统截图工具。可选择已保存的截图，或按 Ctrl+V 粘贴已有截图。'
+        :'无法打开系统截图工具。可在应用内选择窗口或屏幕，框选后预览。';
     };
     screenshotControl.addEventListener('arcade-chat-snip-result',result);
     dialogCleanup=()=>screenshotControl.removeEventListener('arcade-chat-snip-result',result);
