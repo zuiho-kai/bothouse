@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -50,12 +51,7 @@ func setupFakeGate(t *testing.T, withJev bool) (dataDir string) {
 			t.Fatal(err)
 		}
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := l.Addr().String()
-	l.Close()
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(PickFreePort(0)))
 
 	oldFS, oldAddr, oldFind := GateScriptFS, gateAddr, findPythonForGate
 	oldQuick, oldMax, oldRe, oldWait := gateQuickExit, gateMaxBackoff, gateRecheck, gateStopWait
