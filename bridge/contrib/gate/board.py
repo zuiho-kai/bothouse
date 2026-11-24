@@ -766,6 +766,7 @@ def pause(nid, why=None):
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
+        hit.pop("wait_until", None)  # 新的暂停盖掉旧的到点重试（#1976：改成等用户后还挂着 09:59 重跑）；wait_external 随后重设
         ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
         if ws:
             hit["ws_was"] = ws
