@@ -96,7 +96,7 @@ class ProposeReview(unittest.TestCase):
     def test_provider_down_stops_before_fallback_and_keeps_offsets_and_fail_count(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         item = dict(id="aaaaaaaa", end=10, path=self.root / "s.jsonl", title="配置",
@@ -110,7 +110,7 @@ class ProposeReview(unittest.TestCase):
             I._ingest_batches(db, I.batches_of([item]), ["openai:high", "sonnet"], False)
         fallback.assert_not_called()
         self.assertEqual(db.execute("SELECT * FROM ingested").fetchall(), [])
-        self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [])
+        self.assertEqual(db.execute("SELECT id, n FROM fails").fetchall(), [])
 
     def test_failed_placement_reuses_durable_first_call(self):
         calls = []
@@ -125,7 +125,7 @@ class ProposeReview(unittest.TestCase):
     def test_unreadable_source_cannot_advance_through_another_engine(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         item = dict(id="aaaaaaaa", end=10, path=self.root / "s.jsonl", title="配置",
@@ -192,7 +192,7 @@ class ProposeReview(unittest.TestCase):
             return True
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         with patch.object(I, "propose_pass", accept), patch.object(I, "Prefetch"), \
@@ -324,10 +324,10 @@ class ProposeReview(unittest.TestCase):
             path.write_text("x")
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);"
-                         "INSERT INTO fails VALUES ('aaaaaaaa', 1), ('bbbbbbbb', 1);")
+                         "INSERT INTO fails (id, n) VALUES ('aaaaaaaa', 1), ('bbbbbbbb', 1);")
         offered = []
         def accept(label, item, text, sids, *args):
             offered.append((sids, text))
@@ -468,7 +468,7 @@ class ProposeReview(unittest.TestCase):
     def test_round_short_of_time_stops_without_counting_or_trying_another_engine(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         items = [dict(id=sid, end=10, path=self.root / (sid + ".jsonl"), title="配置", cwd="/test",
@@ -481,13 +481,13 @@ class ProposeReview(unittest.TestCase):
                 patch.object(I, "candidates_note", return_value=""), patch.object(I, "reject_streaks"):
             I._ingest_batches(db, [I.batches_of([it])[0] for it in items], ["openai:high", "sonnet"], False)
         self.assertEqual((passes.call_count, fallback.call_count), (1, 0))  # the later batch is not started either
-        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall() + db.execute("SELECT * FROM fails").fetchall(), [])
+        self.assertEqual(db.execute("SELECT * FROM ingested").fetchall() + db.execute("SELECT id, n FROM fails").fetchall(), [])
         self.assertIn("job deadline reached", log.call_args.args[0])
 
     def test_openai_engine_without_its_settings_is_a_config_error_and_alerts(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
@@ -502,7 +502,7 @@ class ProposeReview(unittest.TestCase):
                 patch.object(I, "alert") as alert:
             I.ingest_batches(db, [item], ["openai:high"], pending=True)  # the calls run in the prefetch workers
             self.assertFalse(I.ROUTE_DOWN)
-            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(db.execute("SELECT id, n FROM fails").fetchall(), [("aaaaaaaa", 1)])
             self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
             self.assertIn("api_base, api_model and api_key_file", alert.call_args.args[2])
             with self.assertRaises(I.ConfigError):
@@ -511,7 +511,7 @@ class ProposeReview(unittest.TestCase):
     def test_openai_key_file_unreadable_is_a_config_error_and_alerts(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         item = dict(id="aaaaaaaa", end=10, path=self.root / "aaaaaaaa.jsonl", title="配置", cwd="/test",
@@ -527,7 +527,7 @@ class ProposeReview(unittest.TestCase):
                 patch.object(I, "alert") as alert:
             I.ingest_batches(db, [item], ["openai:high"], pending=True)
             self.assertFalse(I.ROUTE_DOWN)
-            self.assertEqual(db.execute("SELECT * FROM fails").fetchall(), [("aaaaaaaa", 1)])
+            self.assertEqual(db.execute("SELECT id, n FROM fails").fetchall(), [("aaaaaaaa", 1)])
             self.assertEqual(alert.call_args.args[1], ["crash:ConfigError"])
             self.assertIn("no-such-key", alert.call_args.args[2])
 

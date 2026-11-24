@@ -56,6 +56,14 @@ class LogAcceptance(unittest.TestCase):
 
 
 class RepairPrompt(unittest.TestCase):
+    def setUp(self):
+        # _one_pass freezes the block contract against REPO (#1852): a real Git repo with a committed page.
+        (ROOT / "log.md").write_text("# log\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=ROOT, check=True)
+        subprocess.run(["git", "-C", str(ROOT), "add", "log.md"], check=True)
+        subprocess.run(["git", "-C", str(ROOT), "-c", "user.name=test", "-c", "user.email=test@localhost",
+                        "commit", "-qm", "baseline"], check=True)
+
     def test_repair_round_uses_actual_errors_and_preserves_literals(self):
         # The saved rejection changed this code literal into HTML entities during repair.
         literal = "at least one [[projects]] entry is required"
