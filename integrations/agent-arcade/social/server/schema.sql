@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS chats (
   first_user TEXT REFERENCES users, second_user TEXT REFERENCES users, created TEXT NOT NULL,
   UNIQUE(first_user,second_user)
 );
+CREATE TABLE IF NOT EXISTS removed_friends (
+  chat TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE
+);
+CREATE VIEW IF NOT EXISTS friend_chats AS
+  SELECT c.id,c.first_user,c.second_user FROM chats c
+  WHERE c.type='direct' AND NOT EXISTS (SELECT 1 FROM removed_friends r WHERE r.chat=c.id);
 CREATE TABLE IF NOT EXISTS ai_web_search_settings (
   chat TEXT PRIMARY KEY REFERENCES chats ON DELETE CASCADE,
   enabled INTEGER NOT NULL CHECK (enabled IN (0,1)), revision INTEGER NOT NULL

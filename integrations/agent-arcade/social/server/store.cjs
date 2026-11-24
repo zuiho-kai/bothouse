@@ -32,7 +32,7 @@ const feedAuthors=`WITH authors(number,kind) AS (
   SELECT $viewer,'human'
   UNION
   SELECT CASE WHEN c.first_user=$viewer THEN c.second_user ELSE c.first_user END,'human'
-  FROM chats c WHERE $includeOthers=1 AND c.type='direct' AND (c.first_user=$viewer OR c.second_user=$viewer)
+  FROM friend_chats c WHERE $includeOthers=1 AND (c.first_user=$viewer OR c.second_user=$viewer)
   UNION
   SELECT role,'ai' FROM ai_feed_follows WHERE account=$viewer AND $includeOthers=1
 )`;
@@ -210,10 +210,28 @@ class SocialStore {
     return this.user(account);
   }
   direct(a,b) {
-    return this.one('SELECT id FROM chats WHERE first_user=? AND second_user=?', ...[a,b].sort());
+    return this.one('SELECT id FROM friend_chats WHERE first_user=? AND second_user=?', ...[a,b].sort());
+  }
+  updateDirectMembership(id) {
+    this.run(`INSERT INTO conversation_membership_revisions(chat,account,revision)
+      SELECT chat,account,lower(hex(randomblob(16))) FROM members WHERE chat=?
+      ON CONFLICT(chat,account) DO UPDATE SET revision=excluded.revision`,id);
+  }
+  removeFriend(a,id,{expectedAccount,number:peer,revision}) {
+    if(expectedAccount!==a)fail(409,'friend_session','账号已变更，请重新打开会话');
+    const c=this.access(a,id);
+    if(c.type!=='direct'||peer!==(c.first_user===a?c.second_user:c.first_user)||
+       this.user(a).kind!=='human'||this.user(peer).kind!=='human')
+      fail(403,'human_friend_only','请从这位真人好友的私聊操作');
+    if(!c.friendRemoved){
+      if(revision!==c.membershipRevision)fail(409,'friend_session','好友关系已变更，请重新打开会话核对');
+      this.run('INSERT INTO removed_friends(chat) VALUES(?)',id);
+      this.updateDirectMembership(id);
+    }
+    return {conversation:this.conversation(a,id)};
   }
   friends(a) {
-    return this.all(`SELECT u.number,u.name AS displayName,u.kind,p.revision AS avatarRevision FROM chats c
+    return this.all(`SELECT u.number,u.name AS displayName,u.kind,p.revision AS avatarRevision FROM friend_chats c
       JOIN users u ON u.number=CASE WHEN c.first_user=? THEN c.second_user ELSE c.first_user END
       LEFT JOIN human_avatars p ON p.account=u.number AND u.kind='human'
       WHERE c.first_user=? OR c.second_user=? ORDER BY u.name,u.number`, a,a,a)
@@ -333,10 +351,17 @@ class SocialStore {
     if (r.state !== 'pending' && r.state !== state) fail(409, 'request_closed', '申请已处理');
     this.run('UPDATE requests SET state=? WHERE id=?',state,id);
     if (!accept) return {ok:true};
-    return {conversation:this.openDirect(a,r.sender)};
+    let conversation=this.openDirect(a,r.sender);
+    // Replaying a previously accepted request must not restore a removed friend.
+    if(r.state==='pending'&&conversation.friendRemoved){
+      this.run('DELETE FROM removed_friends WHERE chat=?',conversation.id);
+      this.updateDirectMembership(conversation.id);
+      conversation=this.conversation(a,conversation.id);
+    }
+    return {conversation};
   }
   openDirect(a,b) {
-    let direct = this.direct(a,b);
+    let direct = this.one('SELECT id FROM chats WHERE first_user=? AND second_user=?',...[a,b].sort());
     if (!direct) {
       const chat = randomUUID();
       this.run("INSERT INTO chats(id,type,first_user,second_user,created) VALUES(?,'direct',?,?,?)",chat,...[a,b].sort(),now());
@@ -347,11 +372,17 @@ class SocialStore {
   }
   access(a,id) {
     // Existing memberships keep a stable identity until they are removed.
-    const chat = this.one(`SELECT c.*,m.since,COALESCE(r.revision,c.id||'/'||m.account) AS membershipRevision
+    const chat = this.one(`SELECT c.*,m.since,COALESCE(r.revision,c.id||'/'||m.account) AS membershipRevision,
+      EXISTS(SELECT 1 FROM removed_friends f WHERE f.chat=c.id) AS friendRemoved
       FROM chats c JOIN members m ON m.chat=c.id
       LEFT JOIN conversation_membership_revisions r ON r.chat=m.chat AND r.account=m.account
       WHERE c.id=? AND m.account=?`,id,a);
     if (!chat) fail(404, 'unknown_chat', '你无法访问这个会话');
+    return chat;
+  }
+  writableChat(a,id) {
+    const chat=this.access(a,id);
+    if(chat.friendRemoved)fail(403,'friend_removed','你们已不是好友，请重新添加好友后再发送');
     return chat;
   }
   group(a,id) {
@@ -438,7 +469,7 @@ class SocialStore {
     return this.humanAttachmentAccess(a,id,'image');
   }
   humanAttachmentAccess(a,id,kind) {
-    const chat=this.access(a,id);
+    const chat=this.writableChat(a,id);
     const aiDirect=chat.type==='direct'&&this.one(
       "SELECT 1 FROM members m JOIN users u ON u.number=m.account WHERE m.chat=? AND u.kind='ai'",id);
     if(this.user(a).kind!=='human'||aiDirect)
@@ -574,6 +605,7 @@ class SocialStore {
     const webSearch=hasAi&&{enabled:!!search?.enabled,revision:search?.revision??0,canManage:c.type==='direct'||c.owner===a};
     return {id, type:c.type, title:c.type === 'direct' ? members.find(m => m.number !== a).displayName : c.title,
       ownerNumber:c.owner, members, lastMessage:last ? this.message(last) : null, readThrough, unreadThrough, ...(cloudChat&&{cloudChat}),
+      ...(c.friendRemoved&&{friendRemoved:true}),
       ...(aiProvider&&{aiProvider}),...(requiresAiCloudConsent&&{requiresAiCloudConsent}),...(webSearch&&{webSearch}),
       ...(personal&&{personalAi:true,personalAiOwner:personal.owner===a,
         personalCloudAllowed:personal.owner===a||Boolean(personal.guestCloud)})};
@@ -679,7 +711,7 @@ class SocialStore {
     return messages.map(message=>quotes.has(message.id)?{...message,quote:quotes.get(message.id)}:message);
   }
   send(a,id,body,onInsert) {
-    const chat = this.access(a,id);
+    const chat = this.writableChat(a,id);
     if (typeof body.clientId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(body.clientId)) fail(400,'client_id','消息重试编号无效');
     // Only a trusted AI sender may add a brief delivery note to the original reply.
     const text = string(body.text,body.text?.length>4000&&this.user(a).kind==='ai'?4096:4000,'消息');

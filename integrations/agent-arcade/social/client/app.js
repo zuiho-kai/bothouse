@@ -1055,7 +1055,7 @@ function pickMention(person,id,scope) {
   closeDialog();
   chooseMention(person);
 }
-const canAttach = meta => Boolean(meta && (meta.type==='group'||meta.members.every(member=>member.kind==='human')));
+const canAttach = meta => Boolean(meta && !meta.friendRemoved&&(meta.type==='group'||meta.members.every(member=>member.kind==='human')));
 const canSendPhoto=meta=>canAttach(meta)||!meta?.personalAi&&meta?.cloudChat?.enabled===true;
 const imageUrl = row => './api/v1'+thread(row.conversationId)+'/messages/'+row.id+'/image';
 
@@ -1075,7 +1075,7 @@ const visitFriendPlanet=$('#visit-friend-planet');
 visitFriendPlanet?.addEventListener('click',async()=>{
   const visit=chatVisit,account=user?.number;
   const friend=conversation?.type==='direct'&&conversation.members.find(p=>p.kind==='human'&&p.number!==account);
-  if(!account||!friend)return;
+  if(!account||!friend||conversation.friendRemoved)return;
   const feedback=$('#send-error');
   if(!window.arcadeWorldVisit?.open){
     feedback.textContent='请在 Agent Arcade 桌面版打开这段私聊，拜访好友的星球。';
@@ -1099,9 +1099,29 @@ visitFriendPlanet?.addEventListener('click',async()=>{
     if(answer?.state!=='opened')
       feedback.textContent=answer?.state==='unavailable'?'这位好友目前没有共享可拜访的星球。':
         answer?.state==='changed'?'好友或账号已变更，请重新打开私聊。':'小星球暂时无法连接，请稍后再试。';
-  }catch{
-    if(chatVisit===visit&&user?.number===account)feedback.textContent='小星球暂时无法连接，请稍后再试。';
+  }catch(error){
+    if(chatVisit!==visit||user?.number!==account)return;
+    if(error.message==='friends_only')void openChat(chat,account,true);
+    else feedback.textContent='小星球暂时无法连接，请稍后再试。';
   }finally{visitFriendPlanet.disabled=false;}
+});
+const removeFriendControl=$('#remove-human-friend');
+removeFriendControl?.addEventListener('click',()=>{
+  const account=user?.number,id=chat,revision=membershipRevision;
+  const peer=conversation?.type==='direct'&&conversation.members.find(member=>member.kind==='human'&&member.number!==account);
+  if(!account||!id||!peer||!revision||conversation.friendRemoved)return;
+  const submit=button('确认删除好友',()=>void perform(async()=>{
+    await api(thread(id)+'/remove-friend',{expectedAccount:account,number:peer.number,revision},{expectedAccount:account});
+    if(user?.number===account&&chat===id)await openChat(id,account,true);
+    if(user?.number===account)void sync();
+  },submit,scope),'primary');
+  const actions=el('div',null,'actions');
+  actions.append(button('取消',closeDialog),submit);
+  const scope=openDialog('删除好友',[
+    el('p','删除 '+peer.displayName+'（'+peer.number+'）？'),
+    el('p','删除后，双方仍可查看已有私聊，也可继续在共同群里聊天。私聊发消息、好友动态和从私聊拜访星球需要重新互加好友。','minor'),
+    actions,
+  ],id);
 });
 function showChatHeader() {
   showReplyTarget();
@@ -1126,13 +1146,15 @@ function showChatHeader() {
   const groupDetail=meta.members.length+' 位群成员'+(aiCount?' · '+aiCount+' 位 AI':'');
   const cloudService=meta.aiProvider?aiService(meta.aiProvider)+' · ':'';
   $('#chat-detail').textContent=meta.type==='group'?groupDetail:
+    meta.friendRemoved?'已不是好友 · 仍可查看历史':
     legacyPersonal?'原有 AI 私聊 · 可查看历史':
       cloud?cloudService+(paused?'云聊天已关闭':'云聊天已开启'):awaitingAiConsent?cloudService+'未开启云聊天':peer?.kind==='ai'?'AI 联系人':peer?.number||'';
   const aiPeer=directAiPeer(meta);
   const avatarSeed=aiPeer?.number??meta.id;
   const builtinArt=roleArt.get(aiPeer?.number);
   const humanPeer=meta.type==='direct'&&peer?.kind==='human'?peer:null;
-  if(visitFriendPlanet)visitFriendPlanet.hidden=!humanPeer;
+  if(visitFriendPlanet)visitFriendPlanet.hidden=!humanPeer||meta.friendRemoved;
+  if(removeFriendControl)removeFriendControl.hidden=!humanPeer||meta.friendRemoved;
   const artwork=builtinArt?'./art/'+builtinArt+'.png':
     aiPeer&&chatPortrait?.visit===chatVisit&&chatPortrait.number===aiPeer.number?chatPortrait.data:humanAvatarUrl(humanPeer);
   if(!chatAvatar.firstElementChild||chatAvatar.dataset.seed!==avatarSeed||
@@ -1156,9 +1178,9 @@ function showChatHeader() {
   const hasSettings=!!chatSettings.querySelector('button:not([hidden])');
   $('#chat-settings-toggle').hidden=!hasSettings;
   if(!hasSettings)chatSettings.hidePopover();
-  messageBox.readOnly=legacyPersonal||paused||awaitingAiConsent;
-  messageBox.placeholder=legacyPersonal?'这段原有私聊仅供查看':awaitingAiConsent?'开启云聊天后才能发送':paused?'恢复云聊天后才能发送':'写消息…';
-  composer.querySelector('button[type="submit"]').disabled=legacyPersonal||paused||awaitingAiConsent||sending.has(meta.id)||
+  messageBox.readOnly=Boolean(meta.friendRemoved)||legacyPersonal||paused||awaitingAiConsent;
+  messageBox.placeholder=meta.friendRemoved?'请从通讯录重新添加好友后发送':legacyPersonal?'这段原有私聊仅供查看':awaitingAiConsent?'开启云聊天后才能发送':paused?'恢复云聊天后才能发送':'写消息…';
+  composer.querySelector('button[type="submit"]').disabled=Boolean(meta.friendRemoved)||legacyPersonal||paused||awaitingAiConsent||sending.has(meta.id)||
     !mentionAvailable(drafts.get(meta.id)?.target);
   $('#composer-media').hidden=!canSendPhoto(meta);
   stickerButton.hidden=!canAttach(meta);
@@ -1415,9 +1437,9 @@ $('#ai-proactive').addEventListener('click',async()=>{
     if(current())body.textContent=textError(error);
   }
 });
-async function openChat(id,expectedAccount) {
+async function openChat(id,expectedAccount,reload=false) {
   if(!user) return;
-  if(id===chat && (conversation||!id)) {renderDirectory();showChatHeader();return;}
+  if(!reload&&id===chat && (conversation||!id)) {renderDirectory();showChatHeader();return;}
   stopVoicePlayback();
   if(dialogMessage||chat&&dialogGroup===chat)closeDialog();
   const epoch=generation, visit=++chatVisit;
@@ -1860,6 +1882,7 @@ async function sync() {
     const [people,requests,threads]=await Promise.all([api('/friends'),api('/friend-requests'),api('/conversations')]);
     if(generation!==epoch||syncFlight!==lock) return;
     const changed=JSON.stringify([friends,incoming,outgoing,conversations])!==JSON.stringify([people.friends,requests.incoming,requests.outgoing,threads.conversations]);
+    const removedFriend=tab==='feed'&&friends.some(friend=>friend.kind==='human'&&!people.friends.some(next=>next.number===friend.number));
     friends=people.friends;incoming=requests.incoming;outgoing=requests.outgoing;conversations=threads.conversations;
     const accessible=new Set(conversations.map(item=>item.id));
     const removedDrafts=[...drafts.keys()].filter(id=>!accessible.has(id));
@@ -1870,10 +1893,16 @@ async function sync() {
     if(removedDrafts.length)persistChatDrafts();
     for(const item of conversations)readThrough.set(item.id,Math.max(readThrough.get(item.id)??0,item.readThrough??0));
     if(changed)renderDirectory();
+    if(removedFriend){
+      if(dialog.open&&$('#dialog-body .feed-post__body'))closeDialog();
+      void loadFeed();
+    }
     if(chat&&conversation) {
       const active=conversations.find(item=>item.id===chat);
       if(active) {
-        if(active.cloudChat) {
+        if(active.friendRemoved!==conversation.friendRemoved){
+          await openChat(chat,user.number,true);
+        }else if(active.cloudChat) {
           if(active.cloudChat.revision!==conversation.cloudChat?.revision||
             active.webSearch?.revision!==conversation.webSearch?.revision)applyCloudConversation(active);
         }
@@ -2031,6 +2060,8 @@ composer.addEventListener('submit',async event=>{
         void sync();
       } else if(error.message==='message_session') {
         leaveSession();
+      } else if(error.message==='friend_removed') {
+        void openChat(id,user.number,true);
       } else if(error.status===403||error.status===404) {
         forgetConversation(id);
         $('#sync-status').textContent=textError(error);

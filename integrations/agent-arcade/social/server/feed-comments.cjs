@@ -3,8 +3,7 @@
 const {fail,string}=require('./store.cjs');
 
 const validId=id=>/^[1-9]\d*$/u.test(id)&&Number.isSafeInteger(Number(id));
-const friends=(a,b)=>`EXISTS (SELECT 1 FROM chats WHERE type='direct'
-  AND first_user=min(${a},${b}) AND second_user=max(${a},${b}))`;
+const friends=(a,b)=>`EXISTS (SELECT 1 FROM friend_chats WHERE first_user=min(${a},${b}) AND second_user=max(${a},${b}))`;
 
 // Keep both the reader and the commenter inside the current post audience.
 // On a role's post the viewer may see their own or their friends' comments.

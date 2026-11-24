@@ -173,6 +173,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
   }
   if (root === 'conversations') {
     if (parts.length === 2 && method === 'GET') return {conversation:conversationView(store.conversation(a,id))};
+    if (parts.length===3&&method==='POST'&&action==='remove-friend')return store.removeFriend(a,id,body);
     if (parts.length === 3 && action === 'read' && method === 'POST') return store.markConversationRead(a,id,body);
     if (parts.length === 3 && action === 'history-search' && method === 'GET') {
       const page=store.historySearch(a,id,params);
@@ -415,10 +416,14 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       if(collection==='conversations'&&parts.length===3&&action==='voices'&&req.method==='POST') {
         const account=current(store,req);
         if(req.headers['x-social-account']!==account)fail(409,'voice_session','账号已切换，请重新打开会话');
-        store.humanAttachmentAccess(account,chat,'voice');
+        const scope=store.humanAttachmentAccess(account,chat,'voice');
         const voice=await readVoiceUpload(req);
         if(current(store,req)!==account)fail(409,'voice_session','账号已切换，请重新打开会话');
-        const sent=store.transaction(()=>store.sendVoice(account,chat,voice.clientId,voice));
+        const sent=store.transaction(()=>{
+          if(scope.type==='direct'&&store.access(account,chat).membershipRevision!==scope.membershipRevision)
+            fail(409,'voice_session','会话权限已变更，请重新选择语音');
+          return store.sendVoice(account,chat,voice.clientId,voice);
+        });
         res.setHeader('Content-Type','application/json; charset=utf-8');
         return res.end(JSON.stringify({message:sent}));
       }
@@ -441,8 +446,8 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
         const image=await readImageUpload(req);
         if(current(store,req)!==account)fail(409,'image_session','账号已切换，请重新打开会话');
         const sent=store.transaction(()=>{
-          if(captureRevision!==undefined && store.access(account,chat).membershipRevision!==captureRevision)
-            fail(409,'file_session','请重新打开会话');
+          if((scope.type==='direct'||captureRevision!==undefined)&&store.access(account,chat).membershipRevision!==scope.membershipRevision)
+            fail(409,'file_session','会话权限已变更，请重新选择图片');
           return store.sendImage(account,chat,image.clientId,image);
         });
         res.setHeader('Content-Type','application/json; charset=utf-8');
