@@ -1263,8 +1263,7 @@ func (e *Engine) taskForumDestination(ctx context.Context, it teamTaskBoardItem)
 // 11-16 「现在为什么做完的任务不报一下了」: a bare link reads as no report); an [ask]
 // is the link alone. A failed forum send retains the legacy delivery path.
 // The returned reply context sends attachments to the same post as the text.
-// Only an [ask] posts its detail: a report's detail stays out of the post like
-// the chat channel's (方案甲, user 11-16).
+// The post gets the detail of both a report and an [ask]; ask only picks the chat text.
 func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session string, hid int, headline, detail string, ask bool) (string, any) {
 	if !e.taskForumEnabled() {
 		return headline, nil
@@ -1299,10 +1298,9 @@ func (e *Engine) taskForumExitText(ctx context.Context, p Platform, session stri
 	if !ok {
 		return headline, nil
 	}
-	node := headline
-	if ask {
-		node = joinExitDetail(headline, detail)
-	}
+	// The post holds the whole course, so a report goes in with its detail like an [ask]
+	// (user 11-25, replacing 方案甲's headline-only report).
+	node := joinExitDetail(headline, detail)
 	if err := authorizedOutput(ctx, func() error { return poster.PostTaskNode(ctx, ps.Thread, node) }); err != nil {
 		e.taskForumFailed(ctx, p, taskForumChat(*it), *it, err)
 		return headline, nil

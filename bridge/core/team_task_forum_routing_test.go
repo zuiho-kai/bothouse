@@ -176,7 +176,7 @@ func TestTaskForumExitRequiresDeliveredPost(t *testing.T) {
 	e, p, dir := forumRoutingEngine(t)
 	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":783,"what":"任务并帖","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
 	headline, detail := "📬 结果", "完整报告"
-	body := headline // 方案甲: a report's detail stays out of the post
+	body := joinExitDetail(headline, detail) // the post holds the whole report (user 11-25)
 	text, rc := e.taskForumExitText(context.Background(), p, "discord:222", 783, headline, detail, false)
 	if rc != "discord:th1" || !strings.Contains(text, "https://discord.com/channels/g1/th1/th1") || len(p.post("th1").nodes) != 1 || p.post("th1").nodes[0] != body {
 		t.Fatalf("text=%s rc=%v post=%+v", text, rc, p.post("th1"))
