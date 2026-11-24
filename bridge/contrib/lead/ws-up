@@ -7,6 +7,7 @@
 #   报给谁：按 <GATE_SETUP_DIR>/ws-handoff-last.json 的 tasks（ws-handoff 按交接文件记的来源聊天频道）找。
 #   --notes 指定是哪件活（交接文件），报给交它进来的聊天频道。
 #   --image/--file（可重复）：截图、视频、文件一并发到这件活的来源聊天频道（不手写 bothouse send -s，#1154）。
+#   --report 时正文写了路径、这件活期间写出的成品文档自动当 --file 带上（#1097，见 named_deliverables）。
 #   不给时：交给本工作区（CC_SESSION_KEY）的活只来自一个聊天频道就报给它；来自多个就报错列出可选项，不猜。
 #   老格式（没有 tasks）只认顶层 channel/chat。
 #   叫醒的身份是调用者自己的 CC_PROJECT（即正在当主的那位，见 _team.py），平台/频道 ID 都不写死。
@@ -203,6 +204,56 @@ def without_linked_docs(files, text):
     return [x for f, p in pairs if p.lower().endswith(media) for x in (f, p)]
 
 
+# 本机文档路径（同桥 core/team_exit_files.go exitDocPathRe）：前一个字符是空白或标点才算，URL 里的不算
+DOC_PATH_RE = re.compile(r"(?<![^\s:：(（「`'\"*\-—])(?:~/|/)[^\s\"'`<>()（）「」，。；：、]*\.(?:md|markdown|txt|pdf|html?|csv|docx?|xlsx?|pptx?)", re.I)
+import tempfile  # noqa: E402
+
+
+def scratch_dirs():
+    """临时目录（中间产物放的地方）：系统临时目录（认 TMPDIR）和 macOS 的 /private/tmp（/tmp 指向它）。"""
+    return tuple(os.path.realpath(d) + "/" for d in (tempfile.gettempdir(), "/private/tmp"))
+FILE_MAX = 8 << 20  # 沿用桥 exitFileMaxBytes（Discord 默认 10 MiB 上传上限内）
+
+
+def in_git_tree(path: Path) -> bool:
+    return any((d / ".git").exists() for d in path.parents)
+
+
+def named_deliverables(text, handoff, bound):
+    """#1097：汇报正文写了路径、这件活期间写出的成品文档 → 自动当 --file 带上，不靠正文措辞猜「产出了文档」。
+    11-24 #1095 写「两份英文定稿和中文对照已写好」附路径，没带 --file，主角色 ws-pass --verdict 放行后用户只收到文字
+    （「你没发我定稿啊 为什么会这样」）。选「自动登记」不选「拒交」：工作区已经写明了是哪份，再退回只多一轮，漏的还是同一件。
+    不算成品的：交接本身和它的副产物（同名前缀：原话、交回草稿）、绑定这件活之前就有的、git 仓库里的
+    （代码和 wiki 改动走 PR/提交，#1404 引用的 wiki 页不该当附件）、临时目录里的中间产物、空的或超过 8 MiB 的。"""
+    if not bound:
+        return []
+    stem = Path(handoff).name[:-3] if handoff.endswith(".md") else Path(handoff).name
+    scratch, out = scratch_dirs(), []
+    for m in DOC_PATH_RE.finditer(text):
+        p = Path(os.path.expanduser(m.group(0)))
+        sp = str(p)
+        if sp in out or p.name.startswith(stem) or os.path.realpath(sp).startswith(scratch):
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        if not p.is_file() or not 0 < st.st_size <= FILE_MAX or st.st_mtime < bound or in_git_tree(p):
+            continue
+        out.append(sp)
+    return out
+
+
+def bound_of(nid):
+    """这件活绑上工作区的时刻（board 条目的 bound，RFC 3339）转成时间戳；没有返回 0。"""
+    from datetime import datetime
+    raw = (board.item_by_id(nid) or {}).get("bound") if nid else ""
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp() if raw else 0
+    except ValueError:
+        return 0
+
+
 def fill_map(draft, key):
     """#1639：交回只认命令后，Stop 钩子读回复正文补地图那条腿断了；交回收下后对草稿跑 codemap-fill，
     补「## 地图要补的条目（地图路径）」一节，结果打一行。出错只少这一步，不挡交回。"""
@@ -246,6 +297,12 @@ def hand_back(draft, notes, failed: bool, text=None, files=(), batch=False):
         why = board.wait_report_pr_problem(Path(draft).read_text(encoding="utf-8"))
         if why:
             sys.exit(f"ws-up: 没有交回（草稿在 {draft}，处理后跑 ws-up --notes {path} --report {draft}）：\n{why}")
+    have = {files[i + 1] for i in range(0, len(files), 2)}
+    auto = [f for f in named_deliverables(Path(draft).read_text(encoding="utf-8"), path,
+                                          bound_of(int(headline[1]) if headline else 0)) if f not in have]
+    if auto:
+        print("ws-up: 汇报里写了路径的成品自动随交回带上（等同 --file）：" + "、".join(auto), file=sys.stderr)
+        files = list(files) + [x for f in auto for x in ("--file", f)]
     try:
         files = without_linked_docs(list(files), Path(draft).read_text(encoding="utf-8"))
     except (OSError, ValueError):

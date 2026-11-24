@@ -261,14 +261,16 @@ func TestVerdictPassCarriesDeliverables(t *testing.T) {
 		sent  []FileAttachment // what ws-up --report --file sent in the workspace before the exit
 		body  string
 		files []string
+		block bool // the lead may not pass it as text alone (heldReportReviewProblem)
 	}{
 		{"file handed back with --file", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
-			head + "改完了。\n要你做的：审一下。\n我加的：无\n", []string{"final.md"}},
+			head + "改完了。\n要你做的：审一下。\n我加的：无\n", []string{"final.md"}, false},
 		{"draft named by path (#1095)", nil,
-			head + "两份英文定稿和中文对照已写好。\n要你做的：审两份定稿。\n我加的：无\n细节：\n入口自验：成品是定稿文件 " + doc + " 。\n", []string{filepath.Base(doc)}},
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审两份定稿。\n我加的：无\n细节：\n入口自验：成品是定稿文件 " + doc + " 。\n", []string{filepath.Base(doc)}, false},
 		{"document with a link in the report", []FileAttachment{{MimeType: "text/markdown", Data: []byte("# 定稿"), FileName: "final.md"}},
-			head + "两份英文定稿和中文对照已写好。\n要你做的：审一下。\n我加的：无\n细节：定稿 " + doc + "，也贴在 https://gist.github.com/x/1\n", nil},
-		{"no deliverable", nil, head + "改完了。\n要你做的：没有。\n我加的：无\n", nil},
+			head + "两份英文定稿和中文对照已写好。\n要你做的：审一下。\n我加的：无\n细节：定稿 " + doc + "，也贴在 https://gist.github.com/x/1\n", nil, false},
+		{"no deliverable", nil, head + "改完了。\n要你做的：没有。\n我加的：无\n", nil, false},
+		{"asks a review, nothing to review", nil, head + "改完了。\n要你做的：审两份定稿。\n我加的：无\n", nil, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -297,6 +299,12 @@ func TestVerdictPassCarriesDeliverables(t *testing.T) {
 			inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 			if got := p.filesTo("discord:chat1"); len(got) != 0 {
 				t.Fatalf("files reached the chat before the lead passed the report: %v", got)
+			}
+			if why := e.heldReportReviewProblem(e.heldReportFor(7)); (why != "") != c.block {
+				t.Fatalf("review problem = %q, want blocked=%v", why, c.block)
+			}
+			if c.block {
+				return
 			}
 			if err := e.deliverHeldReport(e.heldReportFor(7).Key, "逐条：已核", false); err != nil {
 				t.Fatal(err)

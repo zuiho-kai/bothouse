@@ -663,3 +663,28 @@ func ExitTaskPick(named int, items []ExitTaskCand) int {
 func ExitBounceNote(problems []string) string {
 	return "（系统核对：" + strings.Join(problems, ExitRules.Bounce.Sep) + "）"
 }
+
+// UserTodo is the 「要你做的」 part of a report, "" when it has none or says 没有 (same bounds as
+// selfRouteHit: up to the next 【…】/我加的/自验/细节 line or a blank line).
+func UserTodo(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	var parts []string
+	for {
+		loc := ExitRules.srTodo.FindStringIndex(body)
+		if loc == nil {
+			return strings.TrimSpace(strings.Join(parts, "\n"))
+		}
+		body = body[loc[1]:]
+		first, more, _ := strings.Cut(body, "\n")
+		if ExitRules.srNone.MatchString(first) {
+			continue
+		}
+		parts = append(parts, first)
+		for _, ln := range strings.Split(more, "\n") {
+			if ExitRules.srEnd.MatchString(ln) {
+				break
+			}
+			parts = append(parts, ln)
+		}
+	}
+}
