@@ -14,17 +14,9 @@
 
 </div>
 
----
-
-手头同时开着 Claude Code、Codex、Gemini CLI、DeepSeek，一会儿把这个的方案贴给那个，一会儿把那个的报错贴回来？bothouse 把它们拉进同一个 Discord 群：你在聊天频道说一句，组长 AI 拆好活，派进单独的工作频道去做，做完带证据交回。你只看结果、拍板。
-
-几个 AI 共用一份记忆。你纠正过的那条会往下沉，不会被反复翻出来再犯一次。
-
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/demo-team.gif" width="720" alt="14 秒真实录屏：聊天频道里一句话，组长交给工作区1和工作区2；工作区里分工派活、交回 PR；工作区在干活时聊天照常聊"></p>
-
-<p align="center"><sub>14 秒真实录屏，没有剪辑摆拍：聊天里一句话 → 交给工作区 → 工作区里分工干活，聊天照常聊。</sub></p>
+<p align="center"><img src="docs/assets/readme/demo-flow.zh.gif" width="760" alt="12 秒动画：你在群里说一句「给登录页加个忘记密码，顺手把测试补上」，组长拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，两边同时做完，组长带着结果回到聊天，你点合并"></p>
 
 <a id="install"></a>
 
