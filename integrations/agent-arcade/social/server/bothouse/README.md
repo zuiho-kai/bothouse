@@ -1,5 +1,11 @@
 # Bothouse contacts in Friends
 
+## 星球居民在好友服务重启后恢复
+
+保留原好友服务地址和 SQLite 数据库。房主已在新版服务连接居民、仅关闭 App 窗口且原登录仍有效时，服务启动后会恢复这次发布。它重核同一账号的登录与角色权限、配对版本及世界上的原星球和发布槽。Bothouse 或世界暂未就绪时，恢复会等待。访客仍须拥有当前的好友来访权限。关闭来访后，房主自己的居民可继续更新，访客无法查看。
+
+服务端在受保护的好友 SQLite 库保存此星球的发布授权；对外接口不返回该授权。保护备份权限，灾备使用现有的 `--prepare-restore` 流程，旧登录及其发布授权随之失效。退出登录、断开 AI 或撤回角色权限后，相关授权不能用于恢复。旧版已连接但没有保存发布授权的星球，需要在新版从自己的星球重新连接一次；服务不会从旧主页记录推断用户同意。
+
 The Friends service reads its local Bothouse instance at `BOTHOUSE_DATA_DIR/config.toml`, or the usual `~/.bothouse/config.toml` (legacy `~/.cc-connect`). The local helper needs Python 3.11+ and `websockets==15.0.1`. A service installation can select its interpreter with `SOCIAL_BOTHOUSE_PYTHON`. No Python dependency is installed at runtime.
 
 This path uses Bothouse's authenticated management listener and authenticated Bridge WebSocket on loopback. The helper uses the management and bridge tokens locally. It never outputs the TOML, model keys, or transport tokens. The current configuration reader supports literal transport tokens. Give the service account access only to its intended instance. A separately hosted Friends server cannot use someone's desktop instance implicitly.

@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS friend_world_homes (
   PRIMARY KEY(account,issuer,world)
 );
 CREATE INDEX IF NOT EXISTS friend_world_homes_planet ON friend_world_homes(issuer,world,planet);
+CREATE TABLE IF NOT EXISTS world_resident_publishers (
+  account TEXT NOT NULL, issuer TEXT NOT NULL, world TEXT NOT NULL,
+  session TEXT NOT NULL REFERENCES sessions(digest) ON DELETE CASCADE,
+  planet TEXT NOT NULL, source TEXT NOT NULL, token TEXT NOT NULL,
+  pairing_revision TEXT,
+  PRIMARY KEY(account,issuer,world),
+  FOREIGN KEY(account,issuer,world) REFERENCES friend_world_homes(account,issuer,world) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS bothouse_pair_codes (
   account TEXT PRIMARY KEY REFERENCES users(number) ON DELETE CASCADE,
   digest TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL

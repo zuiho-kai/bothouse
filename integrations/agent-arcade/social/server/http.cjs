@@ -727,6 +727,7 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
   });
   server.once('listening',workOrders.start);
   server.once('close',workOrders.stop);
+  server.once('listening',residents.start);
   server.once('close',residents.close);
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;

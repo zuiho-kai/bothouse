@@ -141,14 +141,28 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       socialOrigin(),origin,planetId);
     return {allowed:!!home&&home.visits!=='closed'&&home.account!==session.account&&!!store.direct(session.account,home.account)};
   }
-  function stop(job){
+  const pairingRevision=account=>store.one('SELECT revision FROM bothouse_links WHERE account=?',account)?.revision??null;
+  const storedPublisher=account=>store.one(`SELECT account,session,planet,source AS sourceId,token,pairing_revision AS pairingRevision
+    FROM world_resident_publishers WHERE account=? AND issuer=? AND world=?`,account,socialOrigin(),origin);
+  function detach(job){
     if(jobs.get(job.account)===job)jobs.delete(job.account);
     clearTimeout(job.timer);
     job.child?.kill();
+  }
+  function stop(job){
+    detach(job);
+    if(closed)return;
+    store.run('DELETE FROM world_resident_publishers WHERE account=? AND issuer=? AND world=? AND token=?',
+      job.account,socialOrigin(),origin,job.token);
     return job.pausing??=control(job,'pause');
   }
   function current(job){
-    if(jobs.get(job.account)!==job||!sessionAlive(job))problem('session');
+    if(jobs.get(job.account)!==job||!sessionAlive(job)||pairingRevision(job.account)!==job.pairingRevision)
+      problem('session');
+    if(job.durable){
+      const home=homeRow(job.account);
+      if(home?.planet!==job.planet||home?.resident_source!==job.sourceId)problem('binding');
+    }
   }
   async function heartbeat(job){
     current(job);
@@ -203,27 +217,49 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       });
     }finally{workers--;}
   }
-  function schedule(job){
+  function schedule(job,delay=heartbeatInterval){
     job.timer=setTimeout(async()=>{
       if(jobs.get(job.account)!==job)return;
-      // Defer saturated ticks briefly; keep at most one child in flight per slot.
+      // Keep at most one sample in flight per slot and defer saturated ticks.
       if(workers>=4&&sessionAlive(job)){schedule(job);return;}
       try{
+        current(job);
+        if(!job.ready){
+          if(!configured())problem('unavailable');
+          const verified=await control(job,'check');
+          current(job);
+          if(verified.planetId!==job.planet)problem('binding');
+        }
+        if(workers>=4){schedule(job);return;}
         await heartbeat(job);
         current(job);
+        job.ready=true;
         job.lastPublished=Date.now();
       }catch(error){
         if(jobs.get(job.account)!==job)return;
-        // A failed sample can leave the verified owner grant intact. The world
-        // independently expires stale residents, and every visit rechecks the grant.
-        if(error.code!=='planet_unavailable'||!sessionAlive(job)||Date.now()-job.lastPublished>=publisherRecoveryWindow){
-          await stop(job).catch(()=>{});
+        // On startup a valid grant can wait for the world or the directory to come up.
+        // Revoked grants fail closed, and the world expires any unsampled roster.
+        if(error.code!=='planet_unavailable'||!sessionAlive(job)||
+           (job.ready&&Date.now()-job.lastPublished>=publisherRecoveryWindow)){
+          await stop(job)?.catch(()=>{});
           return;
         }
       }
       schedule(job);
-    },heartbeatInterval);
+    },delay);
     job.timer.unref();
+  }
+  function start(){
+    if(!origin||!bothouse)return;
+    const issuer=socialOrigin();
+    store.run(`DELETE FROM world_resident_publishers WHERE issuer=? AND world=?
+      AND session IN (SELECT digest FROM sessions WHERE expires<=?)`,issuer,origin,Date.now());
+    for(const row of store.all(`SELECT account FROM world_resident_publishers WHERE issuer=? AND world=?
+        ORDER BY account LIMIT 32`,issuer,origin)){
+      const job={...storedPublisher(row.account),durable:true};
+      jobs.set(job.account,job);
+      schedule(job,0);
+    }
   }
   async function change(account,session,body){
     if(body.expectedAccount!==account)problem('session');
@@ -232,9 +268,10 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     if([existing,checking].some(j=>j&&j.sourceId!==body.sourceId))problem('in_use');
     if(body.action==='disconnect'){
       if(checking)pending.delete(account);
+      const saved=existing??(origin&&storedPublisher(account));
       store.run(`UPDATE friend_world_homes SET resident_source=NULL,visits=CASE WHEN visits='residents' THEN 'closed' ELSE visits END,
         revision=revision+1 WHERE account=? AND issuer=? AND world=? AND resident_source=?`,account,socialOrigin(),origin,body.sourceId);
-      if(existing)await stop(existing);
+      if(saved?.sourceId===body.sourceId)await stop(saved);
       return view(account);
     }
     if(body.action!=='connect'||!configured()||body.worldOrigin!==origin)problem('config');
@@ -244,7 +281,7 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       problem('busy');
     }
     if(!existing&&jobs.size+pending.size>=32)problem('busy');
-    const job={account,session,token:body.token,sourceId:body.sourceId};
+    const job={account,session,token:body.token,sourceId:body.sourceId,pairingRevision:pairingRevision(account)};
     pending.set(account,job);
     job.promise=(async()=>{
       // A claimed world slot must match this server, this social account and this owner.
@@ -253,6 +290,9 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       if(!validPlanet(verified.planetId))problem('unavailable');
       try{
         if(pending.get(account)!==job||!sessionAlive(job))problem('session');
+        job.planet=verified.planetId;
+        const home=homeRow(account);
+        if(home?.planet&&home.planet!==job.planet)problem('in_use');
         if(existing?.ready&&existing.token===job.token&&existing.session===session)return view(account);
         if(existing){
           if(existing.token!==job.token)await stop(existing).catch(()=>{});
@@ -261,16 +301,24 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
         if(pending.get(account)!==job||!sessionAlive(job))problem('session');
         jobs.set(account,job);
         await heartbeat(job);current(job);
-        store.run(`INSERT INTO friend_world_homes(account,issuer,world,planet,resident_source,visits) VALUES(?,?,?,?,?,'residents')
-          ON CONFLICT(account,issuer,world) DO UPDATE SET planet=excluded.planet,resident_source=excluded.resident_source,revision=revision+1
-          WHERE friend_world_homes.planet IS NULL OR friend_world_homes.planet=excluded.planet`,
-          account,socialOrigin(),origin,verified.planetId,job.sourceId);
-        job.ready=true;job.lastPublished=Date.now();schedule(job);return view(account);
+        const issuer=socialOrigin();
+        store.transaction(()=>{
+          const home=homeRow(account);
+          if(home?.planet&&home.planet!==job.planet)problem('in_use');
+          store.run(`INSERT INTO friend_world_homes(account,issuer,world,planet,resident_source,visits) VALUES(?,?,?,?,?,'residents')
+            ON CONFLICT(account,issuer,world) DO UPDATE SET planet=excluded.planet,resident_source=excluded.resident_source,revision=revision+1`,
+            account,issuer,origin,job.planet,job.sourceId);
+          store.run(`INSERT INTO world_resident_publishers(account,issuer,world,session,planet,source,token,pairing_revision)
+            VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(account,issuer,world) DO UPDATE SET session=excluded.session,
+            planet=excluded.planet,source=excluded.source,token=excluded.token,pairing_revision=excluded.pairing_revision`,
+            account,issuer,origin,session,job.planet,job.sourceId,job.token,job.pairingRevision);
+        });
+        job.durable=true;job.ready=true;job.lastPublished=Date.now();schedule(job);return view(account);
       }catch(e){
         // A late pass cannot stop a newer source that now owns this token.
         const next=jobs.get(account),nextPending=pending.get(account);
         if((!next||next===job||next.token!==job.token)&&(!nextPending||nextPending===job||nextPending.token!==job.token))
-          await stop(job).catch(()=>{});
+          await stop(job)?.catch(()=>{});
         if(e.status)throw e;problem('unavailable');
       }
     })();
@@ -278,14 +326,23 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
   }
   function cancel(predicate){
     for(const [a,p] of pending)if(predicate(p))pending.delete(a);
-    for(const j of [...jobs.values()])if(predicate(j))void stop(j).catch(()=>{});
+    for(const j of [...jobs.values()])if(predicate(j))void stop(j)?.catch(()=>{});
   }
   function unpair(account){
     cancel(j=>j.account===account);
+    if(origin){
+      const saved=storedPublisher(account);
+      if(saved)void stop(saved)?.catch(()=>{});
+    }
     store.run(`UPDATE friend_world_homes SET visits='closed',revision=revision+1
       WHERE account=? AND issuer=? AND world=? AND visits='residents'`,account,socialOrigin(),origin);
   }
-  return {view,change,friendPlanet,issueTicket,redeemTicket,visits,shareVisits,visitStatus,unpair,
-    endSession:d=>{if(d)cancel(j=>j.session===d);},close:()=>{closed=true;tickets.clear();cancel(()=>true);}};
+  return {start,view,change,friendPlanet,issueTicket,redeemTicket,visits,shareVisits,visitStatus,unpair,
+    endSession:d=>{if(d)cancel(j=>j.session===d);},
+    close:()=>{
+      closed=true;tickets.clear();pending.clear();
+      // Service shutdown releases workers and keeps confirmed grants for the next start.
+      for(const job of jobs.values())detach(job);
+    }};
 }
 module.exports={planetPublishers};
