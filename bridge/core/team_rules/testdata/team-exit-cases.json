@@ -88,7 +88,7 @@
   "judge": [
     {
       "name": "report in three parts",
-      "reply": "[report] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -96,14 +96,14 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "mark is case-insensitive",
-      "reply": "[REPORT] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[REPORT] #1 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -111,14 +111,14 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "blank lines after the mark",
-      "reply": "[report]  \n\n  #1：背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n细节",
+      "reply": "[report]  \n\n  #1：背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无\n细节",
       "known": [
         1
       ],
@@ -126,14 +126,14 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "full-width separators after the id",
-      "reply": "[report] #12　，背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #12　，背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         12
       ],
@@ -141,14 +141,14 @@
       "want": {
         "kind": "report",
         "id": 12,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "parts may start on the line after the id",
-      "reply": "[report] #1\n背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\n\n细节：\n跑了测试",
+      "reply": "[report] #1\n背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无\n\n细节：\n跑了测试",
       "known": [
         1
       ],
@@ -156,14 +156,14 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "todo inside the done line",
-      "reply": "[report] #1 背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n我加的：无",
+      "reply": "[report] #1 背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -171,7 +171,7 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n我加的：无",
+        "line": "背景：你让我修汇报。\n做完了，已经上线。要你定的：要不要发版。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
@@ -191,14 +191,15 @@
           "summary.missing_background",
           "summary.missing_done",
           "summary.missing_todo",
-          "summary.missing_added"
+          "summary.missing_added",
+          "summary.missing_give"
         ],
         "legacy": false
       }
     },
     {
       "name": "no background",
-      "reply": "[report] #1 做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #1 做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -206,7 +207,7 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "summary.missing_background",
           "summary.missing_done"
@@ -216,7 +217,7 @@
     },
     {
       "name": "no done part",
-      "reply": "[report] #1 背景：你让我修汇报。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #1 背景：你让我修汇报。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -224,7 +225,7 @@
       "want": {
         "kind": "report",
         "id": 1,
-        "line": "背景：你让我修汇报。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "summary.missing_done"
         ],
@@ -244,7 +245,8 @@
         "line": "背景：你让我修汇报。\n做完了。",
         "problems": [
           "summary.missing_todo",
-          "summary.missing_added"
+          "summary.missing_added",
+          "summary.missing_give"
         ],
         "legacy": false
       }
@@ -273,7 +275,7 @@
     },
     {
       "name": "report without an id",
-      "reply": "[report] 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -325,7 +327,7 @@
     },
     {
       "name": "report naming an id not on the board",
-      "reply": "[report] #9 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #9 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         1
       ],
@@ -333,7 +335,7 @@
       "want": {
         "kind": "report",
         "id": 9,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "headline.unknown_id:9"
         ],
@@ -454,7 +456,7 @@
     },
     {
       "name": "parts name a PR and a workspace",
-      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -462,7 +464,7 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n!9300 已提，工作区2 实测过。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "jargon.line:!9300、工作区2"
         ],
@@ -471,7 +473,7 @@
     },
     {
       "name": "parts name a branch",
-      "reply": "[report] #7 背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -479,7 +481,7 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n改动在 fix/retro-forward 上。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "jargon.line:fix/retro-forward"
         ],
@@ -488,7 +490,7 @@
     },
     {
       "name": "parts name a path, a file and identifiers",
-      "reply": "[report] #7 背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -496,7 +498,7 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n改了 ~/code/x 里的 team_exit.go 和 postExitHeadline，跑了 ws-forward。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "jargon.line:~/code/x、team_exit.go、postExitHeadline、ws-forward"
         ],
@@ -505,7 +507,7 @@
     },
     {
       "name": "plain product words and fractions are fine",
-      "reply": "[report] #7 背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -513,14 +515,14 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：复盘修复1/2/5，macOS 和 Discord 上的 Wi-Fi 提示。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "parts hold a table",
-      "reply": "[report] #7 背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -528,7 +530,7 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n| 项 | 结果 |\n|---|---|\n| 实测 | 过 |\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [
           "jargon.table"
         ],
@@ -537,7 +539,7 @@
     },
     {
       "name": "numbers and tables in the details are fine",
-      "reply": "[report] #7 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无\nPR !9300，分支 fix/x，工作区2\n| a | b |\n|---|---|",
+      "reply": "[report] #7 背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无\nPR !9300，分支 fix/x，工作区2\n| a | b |\n|---|---|",
       "known": [
         7
       ],
@@ -545,14 +547,14 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你上午让我修汇报。\n做完了，已经上线。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": false
       }
     },
     {
       "name": "wording goes to the lead after the wake limit",
-      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n我加的：无",
+      "reply": "[report] #7 背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n给你的：无\n我加的：无",
       "known": [
         7
       ],
@@ -560,7 +562,7 @@
       "want": {
         "kind": "report",
         "id": 7,
-        "line": "背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n我加的：无",
+        "line": "背景：你让我修汇报。\n!9300 已提。\n要你做的：没有。\n给你的：无\n我加的：无",
         "problems": [],
         "legacy": true
       }

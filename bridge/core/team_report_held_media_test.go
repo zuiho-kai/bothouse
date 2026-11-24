@@ -54,7 +54,7 @@ func heldMediaFixture(t *testing.T, jobID string) (*Engine, *heldMediaPlatform, 
 	key := "held-1885"
 	rec := &pendingReport{
 		Key: key, JobID: jobID, Platform: "discord", Chat: "111", Workspace: "222", Bot: "橘",
-		Kind: team.ExitKindReport, Body: "[report] #1885 背景：样片。\n第三版做好了\n要你做的：看片。\n我加的：无\n细节：无",
+		Kind: team.ExitKindReport, Body: "[report] #1885 背景：样片。\n第三版做好了\n要你做的：看片。\n给你的：无\n我加的：无\n细节：无",
 		Headline: "背景：样片。\n第三版做好了", Board: 1885, Session: "discord:222",
 		CreatedAt: time.Now().Add(-leadAcceptTimeout - time.Second), Held: true,
 	}
@@ -135,7 +135,7 @@ func TestHeldReportAttachmentsReachChat(t *testing.T) {
 					e.noteWorkspaceFiles("discord:222", []FileAttachment{{FileName: "demo-v3.mp4", MimeType: "video/mp4", Data: video}})
 					item := e.boardItemByID(1885)
 					e.postExitHeadline(e.ctx, p, "discord:111", "111", "222", "橘", team.ExitKindReport,
-						"[report] #1885 背景：样片。\n第三版做好了\n要你做的：看片。\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第三版做好了", item)
+						"[report] #1885 背景：样片。\n第三版做好了\n要你做的：看片。\n给你的：无\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第三版做好了", item)
 				case "pass":
 					if err := e.deliverHeldReport(key, "逐条：看了拼图和四段", false); err != nil {
 						t.Fatal(err)
@@ -181,7 +181,7 @@ func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T
 		{FileName: "黎曼猜想xClaude-v9-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("v9-final")},
 		{FileName: "黎曼猜想xClaude-v9-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("v9-sample")},
 	})
-	v9Body := "[report] #1061 背景：黎曼动效。\n第九版出好了。\n要你做的：没有\n我加的：无\n细节：无"
+	v9Body := "[report] #1061 背景：黎曼动效。\n第九版出好了。\n要你做的：没有\n给你的：无\n我加的：无\n细节：无"
 	if !e.holdReportForLead(e.ctx, p, "111", "222", "橘", v9Body, "discord:222", 1061, "背景：黎曼动效。\n第九版出好了。", "", "", item) {
 		t.Fatal("v9 report was not held")
 	}
@@ -201,7 +201,7 @@ func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T
 		{FileName: "黎曼猜想xClaude-v10-成片-720p.mp4", MimeType: "video/mp4", Data: []byte("v10-final")},
 		{FileName: "黎曼猜想xClaude-v10-样片带段号-720p.mp4", MimeType: "video/mp4", Data: []byte("v10-sample")},
 	})
-	v10Body := "[report] #1061 背景：黎曼动效。\n第十版出好了。\n要你做的：没有\n我加的：无\n细节：无"
+	v10Body := "[report] #1061 背景：黎曼动效。\n第十版出好了。\n要你做的：没有\n给你的：无\n我加的：无\n细节：无"
 	if !e.holdReportForLead(e.ctx, p, "111", "222", "橘", v10Body, "discord:222", 1061, "背景：黎曼动效。\n第十版出好了。", "", "", item) {
 		t.Fatal("v10 report was not held")
 	}

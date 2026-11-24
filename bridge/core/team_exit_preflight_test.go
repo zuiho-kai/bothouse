@@ -23,7 +23,7 @@ func TestReportSkeletonListsScopeAndFailsUntilFilled(t *testing.T) {
 }
 
 func TestReportPreflightMatchesBridgeChecks(t *testing.T) {
-	good := "[report] #7 背景：反思里两条待办，用户要逐条做完\n长测试跑法写进流程页，交回加了自查\n要你做的：没有\n我加的：无\n细节：\n- 长测试后台跑：已写\n- 交回骨架和核对脚本：已做\n入口自验：在流程页上跑了一遍\n```\n$ make check\nok\n```\n"
+	good := "[report] #7 背景：反思里两条待办，用户要逐条做完\n长测试跑法写进流程页，交回加了自查\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n- 长测试后台跑：已写\n- 交回骨架和核对脚本：已做\n入口自验：在流程页上跑了一遍\n```\n$ make check\nok\n```\n"
 	if p := team.ReportPreflight(good, preflightNotes); p != nil {
 		t.Fatalf("good draft bounced: %v", p)
 	}
@@ -42,7 +42,7 @@ func TestReportPreflightMatchesBridgeChecks(t *testing.T) {
 
 func TestEntryReportProblems(t *testing.T) {
 	have := func(p string) bool { return p == "/Users/x/shot.png" || p == "~/out/final.mp4" }
-	head := "[report] #7 背景：b\n做了\n要你做的：没有\n我加的：无\n细节：\n"
+	head := "[report] #7 背景：b\n做了\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n"
 	for _, c := range []struct {
 		name, body string
 		ok         bool

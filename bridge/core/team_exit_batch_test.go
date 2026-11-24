@@ -14,7 +14,7 @@ func TestWorkspaceBatchReportLifecycle(t *testing.T) {
 	}
 	report := func(kind, phase string) {
 		t.Helper()
-		body := fmt.Sprintf("[report] #46 背景：你让我分批交回。\n%s\n要你做的：没有。\n我加的：无\n入口自验：\n```\nok\n```", phase)
+		body := fmt.Sprintf("[report] #46 背景：你让我分批交回。\n%s\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：\n```\nok\n```", phase)
 		res, err := e.WorkspaceExit(e.ctx, exitWSKey, kind, body)
 		if err != nil {
 			t.Fatalf("%s: %v", phase, err)

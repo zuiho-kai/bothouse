@@ -91,7 +91,7 @@ func TestForwardReportLogsSuccess(t *testing.T) {
 	})
 
 	exitBoardItem(t, e, 7, "活")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n我加的：无")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n给你的：无\n我加的：无")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q", got)
 	}
@@ -125,7 +125,7 @@ func TestForwardReportAfterCommentary(t *testing.T) {
 		Handoffs: map[string][]TeamHandoff{"discord:ws1": {{Chat: "discord:chat1", At: time.Now()}}},
 	})
 	exitBoardItem(t, e, 7, "活")
-	e.forwardWorkspaceExit(p, exitWSKey, "退回原因是漏了两项，本龙只修正交回文字。[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n我加的：无")
+	e.forwardWorkspaceExit(p, exitWSKey, "退回原因是漏了两项，本龙只修正交回文字。[report] #7 背景：你让我做这件事。\n好了\n要你做的：没有。\n给你的：无\n我加的：无")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 {
 		t.Fatalf("chat1 got %q, logs %s", got, logs.String())
 	}

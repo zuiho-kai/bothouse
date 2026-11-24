@@ -34,7 +34,7 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.forwardWorkspaceExit(p, exitWSKey, "[ask] #4 背景：你让我做这件事。\n能不能开子任务\n要你做的：没有。\n我加的：无\n自验：设计稿已写好\n类别：权限确认")
-			e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n我加的：无")
+			e.forwardWorkspaceExit(p, exitWSKey, "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n给你的：无\n我加的：无")
 			// Each reply's three parts are posted, named by item #4 (its details may follow them).
 			got := 0
 			for _, s := range p.sentTo("discord:chat1") {
@@ -61,8 +61,8 @@ func TestStoppedJudgedByHeadlineID(t *testing.T) {
 		name, reply, head string
 		forward           bool
 	}{
-		{"other task in work", "[report] #3 背景：你让我做这件事。\n旧活做完了\n要你做的：没有。\n我加的：无", "③做完【旧活】", true},
-		{"stopped task named", "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n我加的：无", "③做完【守卫】", false},
+		{"other task in work", "[report] #3 背景：你让我做这件事。\n旧活做完了\n要你做的：没有。\n给你的：无\n我加的：无", "③做完【旧活】", true},
+		{"stopped task named", "[report] #4 背景：你让我做这件事。\n已停手\n要你做的：没有。\n给你的：无\n我加的：无", "③做完【守卫】", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})

@@ -644,7 +644,7 @@ func heldMediaPrompt(paths []string) string {
 // when they say something, then any lines after the four parts (attachment notes). full is the
 // spaced four-part post (spaceExitLines); "" when it has no 【做了什么】 to lead with.
 func chatDoneText(name, full string, unchecked, waiting bool) string {
-	var did, ask, added string
+	var did, ask, added, give string
 	var rest []string
 	for _, l := range strings.Split(full, "\n") {
 		t := strings.TrimSpace(l)
@@ -656,6 +656,8 @@ func chatDoneText(name, full string, unchecked, waiting bool) string {
 			ask = strings.TrimSpace(strings.TrimPrefix(t, "【要你做的】"))
 		case strings.HasPrefix(t, "【我加的】"):
 			added = strings.TrimSpace(strings.TrimPrefix(t, "【我加的】"))
+		case strings.HasPrefix(t, "【给你的】"):
+			give = strings.TrimSpace(strings.TrimPrefix(t, "【给你的】"))
 		default:
 			rest = append(rest, t)
 		}
@@ -677,6 +679,9 @@ func chatDoneText(name, full string, unchecked, waiting bool) string {
 	}
 	if !nothing(ask) {
 		out += "\n要你做的：" + ask
+	}
+	if !nothing(give) {
+		out += "\n给你的：" + give
 	}
 	if !nothing(added) {
 		out += "\n我加的：" + added

@@ -359,7 +359,10 @@ func (e *Engine) heldReportReviewProblem(rec *pendingReport) string {
 	head, _ := team.ExitSplit(rec.Body)
 	todo := team.UserTodo(head)
 	m := reportReviewAskRe.FindString(todo)
-	if m == "" || exitURLRe.MatchString(rec.Body) {
+	// #1982 (11-25): #1981 said 「新网页已上线」「要你做的：打开网页看一眼」 with the address only in its
+	// details; the chat gets the four parts (and the 「材料逐条」 block), the details go to the forum
+	// post, so the user asked 「为什么没给我网页？」. A link counts only where the user reads it.
+	if m == "" || exitURLRe.MatchString(head+"\n"+rec.Headline+"\n"+strings.Join(chatItems(rec.Body), "\n")) {
 		return ""
 	}
 	heldReportImages.mu.Lock()
@@ -368,6 +371,6 @@ func (e *Engine) heldReportReviewProblem(rec *pendingReport) string {
 	if n+len(reportNamedImages(rec.Body))+len(exitFilesFor(rec.Session, rec.Body, e.boardItemByID(rec.Board), nil, false)) > 0 {
 		return ""
 	}
-	return "汇报「要你做的」要用户" + m + "（" + truncateStr(todo, 80) + "），但这份汇报没有随交回的文件、图片，也没有链接，只放行文字用户收不到要" + m +
-		"的东西：成品在手就带上放行（ws-pass <成品> \"<给用户的话>\" --verdict ...），否则 ws-forward 打回让工作区用 --file 交回成品或写出链接"
+	return "汇报「要你做的」要用户" + m + "（" + truncateStr(todo, 80) + "），但这份汇报没有随交回的文件、图片，贴给用户的那几段里也没有链接（只写在细节里的用户看不到），只放行文字用户收不到要" + m +
+		"的东西：成品在手就带上放行（ws-pass <成品> \"<给用户的话>\" --verdict ...），否则 ws-forward 打回让工作区用 --file 交回成品或把链接写进「要你做的」那几段"
 }

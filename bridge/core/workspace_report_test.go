@@ -78,8 +78,8 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 					t.Fatalf("unmarked reply was forwarded: %v", got)
 				}
 				// #1802: the handback is the command run during the turn, not the reply text.
-				exitByCommand(t, e, key, "[report] #666 背景：你让我做这件事。\nDraft delivered with verification evidence.\n要你做的：没有。\n我加的：无")
-				inputDone(a, "[report] #666 背景：你让我做这件事。\nDraft delivered with verification evidence.\n要你做的：没有。\n我加的：无")
+				exitByCommand(t, e, key, "[report] #666 背景：你让我做这件事。\nDraft delivered with verification evidence.\n要你做的：没有。\n给你的：无\n我加的：无")
+				inputDone(a, "[report] #666 背景：你让我做这件事。\nDraft delivered with verification evidence.\n要你做的：没有。\n给你的：无\n我加的：无")
 				inputWait(t, func() bool { return len(p.sentTo(parent)) == 1 })
 				t.Logf("recovery prompt received in retained session %s; parent %s received %q", old, parent, p.sentTo(parent)[0])
 				if strings.HasPrefix(mode, "reset") {

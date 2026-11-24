@@ -26,7 +26,7 @@ func TestLengthProblemsBouncesLongParts(t *testing.T) {
 	if got := team.LengthProblems(same); got != nil {
 		t.Fatalf("same-line parts bounced: %q", got)
 	}
-	v := team.JudgeExit(team.ExitKindReport, "#1 "+long, false, func(int) bool { return true }, 0)
+	v := team.JudgeExit(team.ExitKindReport, "#1 "+long+"\n给你的：无", false, func(int) bool { return true }, 0)
 	if len(v.Problems) != 2 || v.Legacy {
 		t.Fatalf("judgeExit = %+v", v)
 	}

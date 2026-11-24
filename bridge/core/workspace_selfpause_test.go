@@ -45,8 +45,8 @@ func TestWorkspaceSelfPauseOwesReport(t *testing.T) {
 	if got := p.sentTo(parent); len(got) != 0 {
 		t.Fatalf("unmarked reply was forwarded: %v", got)
 	}
-	inputDone(a, "[report] #666 背景：你让我做这件事。\n做到传输一半，卡在远端收包。\n要你做的：没有。\n我加的：无")
-	exitByCommand(t, e, exitWSKey, "[report] #666 背景：你让我做这件事。\n做到传输一半，卡在远端收包。\n要你做的：没有。\n我加的：无")
+	inputDone(a, "[report] #666 背景：你让我做这件事。\n做到传输一半，卡在远端收包。\n要你做的：没有。\n给你的：无\n我加的：无")
+	exitByCommand(t, e, exitWSKey, "[report] #666 背景：你让我做这件事。\n做到传输一半，卡在远端收包。\n要你做的：没有。\n给你的：无\n我加的：无")
 	inputWait(t, func() bool { return len(p.sentTo(parent)) == 1 })
 }
 
