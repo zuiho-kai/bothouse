@@ -13890,6 +13890,7 @@ type SendOptions struct {
 	AtAll              bool
 	ReplyToMessageID   string
 	AllowHumanMentions []string
+	target             *sendTarget
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13910,9 +13911,15 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 		}
 	}
 
-	target, err := e.resolveSendTarget(sessionKey, len(images) > 0 || len(files) > 0)
-	if err != nil {
-		return err
+	var target sendTarget
+	if opts.target != nil {
+		target = *opts.target
+	} else {
+		resolved, err := e.resolveSendTarget(sessionKey, len(images) > 0 || len(files) > 0)
+		if err != nil {
+			return err
+		}
+		target = resolved
 	}
 	state, p, replyCtx := target.state, target.platform, target.replyCtx
 	if p == nil {
@@ -13987,19 +13994,21 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.turnSentTexts = append(state.turnSentTexts, message)
 			state.mu.Unlock()
 		}
-		contextKey := sessionKey
-		if contextKey == "" {
-			contextKey = target.sessionKey
+		if opts.target == nil {
+			contextKey := sessionKey
+			if contextKey == "" {
+				contextKey = target.sessionKey
+			}
+			workDir := ""
+			if state != nil {
+				state.mu.Lock()
+				workDir = state.workspaceDir
+				state.mu.Unlock()
+			}
+			e.recordExternalSend(p, contextKey, workDir, message, "脚本/API")
+			// Workspace posts also go into their task thread.
+			e.postToTaskThread(p, sessionKey, message)
 		}
-		workDir := ""
-		if state != nil {
-			state.mu.Lock()
-			workDir = state.workspaceDir
-			state.mu.Unlock()
-		}
-		e.recordExternalSend(p, contextKey, workDir, message, "脚本/API")
-		// a workspace's own posts (ws-up stage results) also go into its task thread
-		e.postToTaskThread(p, sessionKey, message)
 	}
 	for _, img := range images {
 		if err := e.waitOutgoing(p); err != nil {
@@ -14017,9 +14026,11 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			state.mu.Unlock()
 		}
 	}
-	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
-	e.noteWorkspaceImages(sessionKey, images)
-	e.noteWorkspaceFiles(sessionKey, files)
+	// Workspace handoff state uses room IDs without connection IDs.
+	if opts.target == nil {
+		e.noteWorkspaceImages(sessionKey, images)
+		e.noteWorkspaceFiles(sessionKey, files)
+	}
 	for _, file := range files {
 		if err := e.waitOutgoing(p); err != nil {
 			return err
@@ -14153,6 +14164,10 @@ func (e *Engine) sendToSessionInWorkDir(sessionKey, message string, images []Ima
 }
 
 func (e *Engine) resolveSendTarget(sessionKey string, attachments bool) (sendTarget, error) {
+	return e.resolveSendTargetOnPlatform(sessionKey, attachments, nil)
+}
+
+func (e *Engine) resolveSendTargetOnPlatform(sessionKey string, attachments bool, selected Platform) (sendTarget, error) {
 	e.interactiveMu.Lock()
 
 	resolvedSessionKey := sessionKey
@@ -14193,6 +14208,10 @@ func (e *Engine) resolveSendTarget(sessionKey string, attachments bool) (sendTar
 		p = unmutedPlatform(state.platform)
 		replyCtx = state.replyCtx
 		state.mu.Unlock()
+		if selected != nil && p != selected {
+			// A different connection can have a room with the same session key.
+			state, p, replyCtx = nil, nil, nil
+		}
 	}
 
 	if p == nil && resolvedSessionKey != "" {
@@ -14201,11 +14220,13 @@ func (e *Engine) resolveSendTarget(sessionKey string, attachments bool) (sendTar
 		if idx := strings.Index(strippedKey, ":"); idx > 0 {
 			platformName = strippedKey[:idx]
 		}
-		var targetPlatform Platform
-		for _, candidate := range e.platforms {
-			if candidate.Name() == platformName {
-				targetPlatform = candidate
-				break
+		targetPlatform := selected
+		if targetPlatform == nil {
+			for _, candidate := range e.platforms {
+				if candidate.Name() == platformName {
+					targetPlatform = candidate
+					break
+				}
 			}
 		}
 		if targetPlatform == nil {
@@ -14340,6 +14361,10 @@ func (e *Engine) SendAudiosToSession(sessionKey string, audios []FileAttachment)
 	if err != nil {
 		return err
 	}
+	return e.sendAudioAttachments(p, replyCtx, audios)
+}
+
+func (e *Engine) sendAudioAttachments(p Platform, replyCtx any, audios []FileAttachment) error {
 	if !e.attachmentSendEnabled {
 		return ErrAttachmentSendDisabled
 	}
@@ -14384,6 +14409,10 @@ func (e *Engine) SendVideosToSession(sessionKey string, videos []FileAttachment)
 	if err != nil {
 		return err
 	}
+	return e.sendVideoAttachments(p, replyCtx, videos)
+}
+
+func (e *Engine) sendVideoAttachments(p Platform, replyCtx any, videos []FileAttachment) error {
 	if !e.attachmentSendEnabled {
 		return ErrAttachmentSendDisabled
 	}

@@ -6,11 +6,76 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+type profileSendPlatform struct {
+	replyCtxRecordingPlatform
+	id string
+}
+
+func (p *profileSendPlatform) ConnectionProfileID() string { return p.id }
+
+func (p *profileSendPlatform) ReconstructReplyCtx(key string) (any, error) {
+	return p.id + ":" + key, nil
+}
+
+func (p *profileSendPlatform) SendAudio(ctx context.Context, replyCtx any, data []byte, _ string) error {
+	return p.Reply(ctx, replyCtx, string(data))
+}
+
+func TestHandleSend_SelectsConnectionProfileWithOverlappingRoomIDs(t *testing.T) {
+	first := &profileSendPlatform{id: "first"}
+	second := &profileSendPlatform{id: "second"}
+	first.stubPlatformEngine.n, second.stubPlatformEngine.n = "cloud_web", "cloud_web"
+	engine := NewEngine("relay", &stubAgent{}, []Platform{first, second}, "", LangEnglish)
+	const room = "cloud_web:room-42"
+	engine.interactiveStates[room] = &interactiveState{platform: first, replyCtx: "first-room"}
+	dir := t.TempDir()
+	profiles := `[{"id":"first","name":"Personal"},{"id":"second","name":"Work Hub"},{"id":"orphan","name":"Unattached"}]`
+	if err := os.WriteFile(filepath.Join(dir, "cloud-web-connections.json"), []byte(profiles), 0600); err != nil {
+		t.Fatal(err)
+	}
+	api := &APIServer{dataDir: dir, engines: map[string]*Engine{"relay": engine}}
+	send := func(connection, session string, audio ...FileAttachment) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"connection": connection, "session_key": session, "message": "hello", "audios": audio})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		api.handleSend(rec, httptest.NewRequest(http.MethodPost, "/send/connection", bytes.NewReader(body)))
+		return rec
+	}
+	if rec := send(" work hub ", room, FileAttachment{FileName: "sample.ogg", Data: []byte("audio")}); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"connection":"Work Hub"`) {
+		t.Fatalf("send status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, tc := range []struct {
+		name, session string
+		status        int
+	}{
+		{"Unknown", room, http.StatusNotFound},
+		{"Unattached", room, http.StatusBadRequest},
+		{"Work Hub", "", http.StatusBadRequest},
+		{"Work Hub", "discord:42", http.StatusBadRequest},
+	} {
+		if rec := send(tc.name, tc.session); rec.Code != tc.status {
+			t.Errorf("send to %q with session %q = %d, want %d: %s", tc.name, tc.session, rec.Code, tc.status, rec.Body.String())
+		}
+	}
+	if sent := first.recordedEvents(); len(sent) != 0 {
+		t.Fatalf("first connection got messages meant for another: %+v", sent)
+	}
+	if sent := second.recordedEvents(); len(sent) != 2 || sent[0].replyCtx != "second:"+room ||
+		sent[1].replyCtx != "second:"+room || sent[1].content != "audio" {
+		t.Fatalf("second connection did not send using its own reply context: %+v", sent)
+	}
+}
 
 func TestHandleSend_AllowsAttachmentOnly(t *testing.T) {
 	engine := NewEngine("test", &stubAgent{}, []Platform{&stubMediaPlatform{stubPlatformEngine: stubPlatformEngine{n: "test"}}}, "", LangEnglish)

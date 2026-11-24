@@ -57,7 +57,11 @@ func runSend(args []string) {
 		},
 	}
 
-	resp, err := client.Post("http://unix/send", "application/json", bytes.NewReader(payload))
+	endpoint := "http://unix/send"
+	if req.Connection != "" {
+		endpoint += "/connection"
+	}
+	resp, err := client.Post(endpoint, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to connect: %v\n", err)
 		os.Exit(1)
@@ -78,9 +82,15 @@ func runSend(args []string) {
 		Note        string `json:"note"`
 		ChannelID   string `json:"channel_id"`
 		ChannelName string `json:"channel_name"`
+		Connection  string `json:"connection"`
+		SessionKey  string `json:"session_key"`
 	}
 	if json.Unmarshal(body, &ok) == nil && ok.Note != "" {
 		fmt.Println("Message sent. " + ok.Note)
+		return
+	}
+	if ok.Connection != "" {
+		fmt.Printf("Message sent to %s via %q. Do not restate it in your reply.\n", ok.SessionKey, ok.Connection)
 		return
 	}
 	// The receipt tells the model the reader already has it, so the turn's closing reply does not
@@ -143,6 +153,12 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 			}
 			i++
 			req.SessionKey = args[i]
+		case "--connection":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return req, "", fmt.Errorf("--connection requires a saved connection name")
+			}
+			i++
+			req.Connection = strings.TrimSpace(args[i])
 		case "--channel":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--channel requires a channel name")
@@ -262,6 +278,11 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	}
 	if req.Project == "" {
 		req.Project = strings.TrimSpace(os.Getenv("CC_PROJECT"))
+	}
+	if req.Connection != "" {
+		if err := req.ValidateConnectionTarget(); err != nil {
+			return req, "", err
+		}
 	}
 	if req.DMTo != "" && !req.DM {
 		return req, "", fmt.Errorf("--to works only with --dm")
@@ -511,6 +532,7 @@ Options:
       --channel <name>     Send to the channel with this name (Discord: in this server; Feishu: among
                            the groups the bot is in); not found or more than one with that name is an
                            error and nothing is sent
+      --connection <name> Send via a saved Cloud Web connection attached to the project (requires -s)
   -p, --project <name>     Target project (optional if only one project)
   -s, --session <key>      Target session key (optional, picks first active)
                            With --channel or -s the output says where it went: 已发到 #<name>（<id>）
@@ -520,6 +542,7 @@ Options:
 Examples:
   bothouse send "Daily summary: ..."
   bothouse send -m "Build completed successfully"
+  bothouse send --connection "Work Hub" -p relay -s cloud_web:room-42 -m "Build complete"
   bothouse send --message "Chart generated" --image /tmp/chart.png
   bothouse send --file /tmp/report.pdf
   bothouse send --video /tmp/demo.mp4

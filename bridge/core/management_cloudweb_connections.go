@@ -59,11 +59,11 @@ func validateSavedCloudWebOverrides(options map[string]any) error {
 	return nil
 }
 
-func (m *ManagementServer) readCloudWebConnections() ([]cloudWebConnection, error) {
-	if m.wizardDataDir == "" {
+func readCloudWebConnections(dataDir string) ([]cloudWebConnection, error) {
+	if dataDir == "" {
 		return nil, errors.New("data directory is unavailable")
 	}
-	data, err := os.ReadFile(filepath.Join(m.wizardDataDir, "cloud-web-connections.json"))
+	data, err := os.ReadFile(filepath.Join(dataDir, "cloud-web-connections.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -81,7 +81,7 @@ func (m *ManagementServer) handleCloudWebConnections(w http.ResponseWriter, r *h
 	id := r.PathValue("id")
 	switch {
 	case id == "" && r.Method == http.MethodGet:
-		connections, err := m.readCloudWebConnections()
+		connections, err := readCloudWebConnections(m.wizardDataDir)
 		if err != nil {
 			writeCloudWebConnectionError(w, err)
 			return
@@ -124,7 +124,7 @@ func (m *ManagementServer) changeCloudWebConnection(w http.ResponseWriter, r *ht
 
 	m.cloudWebConnectionsMu.Lock()
 	defer m.cloudWebConnectionsMu.Unlock()
-	connections, err := m.readCloudWebConnections()
+	connections, err := readCloudWebConnections(m.wizardDataDir)
 	if err != nil {
 		writeCloudWebConnectionError(w, err)
 		return
@@ -174,7 +174,7 @@ func (m *ManagementServer) changeCloudWebConnection(w http.ResponseWriter, r *ht
 }
 
 func (m *ManagementServer) savedCloudWebOptions(id, project string) (map[string]any, error) {
-	connections, err := m.readCloudWebConnections()
+	connections, err := readCloudWebConnections(m.wizardDataDir)
 	if err != nil {
 		return nil, err
 	}

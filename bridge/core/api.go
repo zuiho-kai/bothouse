@@ -98,6 +98,8 @@ type SendRequest struct {
 	// Channel: send to the channel with this name in the server of FromSession instead of
 	// SessionKey (send_channel.go). Not found or ambiguous is an error; nothing is sent.
 	Channel string `json:"channel,omitempty"`
+	// Connection selects the saved connection for an explicit SessionKey.
+	Connection string `json:"connection,omitempty"`
 	// MentionAssigner: the board item this message delivers the result of (ws-pass with
 	// attachments). The text opens with the mention of whoever set that task (#988).
 	MentionAssigner int `json:"mention_assigner,omitempty"`
@@ -136,6 +138,7 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	}
 	activeAPISocket.Store(sockPath)
 	s.mux.HandleFunc("/send", s.handleSend)
+	s.mux.HandleFunc("/send/connection", s.handleSend)
 	s.mux.HandleFunc("/task-text", s.handleTaskText)
 	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
@@ -155,8 +158,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/sessions", s.handleSessions)
 	s.mux.HandleFunc("/channel/history", s.handleChannelHistory) // local scripts read a channel without a platform token (api_history.go)
 	s.mux.HandleFunc("/input", s.handleInput)
-	s.mux.HandleFunc("/member", s.handleMember) // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
-	s.mux.HandleFunc("/wake", s.handleWake) // run one turn from a hook/script (api_wake.go)
+	s.mux.HandleFunc("/member", s.handleMember)            // `bothouse member`: personal dirs and own GitHub auth (member_workspace.go)
+	s.mux.HandleFunc("/wake", s.handleWake)                // run one turn from a hook/script (api_wake.go)
 	s.mux.HandleFunc("/stop-blocked", s.handleStopBlocked) // a Stop hook blocked a reply draft (api_stop_draft.go)
 	s.mux.HandleFunc("/input/", s.handleInputLookup)
 	s.mux.HandleFunc("/model/info", s.handleModelInfo) // maomao fork: agents switch their own model
@@ -172,8 +175,8 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/team/task/transition", s.handleTeamTaskTransition)
 	s.mux.HandleFunc("/team/watch", s.handleTeamIdleWatch)
 	s.mux.HandleFunc("/team/report/verdict", s.handleTeamReportVerdict) // ws-pass / ws-forward on a held [report] (team_report_accept.go)
-	s.mux.HandleFunc("/version", handleSocketVersion) // update self-check probe without management
-	s.mux.HandleFunc("/update", handleSocketUpdate)   // `bothouse update` while bothouse is running
+	s.mux.HandleFunc("/version", handleSocketVersion)                   // update self-check probe without management
+	s.mux.HandleFunc("/update", handleSocketUpdate)                     // `bothouse update` while bothouse is running
 	// `bothouse features list` (management_features.go)
 	s.mux.HandleFunc("/features", s.handleFeatures)
 	s.mux.HandleFunc("/cron/add", s.handleCronAdd)
@@ -322,6 +325,24 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "message, tts_text, or attachment is required", http.StatusBadRequest)
 		return
 	}
+	req.Connection = strings.TrimSpace(req.Connection)
+	// A separate endpoint makes an older bridge reject the send before it can
+	// ignore the connection field and route by session key alone.
+	if r.URL.Path == "/send/connection" && req.Connection == "" {
+		http.Error(w, "a named connection is required on /send/connection", http.StatusBadRequest)
+		return
+	}
+	if req.Connection != "" {
+		if r.URL.Path != "/send/connection" {
+			http.Error(w, "use /send/connection to send by connection name", http.StatusBadRequest)
+			return
+		}
+		if err := req.ValidateConnectionTarget(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.SessionKey = strings.TrimSpace(req.SessionKey)
+	}
 
 	s.mu.RLock()
 	var engine *Engine
@@ -360,6 +381,14 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if req.ReplyToMessageID != "" && (req.SessionKey == "" || strings.TrimSpace(req.Message) == "" || workDir != "" || req.DM) {
 		http.Error(w, "native reply requires text and an explicit conversation without cwd or dm", http.StatusBadRequest)
 		return
+	}
+	var profileTarget *sendTarget
+	var connectionName string
+	if req.Connection != "" {
+		profileTarget, connectionName = s.resolveConnectionSend(w, engine, req)
+		if profileTarget == nil {
+			return
+		}
 	}
 	// explicitTarget: the caller named another conversation (--channel or -s), so the reply says
 	// which channel the message really went to.
@@ -460,7 +489,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
-			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID, AllowHumanMentions: allowHumans})
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID, AllowHumanMentions: allowHumans, target: profileTarget})
 		}
 		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
 			// #1352: the person does not accept DMs from server members. Same person, no settings change:
@@ -488,7 +517,13 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Audios) > 0 {
-		if err := engine.SendAudiosToSession(req.SessionKey, req.Audios); err != nil {
+		var err error
+		if profileTarget != nil {
+			err = engine.sendAudioAttachments(profileTarget.platform, profileTarget.replyCtx, req.Audios)
+		} else {
+			err = engine.SendAudiosToSession(req.SessionKey, req.Audios)
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -496,15 +531,27 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Videos) > 0 {
-		if err := engine.SendVideosToSession(req.SessionKey, req.Videos); err != nil {
+		var err error
+		if profileTarget != nil {
+			err = engine.sendVideoAttachments(profileTarget.platform, profileTarget.replyCtx, req.Videos)
+		} else {
+			err = engine.SendVideosToSession(req.SessionKey, req.Videos)
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		proactiveSent()
 	}
 
-	if strings.TrimSpace(req.TTSText) != "" {
-		if err := engine.SendTTSToSession(req.SessionKey, req.TTSText); err != nil {
+	if text := strings.TrimSpace(req.TTSText); text != "" {
+		var err error
+		if profileTarget != nil {
+			err = engine.synthesizeAndSendTTS(profileTarget.platform, profileTarget.replyCtx, text)
+		} else {
+			err = engine.SendTTSToSession(req.SessionKey, text)
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -517,6 +564,10 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if keptNote != "" {
 		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "note": keptNote})
+		return
+	}
+	if profileTarget != nil {
+		apiJSON(w, http.StatusOK, map[string]string{"status": "ok", "connection": connectionName, "session_key": profileTarget.sessionKey})
 		return
 	}
 	if explicitTarget {

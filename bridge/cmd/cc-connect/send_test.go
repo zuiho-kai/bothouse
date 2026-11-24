@@ -10,6 +10,24 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
+func TestParseSendArgs_ConnectionProfile(t *testing.T) {
+	args := []string{"--connection", " Work Hub ", "--session", "cloud_web:room-42", "-m", "hello"}
+	req, _, err := parseSendArgs(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := buildSendPayload(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"connection":"Work Hub"`) || req.SessionKey != "cloud_web:room-42" {
+		t.Fatalf("send payload = %s", payload)
+	}
+	if _, _, err := parseSendArgs([]string{"--connection", "Work Hub", "-m", "hello"}); err == nil {
+		t.Fatal("named connection send must require an explicit session")
+	}
+}
+
 func TestParseSendArgs_AttachmentsWithoutMessage(t *testing.T) {
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "chart.png")

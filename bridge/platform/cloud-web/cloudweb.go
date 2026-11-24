@@ -241,6 +241,11 @@ func pickInt(v any) int {
 
 func (p *Platform) Name() string { return p.name }
 
+func (p *Platform) ConnectionProfileID() string {
+	id, _ := p.startOpts["connection_id"].(string)
+	return id
+}
+
 // HasConfiguredTeamLead reports whether this platform belongs to a configured team.
 func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 
