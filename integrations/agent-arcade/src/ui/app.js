@@ -165,7 +165,7 @@ async function savePreference(key,value,restore){
   }
   return status==='saved';
 }
-function switchView(next){if(!$(next+'-view'))return;view=next;document.body.dataset.view=next;$('view-picker').value=next;for(const x of ['bot','scene','settings','connections','work','relationship','accounts','characters','qq-runtime','notices','notes','tasks']){const node=$(`${x}-view`);if(node)node.hidden=x!==view;}document.querySelectorAll('nav [data-view]').forEach(n=>{n.classList.toggle('active',n.dataset.view===view);if(n.dataset.view===view)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});render();}
+function switchView(next){if((window.arcade.storeSocial&&next!=='settings')||!$(next+'-view'))return;view=next;document.body.dataset.view=next;$('view-picker').value=next;for(const x of ['bot','scene','settings','connections','work','relationship','accounts','characters','qq-runtime','notices','notes','tasks']){const node=$(`${x}-view`);if(node)node.hidden=x!==view;}document.querySelectorAll('nav [data-view]').forEach(n=>{n.classList.toggle('active',n.dataset.view===view);if(n.dataset.view===view)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});render();}
 function age(at){const seconds=Math.max(0,Math.floor((Date.now()-at)/1000));return seconds<60?`${seconds}s`:seconds<3600?`${Math.floor(seconds/60)}m`:`${Math.floor(seconds/3600)}h`;}
 function updateAges(){
   if(!data||document.hidden||view!=='scene')return;
@@ -323,6 +323,7 @@ action(async()=>{
   data=await window.arcade.snapshot();
   // The deferred scripts after this one (desktop-chat.js, first-run.js, shell.js) must have run first.
   if(document.readyState==='loading')await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
+  if(window.arcade.storeSocial){switchView('settings');return;}
   const active=['connected','connecting','checking','disconnecting'].includes(data.bot?.status),saved=window.selectedSavedConnection?.(data),manual=data.bot?.mode==='native'&&!!data.bot?.workspace,work=data.config.workspace==='work';
   const local=data.bot?.local,resume=!!local&&local.canStart===true&&local.available!==true;
   if(active||saved||manual){

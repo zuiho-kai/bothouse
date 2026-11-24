@@ -43,9 +43,9 @@
   const sidebar=document.querySelector('aside.sidebar'),nav=document.querySelector('nav'),main=document.querySelector('main');
   const brand=document.querySelector('.brand')||el('div','brand');brand.classList.add('shell-brand');
   const ws=el('div','shell-ws');ws.setAttribute('role','group');
-  const wsButtons={};
-  for(const name of ['companion','work']){const b=el('button','shell-ws-button');b.type='button';b.id='ws-'+name;b.dataset.workspace=name;b.onclick=()=>setWorkspace(name);wsButtons[name]=b;ws.append(b);}
   const storeSocial=window.arcade?.storeSocial;
+  const wsButtons={};
+  for(const name of ['companion','work']){const b=el('button','shell-ws-button');b.type='button';b.id='ws-'+name;b.dataset.workspace=name;b.onclick=()=>setWorkspace(name);wsButtons[name]=b;if(!storeSocial)ws.append(b);}
   let socialActive=false, socialEpoch=0;
   let socialButton, socialStatus, socialCopy, socialRetry, socialMore, socialMenu, imageReturn, imageFeedbackReturn;
   let supportData, supportPanel, supportLabel, supportAddress, supportCopy, supportStatus;
@@ -204,15 +204,11 @@
     fitSocial();
     if(focus)(open?socialTools[0].button:socialMore).focus({preventScroll:true});
   }
-  function openLocalTool(destination){
+  function openLocalSettings(section){
     toggleSocialMenu(false,{focus:false});
     leaveSocial();
-    destination();
-    if(document.querySelector('dialog[open]'))return;
-    const heading=main.querySelector('section.view:not([hidden]) :is(h1,h2)');
-    const target=heading?.getClientRects().length?heading:main;
-    target.tabIndex=-1;
-    target.focus({preventScroll:true});
+    open('settings');
+    settingsPage.enter(section);
   }
   if(storeSocial){
     document.documentElement.dataset.storeShell='';
@@ -225,20 +221,11 @@
     socialMore.onclick=()=>toggleSocialMenu(socialMenu.hidden);
     socialMenu=el('section','store-local-tools');socialMenu.id='store-local-tools';socialMenu.hidden=true;
     socialMenu.setAttribute('role','group');
-    function add(label,button,destination){
-      button.type='button';
-      button.onclick=()=>openLocalTool(destination);
+    function add(label,id,section){
+      const button=el('button','shell-ws-button');
+      button.type='button';button.id=id;button.onclick=()=>openLocalSettings(section);
       socialTools.push({label,button});socialMenu.append(button);
     }
-    add(['陪伴','Companion'],wsButtons.companion,()=>open('bot'));
-    add(['创作与图库','Create & gallery'],el('button','shell-ws-button'),()=>{
-      open('bot');
-      if(!window.ArcadeCharacterSticker?.openFromChat())open('characters');
-    });
-    add(['工作','Work'],wsButtons.work,()=>open('scene'));
-    add(['设备','Devices'],el('button','shell-ws-button'),()=>{open('settings');settingsPage.choose('pets');});
-    add(['渠道与账号','Channels & accounts'],el('button','shell-ws-button'),()=>open('connections'));
-    add(['应用设置','App settings'],el('button','shell-ws-button'),()=>open('settings'));
     if(window.arcade.storeBothouse){
       const entry=el('button','shell-ws-button');entry.type='button';entry.id='store-bothouse';
       entry.onclick=()=>void showBothouse();
@@ -274,6 +261,8 @@
         if(bothouseActive)void showSocial(true,worldActive?intent?.aiChatAccount:undefined);
       });
     }
+    add(['设备','Devices'],'store-devices','devices');
+    add(['应用设置','App settings'],'store-settings');
     imageReturn=el('button','shell-ws-button');
     imageReturn.type='button';imageReturn.id='store-image-feedback-return';imageReturn.hidden=true;
     imageReturn.onclick=()=>{
@@ -450,12 +439,13 @@
   main.insertBefore(subnav,main.querySelector('section.view'));
 
   function open(view){
+    if(storeSocial&&view!=='settings')return;
     if(view==='accounts'&&typeof window.openCompanionManager==='function')window.openCompanionManager();
     else if(view==='qq-runtime'&&navButton('qq-runtime')?.hidden)switchView('connections');
     else switchView(view);
   }
   function setWorkspace(name){
-    if(!ORDER[name])return;
+    if(storeSocial||!ORDER[name])return;
     leaveSocial();
     const view=document.body.dataset.view;
     if(WORKSPACE_OF[view]!==name){currentWs=name;open(remembered[name]||ORDER[name][0]);}
@@ -477,15 +467,19 @@
   // Language: the same switch as the top-bar button, where people look for it.
   const languageHead=el('h3',''),languageRow=el('div','language-choice');languageRow.setAttribute('role','group');
   const languageButtons=[['zh','中文'],['en','English']].map(([id,text])=>{const b=el('button','accent-auto',text);b.type='button';b.id='settings-language-'+id;b.lang=id==='zh'?'zh-CN':'en';b.onclick=()=>{if((latest?.config?.language==='zh'?'zh':'en')!==id)language.click();};languageRow.append(b);return {id,b};});
-  face.append(languageHead,languageRow,layoutHead,cardLayouts.node,accentHead,accentNote,cardAccent.node);
+  face.append(languageHead,languageRow);
+  if(!storeSocial)face.append(layoutHead,cardLayouts.node,accentHead,accentNote,cardAccent.node);
   grid?.prepend(face);
   const heading=document.querySelector('#settings-view .page-heading');
-  const settingsPage=window.mountGlobalSettings({grid,heading,gear:settings,openView:open,tr});
+  const settingsPage=window.mountGlobalSettings({grid,heading,gear:settings,openView:open,tr,
+    returnToMessages:storeSocial?()=>void showSocial(true):undefined});
   function openAI(){
+    if(storeSocial)return;
     if(document.body.dataset.view!=='settings')switchView('settings');
     settingsPage.choose('ai');
   }
   function openObserver(){
+    if(storeSocial)return;
     if(document.body.dataset.view!=='settings')switchView('settings');
     settingsPage.choose('observer');
     $('install')?.focus({preventScroll:true});
@@ -515,7 +509,8 @@
   window.renderShell=data=>{
     latest=data;zh=data.config?.language==='zh';
     const root=document.documentElement,view=document.body.dataset.view||'scene',preferred=data.config?.workspace==='work'?'work':'companion';
-    if(lastConfigWs===null){lastConfigWs=preferred;currentWs=WORKSPACE_OF[view]||preferred;}
+    if(storeSocial)currentWs='companion';
+    else if(lastConfigWs===null){lastConfigWs=preferred;currentWs=WORKSPACE_OF[view]||preferred;}
     else if(preferred!==lastConfigWs){lastConfigWs=preferred;if((WORKSPACE_OF[view]||currentWs)!==preferred){currentWs=preferred;open(remembered[preferred]||ORDER[preferred][0]);return;}}
     if(WORKSPACE_OF[view]){currentWs=WORKSPACE_OF[view];remembered[currentWs]=view;}
     if(root.dataset.workspace!==currentWs)root.dataset.workspace=currentWs;
@@ -548,7 +543,7 @@
       const active=name===group;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');
     }
     label(settings,pair(LABELS.settings));settings.classList.toggle('active',view==='settings');if(view==='settings')settings.setAttribute('aria-current','page');else settings.removeAttribute('aria-current');
-    syncPicker(view,data);
+    if(!storeSocial)syncPicker(view,data);
     // Channel sub-navigation
     subnav.hidden=!CHANNEL.includes(view);subnav.setAttribute('aria-label',pair(LABELS.connections));
     setText(subButtons.connections,tr('连接向导','Connection guide'));setText(subButtons.accounts,pair(LABELS.accounts));setText(subButtons['qq-runtime'],pair(LABELS['qq-runtime']));
@@ -577,7 +572,7 @@
     setText(recentTitle,tr('最近的动静','Recent activity'));setText(recentEmpty,tr('还没有新的动静。添加数据源后，日历、文件夹和网页的更新会出现在这里。','Nothing new yet. After you add a source, calendar, folder and web updates appear here.'));
     setText(faceTitle,tr('界面','Interface'));setText(layoutHead,tr('布局','Layout'));setText(accentHead,tr('强调色','Accent colour'));
     setText(accentNote,tr('默认跟随当前角色；也可以固定成一个你喜欢的颜色。文字和按钮会自动保持清晰。','Follows the current character by default, or stays on a colour you pick. Text and buttons keep readable contrast automatically.'));
-    window.ArcadeLayouts?.render(data,{view,workspace:currentWs,language:zh?'zh':'en',zh,tr,target:window.ArcadeTheme?.target(data),bar,main});
+    if(!storeSocial)window.ArcadeLayouts?.render(data,{view,workspace:currentWs,language:zh?'zh':'en',zh,tr,target:window.ArcadeTheme?.target(data),bar,main});
   };
   if(typeof data!=='undefined'&&data)render();
 })();

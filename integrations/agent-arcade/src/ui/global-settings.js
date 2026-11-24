@@ -2,7 +2,7 @@
 
 // The index moves the original settings cards, keeping their handlers and
 // platform-specific visibility. Conversation settings continue to own AI and QQ.
-window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
+window.mountGlobalSettings = function ({grid, heading, gear, openView, tr, returnToMessages}) {
   const view = grid.closest('.view');
   const nav = el('div', 'settings-index');
   nav.setAttribute('role', 'navigation');
@@ -14,7 +14,8 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
   daily.append(dailyLabel);
   personal.append(personalLabel);
   advanced.append(summary);
-  nav.append(daily, personal, advanced);
+  nav.append(daily);
+  if (!returnToMessages) nav.append(personal, advanced);
   const back = el('button', 'plain settings-back'), backText = el('span', '');
   back.type = 'button';
   back.id = 'settings-back';
@@ -57,16 +58,29 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
     button.onclick = () => choose(key);
     tasks.set(key, {button, label, hint, names, panel, group});
   }
-  task('appearance', ['外观与语言', 'Appearance & language'], daily, ['interface-card', 'theme']);
-  task('notifications', ['通知', 'Notifications'], daily, ['notifications']);
+  task('appearance', ['外观与语言', 'Appearance & language'], daily, returnToMessages ? ['interface-card'] : ['interface-card', 'theme']);
+  if (returnToMessages) {
+    const card = document.getElementById('alwaysOnTop').closest('.settings-card');
+    card.querySelector('h2').removeAttribute('data-i18n');
+    card.querySelector('h2').id = 'store-window-title';
+    card.querySelector('#notifications').closest('label').hidden = true;
+    card.querySelector('[data-i18n=notifyNote]').hidden = true;
+    task('window', ['窗口', 'Window'], daily, ['alwaysOnTop']);
+  } else task('notifications', ['通知', 'Notifications'], daily, ['notifications']);
   task('shortcut', ['发送快捷键', 'Send shortcut'], daily, ['send-shortcut-enter']);
-  task('pets', ['桌面搭档', 'Desktop companion'], daily, ['desktopPetCard', 'desktop-pets-card']);
-  task('ai', ['本机搭档的 AI 服务', 'Local companion AI service'], personal);
-  task('qq', ['QQ 群聊', 'QQ groups'], personal);
-  task('backend', ['渠道与派活', 'Channel & dispatch'], advanced);
-  task('bridge', ['QQ 桥接', 'QQ bridge'], advanced);
-  task('observer', ['观察器与隐私', 'Observer & privacy'], advanced, ['observer-card', 'captureResults']);
-  task('robot', ['桌面机器人连接', 'Desk robot connection'], advanced, ['robot-device-card']);
+  if (returnToMessages) {
+    task('devices', ['设备', 'Devices'], daily, ['desktopPetCard', 'desktop-pets-card', 'robot-device-card']);
+    // Keep legacy controls mounted for shared renderers, outside the social navigation.
+    for (const card of grid.querySelectorAll(':scope > .settings-card')) card.hidden = true;
+  } else {
+    task('pets', ['桌面搭档', 'Desktop companion'], daily, ['desktopPetCard', 'desktop-pets-card']);
+    task('ai', ['本机搭档的 AI 服务', 'Local companion AI service'], personal);
+    task('qq', ['QQ 群聊', 'QQ groups'], personal);
+    task('backend', ['渠道与派活', 'Channel & dispatch'], advanced);
+    task('bridge', ['QQ 桥接', 'QQ bridge'], advanced);
+    task('observer', ['观察器与隐私', 'Observer & privacy'], advanced, ['observer-card', 'captureResults']);
+    task('robot', ['桌面机器人连接', 'Desk robot connection'], advanced, ['robot-device-card']);
+  }
   grid.append(nav, content);
 
   function paint() {
@@ -79,7 +93,8 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
       if (selected) item.button.setAttribute('aria-current', 'true');
       else item.button.removeAttribute('aria-current');
     }
-    setText(backText, detail && single ? tr('返回设置', 'All settings') : tr('返回', 'Back'));
+    setText(backText, detail && single ? tr('返回设置', 'All settings') :
+      returnToMessages ? tr('返回消息', 'Back to messages') : tr('返回', 'Back'));
   }
   function show(key) {
     active = key;
@@ -106,7 +121,7 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
   function choose(key) {
     const item = tasks.get(key);
     if (!item) return;
-    if (['appearance', 'notifications', 'shortcut', 'pets', 'observer', 'robot'].includes(key)) {
+    if (returnToMessages || ['appearance', 'notifications', 'shortcut', 'pets', 'observer', 'robot'].includes(key)) {
       show(key);
       return;
     }
@@ -122,7 +137,8 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
   function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
   const emptyStates = new Map();
   for (const key of ['ai','qq','backend','bridge']) {
-    const panel = tasks.get(key).panel;
+    const panel = tasks.get(key)?.panel;
+    if (!panel) continue;
     const title = el('h2', ''), note = el('p', ''), select = el('button', 'secondary');
     select.type = 'button';
     select.onclick = () => window.openCompanionManager({onClose:() => returnFrom(key)});
@@ -134,6 +150,11 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
   const updateApp = window.mountAppUpdate?.(tr);
   function updateCopy() {
     updateApp?.(data.appUpdate);
+    if (returnToMessages) {
+      setText(document.getElementById('store-window-title'), tr('窗口', 'Window'));
+      setText(document.getElementById('appearance-note'), tr('选择应用设置和顶部菜单的显示模式。', 'Choose how app settings and the top menu look.'));
+      setText(document.getElementById('send-shortcut-note'), tr('选择聊天里的发送按键。Shift+Enter 始终换行。', 'Choose the send key in chat. Shift+Enter always starts a new line.'));
+    }
     setText(dailyLabel, tr('应用', 'Application'));
     const selected = data.accounts?.accounts?.find(row => row.id === data.accounts.selectedId);
     setText(personalLabel, selected?.name ? tr('当前搭档 · ', 'Current companion · ') + selected.name : tr('当前搭档', 'Current companion'));
@@ -166,6 +187,8 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
       detail = false;
       paint();
       tasks.get(active).button.focus();
+    } else if (returnToMessages) {
+      returnToMessages();
     } else {
       openView(origin);
       (originControl?.getClientRects().length ? originControl : gear).focus();
@@ -180,6 +203,13 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
   narrow.addEventListener('change', paint);
   return {
     choose,
+    enter(section) {
+      detail = false;
+      active = 'appearance';
+      paint();
+      if (section) choose(section);
+      else back.focus({preventScroll:true});
+    },
     sync(next, page) {
       data = next;
       if (page === 'settings' && previousView !== page && !returning) {
@@ -191,7 +221,7 @@ window.mountGlobalSettings = function ({grid, heading, gear, openView, tr}) {
       }
       entryControl = null;
       previousView = page;
-      window.ArcadeSettingsDestinations.sync(next, page);
+      if (!returnToMessages) window.ArcadeSettingsDestinations.sync(next, page);
       if (page !== 'settings') return;
       updateCopy();
       paint();

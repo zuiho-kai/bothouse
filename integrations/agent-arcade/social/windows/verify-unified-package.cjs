@@ -20,12 +20,6 @@ const profile=path.join(scratch,'profile');
 fs.mkdirSync(path.join(profile,'library'),{recursive:true});
 fs.writeFileSync(path.join(profile,'library','config.json'),JSON.stringify({language:'zh'}));
 const database=path.join(scratch,'synthetic.sqlite');
-const document=path.join(scratch,'synthetic-note.json');
-fs.writeFileSync(document,JSON.stringify({title:'合成资料',value:53}));
-const character=path.join(scratch,'synthetic-character.json');
-fs.writeFileSync(character,JSON.stringify({spec:'chara_card_v2',spec_version:'2.0',data:{
-  name:'合成角色五三',description:'A synthetic Store package fixture.',personality:'',scenario:'',first_mes:'你好',mes_example:'',
-}}));
 fs.mkdirSync(evidence,{recursive:true});
 const checks=[];
 const pageErrors=[];
@@ -88,10 +82,12 @@ async function assertBoundary(app,visible) {
   assert.deepEqual([view.preload,view.preloads,view.sandbox,view.nodeIntegration,view.contextIsolation,view.separatePartition],
     ['privacy-preload.cjs',0,true,false,true,true]);
 }
-async function workspace(page,name) {
-  const target=page.locator('#ws-'+name);
-  if(!await target.isVisible())await page.locator('#store-more').click();
-  await target.click();
+async function settings(page) {
+  await page.locator('#store-more').click();
+  await page.locator('#store-settings').click();
+  await page.locator('#settings-back').waitFor();
+  assert.equal(await page.locator('#ai-card-open').count(),0);
+  assert.equal(await page.locator('#ws-companion, #ws-work, #settings-advanced').count(),0);
 }
 async function fillRegistration(app) {
   await guest(app,`document.querySelector('#auth-switch').click();
@@ -141,23 +137,16 @@ async function main(){
       return (await v.webContents.capturePage()).toPNG().toString('base64');
     });
     fs.writeFileSync(path.join(evidence,'friends.png'),Buffer.from(image,'base64'));
-    await workspace(page,'companion');
+    await guest(app,"document.querySelector('#message').value='未发送的合成草稿';document.querySelector('#message').dispatchEvent(new Event('input',{bubbles:true}))");
+    await settings(page);
     await assertBoundary(app,false);
-    assert.equal(await page.evaluate(async()=>(await window.arcade.snapshot()).bot.hasKey),false);
-    await page.locator('nav [data-view=characters]').click();
-    await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},character);
-    await page.locator('#characters-import').click();
-    await page.locator('#characters-view').getByText('合成角色五三',{exact:true}).first().waitFor();
-    await page.screenshot({path:path.join(evidence,'companion.png')});
-    await workspace(page,'work');
-    await page.locator('nav [data-view=work]').click();
-    await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},document);
-    await page.locator('#artifact-pick').click();
-    await page.frameLocator('#artifact-app').locator('#artifact-body').filter({hasText:'合成资料'}).waitFor();
-    await page.screenshot({path:path.join(evidence,'work.png')});
-    checks.push('同窗切回陪伴导入本机角色、切工作打开本机 JSON 资料');
-    await page.locator('#ws-social').click();
+    await page.locator('#settings-nav-devices').click();
+    await page.locator('#robot-device-card').waitFor();
+    await page.screenshot({path:path.join(evidence,'devices.png')});
+    await page.locator('#settings-back').click();
     await assertBoundary(app,true);
+    assert.equal(await guest(app,"document.querySelector('#message').value"),'未发送的合成草稿');
+    checks.push('更多进入设备设置，返回原私聊并保留草稿');
     assert(await guest(app,`document.querySelector('#history').textContent.includes('合成社交历史')`));
     await guest(app,`document.querySelector('[data-tab=profile]').click();
       [...document.querySelectorAll('button')].find(e=>e.textContent==='意见反馈').click()`);
@@ -172,18 +161,15 @@ async function main(){
     await assertBoundary(running.app,true);
     await guest(running.app,`[...document.querySelectorAll('#directory-body button')].find(e=>e.textContent.includes('封装账号乙')).click()`);
     await until(()=>guest(running.app,`document.querySelector('#history').textContent.includes('合成社交回复')`),'durable message');
-    await workspace(running.page,'companion');
-    await running.page.locator('nav [data-view=characters]').click();
-    await running.page.locator('#characters-view').getByText('合成角色五三',{exact:true}).first().waitFor();
-    checks.push('重开包后同一好友登录和历史恢复，本机角色仍在');
+    checks.push('重开包后同一好友登录和历史恢复');
     await running.app.close();running=null;
     await stop(worker);worker=null;
     running=await launch();
     await running.page.getByRole('button',{name:'重试',exact:true}).waitFor();
-    await running.page.locator('#ws-work').click();
-    await running.page.locator('nav [data-view=work]').click();
-    await running.page.locator('#artifact-pick').waitFor();
-    checks.push('好友服务离线时仍能进入本机工作');
+    await settings(running.page);
+    await running.page.locator('#settings-nav-window').click();
+    await running.page.locator('#alwaysOnTop').waitFor();
+    checks.push('好友服务离线时仍能进入本机窗口设置');
     assert.deepEqual(pageErrors,[]);
   } finally {
     await running?.app.close();

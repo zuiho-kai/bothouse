@@ -1,14 +1,17 @@
 /* The Store message view owns the content below this trusted strip. Its
    WebContentsView is fitted below the open tools panel by the shell. */
-html[data-store-social=open] body .shell-bar,
-html[data-store-social=open][data-layout=minimal] body:not(.compact) .shell-bar{
+html[data-store-shell]:root body .shell-bar,
+html[data-store-shell][data-layout=minimal] body:not(.compact) .shell-bar{
   position:fixed;inset:0 0 auto;width:auto;height:44px;padding:0 12px;
   flex-direction:row;align-items:center;justify-content:flex-end;background:var(--surface);
   border:0;border-bottom:1px solid var(--line);pointer-events:auto;
 }
-html[data-store-social=open] body .shell-bar::before{display:none}
+html[data-store-shell] body .shell-bar::before{display:none}
 html[data-store-social=open],html[data-store-social=open] body{overflow:hidden}
-html[data-store-social=open] body :is(.shell-brand,.shell-nav,.shell-tools,.shell-observer,#ws-social){display:none}
+html[data-store-shell] body :is(.shell-brand,.shell-nav,.shell-tools,.shell-observer,#ws-social){display:none}
+html[data-store-shell]:not([data-store-social]) #store-more{display:none}
+html[data-store-shell]:not([data-store-social]) body .shell-bar{display:none}
+html[data-store-shell]:not([data-store-social]) body>main{margin:0 auto;padding:0;max-width:1160px}
 html[data-store-social=open] body .shell-ws{
   margin:0;padding:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none
 }
@@ -44,7 +47,7 @@ html[data-store-social=open] body #shell-bar[data-world-residents]{
 #store-bothouse-panel{text-align:center;max-inline-size:42rem;margin-inline:auto}
 #store-bothouse-panel:not([hidden]){display:grid;gap:12px;justify-items:center}
 html[data-store-social=open] .store-local-tools{
-  inset:44px 0 auto;width:auto;grid-template-columns:repeat(7,max-content);justify-content:end;
+  inset:44px 0 auto;width:auto;grid-auto-flow:column;grid-auto-columns:max-content;justify-content:end;
   padding:5px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none
 }
 .store-local-tools .shell-ws-button{
@@ -52,7 +55,7 @@ html[data-store-social=open] .store-local-tools{
 }
 .store-local-tools .shell-ws-button:hover,.store-local-tools .shell-ws-button:focus-visible{background:var(--accent-soft)}
 @media(max-width:760px){
-  html[data-store-social=open] .store-local-tools{grid-template-columns:repeat(3,minmax(0,1fr))}
+  html[data-store-social=open] .store-local-tools{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:600px){
   html[data-store-shell] body .shell-brand,html[data-store-shell] body .shell-tools>.shell-tool:not([data-view=settings]){display:none}
