@@ -68,7 +68,7 @@ index 95c6d02a4c10b9de7c542f53fcf28eb916e30454..bd3a7cf533c85f9d2eb98a086e5fcffe
 +The list credits the pack, author and licence supplied by its publisher. The
 +scene needs no sprite-sheet installation or desktop-pet animation files.
 diff --git a/index.html b/index.html
-index 3485d1df00959a9d8f731596e3f84908297e6b66..cd197e7f474527ae5ee81ebf366be06379a42106 100644
+index 3485d1df00959a9d8f731596e3f84908297e6b66..41ef56f0edf09482e5f805005d64c4e2a034534c 100644
 --- a/index.html
 +++ b/index.html
 @@ -77,3 +77,14 @@
@@ -87,6 +87,10 @@ index 3485d1df00959a9d8f731596e3f84908297e6b66..cd197e7f474527ae5ee81ebf366be063
 +  }
 +}catch{}
  if(language==='zh'){document.documentElement.lang='zh-CN';const copies={eyebrow:'SUNSEED · 慢慢探索',title:'小星球',intro:'逛逛小村庄，送出一点善意，再把家变成喜欢的模样。',deviceNote:'小星球使用实时 3D 画面。性能较低的设备可能加载缓慢、出现卡顿，或无法完成加载。请先尝试「流畅」画质；若仍无法顺畅运行，建议换用性能更强的电脑。加载失败也可能与网络或浏览器设置有关。'};for(const node of document.querySelectorAll('[data-welcome-string]'))node.textContent=copies[node.dataset.welcomeString];document.getElementById('welcome-panel').setAttribute('aria-label','欢迎来到小星球');document.getElementById('welcome-stage').textContent='正在下载游戏模块…';document.getElementById('welcome-help').textContent='正在加载游戏模块，可测的准备计数将在可用时显示。';document.getElementById('welcome-start').textContent='正在准备你的星球…';document.getElementById('welcome-progress').setAttribute('aria-label','当前准备阶段');document.getElementById('welcome-retry').textContent='重试';}
+@@ -94,2 +105,3 @@ window.addEventListener('error',event=>{if(!(event.target instanceof HTMLScriptE
+ <section id="flight-hud" class="flight-hud" aria-label="Flight instruments" hidden><aside class="flight-course"><span class="eyebrow">NAVIGATION / TARGET VECTOR</span><h2 id="course-name">A world ahead</h2><p id="course-distance"></p><p id="course-heading" role="status"></p></aside><div class="flight-ident"><b>SHIP</b><span>Loading saved design</span></div><div id="flight-heading" class="flight-heading"></div><div id="ship-marker" class="flight-ship-marker" aria-hidden="true"><span>Your ship</span></div><span id="course-marker" class="course-marker" aria-hidden="true">◇</span><div class="flight-speed"><span id="flight-throttle">STANDBY</span><strong id="ship-speed">0</strong><small>m / s</small><div class="velocity-track"><i id="velocity-bar"></i></div><p id="flight-altitude"></p></div></section>
++<div id="travel-guidance"></div>
+ <div id="boarding-prompt" class="boarding-prompt" hidden><small id="dock-context">STARPORT / BOARDING GATE</small><button id="board-ship" class="primary">Board your ship <kbd>E</kbd></button></div><div id="notice" class="notice" role="status" hidden></div>
 diff --git a/spec/guide-interaction.test.ts b/spec/guide-interaction.test.ts
 index b730d3d2aa8fcf30938fb85d0e57464b68942005..c846ef9b2e15b65dd66c59f0a7087c98595b0172 100644
 --- a/spec/guide-interaction.test.ts
@@ -306,15 +310,40 @@ index 09549aaf6fa80e4da5e025d2cea68daff88c3d4a..5f7c7a4814b9f5624b84e0042dc90d5a
 +    addTownExterior(model.object,parts,worldMaterials(),slots);
      const transform=placedTransform({dir:obj.position,yaw:obj.rotation},fit);
 diff --git a/src/client/flight.css b/src/client/flight.css
-index e56a89e92190efaab22096861abb75c51ac8688a..52636eca8fc56cc1f728af28ad31afaf579d6b3f 100644
+index e56a89e92190efaab22096861abb75c51ac8688a..318a042e5ab90c50dfce093ddc7eb210f9e1047d 100644
 --- a/src/client/flight.css
 +++ b/src/client/flight.css
-@@ -36 +36,3 @@
+@@ -36 +36,28 @@
  #trip-preview::before{content:'';display:block;width:54px;height:54px;border-radius:50%;margin:0 12px 0 0;float:left;background:radial-gradient(circle at 32% 25%,#fff8,transparent 55%),var(--destination-color,#73ad80);box-shadow:inset -9px -8px 0 #17354133}#trip-preview{min-height:54px;display:flow-root}
 +
 +#friend-visit-route{position:fixed;top:76px;left:16px;z-index:4;max-width:min(24rem,80vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f2ead6;color:#173541;border:1px solid #8aa89b;border-radius:8px;padding:8px 12px}
++
++/* Stack directions and the destination without covering the scene between controls. */
++#travel-guidance {
++  position: fixed;
++  top: 76px;
++  left: 16px;
++  z-index: 22;
++  display: flex;
++  flex-direction: column;
++  align-items: flex-start;
++  gap: 8px;
++  pointer-events: none;
++}
++#travel-guidance > #friend-visit-route,
++#travel-guidance > #world-guide-hud {
++  position: static;
++  pointer-events: auto;
++}
++@media (max-width: 700px) {
++  #travel-guidance {
++    top: auto;
++    bottom: min(25dvh, 210px);
++    left: 12px;
++  }
++}
 diff --git a/src/client/flight.ts b/src/client/flight.ts
-index eeb7d88eabbcb938873d370abbcf3434b7202330..33210ac4af932669f7a997b03d1c199e3f349d1f 100644
+index eeb7d88eabbcb938873d370abbcf3434b7202330..7b499e2157dd600fbcbf208a63b09c652cb61e55 100644
 --- a/src/client/flight.ts
 +++ b/src/client/flight.ts
 @@ -32,3 +32,3 @@ interface Bridge {
@@ -340,7 +369,7 @@ index eeb7d88eabbcb938873d370abbcf3434b7202330..33210ac4af932669f7a997b03d1c199e
 +        }
 +        this.mark(this.friendPlanet);
 +      };
-+      document.body.append(this.friendRoute);
++      el('travel-guidance').prepend(this.friendRoute);
 +    }
      el('board-ship').onclick=()=>this.openLaunch();
 @@ -98,2 +113,13 @@ export class SpaceFlight {
@@ -789,7 +818,7 @@ index fb01ffaebf2bdb880563ee0e1fdbbc7a26ddaae6..ecb98897cb97a494611a31cdc641d69d
 +      }
        box(frame, ART_PALETTE.wood, 1.42, .43, .065, 0, 2.37, -.04);
 diff --git a/src/client/world-guide.ts b/src/client/world-guide.ts
-index f533e71cfc73d2be94e83498c99214dc9d9a3057..09c90ecc99a84f5ff3568efc1a0d00c0626f3c59 100644
+index f533e71cfc73d2be94e83498c99214dc9d9a3057..a3b835432c45a0c8b10d51731b2cd1790314c79f 100644
 --- a/src/client/world-guide.ts
 +++ b/src/client/world-guide.ts
 @@ -22,2 +22,5 @@ interface Frame {
@@ -798,15 +827,16 @@ index f533e71cfc73d2be94e83498c99214dc9d9a3057..09c90ecc99a84f5ff3568efc1a0d00c0
 +  const hostChat = entry.get('appChat') === 'bothouse';
 +  const embedded = hostChat || ['zh', 'en'].includes(entry.get('appLang') ?? '');
    let current: Frame | null=null, topic:GuideTopic='home', selected:GuideTopic|null=null, routePlanet='', roomKey='', lastPaint='', talking=false;
-@@ -34,4 +37,5 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+@@ -34,9 +37,10 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
    chat.innerHTML='<header><h2 id="world-guide-chat-title"></h2><button id="world-guide-chat-close" type="button" aria-label="Close chat">×</button></header><details id="world-guide-disclosure"><summary id="world-guide-disclosure-title"></summary><p id="world-guide-ai-status"></p></details><p id="world-guide-ai-quota"></p><div id="world-guide-messages" role="log" aria-live="polite"><p id="world-guide-ai-answer"></p></div><p id="world-guide-ai-result" role="status"></p><form id="world-guide-form"><label for="world-guide-question" id="world-guide-question-label"></label><div class="world-guide-input"><textarea id="world-guide-question" maxlength="500" rows="2"></textarea><button id="world-guide-ask" type="submit"></button></div></form><footer><button id="world-guide-ai-stop" type="button" hidden></button><button id="world-guide-refresh" type="button"></button><button id="world-guide-local" type="button"></button></footer>';
 -  document.body.append(chat);
 -  const chatOpen=document.createElement('button');chatOpen.id='world-guide-chat-open';chatOpen.type='button';document.querySelector('.minimal-bar')?.append(chatOpen);
+-  const hud=document.createElement('section');hud.id='world-guide-hud';hud.hidden=true;hud.dataset.i18nVerbatim='';hud.innerHTML='<p id="world-guide-status" role="status"></p><button id="world-guide-details" type="button"></button><button id="world-guide-stop" type="button"></button>';document.body.append(hud);
 +  if(!embedded)document.body.append(chat);
 +  const chatOpen=document.createElement('button');chatOpen.id='world-guide-chat-open';chatOpen.type='button';
 +  if(!embedded || hostChat)document.querySelector('.minimal-bar')?.append(chatOpen);
-   const hud=document.createElement('section');hud.id='world-guide-hud';hud.hidden=true;hud.dataset.i18nVerbatim='';hud.innerHTML='<p id="world-guide-status" role="status"></p><button id="world-guide-details" type="button"></button><button id="world-guide-stop" type="button"></button>';document.body.append(hud);
-@@ -39,4 +43,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
++  const hud=document.createElement('section');hud.id='world-guide-hud';hud.hidden=true;hud.dataset.i18nVerbatim='';hud.innerHTML='<p id="world-guide-status" role="status"></p><button id="world-guide-details" type="button"></button><button id="world-guide-stop" type="button"></button>';document.getElementById('travel-guidance')!.append(hud);
+   const el=<E extends HTMLElement=HTMLElement>(id:string)=>document.getElementById('world-guide-'+id)! as E;
    const language=()=>document.documentElement.lang.startsWith('zh')?'zh' as const:'en' as const;
 -  const ai=createGuideConversation({language,answer(text){el('ai-answer').textContent=text;const log=el('messages');log.scrollTop=log.scrollHeight;},changed(){lastPaint='';paint();}});
 -  function close(focus=false){ai.cancel();talking=false;bubble.hidden=true;chat.hidden=true;actor.root.visible=false;document.body.classList.remove('world-guide-talking');release();if(focus)document.querySelector<HTMLCanvasElement>('#world canvas')?.focus({preventScroll:true});}
