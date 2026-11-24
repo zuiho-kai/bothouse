@@ -440,6 +440,51 @@ class T(unittest.TestCase):
             self.assertNotIn("【旧】", texts[0])
             self.assertIn("【旧】", texts[1])
 
+    def test_selected_rows_need_current_topic_without_backfill(self):
+        # 历史词可参与找页，但选定页里的旧话题行不应继续推；主库、角色库用同一选择规则。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            texts = {
+                "history": "- deployment pipeline history release workflow",
+                "current": "- astronomy telescope guidance",
+                "spare": "- astronomy observation guidance with additional context for a longer entry",
+            }
+            for name, text in texts.items():
+                (notes / (name + ".md")).write_text(text, encoding="utf-8")
+            with patch.object(ctxsvc, "FORUM", None):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                expanded = "deployment pipeline history release workflow astronomy telescope"
+                unfiltered = ctxsvc.match_wiki(expanded, k=2, prepared=True)
+                self.assertEqual([Path(p["path"]).stem for p in unfiltered], ["history", "current"])
+                for own in (False, True):
+                    with self.subTest(role_wiki=own):
+                        if own:
+                            ctxsvc.WIKI = root / "absent-main"
+                        # rare_toks uses the shared vocabulary, as in context() on both roots.
+                        with patch.object(ctxsvc, "rare_toks", return_value="astronomy telescope"):
+                            got = ctxsvc.match_wiki(expanded, k=2, root=root, prepared=True,
+                                                    focus="astronomy telescope")
+                        self.assertEqual([Path(p["path"]).stem for p in got], ["current"])
+                        self.assertNotIn("deployment", got[0]["desc"])
+                        self.assertEqual(got[0]["rows"], unfiltered[1]["rows"])
+
+    def test_short_focus_without_content_keeps_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            (notes / "topic.md").write_text("- astronomy telescope guidance", encoding="utf-8")
+            with patch.object(ctxsvc, "FORUM", None):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                expected = ctxsvc.match_wiki("继续 astronomy telescope", prepared=True)
+                self.assertTrue(expected)
+                self.assertEqual(ctxsvc.match_wiki("继续 astronomy telescope", prepared=True,
+                                                  focus="继续"), expected)
+
     def test_channel_projects_before_generic_rules(self):
         # 这个频道主要在做 proj/：项目页排在通用规矩页前；频道→项目只从推送日志算
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as e:
