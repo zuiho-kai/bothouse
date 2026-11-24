@@ -378,3 +378,31 @@ test('Windows rectangle tool launch is fixed and limited to the active chat fram
   assert.deepEqual(launch.args,['/clip']);assert.equal(launch.options.shell,false);
   frame.url=origin+'/privacy.html';assert.equal(await handler(event),false);
 });
+
+test('a planet visit uses the peer in the current active human conversation',async()=>{
+  const origin='http://127.0.0.1:18747',chat='31234567-1980-4000-8000-123456789abc';
+  let active=true,handler,changeDuringRead=false;
+  const sent=[],peer={account:'visitor',number:'friend'};
+  const session=Object.assign(new EventEmitter(),{
+    setPermissionRequestHandler(){},setPermissionCheckHandler(){},webRequest:{onBeforeRequest(){}},
+    async fetch(url,{headers}){
+      assert.equal(url,origin+'/api/v1/conversations/'+chat);assert.equal(headers['X-Social-Account'],'visitor');
+      if(changeDuringRead)view.webContents.mainFrame.url=origin+'/';
+      return Response.json({conversation:{type:'direct',members:[{number:'visitor',kind:'human'},{number:'friend',kind:'human'}]}});
+    }
+  });
+  class Guest{
+    constructor(){
+      this.webContents=Object.assign(new EventEmitter(),{isDestroyed:()=>false,mainFrame:{url:origin+'/#chat/'+chat},
+        ipc:{handle:(key,fn)=>{if(key==='arcade:visitFriend')handler=fn;}},setWindowOpenHandler(){}});
+    }
+  }
+  const {view}=createSocialView({WebContentsView:Guest,session:{fromPartition:()=>session},configuration:{mode:'test',origin},
+    isActive:()=>active,visitFriend:request=>sent.push(request)});
+  const event={sender:view.webContents,senderFrame:view.webContents.mainFrame};
+  assert.equal((await handler(event,peer)).state,'opened');
+  assert.equal((await handler(event,{...peer,number:'other'})).state,'changed');
+  active=false;assert.equal((await handler(event,peer)).state,'changed');
+  active=true;changeDuringRead=true;assert.equal((await handler(event,peer)).state,'changed');
+  assert.deepEqual(sent,[peer]);
+});

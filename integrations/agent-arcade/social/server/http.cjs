@@ -483,6 +483,14 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
       }
       else {
         const account = current(store,req);
+        if(req.method==='GET'&&key==='friend-planet'){
+          if(req.headers['x-social-account']!==undefined&&req.headers['x-social-account']!==account)
+            fail(409,'planet_session','账号已切换，请重新打开好友私聊。');
+          const answer=await residents.friendPlanet(account,number(url.searchParams.get('number')));
+          if(current(store,req)!==account)fail(409,'planet_session','账号已切换，请重新打开好友私聊。');
+          res.setHeader('Content-Type','application/json; charset=utf-8');
+          return res.end(JSON.stringify(answer));
+        }
         if(key==='planet-residents'){
           const answer=req.method==='GET'?residents.view(account):await residents.change(account,sessionDigest(req),body);
           if(current(store,req)!==account)fail(409,'planet_session','账号已切换，请重新打开自己的小星球。');

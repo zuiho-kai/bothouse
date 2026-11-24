@@ -2,6 +2,11 @@
 
 const {ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.pathname==='/'&&!location.search){
+  if(process.argv.includes('--arcade-friend-visits')){
+    require('electron').contextBridge.exposeInMainWorld('arcadeWorldVisit',{
+      open:({account,number})=>ipcRenderer.invoke('arcade:visitFriend',{account,number}),
+    });
+  }
   const versionArgument='--arcade-feedback-desktop-version=';
   const desktopVersion=process.argv.find(arg=>arg.startsWith(versionArgument))?.slice(versionArgument.length);
   document.addEventListener('DOMContentLoaded',()=>{

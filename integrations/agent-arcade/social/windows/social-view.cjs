@@ -7,7 +7,7 @@ const imageDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4})
 const fileDownloadPath=/^\/api\/v1\/conversations\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\/messages\/[1-9]\d{0,15}\/file\/download$/u;
 const chatFragment=/^#chat\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
 
-function createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, readSendShortcut, isActive=()=>false,
+function createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, readSendShortcut, visitFriend, isActive=()=>false,
   spawnSnip=require('node:child_process').spawn, openExternal=url=>require('electron').shell.openExternal(url) }) {
   const origin = serviceOrigin(configuration.origin, configuration.mode);
   const {desktopVersion} = configuration;
@@ -57,15 +57,35 @@ function createSocialView({ WebContentsView, session, configuration, saveImage, 
     const localImage = details.resourceType === 'image' && ['data:', 'blob:'].includes(url.protocol);
     callback({ cancel: !isTrusted(details.url) && !localImage });
   });
+  const preloadArgs=visitFriend?['--arcade-friend-visits']:[];
+  if(typeof desktopVersion==='string'&&/^[1-9]\d{0,4}(?:\.(?:0|[1-9]\d{0,4})){2}\.0$/u.test(desktopVersion))
+    preloadArgs.push('--arcade-feedback-desktop-version='+desktopVersion);
   const view = new WebContentsView({
     webPreferences: {
       session: browserSession, contextIsolation: true, nodeIntegration: false,
       sandbox: true, devTools: false, preload:path.join(__dirname,'privacy-preload.cjs'),
-      ...(typeof desktopVersion === 'string' && /^[1-9]\d{0,4}(?:\.(?:0|[1-9]\d{0,4})){2}\.0$/u.test(desktopVersion) &&
-        {additionalArguments:['--arcade-feedback-desktop-version='+desktopVersion]}),
+      ...(preloadArgs.length&&{additionalArguments:preloadArgs}),
     },
   });
   const contents = view.webContents;
+  if(visitFriend)contents.ipc?.handle('arcade:visitFriend',async(event,input)=>{
+    const frame=event.senderFrame, address=frame?.url;
+    const current=()=>isActive()&&!contents.isDestroyed()&&event.sender===contents&&frame===contents.mainFrame&&frame.url===address;
+    if(!address||!current()||!isTrusted(address))return {state:'changed'};
+    const url=new URL(address), valid=n=>typeof n==='string'&&/^[a-z0-9_]{4,24}$/u.test(n);
+    if(url.pathname!=='/'||url.search||!chatFragment.test(url.hash)||!valid(input?.account)||!valid(input?.number))return {state:'changed'};
+    try{
+      const response=await browserSession.fetch(origin+'/api/v1/conversations/'+url.hash.slice(6),{
+        credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(5000),
+        headers:{'X-Social-Account':input.account}});
+      if(!response.ok)return {state:response.status>=500?'offline':'changed'};
+      const {conversation}=await response.json();
+      if(!current()||conversation?.type!=='direct'||input.account===input.number||
+        ![input.account,input.number].every(n=>conversation.members?.some(m=>m.number===n&&m.kind==='human')))return {state:'changed'};
+      visitFriend({account:input.account,number:input.number});
+      return {state:'opened'};
+    }catch{return {state:'offline'};}
+  });
   let openingSnip=false;
   contents.ipc?.handle('arcade:startChatSnip',async(event)=>{
     const frame=event.senderFrame;

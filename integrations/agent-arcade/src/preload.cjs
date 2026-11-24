@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('arcade', platformBridge({
     storeSupport: () => ipcRenderer.invoke('arcade:storeSupport'),
     onStoreSocialUnavailable: callback => { ipcRenderer.on('arcade:storeSocialUnavailable', () => callback()); },
     onStoreSocialFocus: callback => { ipcRenderer.on('arcade:storeSocialFocus', () => callback()); },
+    onStoreFriendVisit: callback => { ipcRenderer.on('arcade:storeFriendVisit',(_event,request)=>callback(request)); },
     onStoreToolsRequested: callback => { ipcRenderer.on('arcade:storeToolsRequested', () => callback()); },
     appUpdateOpenStore: () => ipcRenderer.invoke('arcade:appUpdateOpenStore'),
     appReleaseSource: () => ipcRenderer.invoke('arcade:appReleaseSource'),

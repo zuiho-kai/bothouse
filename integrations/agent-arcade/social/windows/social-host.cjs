@@ -42,6 +42,7 @@ function mountSocial({window, WebContentsView, session, configuration, saveImage
     if (!guest || guest.view.webContents.isDestroyed()) {
       remove();
       const view = createSocialView({ WebContentsView, session, configuration, saveImage, pickGroupCard, readSendShortcut,
+        visitFriend:request=>window.webContents.send('arcade:storeFriendVisit',request),
         isActive:()=>wanted&&guest===view&&!window.isDestroyed() });
       guest=view;
       const contents = guest.view.webContents;

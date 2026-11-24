@@ -5,6 +5,7 @@ const path=require('node:path');
 const {fail}=require('../store.cjs');
 const {instanceSettings}=require('./directory.cjs');
 
+const heartbeatInterval=6000, publisherRecoveryWindow=60000;
 const sourcePattern=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u;
 const msg={
   config:[503,'请先在好友服务配置小星球地址和居民发布器。'],
@@ -48,9 +49,30 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
         if(action==='pause')return;  // The owner may already have revoked this slot.
         problem('binding');
       }
-      if(!response.ok||(await response.json()).ok!==true)problem('unavailable');
+      if(!response.ok)problem('unavailable');
+      const verified=await response.json();
+      if(verified.ok!==true)problem('unavailable');
+      return verified;
     }catch(e){if(e.status)throw e;problem('unavailable');}
     finally{if(response&&!response.bodyUsed)await response.body?.cancel();}
+  }
+  async function friendPlanet(account,number){
+    function requireFriend(){
+      if(number===account||!store.direct(account,number)||store.user(number).kind!=='human')
+        fail(403,'friends_only','请从真人好友的私聊打开。');
+    }
+    requireFriend();
+    const response={account,number,worldOrigin:origin,planetId:null};
+    const job=jobs.get(number);
+    if(!job?.ready||!sessionAlive(job))return response;
+    let verified;
+    try{verified=await control(job,'check');}
+    catch(error){if(error.code!=='planet_binding')throw error;}
+    requireFriend();
+    if(!verified||job!==jobs.get(number)||!sessionAlive(job))return response;
+    if(typeof verified.planetId!=='string'||!/^p-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(verified.planetId))
+      problem('unavailable');
+    return {...response,planetId:verified.planetId};
   }
   function stop(job){
     if(jobs.get(job.account)===job)jobs.delete(job.account);
@@ -119,9 +141,21 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
       if(jobs.get(job.account)!==job)return;
       // Defer saturated ticks briefly; keep at most one child in flight per slot.
       if(workers>=4&&sessionAlive(job)){schedule(job);return;}
-      try{await heartbeat(job);current(job);schedule(job);}
-      catch{if(jobs.get(job.account)===job)await stop(job).catch(()=>{});}
-    },6000);
+      try{
+        await heartbeat(job);
+        current(job);
+        job.lastPublished=Date.now();
+      }catch(error){
+        if(jobs.get(job.account)!==job)return;
+        // A failed sample can leave the verified owner grant intact. The world
+        // independently expires stale residents, and every visit rechecks the grant.
+        if(error.code!=='planet_unavailable'||!sessionAlive(job)||Date.now()-job.lastPublished>=publisherRecoveryWindow){
+          await stop(job).catch(()=>{});
+          return;
+        }
+      }
+      schedule(job);
+    },heartbeatInterval);
     job.timer.unref();
   }
   async function change(account,session,body){
@@ -157,7 +191,7 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
         if(pending.get(account)!==job||!sessionAlive(job))problem('session');
         jobs.set(account,job);
         await heartbeat(job);current(job);
-        job.ready=true;schedule(job);return view(account);
+        job.ready=true;job.lastPublished=Date.now();schedule(job);return view(account);
       }catch(e){
         // A late pass cannot stop a newer source that now owns this token.
         const next=jobs.get(account),nextPending=pending.get(account);
@@ -172,7 +206,7 @@ function planetPublishers({store,bothouse,socialOrigin,env=process.env}){
     for(const [a,p] of pending)if(predicate(p))pending.delete(a);
     for(const j of [...jobs.values()])if(predicate(j))void stop(j).catch(()=>{});
   }
-  return {view,change,endSession:d=>{if(d)cancel(j=>j.session===d);},
+  return {view,change,friendPlanet,endSession:d=>{if(d)cancel(j=>j.session===d);},
     unpair:a=>cancel(j=>j.account===a),close:()=>{closed=true;cancel(()=>true);}};
 }
 module.exports={planetPublishers};

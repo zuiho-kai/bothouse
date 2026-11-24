@@ -11,7 +11,7 @@ const {promisify} = require('node:util');
 const {worldResidentControls}=require('./world-resident-controls.cjs');
 const run = promisify(execFile);
 const fail = code => { throw Object.assign(new Error(code), {code}); };
-const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled', 'login', 'friends-offline']);
+const outcomes = new Set(['config', 'offline', 'identity', 'dashboard', 'cancelled', 'login', 'friends-offline', 'friend-unavailable']);
 const localFile = file => typeof file === 'string' && /^[a-z]:[\\/]/i.test(file);
 
 function defaultConfig(home=os.homedir(), dataDir=process.env.BOTHOUSE_DATA_DIR) {
@@ -229,6 +229,22 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
         friends.cookies.on('changed',accountChanged);
         detachAccountWatch=()=>friends.cookies.removeListener('changed',accountChanged);
         target=await worldTarget(origin,socialOrigin,friends);
+        if(value.friend){
+          const {account,number}=value.friend;
+          if(account!==target.account)fail('login');
+          if(typeof number!=='string'||!/^[a-z0-9_]{4,24}$/u.test(number))fail('friend-unavailable');
+          let response;
+          try{
+            response=await friends.fetch(socialOrigin+'/api/v1/friend-planet?number='+number,{
+              headers:{'X-Social-Account':account},credentials:'include',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(7000)});
+          }catch{fail('friends-offline');}
+          if(response.status===401||response.status===409)fail('login');
+          if(!response.ok)fail(response.status>=500?'friends-offline':'friend-unavailable');
+          const destination=await response.json();
+          if(destination.account!==account||destination.number!==number||destination.worldOrigin!==origin||
+             !/^p-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(destination.planetId))fail('friend-unavailable');
+          target.planet=destination.planetId;
+        }
       } else target=await managementTarget(value.action,current);
       if(!current())fail('cancelled');
       const {partition,origin}=target;
@@ -273,7 +289,7 @@ function mountBothouse({window,WebContentsView,session,dialog,profile,language,i
       wc.on('render-process-gone',()=>{if(current()){close();window.webContents.send('arcade:storeBothouseUnavailable');}});
       view.setVisible(false);window.contentView.addChildView(view);fit();
       const deadline=world?setTimeout(()=>{if(current()&&!wc.isDestroyed())wc.stop();},15000):undefined;
-      try { await wc.loadURL(origin+'/'); } finally { clearTimeout(deadline); }
+      try { await wc.loadURL(target.planet?origin+'/?visit='+target.planet:origin+'/'); } finally { clearTimeout(deadline); }
       if(!current())fail('cancelled');
       // The SPA may finish its lazy route after did-finish-load. Wait for a
       // real login form or dashboard navigation instead of accepting a spinner.
