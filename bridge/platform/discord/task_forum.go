@@ -33,7 +33,7 @@ type taskForumAPI interface {
 
 func (p *Platform) taskForumSession() (taskForumAPI, error) {
 	if s := p.boardSession(); s != nil {
-		return s, nil
+		return rateGuardedSession{s}, nil
 	}
 	return nil, errors.New("discord: task forum: not connected")
 }
