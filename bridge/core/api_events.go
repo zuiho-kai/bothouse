@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -27,7 +28,16 @@ func (s *APIServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		apiJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		// a posted event is also a trigger: event jobs in the cron store run now (cron_event.go)
+		started := 0
+		if s.cron != nil {
+			f := map[string]string{"project": ev.Project, "session_key": ev.SessionKey, "source": ev.Source}
+			for k, v := range ev.Data {
+				f[k] = fmt.Sprint(v)
+			}
+			started = s.cron.FireEvent(TriggerEvent{Name: ev.Type, Fields: f, Text: ev.Text})
+		}
+		apiJSON(w, http.StatusOK, map[string]any{"status": "ok", "triggered": started})
 	case http.MethodGet:
 		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
 		if n <= 0 {
