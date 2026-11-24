@@ -109,15 +109,15 @@ func (as *antigravitySession) Send(prompt string, messageID string, images []cor
 		return fmt.Errorf("session is closed")
 	}
 
-	fullPrompt, tempFiles := as.preparePrompt(prompt, images, files)
-	core.ArchiveAttachments(append([]string(nil), tempFiles...)) // maomao fork: NAS media library
+	fullPrompt, saved, tempFiles := as.attachRefs(prompt, images, files)
+	core.ArchiveAttachments(append([]string(nil), saved...)) // maomao fork: NAS media library
 	return as.launch(agyTurn{fullPrompt: fullPrompt, tempFiles: tempFiles})
 }
 
 // agyTurn is one user turn, kept so the turn can be launched a second time.
 type agyTurn struct {
 	fullPrompt string   // prompt with attachment references, as first sent
-	tempFiles  []string // attachments; removed when the turn is over, not per process
+	tempFiles  []string // fallback os.TempDir() attachments; removed when the turn is over, not per process
 	retried    bool     // this launch is the one auth retry
 	// continueConv: the failed launch got agy's "init", so the conversation
 	// holds this turn's message and the retry asks agy to go on with it.
@@ -578,15 +578,20 @@ func (s *antigravitySession) CachedUsage() *core.UsageReport {
 func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
 	// The task lifecycle and model-control instructions are the Agent's TurnPreamble now: the
 	// engine sends them once per agent context (#1903), not before every prompt.
-	return as.attachRefs(prompt, images, files)
+	fullPrompt, saved, _ := as.attachRefs(prompt, images, files)
+	return fullPrompt, saved
 }
 
-// attachRefs saves images and files into the workspace and appends their paths to prompt.
-func (as *antigravitySession) attachRefs(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
+// attachRefs saves images and files into the workspace (falling back to os.TempDir() if
+// .cc-connect/attachments cannot be created) and appends their paths to prompt. It returns
+// the prompt, all saved paths, and only fallback temp paths to clean up when the turn ends.
+func (as *antigravitySession) attachRefs(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string, []string) {
 	// Save images and files into the workspace
 	attachDir := filepath.Join(as.workDir, ".cc-connect", "attachments")
+	isTempFallback := false
 	if (len(images) > 0 || len(files) > 0) && os.MkdirAll(attachDir, 0o755) != nil {
 		attachDir = os.TempDir()
+		isTempFallback = true
 	}
 
 	var imageRefs []string
@@ -633,7 +638,12 @@ func (as *antigravitySession) attachRefs(prompt string, images []core.ImageAttac
 		}
 		fullPrompt += "\n\n[Attached files saved at: " + strings.Join(fileRefs, ", ") + "]"
 	}
-	return fullPrompt, append(imageRefs, fileRefs...)
+	saved := append(imageRefs, fileRefs...)
+	var tempFiles []string
+	if isTempFallback {
+		tempFiles = saved
+	}
+	return fullPrompt, saved, tempFiles
 }
 
 // Guidance complements native task validation; it is not a permission rule.

@@ -692,8 +692,8 @@ func TestAuthExpiredBeforeInitResendsPrompt(t *testing.T) {
 	if !strings.Contains(runs[2], "note.txt") {
 		t.Errorf("attachment gone during the retry: %q", runs[2])
 	}
-	if _, err := os.Stat(filepath.Join(attachDir, "note.txt")); !os.IsNotExist(err) {
-		t.Errorf("attachment not removed after the turn: %v", err)
+	if _, err := os.Stat(filepath.Join(attachDir, "note.txt")); err != nil {
+		t.Errorf("attachment removed after the turn: %v", err)
 	}
 }
 
@@ -788,4 +788,111 @@ func TestAuthExpiredWithoutInitResendsPromptInConversation(t *testing.T) {
 	if !strings.Contains(runs[1], "--conversation\nconv-a\n") || !strings.Contains(runs[1], "第二个问题") || strings.Contains(runs[1], agyAuthRetryPrompt) {
 		t.Errorf("retry should resend the original prompt into conv-a: %q", runs[1])
 	}
+}
+
+// #2168: attachments saved under <workDir>/.cc-connect/attachments must stay on disk after the
+// turn finishes or is cancelled; only fallback writes in os.TempDir() are cleaned up.
+func TestAntigravitySession_RetainsWorkspaceAttachmentsAfterTurn(t *testing.T) {
+	t.Run("normal turn keeps attachments", func(t *testing.T) {
+		dir := t.TempDir()
+		cmdPath, _ := fakeAgyRuns(t, dir,
+			agyInitA+"\n"+`echo '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"收到"}}'`+"\n"+
+				`echo '{"event":"result","result":{"conversation_id":"conv-a","status":"SUCCESS"}}'`,
+		)
+		s, err := newAntigravitySession(context.Background(), cmdPath, nil, dir, "", "yolo", "", nil, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = s.Close() }()
+
+		err = s.Send("看图", "",
+			[]core.ImageAttachment{{MimeType: "image/png", Data: []byte("png-data")}},
+			[]core.FileAttachment{{FileName: "brief.txt", Data: []byte("hello")}},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		te := collectTurn(t, s)
+		if len(te.errs) != 0 || te.results != 1 {
+			t.Fatalf("unexpected turn result: %+v", te)
+		}
+
+		attachDir := filepath.Join(dir, ".cc-connect", "attachments")
+		if _, err := os.Stat(filepath.Join(attachDir, "brief.txt")); err != nil {
+			t.Fatalf("file attachment deleted after turn: %v", err)
+		}
+		entries, err := os.ReadDir(attachDir)
+		if err != nil {
+			t.Fatalf("read attachDir: %v", err)
+		}
+		hasImg := false
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "img_") && strings.HasSuffix(e.Name(), ".png") {
+				hasImg = true
+				break
+			}
+		}
+		if !hasImg {
+			t.Fatalf("image attachment deleted after turn; entries=%v", entries)
+		}
+	})
+
+	t.Run("cancelled turn keeps attachments", func(t *testing.T) {
+		dir := t.TempDir()
+		cmdPath, _ := fakeAgyRuns(t, dir, agyInitA+"\nsleep 5")
+		s, err := newAntigravitySession(context.Background(), cmdPath, nil, dir, "", "yolo", "", nil, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = s.Close() }()
+
+		if err := s.Send("看看", "", nil, []core.FileAttachment{{FileName: "keep.txt", Data: []byte("stay")}}); err != nil {
+			t.Fatal(err)
+		}
+		// Wait briefly for the process to start before cancelling.
+		time.Sleep(50 * time.Millisecond)
+		if err := s.CancelTurn(); err != nil {
+			t.Fatal(err)
+		}
+		te := collectTurn(t, s)
+		if len(te.errs) != 1 {
+			t.Fatalf("expected 1 cancel error, got %+v", te)
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".cc-connect", "attachments", "keep.txt")); err != nil {
+			t.Fatalf("attachment deleted on cancel: %v", err)
+		}
+	})
+
+	t.Run("tempdir fallback still cleans up", func(t *testing.T) {
+		dir := t.TempDir()
+		// Block <dir>/.cc-connect/attachments creation by making .cc-connect a regular file.
+		if err := os.WriteFile(filepath.Join(dir, ".cc-connect"), []byte("blocker"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fallbackDir := t.TempDir()
+		t.Setenv("TMPDIR", fallbackDir)
+		t.Setenv("TMP", fallbackDir)
+		t.Setenv("TEMP", fallbackDir)
+
+		cmdPath, _ := fakeAgyRuns(t, dir,
+			agyInitA+"\n"+`echo '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"ok"}}'`+"\n"+
+				`echo '{"event":"result","result":{"conversation_id":"conv-a","status":"SUCCESS"}}'`,
+		)
+		s, err := newAntigravitySession(context.Background(), cmdPath, nil, dir, "", "yolo", "", nil, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = s.Close() }()
+
+		if err := s.Send("看看", "", nil, []core.FileAttachment{{FileName: "fallback.txt", Data: []byte("tmp")}}); err != nil {
+			t.Fatal(err)
+		}
+		te := collectTurn(t, s)
+		if len(te.errs) != 0 || te.results != 1 {
+			t.Fatalf("unexpected turn result: %+v", te)
+		}
+		if _, err := os.Stat(filepath.Join(fallbackDir, "fallback.txt")); !os.IsNotExist(err) {
+			t.Fatalf("fallback temp attachment should be removed after turn, got err=%v", err)
+		}
+	})
 }

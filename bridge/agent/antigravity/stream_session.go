@@ -137,7 +137,8 @@ func (s *streamSession) Send(prompt, _ string, images []core.ImageAttachment, fi
 		return fmt.Errorf("antigravity: previous stream turn is still running")
 	}
 	s.openInbox()
-	fullPrompt, tempFiles := s.preparePrompt(prompt, images, files)
+	fullPrompt, saved, tempFiles := s.attachRefs(prompt, images, files)
+	core.ArchiveAttachments(append([]string(nil), saved...)) // maomao fork: NAS media library
 	s.tempFiles = tempFiles
 	s.busy, s.streamed = true, false
 	s.turn = streamTurnEvidence{}
