@@ -23,8 +23,6 @@ class CoolingSprawl(unittest.TestCase):
         self.g = self.mod["pick_pool"].__globals__
         self.calls = []
         self.g["lead_chat"] = lambda c: c
-        self.g["release_stale_returned"] = lambda c: None
-        self.g["migrate_unbound"] = lambda *a: False
 
         def ws_cmd(chat, *args):
             self.calls.append(args[0])
@@ -64,6 +62,17 @@ class CoolingSprawl(unittest.TestCase):
             self.mod["pick_pool"]("discord:a", "t", 7)
         self.assertIn("刚为它新建过", str(cm.exception))
         self.assertNotIn("new", self.calls)
+
+    def test_all_occupied_pool_goes_straight_to_new(self):
+        # 池里每个工作区都有活在做（open=1）：不逐个去认领，直接新建
+        busy = [{"id": f"w{i}", "open": 1, "owner": "discord:a"} for i in range(1, 9)]
+        self.g["ws_cmd"] = lambda chat, *a: (self.calls.append(a[0]) or
+                                             ({"parent": chat, "pool": busy} if a[0] == "list" else
+                                              {"workspace": {"id": "w9", "name": "工作区9"}}))
+        with self.run_claims("unused"):
+            got = self.mod["pick_pool"]("discord:a", "t", 8)
+        self.assertEqual(got, ("discord:w9", "工作区9", "discord:a"))
+        self.assertEqual(self.calls, ["list", "new"])
 
 
 if __name__ == "__main__":

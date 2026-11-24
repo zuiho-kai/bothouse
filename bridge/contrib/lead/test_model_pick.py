@@ -125,7 +125,7 @@ class ResumeModelTest(unittest.TestCase):
         import subprocess as sp
         self.ns = functions("ws-handoff", {"start"}, dict(
             board=self.board, held=lambda prev, chat: ("discord:ws5", "工作区5", "discord:main"),
-            pick_pool=Mock(), _lead_name=lambda p: "C酱", append_skeleton=Mock(), record_last=Mock(), arm_drift=Mock(),
+            pick_pool=Mock(), _lead_name=lambda p: "C酱", append_skeleton=Mock(), record_last=Mock(),
             timer_cmd=lambda *a: ["cc", "timer", "add"], cc_bin=lambda: "cc", GUARD=None,
             subprocess=types.SimpleNamespace(run=self.run, CompletedProcess=sp.CompletedProcess),
             sys=types.SimpleNamespace(exit=lambda m: (_ for _ in ()).throw(SystemExit(m)), stderr=io.StringIO()),
@@ -133,7 +133,7 @@ class ResumeModelTest(unittest.TestCase):
                                          apply=lambda ws, m, e, p=None: self.applied.append((ws, m, e, p)) or self.apply_err)))
 
     def test_resume_reapplies_task_model(self):
-        self.assertTrue(self.ns["start"]("/n.md", "交活指定模型", "discord:main", 961, "cjiang", "答复"))
+        self.ns["start"]("/n.md", "交活指定模型", "discord:main", 961, "cjiang", "答复")
         self.assertEqual(self.applied, [("discord:ws5", "opus", "high", "cjiang")])
         self.run.assert_called_once()
 
@@ -164,10 +164,9 @@ class HandoffJoinModelTest(unittest.TestCase):
             board=types.SimpleNamespace(SHORT_RUNES=20, short_problem=lambda s: None, short_of=lambda t: t,
                                         add=Mock(side_effect=AssertionError("must not put a new task on the board"))),
             _handoff_rules=types.SimpleNamespace(load=lambda: {"flags": {}}),
-            check_notes=lambda n, t: None, intent_gate=lambda n: (None, None), added_gate=lambda n: None,
-            own_gate=lambda n, c: None, resume_ref=lambda t, n: self.ref, in_progress=lambda x: bool(x) and self.live,
+            check_notes=lambda n, t: None, resume_ref=lambda t, n: self.ref, in_progress=lambda x: bool(x) and self.live,
             live_dup=lambda p: None, live_overlap=lambda *a: [],
-            append_own=Mock(side_effect=AssertionError("must not get past the model check")),
+            _recall=types.SimpleNamespace(start=Mock(side_effect=AssertionError("must not get past the model check"))),
             join=lambda old, path, task, m, e: self.joined.append((old["id"], m, e)) or 0,
             _model=types.SimpleNamespace(parse=_model.parse,
                                          check=lambda m, e, *a: (_model.check(m, e) if not m else

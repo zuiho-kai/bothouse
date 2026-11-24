@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """交活时搜「旧定案」：按交接的「用户原话」「总目标」抽关键词，搜 wiki（~/wiki/bin/search.py）和历史会话
 （resume-session 的 sessions.py 索引 + ~/wiki/bin/sessionlog），再由小模型只留用户定过 / 否过的句子（带来源）。
-ws-handoff 交活时把结果追加成交接的「旧定案（程序搜出）」节；看门（drift-check）拿它和原话对照查跑偏。
+ws-handoff 交活时把结果追加成交接的「旧定案（程序搜出）」节；（看门查跑偏 2026-11-24 随 ws-handoff 瘦身拿掉。）
 真搜了没搜到写「旧定案：没搜到」；小模型超时、出错、没装 claude 写「旧定案：没搜成（原因）」，下次接回时重搜（#1492 P3）。都不拦交活。
 来源：10-31 交接跑偏实验（3 案，只有「原话 + 程序搜出的旧定案」那组两件都命中；只看交接两件都没中）。
 命令行：_recall.py <交接文件>  → 打出要追加的那一节（不改文件）。"""
@@ -68,7 +68,7 @@ def claude_ex(system, prompt):
 
 
 def claude(system, prompt):
-    """同 claude_ex，只返回（结果文字, 花费美元）；出错时文字为 ""（drift-check 用）。"""
+    """同 claude_ex，只返回（结果文字, 花费美元）；出错时文字为 ""。"""
     txt, cost, _ = claude_ex(system, prompt)
     return txt, cost
 
