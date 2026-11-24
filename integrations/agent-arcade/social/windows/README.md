@@ -4,11 +4,21 @@
 
 ## 构建和测试
 
-使用 x64 Visual Studio Developer PowerShell 和 Windows SDK。打包器需要 MSVC 的 `cl.exe`、SDK 的 C++/WinRT 标头、MakeAppx，以及 Node 24.x 和仓库锁定的 Electron x64 / pngjs。签测试包还需 SignTool。在干净源码根目录先运行 `npm ci --omit=dev --ignore-scripts`，为本机陪伴、角色和工作页面安装锁定的运行依赖。打包器只从源码、锁定的依赖及官方 Electron 构建。若运行依赖装在另一份相同锁文件的检出，传入 `--production-root`。MSIX 包内的 `resources/app/service.json` 包含模式、服务 origin 与供意见反馈显示的四段包版本，版本与 MSIX 清单相同。服务端取同一提交的 [HTTPS 部署工程](../deploy/README.md)，由运营方单独启动并保存数据库。
+使用 x64 Visual Studio Developer PowerShell 和 Windows SDK。打开 Bothouse 检出目录，进入 Agent Arcade 模块根，再安装锁定的构建和运行依赖：
+
+```powershell
+cd integrations/agent-arcade
+npm ci
+npm exec -- install-electron
+```
+
+从已平铺的完整源码 ZIP 解压时，在含 `package-lock.json`、`src/` 和 `social/` 的目录依次运行 `npm ci` 和 `npm exec -- install-electron`，把锁定的 Electron 运行时落到 `node_modules/electron/dist`。打包器需要 Node 24.x、MSVC 的 `cl.exe`、SDK 的 C++/WinRT 标头、MakeAppx、锁定的 Electron x64 及 pngjs。签测试包还需 SignTool。用 `--dependency-root` 指定含 Electron `dist` 和 pngjs 的完整依赖目录；用 `--production-root` 指定同一锁文件的运行时依赖目录。两者都省略时使用 Agent Arcade 模块根。
+
+在模块根运行 `node social/windows/pack.cjs`。包内 `Social/resources/app/service.json` 保存两端原点和桌面版本。好友服务取同一冻结提交的 [HTTPS 部署工程](../deploy/README.md)，由运营方单独启动并保存数据库。
 
 桌面「更多 → 小星球」打开已有 Little Worlds 服务。「返回消息」保留原会话和未发草稿。需要小星球时，在打包及商店前检命令中都加入 `--world-origin $approvedWorldOrigin`。打包器将规范化后的地址写入包内 `service.json`，朋友安装后直接使用。正式包要求可部署的 HTTPS DNS 原点，且只使用随包地址。测试包沿用模式允许的本机原点，也可由环境变量 `LITTLE_WORLDS_ORIGIN` 覆盖。仅聊天构建省略该参数。登录好友账号后进入小星球。App 按好友服务、已登录的好友用户号和世界地址分别保存世界会话；再次用同一账号进入可续接原星球。在原档着陆自己的星球后，点「连接我的 AI」，通讯录里已获准的 Bothouse 角色就会成为居民，返回消息后继续同步。在自己的星球点「断开我的 AI」即可移除这批居民。另一台设备登录同一好友账号后，从相同入口回到已关联的星球。旧档仅保留本地房主身份时，先从原设备进入一次完成关联。着陆家园后点「允许好友来访」，真人好友即可从私聊找到它，房主离线也可拜访。「关闭好友来访」收回该入口。来访可独立于 AI 开启。[主机配置](../deploy/README.md#小星球居民)
 
-在本目录执行以下命令。测试后端用共享服务，放在回环 `127.0.0.1:8765`，分配一份独立临时 `SOCIAL_DB`。浏览器/服务器联调见 [社交服务说明](../README.md)。
+下面两条 `node pack.cjs` 命令从 Agent Arcade 模块内的 `social/windows` 目录运行。测试后端用共享服务，放在回环 `127.0.0.1:8765`，分配一份独立临时 `SOCIAL_DB`。浏览器/服务器联调见 [社交服务说明](../README.md)。
 
 ```powershell
 node pack.cjs --mode test-signed --version 1.0.0.0 --origin http://127.0.0.1:8765 --dependency-root "../.."
@@ -27,7 +37,9 @@ node --test verify-view.test.cjs verify-local-host.test.cjs
 
 Partner Center 保留一条 **Agent Arcade** 产品记录，第一版和以后增加本机能力的同架构版本沿用正式的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 和 `Application/Id=Social`，保持同一包族和同一个启动入口。正式版本号单调增加，第四段保留 0。测试身份独立，任何朋友都从正式 Store 产品页安装及更新。MSIX 由 Store 托管、签名和更新；没有给朋友另设桌面启动器或自更新服务。[分发方式](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/choose-distribution-path) · [商店 MSIX 自查](https://learn.microsoft.com/en-us/windows/apps/publish/store-readiness-checklist)
 
-按 1.0.20.0（120）实包，主窗口未登录时显示好友服务的登录／注册页，登录后进入「消息」。顶部「更多」打开陪伴、创作与图库、工作、设备、渠道与账号和应用设置。进入本机页面后点「返回消息」，回到原会话，保留未发送的文字与点名。未登录或好友服务暂时不可达时，「更多」仍提供本机入口。商店版登录 Cookie 与本机角色和资料保存在此版本独立的档案下。
+主窗口未登录时显示好友服务的登录或注册页。登录后进入「消息」，从「通讯录」按用户号查找好友。管理员从「更多 → Bothouse 管理」配置角色和授权。好友从「通讯录 → AI 联系人」进入获准的角色私聊，在原会话中聊天和交办。桌面「更多 → 小星球」进入自己的星球。房主允许来访后，好友可从该真人私聊的「会话设置 → 拜访好友星球」前往。点「返回消息」或「返回原聊天」可继续原草稿。
+
+陪伴、创作、工作和渠道等本机功能仍从「更多」进入，使用桌面本机资料。好友服务登录和原便携版档案各自存放。公开商店分发与下方测试包安装是两套身份。
 
 远程视图沿用独立会话分区、同源限制、沙箱和上下文隔离。「陪伴」「工作」的本机 preload 和 IPC 保持在本机主窗口内。好友视图的独立隐私脚本只在同源隐私主页面处理用户主动打开公开 HTTPS 支持网页的操作，且由主进程核对服务公开配置。其余好友导航仍在同一 origin 内。包内 Windows 更新入口由商店产品承担。原便携版与商店版使用不同档案。
 
@@ -45,7 +57,7 @@ node social/windows/verify-store-update.cjs "<解包>/Social/resources/app" "<�
 
 ## 从本地未签名包复验
 
-在仓库根目录给测试包配置一个空闲回环端口。使用 MakeAppx 解包，再运行下方脚本。脚本使用已安装的 Playwright、同一提交的服务、两个合成账号和临时档案，检查启动、双向私聊、意见反馈、重开保持登录、切到陪伴导入角色、切到工作读取本地资料，以及服务离线时仍可进入工作。实测过程中原生主窗口保持隐藏。文件选择器指向脚本生成的合成资料。
+在 Agent Arcade 模块根目录给测试包配置一个空闲回环端口。使用 MakeAppx 解包，再运行下方脚本。脚本使用已安装的 Playwright、同一提交的服务、两个合成账号和临时档案，检查启动、双向私聊、意见反馈、重开保持登录、切到陪伴导入角色、切到工作读取本地资料，以及服务离线时仍可进入工作。实测过程中原生主窗口保持隐藏。文件选择器指向脚本生成的合成资料。
 
 ```powershell
 node social/windows/pack.cjs --mode test --version 1.0.2.0 --origin http://127.0.0.1:59243 --dependency-root "<已安装开发依赖的检出>"
@@ -63,7 +75,7 @@ node social/windows/verify-image-save.cjs "<解包目录>/Social/AgentArcadeSoci
 
 ## 验证包内好友 HTTPS
 
-将测试包的 origin 设为 `https://arcade-store.test:<空闲端口>`。从同一冻结提交执行打包、解包和下面的验收。保留域 `arcade-store.test` 仅用于未签名测试模式，验收进程通过 Chromium 的主机解析参数将它指向 127.0.0.1。
+将测试包的 origin 设为 `https://arcade-store.test:<空闲端口>`。从同一冻结提交执行打包、解包和下面的验收。保留域 `arcade-store.test` 可用于 `test` 或 `test-signed` 测试模式，验收进程通过 Chromium 的主机解析参数将它指向 127.0.0.1。
 
 ```powershell
 node social/windows/pack.cjs --mode test --version 1.0.3.0 --origin https://arcade-store.test:63477 --dependency-root "<已安装开发依赖的检出>"
@@ -139,7 +151,7 @@ node social/windows/pack.cjs --audit "<实际 MSIX 或本次 stage 目录>"
 
 将 Partner Center 的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 填入 `store-identity.template.json` 的本地副本，`displayName` 使用获准的商店展示名。将同一个好友 HTTPS 原点填入打包和前检的 `--origin`、服务端的 `SOCIAL_PUBLIC_ORIGIN` 和反向代理。若发行包含小星球，两条命令均传同一个世界原点 `--world-origin $approvedWorldOrigin`，并在常用的客户端网络验证世界能打开。将送审资料中同一运营名称与支持地址用于打包、前检和服务端 `SOCIAL_PUBLIC_OPERATOR_NAME`、`SOCIAL_PUBLIC_PRIVACY_CONTACT`。正式桌面包把这两个公开值写入随包配置，好友服务完全断开时也能从本机恢复区阅读和复制。测试包只提示联系发放人。
 
-服务在获授权的地址可访问后，用 Windows 自带的 `tar.exe` 和 Node.js，从仓库根目录执行一次只读检查。
+服务在获授权的地址可访问后，用 Windows 自带的 `tar.exe` 和 Node.js，从 Agent Arcade 模块根目录执行一次只读检查。
 
 ```powershell
 $handoffPath = (Resolve-Path -LiteralPath "<正式成品的 evidence/handoff.json>").Path

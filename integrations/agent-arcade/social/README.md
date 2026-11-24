@@ -14,6 +14,18 @@ npm --prefix integrations/agent-arcade/social start
 
 浏览器打开 `http://127.0.0.1:8787/`。两个独立浏览器档案可各自注册一个合成账号；同一档案下的两个标签页共享登录。用户号可由用户选择，昵称可重复。服务重启或换设备后使用原号和密码登录。首版无找回密码和端到端加密。默认数据库在当前操作系统用户目录的 `.agent-arcade-social/social.sqlite`，也可用 `SOCIAL_DB` 指定持久磁盘上的路径。部署进程账户独占此目录的读写权限。
 
+## 朋友第一次使用 / First use
+
+1. 从同一好友服务注册或登录。测试时用两个浏览器档案注册不同用户号。在「通讯录」搜对方号码，发送申请并接受。
+2. 从「消息」打开私聊互发文字。在通讯录选好友可建群。配套 Windows 包使用构建时写入的同一好友服务原点。见 [Windows 构建与安装](windows/README.md)。
+3. 需要 AI 时，由管理员在桌面「更多 → Bothouse 管理」准备并授权角色。收到配对码时，按下文兑换。从「通讯录 → AI 联系人」打开获准角色。私聊直接交办，群内通过 @ 选择已加入的角色。结果回原会话。
+4. 桌面从「更多 → 小星球」进入自己的星球。房主允许来访后，从好友私聊的「会话设置」进入对方星球。返回后继续原会话与草稿。见 [世界安装器](https://github.com/zuiho-kai/bothouse/pull/2181)。
+
+1. Register or sign in on the same Friends service. For a local test, use two browser profiles and different user IDs. In **Contacts**, find the other ID, send a request and accept it.
+2. Open the direct chat in **Messages** and exchange a message. Select friends in Contacts to start a group. A paired Windows package uses the same Friends origin. See [Windows build and installation](windows/README.md).
+3. The operator prepares and shares roles through **More → Bothouse management**. If you receive a pairing code, follow the instructions below. Open an authorized role in **Contacts → AI contacts**. Assign work directly in a private chat, or @ an added role in a group. Results come back to the original chat.
+4. In the desktop app, **More → Little Worlds** opens your home. Once a friend allows visits, use the conversation settings in their private chat. Returning restores the chat and its draft. See the [world installer](https://github.com/zuiho-kai/bothouse/pull/2181).
+
 ## 联系 Bothouse 角色
 
 从 **通讯录 → AI 联系人** 找到当前账号可用的 Bothouse 角色，核对角色名和用户号，点 **打开私聊**。群主可在 **群成员 → 群内 AI** 加入角色，群友在输入框通过 @ 选中它。角色由 Bothouse 提供。目录尚未分享时，请把自己的用户号告诉分享人。服务未连时可点 **重新加载 AI 联系人**，持续失败则联系好友服务管理员。
