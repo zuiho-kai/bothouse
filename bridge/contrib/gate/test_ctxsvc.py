@@ -370,12 +370,15 @@ class T(unittest.TestCase):
             (p / "README.md").write_text("x", encoding="utf-8")
             (p / "page.md").write_text(
                 "---\ndescription: 发版\n---\n# T\n## 现状\n"
+                + "- 曾选 发版 release 流水线 每次重装 → 因 太慢 改为 增量\n"
                 + "".join(f"- 发版 release 流水线 做法{i}，写得长一点\n" for i in range(2))
-                + "## 历史\n- 曾选 发版 release 流水线 全量重跑 → 因 太慢 改为 只跑改动\n",
+                + "## 历史\n- 发版 release 流水线 全量重跑，旧做法原样挪来\n",
                 encoding="utf-8")
             texts = [r["text"] for w in ctxsvc.match_wiki("发版 release 流水线", prepared=True) for r in w["rows"]]
             self.assertIn("【旧】", texts[-1], texts)
             self.assertFalse(any("【旧】" in t for t in texts[:-1]), texts)
+            # 历史节的行（被新说法取代挪进来的）不推（#1978 用户「踩一脚，它就滚下去了…再也不存在了」）
+            self.assertFalse(any("全量重跑" in t for t in texts), texts)
 
     def test_old_rows_dropped_when_turn_is_full(self):
         # 前五条被别的行占满时旧说法不推（旧说法沉底的意义就在这）；不足五条时才补上
