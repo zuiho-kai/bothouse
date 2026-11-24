@@ -90,6 +90,14 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - cloud-web: 不支持：本机网页频道的房间由 collab 网关管，没有给角色列房间的接口
 - dsh: 不支持：同 cloud-web
 
+## anon:ConnectionProfileID
+
+运行中的 Cloud Web 适配器提供已保存的连接 ID，供项目显示连接名称和 `bothouse send --connection` 选择适配器。
+
+- cloud-web: 已接
+- discord: 不支持：当前已保存的连接配置仅适用于 Cloud Web
+- feishu: 不支持：当前已保存的连接配置仅适用于 Cloud Web
+
 ## TeamWorkspaceShelver
 
 工作区平台可选实现它：把所有工作区放进平台自己的一个分类，空着的、在用的都放这里，不再按空闲/在用搬来搬去（docs/ARCHITECTURE.md:75）。Discord 新建工作区直接建在「工作区」分类里（没有就建），还在聊天频道旁边的老工作区由 core 在列池子、认领时挪进去，旧版「空闲工作区」分类里的在首次列频道时挪过去、空了就删；TeamChannel.Shelved 保留共享池的复用与编号语义；搬动失败只记日志，其他平台沿用原流程。
