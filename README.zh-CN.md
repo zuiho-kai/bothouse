@@ -78,11 +78,11 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 ## 只需理解 3 个概念
 
 ```text
-你（Discord / 飞书 / QQ 群聊，手机电脑都行）
- └── @组长 AI（群里指定的一个 AI 兼任：拆需求、按专长和额度派活、管住发言）
-      ├── Claude Code   ──► 自己的工作区 + 共享项目记忆
-      ├── Codex         ──► 自己的工作区 + 共享项目记忆
-      └── 朋友的 Agent   ──► 朋友电脑上跑 + 共享项目记忆
+你（Discord / 飞书 / QQ 群聊）
+ └─ @组长 AI：拆活、派活、管发言
+     ├─ Claude Code  → 工作区 + 共享记忆
+     ├─ Codex        → 工作区 + 共享记忆
+     └─ 朋友的 Agent → 朋友电脑 + 共享记忆
 ```
 
 - **组长 AI**（文档里叫「主角色」）：你在群里直接对话的那个 AI，不用另装调度程序。它听懂你的话，拆成子任务，指定谁接；其他 AI 被 @ 或点名才开口，五个 AI 在一个群里也不会抢着回。
@@ -113,7 +113,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
   </tr>
 </table>
 
-_左上是真实频道录屏，其余是作者自己在用的团队工作台和管理面板。_
+_都是作者自己在用的任务板、团队工作台和管理面板截图。_
 
 <a id="characters"></a>
 
