@@ -147,6 +147,7 @@ function readPublic(origin, route, tls, type, archive) {
 async function check(args) {
   const { values } = parseArgs({ args, options: {
     handoff: { type: 'string' }, version: { type: 'string' }, origin: { type: 'string' },
+    'world-origin': { type: 'string' },
     'service-handoff': { type: 'string' },
     'previous-service-handoff': { type: 'string' },
     'upgrade-only': { type: 'boolean' },
@@ -164,6 +165,7 @@ async function check(args) {
   const { mode, version } = values;
   assert(['store', 'test'].includes(mode), 'Use store or test mode.');
   const origin = serviceOrigin(values.origin, mode);
+  const littleWorldsOrigin = values['world-origin'] === undefined ? undefined : serviceOrigin(values['world-origin'], mode);
   const identity = identityFor(mode, values.identity);
   const contact = releaseContact({mode,origin,operatorName:values['operator-name'],support:values.support});
   const destination = new URL(contact.href);
@@ -204,6 +206,7 @@ async function check(args) {
   checkIdentity(readEntry(msix, 'AppxManifest.xml').toString('utf8'), identity, version);
   const embedded = JSON.parse(readEntry(msix, 'Social/resources/app/service.json'));
   assert(embedded.origin === origin && embedded.mode === mode, 'Embedded service origin or mode mismatch.');
+  assert.equal(embedded.littleWorldsOrigin, littleWorldsOrigin, 'Embedded world origin mismatch. Supply --world-origin for a world-enabled package.');
   const desktopPreload=readEntry(msix,'Social/resources/app/src/preload.cjs').toString('utf8');
   const offlineSupport=verifyOfflineSupport(embedded,contact,desktopPreload.includes('arcade:storeSupport'),{historical});
 
@@ -296,7 +299,7 @@ async function check(args) {
     assert(!body.equals(privacyPage) && !body.equals(privacyTemplate), privacySupportError);
     support = 'same-origin-support-page-verified';
   }
-  return { mode, version, origin, source: handoff.freeze, msixSha256: handoff.package.sha256, runtimeContents,
+  return { mode, version, origin, littleWorldsOrigin, source: handoff.freeze, msixSha256: handoff.package.sha256, runtimeContents,
     serviceZipSha256: serviceHandoff.service.sha256, serviceFilesVerified: Object.keys(serviceFiles.files).length,
     anonymousGet: responses, support, offlineSupport, serviceUpgrade,
     purpose:historical?'historical-service-pairing':mode==='store'?'store-submission-preflight':'packaging-test',

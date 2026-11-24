@@ -406,3 +406,22 @@ test('a planet visit uses the peer in the current active human conversation',asy
   active=true;changeDuringRead=true;assert.equal((await handler(event,peer)).state,'changed');
   assert.deepEqual(sent,[peer]);
 });
+
+test('both release commands reject unsafe world origins before packaging or network access', () => {
+  for (const file of ['pack.cjs', 'check-store-release.cjs']) {
+    for (const [mode, origin, world, expected] of [
+      ['store', 'https://friends.arcade-distribution.com', 'https://127.0.0.1:8123', /Store requires an HTTPS DNS origin/u],
+      ['store', 'https://friends.arcade-distribution.com', 'https://world.localhost:8123', /local or reserved DNS name/u],
+      ['store', 'https://friends.arcade-distribution.com', 'https://test:user@world.arcade-distribution.com', /without credentials/u],
+      ['store', 'https://friends.arcade-distribution.com', 'https://world.arcade-distribution.com/game', /without credentials or a path/u],
+      ['test', 'https://arcade-store.test:8123', 'https://world.arcade-distribution.com', /reserved HTTPS test host/u],
+    ]) {
+      const result = spawnSync(process.execPath, [path.join(__dirname, file), '--mode='+mode,
+        '--version=1.0.20.0', '--origin='+origin, '--world-origin='+world],
+      {encoding:'utf8', windowsHide:true, timeout:10000});
+      assert.ifError(result.error);
+      assert.equal(result.status, 1, file);
+      assert.match(result.stderr, expected, file);
+    }
+  }
+});

@@ -6,7 +6,7 @@
 
 使用 x64 Visual Studio Developer PowerShell 和 Windows SDK。打包器需要 MSVC 的 `cl.exe`、SDK 的 C++/WinRT 标头、MakeAppx，以及 Node 24.x 和仓库锁定的 Electron x64 / pngjs。签测试包还需 SignTool。在干净源码根目录先运行 `npm ci --omit=dev --ignore-scripts`，为本机陪伴、角色和工作页面安装锁定的运行依赖。打包器只从源码、锁定的依赖及官方 Electron 构建。若运行依赖装在另一份相同锁文件的检出，传入 `--production-root`。MSIX 包内的 `resources/app/service.json` 包含模式、服务 origin 与供意见反馈显示的四段包版本，版本与 MSIX 清单相同。服务端取同一提交的 [HTTPS 部署工程](../deploy/README.md)，由运营方单独启动并保存数据库。
 
-桌面「更多 → 小星球」打开已有 Little Worlds 服务。「返回消息」保留原会话和未发草稿。部署方可在桌面运行配置 `service.json` 填可选字段 `littleWorldsOrigin`，也可由启动环境 `LITTLE_WORLDS_ORIGIN` 覆盖。填写世界服务的 HTTPS 原点或本机回环 HTTP 原点；发行版默认留空。登录好友账号后进入小星球。App 按好友服务、已登录的好友用户号和世界地址分别保存世界会话；再次用同一账号进入可续接原星球。在原档着陆自己的星球后，点「连接我的 AI」，通讯录里已获准的 Bothouse 角色就会成为居民，返回消息后继续同步。在自己的星球点「断开我的 AI」即可移除这批居民。换设备或清空 App 档案后，好友账号本身不能恢复旧世界的房主身份。[主机配置](../deploy/README.md#小星球居民)
+桌面「更多 → 小星球」打开已有 Little Worlds 服务。「返回消息」保留原会话和未发草稿。需要小星球时，在打包及商店前检命令中都加入 `--world-origin $approvedWorldOrigin`。打包器将规范化后的地址写入包内 `service.json`，朋友安装后直接使用。正式包要求可部署的 HTTPS DNS 原点，且只使用随包地址。测试包沿用模式允许的本机原点，也可由环境变量 `LITTLE_WORLDS_ORIGIN` 覆盖。仅聊天构建省略该参数。登录好友账号后进入小星球。App 按好友服务、已登录的好友用户号和世界地址分别保存世界会话；再次用同一账号进入可续接原星球。在原档着陆自己的星球后，点「连接我的 AI」，通讯录里已获准的 Bothouse 角色就会成为居民，返回消息后继续同步。在自己的星球点「断开我的 AI」即可移除这批居民。换设备或清空 App 档案后，好友账号本身不能恢复旧世界的房主身份。[主机配置](../deploy/README.md#小星球居民)
 
 在本目录执行以下命令。测试后端用共享服务，放在回环 `127.0.0.1:8765`，分配一份独立临时 `SOCIAL_DB`。浏览器/服务器联调见 [社交服务说明](../README.md)。
 
@@ -137,7 +137,7 @@ node social/windows/pack.cjs --audit "<实际 MSIX 或本次 stage 目录>"
 
 ### 公开地址与同版成品检查
 
-将 Partner Center 的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 填入 `store-identity.template.json` 的本地副本，`displayName` 使用获准的商店展示名。将同一个 HTTPS origin 填入打包的 `--origin`、部署的 `SOCIAL_PUBLIC_ORIGIN` 和反向代理。将送审资料中同一运营名称与支持地址用于打包、前检和服务端 `SOCIAL_PUBLIC_OPERATOR_NAME`、`SOCIAL_PUBLIC_PRIVACY_CONTACT`。正式桌面包把这两个公开值写入随包配置，好友服务完全断开时也能从本机恢复区阅读和复制。测试包只提示联系发放人。
+将 Partner Center 的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 填入 `store-identity.template.json` 的本地副本，`displayName` 使用获准的商店展示名。将同一个好友 HTTPS 原点填入打包和前检的 `--origin`、服务端的 `SOCIAL_PUBLIC_ORIGIN` 和反向代理。若发行包含小星球，两条命令均传同一个世界原点 `--world-origin $approvedWorldOrigin`，并在常用的客户端网络验证世界能打开。将送审资料中同一运营名称与支持地址用于打包、前检和服务端 `SOCIAL_PUBLIC_OPERATOR_NAME`、`SOCIAL_PUBLIC_PRIVACY_CONTACT`。正式桌面包把这两个公开值写入随包配置，好友服务完全断开时也能从本机恢复区阅读和复制。测试包只提示联系发放人。
 
 服务在获授权的地址可访问后，用 Windows 自带的 `tar.exe` 和 Node.js，从仓库根目录执行一次只读检查。
 

@@ -95,7 +95,7 @@ function copyProductionDependencies(destination, source) {
 
 function build(args) {
   const { values } = parseArgs({ args, options: {
-    mode: { type: 'string' }, origin: { type: 'string' }, version: { type: 'string' },
+    mode: { type: 'string' }, origin: { type: 'string' }, 'world-origin': { type: 'string' }, version: { type: 'string' },
     identity: { type: 'string' }, 'dependency-root': { type: 'string' }, 'production-root': { type: 'string' }, makeappx: { type: 'string' },
     'source-handoff': { type: 'string' },
     'operator-name': { type: 'string' }, support: { type: 'string' },
@@ -106,6 +106,7 @@ function build(args) {
     version.split('.').every(part => Number(part) <= 65535 && String(Number(part)) === part) &&
     Number(version.split('.')[0]) > 0, 'Use a four-part MSIX version with nonzero major and fourth part 0.');
   const origin = serviceOrigin(values.origin, mode);
+  const littleWorldsOrigin = values['world-origin'] === undefined ? undefined : serviceOrigin(values['world-origin'], mode);
   const identity = identityFor(mode, values.identity);
   const offlineSupport = mode==='store' ? releaseContact({
     mode,origin,operatorName:values['operator-name'],support:values.support,
@@ -163,7 +164,7 @@ function build(args) {
     name:'agent-arcade-store',productName:'Agent Arcade',main:'store-main.cjs',
     version:version.split('.').slice(0,3).join('.'),license:sourcePackage.license,storeEdition:true,
   }));
-  fs.writeFileSync(path.join(app, 'service.json'), JSON.stringify({ origin, mode, desktopVersion: version, releaseSource, offlineSupport }));
+  fs.writeFileSync(path.join(app, 'service.json'), JSON.stringify({ origin, littleWorldsOrigin, mode, desktopVersion: version, releaseSource, offlineSupport }));
   const logo = PNG.sync.read(fs.readFileSync(path.join(packageRoot, 'src/assets/brand/ribbon-simple-v1.png')));
   const assets = path.join(staged, 'Assets');
   fs.mkdirSync(assets);
@@ -183,7 +184,7 @@ function build(args) {
     throw new Error('MakeAppx failed'+(tail?'\n'+tail:''),{cause:error});
   }
   const runtimeContents = auditPackageContents(file);
-  const receipt = { mode, version, identity: identity.name, publisher: identity.publisher, origin,
+  const receipt = { mode, version, identity: identity.name, publisher: identity.publisher, origin, littleWorldsOrigin,
     packagingOnly: mode !== 'store', electron: electron.version, productionDependencies:dependencies, runtimeSha256: hash(bin),
     executable: 'Social/AgentArcadeSocial.exe', manifestSha256: hash(xml), storeUpdateSha256:hash(fs.readFileSync(storeUpdateBinary)),
     file, sha256: hash(fs.readFileSync(file)), releaseSource, offlineSupport, runtimeContents };
