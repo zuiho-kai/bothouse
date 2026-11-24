@@ -8,15 +8,15 @@ Windows 商店壳和移动浏览器共用此客户端。壳加载产品配置的
 
 ## 本机启动
 
-从社交工作树根目录运行。普通用户只打开应用入口，服务地址和数据库由部署控制。
+从 Bothouse 仓库根目录运行。普通用户只打开应用入口，服务地址和数据库由部署控制。
 
 ```powershell
 $env:SOCIAL_DB = Join-Path $env:TEMP 'agent-arcade-social-dev.sqlite'
-node social/server/main.cjs
+npm --prefix integrations/agent-arcade/social start
 ```
 
 浏览器打开服务在控制台输出的本机地址。手机浏览器支持窄屏布局，安装清单采用独立窗口显示。手机实体设备安装和商店壳尚待现场验收。
 
 ## 隔离复验
 
-运行 `node social/client/.qa/verify.cjs`。需要可由 Node.js 解析的 Playwright 包与 Windows Edge。脚本用三个合成账号、随机回环端口及临时 SQLite 走真实 HTTP 服务，保留 .qa 下的截图和机读回执，清理服务和临时库。布局参考 Signal 的精确用户名查找，以及 Element 的桌面并排导航；窄屏将会话独立展开。
+运行 `node integrations/agent-arcade/social/client/.qa/verify.cjs`。需要可由 Node.js 解析的 Playwright 包与 Windows Edge。脚本用三个合成账号、随机回环端口及临时 SQLite 走真实 HTTP 服务，保留 .qa 下的截图和机读回执，清理服务和临时库。布局参考 Signal 的精确用户名查找，以及 Element 的桌面并排导航；窄屏将会话独立展开。
