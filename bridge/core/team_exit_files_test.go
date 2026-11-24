@@ -271,6 +271,8 @@ func TestVerdictPassCarriesDeliverables(t *testing.T) {
 			head + "两份英文定稿和中文对照已写好。\n要你做的：审一下。\n我加的：无\n细节：定稿 " + doc + "，也贴在 https://gist.github.com/x/1\n", nil, false},
 		{"no deliverable", nil, head + "改完了。\n要你做的：没有。\n我加的：无\n", nil, false},
 		{"asks a review, nothing to review", nil, head + "改完了。\n要你做的：审两份定稿。\n我加的：无\n", nil, true},
+		{"link only in the details (#1981)", nil, head + "新网页已上线。\n要你做的：打开网页看一眼。\n给你的：无\n我加的：无\n细节：\n入口自验：https://example.pages.dev/readme\n", nil, true},
+		{"link in the give line (#1982)", nil, head + "新网页已上线。\n要你做的：打开网页看一眼。\n给你的：https://example.pages.dev/readme\n我加的：无\n细节：\n入口自验：看过\n", nil, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -310,6 +312,12 @@ func TestVerdictPassCarriesDeliverables(t *testing.T) {
 				t.Fatal(err)
 			}
 			inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
+			// #1982: what 「给你的」 names reaches the user in the post itself, not only the forum details.
+			if _, give, ok := strings.Cut(c.body, "给你的："); ok {
+				if u := exitURLRe.FindString(strings.SplitN(give, "\n", 2)[0]); u != "" && !strings.Contains(p.sentTo("discord:chat1")[0], u) {
+					t.Fatalf("the chat post lacks 「给你的」 %s: %q", u, p.sentTo("discord:chat1")[0])
+				}
+			}
 			if len(c.files) > 0 {
 				inputWait(t, func() bool { return len(p.filesTo("discord:chat1")) == len(c.files) })
 			}

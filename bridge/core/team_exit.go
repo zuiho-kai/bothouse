@@ -772,6 +772,7 @@ func (e *Engine) takeAsk(id, platform, parent string) *teamAsk {
 var exitPartLabels = []struct{ from, to string }{
 	{"背景：", "【背景】"}, {"要你做的：", "【要你做的】"}, {"要你定的：", "【要你定的】"},
 	{"要你定：", "【要你定】"}, {"我加的、原话里没有：", "【我加的】"}, {"我加的：", "【我加的】"},
+	{"给你的：", "【给你的】"},
 }
 
 // spaceExitLines puts one blank line between the non-empty lines of a post and labels each
