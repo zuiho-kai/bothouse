@@ -325,7 +325,7 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if it.Paused == "" {
 			stamp = "r" + at.Format(time.RFC3339)
 		}
-		return stamp, at, fmt.Sprintf("②停了%s%s 起停着，卡在：%s\n接下来：%s", name, at.Format("15:04"), shortLabel(why, 120), next)
+		return stamp, at, fmt.Sprintf("②停了%s%s 起停着，卡在：%s\n接下来：%s", name, at.In(now.Location()).Format("15:04"), shortLabel(why, 120), next)
 	case teamTaskStuck:
 		where := ""
 		if it.wsName != "" {
@@ -354,7 +354,11 @@ func recordChatStops(st *teamChatState, items []teamTaskBoardItem, now time.Time
 		}
 		key := strconv.Itoa(it.ID) + "@" + stamp
 		if _, ok := st.Stops[key]; !ok {
-			st.Stops[key] = chatStopSaid{ID: it.ID, Chat: it.Chat, Text: text, At: now}
+			said := now
+			if t, ok := st.Stopped[key]; ok {
+				said = t // already posted before stops were kept: keep when, so the secretary does not say it again
+			}
+			st.Stops[key] = chatStopSaid{ID: it.ID, Chat: it.Chat, Text: text, At: said}
 			changed = true
 		}
 	}

@@ -107,6 +107,15 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	if !recordChatStops(st, items, now) || recordChatStops(st, items, now) {
 		t.Fatal("stops must be recorded once")
 	}
+	// a stop posted before stops were kept keeps its old time; clock shown in local time even from UTC stamps
+	st2 := &teamChatState{Since: st.Since, Stopped: map[string]time.Time{"5@p" + stop.PausedAt + stop.Paused: now.Add(-time.Hour)}, Stops: map[string]chatStopSaid{}}
+	utc := stop
+	utc.PausedAt = now.Add(-30 * time.Minute).UTC().Format(time.RFC3339Nano)
+	st2.Stopped = map[string]time.Time{"5@p" + utc.PausedAt + utc.Paused: now.Add(-time.Hour)}
+	recordChatStops(st2, []teamTaskBoardItem{utc}, now)
+	if s := st2.Stops["5@p"+utc.PausedAt+utc.Paused]; !s.At.Equal(now.Add(-time.Hour)) || !strings.Contains(s.Text, "14:30 起停着") {
+		t.Fatalf("old stop = %+v", s)
+	}
 	if len(st.Stops) != 2 || st.Stops["5@p"+stop.PausedAt+stop.Paused].Text != strings.TrimPrefix(want0, "post ") {
 		t.Fatalf("stops = %+v", st.Stops)
 	}
