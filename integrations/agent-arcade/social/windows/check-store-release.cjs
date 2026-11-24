@@ -253,6 +253,8 @@ async function check(args) {
     await verifyResponse('/client-start.js',assets.get('client-start.js'),js);
     await verifyResponse(release.prefix+'app.js',appWithBuild(app),js);
     await verifyResponse(release.prefix+'style.css',assets.get('style.css'),/^text\/css(?:;|$)/iu);
+    if(assets.has('conversation-list.js'))
+      await verifyResponse(release.prefix+'conversation-list.js',assets.get('conversation-list.js'),js);
     if(assets.has('vendor/bothouse/rh-md.js'))
       await verifyResponse(release.prefix+'vendor/bothouse/rh-md.js',assets.get('vendor/bothouse/rh-md.js'),js);
   }

@@ -6,7 +6,7 @@ const path=require('node:path');
 
 const directory='_friends';
 const entryFiles=['index.html','client-start.js','style.css','app.js','vendor/bothouse/rh-md.js',
-  'voice-queue-player.js','voice-recorder.js','voice-worklet.js'];
+  'message-reply.js','voice-queue-player.js','voice-recorder.js','voice-worklet.js','conversation-list.js'];
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 function appWithBuild(bytes) {
@@ -16,8 +16,10 @@ function appWithBuild(bytes) {
 function clientRelease(files) {
   const hash=createHash('sha256');
   for(const name of entryFiles){
-    hash.update(name+'\0');
     const bytes=files.get(name);
+    // Preserve the digest of older client archives in historical preflight.
+    if(name==='conversation-list.js'&&!bytes)continue;
+    hash.update(name+'\0');
     hash.update(bytes?sha256(bytes):'-');
   }
   const build=hash.digest('hex');

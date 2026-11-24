@@ -70,6 +70,9 @@
   <div id="history" class="history" aria-label="聊天记录" tabindex="-1" hidden></div>
   <form id="composer" class="composer" hidden>
    <p id="send-error" class="feedback" role="alert"></p>
+   <div id="reply-target" class="reply-target" hidden>
+    <span></span><button id="cancel-reply" type="button" class="outline">取消引用</button>
+   </div>
    <div id="mention-target" class="actions" hidden></div>
    <div id="mention-suggestions" role="listbox" aria-label="点名群成员" hidden></div>
    <div class="compose-tools">
@@ -123,6 +126,7 @@
  <button id="ai-appointments" type="button" hidden>约定提醒</button>
 </div>
 <div id="message-actions" class="action-popover" popover aria-label="消息操作">
+ <button id="reply-message" type="button" hidden>回复</button>
  <button id="copy-message" type="button">复制文字</button>
  <button id="report-message" type="button">举报消息</button>
  <p id="message-action-status" role="status"></p>

@@ -402,3 +402,23 @@ dialog{border:1px solid var(--line);border-radius:20px;padding:16px;color:var(--
   body:has(#dialog[data-member-panel][open]) #workspace {margin-right:276px;}
   #dialog[data-member-panel] {width:276px;z-index:3;}
 }
+
+/* Conversation controls share the Friends list's palette and touch targets. */
+.conversation-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px;margin-top:4px}
+.conversation-search input{grid-column:1/-1;grid-row:1;padding-inline-end:3.4rem}
+.conversation-search input::-webkit-search-cancel-button{display:none}
+.conversation-search button{grid-column:2;grid-row:1;padding-inline:.6rem;font-size:.8rem}
+.conversation-row{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;border-radius:10px}
+.conversation-row[data-pinned]{background:var(--wash)}
+.conversation-row .row{min-width:0}
+.conversation-row .row:focus-visible{outline-offset:-2px}
+.conversation-row-meta{align-self:start;display:grid;justify-items:end;gap:2px}
+.conversation-row-actions{width:44px;padding:0;color:var(--muted);font-size:1.15rem}
+.conversation-row-actions:is(:hover,[aria-expanded=true]){background:var(--select);color:var(--plum)}
+.conversation-pin{flex:none;color:var(--plum);font-size:.68rem;font-weight:600}
+.conversation-pin-error{grid-column:1/-1;font-size:.8rem}
+.message-quote,.reply-target { border-inline-start:3px solid currentColor; padding:.3rem .6rem; text-align:start; overflow-wrap:anywhere; }
+button.message-quote { display:block; width:100%; font:inherit; color:inherit; background:transparent; border-block:0; border-inline-end:0; cursor:pointer; }
+.message-quote strong { display:block; font-size:.85em; }
+.reply-target:not([hidden]) { display:flex; align-items:center; gap:.5rem; grid-column:1/-1; }
+.reply-target span { flex:1; }

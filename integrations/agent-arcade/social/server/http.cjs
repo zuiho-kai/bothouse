@@ -160,7 +160,10 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
   if (root === 'conversations') {
     if (parts.length === 2 && method === 'GET') return {conversation:conversationView(store.conversation(a,id))};
     if (parts.length === 3 && action === 'read' && method === 'POST') return store.markConversationRead(a,id,body);
-    if (parts.length === 3 && action === 'history-search' && method === 'GET') return store.historySearch(a,id,params);
+    if (parts.length === 3 && action === 'history-search' && method === 'GET') {
+      const page=store.historySearch(a,id,params);
+      return page.messages?{...page,messages:store.withReplyPreviews(a,id,page.messages)}:page;
+    }
     if (parts.length === 3 && action === 'ai-consent' && method === 'POST') {
       if(!claudeUi)guard(store.directAiConsent(a,id)?.ai);
       return ai.setConsent(a,id,body);
@@ -176,7 +179,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     if (parts.length === 3 && action === 'messages') {
       if (method === 'GET') {
         const page=store.historyPage(a,id,params);
-        return {...page,messages:page.messages.map(message=>personal.withVoiceOffer(a,message))};
+        return {...page,messages:store.withReplyPreviews(a,id,page.messages).map(message=>personal.withVoiceOffer(a,message))};
       }
       if (method === 'POST') {
         if(!bothouse&&!claudeUi)guard(store.directAiConsent(a,id)?.ai);
@@ -530,7 +533,9 @@ function createServer(store,{publicOrigin,client = path.join(__dirname,'../clien
           } finally {
             if(directTurn||groupTurn)proactive.wake();
           }
-          result={message:personal.withVoiceOffer(account,store.message(store.one('SELECT * FROM messages WHERE id=?',message.id))),
+          const saved=store.message(store.one('SELECT * FROM messages WHERE id=?',message.id));
+          const [visible]=store.withReplyPreviews(account,saved.conversationId,[saved]);
+          result={message:personal.withVoiceOffer(account,visible),
             ...(reply&&{reply}),...delivered};
         }
       }

@@ -602,22 +602,48 @@ class SocialStore {
     const messages = (forward ? rows : rows.reverse()).map(r => this.message(r));
     return moderation ? {messages,moderation} : {messages};
   }
+  // Project quotes only for the recipient of an HTTP response. Internal AI history
+  // and turn staging continue to receive the original, unexpanded message bodies.
+  withReplyPreviews(a,id,messages) {
+    if(!messages.length)return messages;
+    const {since}=this.access(a,id);
+    const slots=messages.map(()=>'?').join(',');
+    const rows=this.all(`SELECT r.message,m.id,u.name,
+      CASE WHEN v.message IS NOT NULL THEN '[语音]' WHEN i.message IS NOT NULL THEN '[图片]'
+        WHEN length(m.body)>120 THEN substr(m.body,1,120)||'…' ELSE m.body END AS text
+      FROM message_replies r JOIN messages child ON child.id=r.message
+      LEFT JOIN messages m ON m.id=r.original AND m.chat=child.chat AND m.id>? AND m.removed=0
+      LEFT JOIN users u ON u.number=m.sender
+      LEFT JOIN message_voices v ON v.message=m.id LEFT JOIN message_images i ON i.message=m.id
+      WHERE child.chat=? AND child.id>? AND child.removed=0 AND r.message IN (${slots})`,
+      since,id,since,...messages.map(message=>message.id));
+    const quotes=new Map(rows.map(row=>[row.message,row.id===null?{unavailable:true}:
+      {id:row.id,name:row.name,text:row.text}]));
+    return messages.map(message=>quotes.has(message.id)?{...message,quote:quotes.get(message.id)}:message);
+  }
   send(a,id,body,onInsert) {
     const chat = this.access(a,id);
     if (typeof body.clientId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(body.clientId)) fail(400,'client_id','消息重试编号无效');
     // Only a trusted AI sender may add a brief delivery note to the original reply.
     const text = string(body.text,body.text?.length>4000&&this.user(a).kind==='ai'?4096:4000,'消息');
+    const original=body.replyTo===undefined?null:body.replyTo;
+    if(body.replyTo!==undefined&&(!Number.isSafeInteger(original)||original<1))
+      fail(400,'reply_target','原消息位置无效');
     const mentionAccount=body.mentionAccount===undefined?null:number(body.mentionAccount);
     const old = this.one('SELECT * FROM messages WHERE chat=? AND sender=? AND nonce=?',id,a,body.clientId);
     if (old) {
       const oldMention=this.one('SELECT account FROM message_mentions WHERE message=?',old.id)?.account??null;
-      if (old.id <= chat.since || old.body !== text || oldMention!==mentionAccount) fail(409,'message_conflict','此编号已被使用');
+      const previous=this.one('SELECT original FROM message_replies WHERE message=?',old.id)?.original??null;
+      if (old.id <= chat.since || old.body !== text || oldMention!==mentionAccount || previous!==original) fail(409,'message_conflict','此编号已被使用');
       return this.message(old);
     }
+    if(original!==null&&!this.one('SELECT 1 FROM messages WHERE id=? AND chat=? AND id>? AND removed=0',original,id,chat.since))
+      fail(409,'reply_unavailable','原消息已移除或不可查看。可取消引用后发送。');
     if(mentionAccount&&(chat.type!=='group'||this.user(a).kind!=='human'||
        !this.one('SELECT 1 FROM members WHERE chat=? AND account=?',id,mentionAccount)))
       fail(403,'mention_unavailable','点名对象需要是当前群成员');
     const row = this.run('INSERT INTO messages(chat,sender,nonce,body,created) VALUES(?,?,?,?,?)',id,a,body.clientId,text,now());
+    if(original!==null)this.run('INSERT INTO message_replies(message,original) VALUES(?,?)',row.lastInsertRowid,original);
     if(mentionAccount)this.run('INSERT INTO message_mentions VALUES(?,?)',row.lastInsertRowid,mentionAccount);
     const message=this.message(this.one('SELECT * FROM messages WHERE id=?',row.lastInsertRowid));
     onInsert?.(message);
