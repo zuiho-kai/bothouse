@@ -332,6 +332,17 @@ BEGIN
   DELETE FROM ai_voice_scopes WHERE chat=NEW.chat;
   DELETE FROM ai_voice_choices WHERE chat=NEW.chat;
 END;
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  account TEXT NOT NULL REFERENCES users(number) ON DELETE CASCADE,
+  emoji TEXT NOT NULL CHECK(emoji IN ('👍','😂','❤️','😮','👏')),
+  PRIMARY KEY (message,account,emoji)
+);
+CREATE TRIGGER IF NOT EXISTS clear_removed_message_reactions
+AFTER UPDATE OF removed ON messages WHEN OLD.removed=0 AND NEW.removed=1
+BEGIN
+  DELETE FROM message_reactions WHERE message=NEW.id;
+END;
 CREATE TABLE IF NOT EXISTS message_removals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat TEXT NOT NULL REFERENCES chats,

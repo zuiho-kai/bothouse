@@ -107,6 +107,13 @@ dialog:has(.ai-role-library) #dialog-body > button {
 .action-popover{position:fixed;inset:auto;margin:0;padding:5px;min-width:148px;max-width:calc(100vw - 16px);background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px #48253726}
 .action-popover:popover-open{display:grid}
 .action-popover button{text-align:left;border-radius:8px;font-size:.87rem;padding-inline:.75rem}
+.message-reactions{display:flex;flex-wrap:wrap;gap:4px}
+.message-reactions button,.message-reactions span{font-size:.84rem;padding:2px 8px;border:1px solid var(--line);border-radius:999px;min-height:28px}
+.message-reactions button[aria-pressed="true"]{background:var(--select);border-color:var(--plum)}
+#message-reaction-choices{padding:4px}
+#message-reaction-choices button{min-height:36px;min-width:36px;text-align:center}
+.bubble-content>.message-reactions{margin-top:4px}
+.bubble.mine .message-reactions{justify-content:flex-end}
 .action-popover p:not(:empty){padding:0 .6rem .4rem;color:var(--muted);font-size:.78rem}
 #chat-settings{top:59px;right:clamp(10px,2.3vw,28px)}
 .appointment-editor{display:grid;gap:10px}.appointment-editor label{display:grid;gap:4px}

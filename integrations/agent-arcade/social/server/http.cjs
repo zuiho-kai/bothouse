@@ -195,7 +195,7 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     if (parts.length === 3 && action === 'read' && method === 'POST') return store.markConversationRead(a,id,body);
     if (parts.length === 3 && action === 'history-search' && method === 'GET') {
       const page=store.historySearch(a,id,params);
-      return page.messages?{...page,messages:store.withReplyPreviews(a,id,page.messages)}:page;
+      return page.messages?{...page,messages:store.withMessageReactions(a,id,store.withReplyPreviews(a,id,page.messages))}:page;
     }
     if (parts.length === 3 && action === 'ai-consent' && method === 'POST') {
       if(!claudeUi)guard(store.directAiConsent(a,id)?.ai);
@@ -212,7 +212,12 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
     if (parts.length === 3 && action === 'messages') {
       if (method === 'GET') {
         const page=store.historyPage(a,id,params);
-        return {...page,messages:store.withReplyPreviews(a,id,page.messages).map(message=>personal.withVoiceOffer(a,message))};
+        const visible=store.withReplyPreviews(a,id,page.messages).map(message=>personal.withVoiceOffer(a,message));
+        const ids=params.has('reactionIds')?params.get('reactionIds').split(','):[];
+        if(ids.length>100||ids.some(value=>!(/^[1-9]\d*$/u.test(value)&&Number.isSafeInteger(Number(value)))))
+          fail(400,'cursor','消息位置无效');
+        return {...page,messages:store.withMessageReactions(a,id,visible),
+          ...(ids.length&&{reactionUpdates:store.reactionSummaries(a,id,ids.map(Number))})};
       }
       if (method === 'POST') {
         if(!bothouse&&!claudeUi)guard(store.directAiConsent(a,id)?.ai);
@@ -233,6 +238,8 @@ function dispatch(store,a,route,body,params,clientBuild,ai,aiGroup,aiFeed,proact
         return {message,directTurn,groupTurn,personalTurn,abortProactive,bothouseTurn};
       }
     }
+    if(parts.length===5&&action==='messages'&&sub==='reaction'&&method==='POST'&&/^[1-9]\d*$/u.test(msg))
+      return store.setMessageReaction(a,id,Number(msg),body);
     if(parts.length===5&&action==='messages'&&sub==='task-retry'&&method==='POST'&&/^[1-9]\d*$/u.test(msg))
       return workOrders.retry(a,id,Number(msg),body);
     if(parts.length===5&&action==='messages'&&sub==='drawing-resend'&&/^[1-9]\d*$/u.test(msg))

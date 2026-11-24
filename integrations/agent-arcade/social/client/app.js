@@ -282,6 +282,7 @@ function textError(error) {
   if (error.message === 'mention_unavailable') return '点名对象已不在群里，请取消或重新选择。';
   if (error.message === 'feedback_build') return '客户端已更新。请刷新后重新打开反馈，你的内容仍在。';
   if (error.message === 'feedback_session') return '账号已切换，请重新登录后再查看反馈。';
+  if (error.message === 'reaction_session') return '会话权限已变化，请重新打开后回应。';
   if (error.message === 'report_session') return '账号已切换，请重新打开会话再举报。';
   if (error.message === 'image_session') return '账号已切换，请重新打开会话。';
   if (error.message === 'sticker_session') return '会话权限已变更，请重新打开表情包。';
@@ -1838,6 +1839,7 @@ function renderHistory(scroll) {
     .map(node=>[Number(node.dataset.voiceId),node]));
   const focusedVoice=document.activeElement?.dataset?.voiceId?document.activeElement:null;
   const focusedAction=document.activeElement?.dataset?.messageAction;
+  const focusedReaction=document.activeElement?.dataset?.messageReaction;
   const focusedAnchor=document.activeElement?.classList.contains('history-anchor')?historyContext?.anchor:undefined;
   const focusedOlder=document.activeElement===olderButton;
   const nodes=[];
@@ -1936,6 +1938,7 @@ function renderHistory(scroll) {
     if(!message.removed&&message.aiReply==='failed')content.append(el('p',conversation.type==='group'?
       '本条没有收到 AI 回复。消息已发到群里。':paused?'AI 未能回复。':'AI 未能回复。你可以再发一条。','meta'));
     if(!message.removed&&message.aiReply==='pending'&&!paused)content.append(el('p','正在等 AI 回复…','meta'));
+    if(!message.removed&&message.reactions?.length)content.append(messageReactionSummary(message));
     nodes.push(bubble);
   }
   historyView.replaceChildren(...nodes);
@@ -1943,11 +1946,99 @@ function renderHistory(scroll) {
   if(!resolveMessageAction())messageActions.hidePopover();
   if(focusedVoice?.isConnected)focusedVoice.focus({preventScroll:true});
   if(focusedAction)historyView.querySelector('[data-message-action="'+focusedAction+'"]')?.focus({preventScroll:true});
+  if(focusedReaction){
+    const action=focusedReaction.split('/')[0];
+    (historyView.querySelector('[data-message-reaction="'+focusedReaction+'"]')??
+      historyView.querySelector('[data-message-action="'+action+'"]'))?.focus({preventScroll:true});
+  }
   if(focusedAnchor)historyView.querySelector('[data-history-message="'+focusedAnchor+'"]')?.focus({preventScroll:true});
   if(scroll==='end') historyView.scrollTop=historyView.scrollHeight;
   else if(scroll==='prepend') historyView.scrollTop=oldTop+historyView.scrollHeight-oldHeight;
   else historyView.scrollTop=oldTop;
   positionMessageActions();
+}
+const reactionEmojis=new Map([['👍','赞同'],['😂','笑哭'],['❤️','喜欢'],['😮','惊讶'],['👏','鼓掌']]);
+const reactionChoices=$('#message-reaction-choices');
+const pendingReactions=new Set();
+let reactionMutation=0;
+if(reactionChoices)for(const [emoji,label] of reactionEmojis){
+  const choice=button(emoji,()=>{
+    const row=resolveMessageAction();
+    if(row)void changeMessageReaction(row,emoji);
+  });
+  choice.dataset.emoji=emoji;
+  choice.setAttribute('aria-label',label);
+  choice.setAttribute('aria-pressed','false');
+  reactionChoices.append(choice);
+}
+function messageReactionSummary(message){
+  const list=el('div',null,'message-reactions');
+  list.setAttribute('role','group');
+  list.setAttribute('aria-label','表情回应');
+  for(const {emoji,count,mine} of message.reactions){
+    const chip=button(emoji+' '+count,()=>void changeMessageReaction(message,emoji));
+    chip.dataset.messageReaction=message.id+'/'+emoji;
+    chip.setAttribute('aria-label',(reactionEmojis.get(emoji)??emoji)+'，'+count+' 人');
+    chip.setAttribute('aria-pressed',String(mine));
+    chip.disabled=Boolean(conversation?.friendRemoved);
+    list.append(chip);
+  }
+  return list;
+}
+function applyReactionUpdates(updates){
+  if(!updates||!Object.keys(updates).length)return;
+  const update=rows=>rows.map(row=>{
+    const reactions=updates[row.id];
+    if(!reactions||row.removed||JSON.stringify(row.reactions??[])===JSON.stringify(reactions))return row;
+    return {...row,reactions};
+  });
+  const before=visibleHistory();
+  messages=update(messages);
+  if(historyContext)historyContext.messages=update(historyContext.messages);
+  if(visibleHistory().some((row,index)=>row!==before[index])){
+    const selected=resolveMessageAction();
+    if(selected)paintReactionChoices(selected);
+    renderHistory('keep');
+  }
+}
+function paintReactionChoices(message){
+  if(!reactionChoices)return;
+  reactionChoices.hidden=Boolean(conversation?.friendRemoved)||!membershipRevision;
+  for(const choice of reactionChoices.children)
+    choice.setAttribute('aria-pressed',String(!!message.reactions?.some(row=>row.emoji===choice.dataset.emoji&&row.mine)));
+}
+async function changeMessageReaction(message,emoji){
+  const row=visibleHistory().find(item=>item.id===message.id&&!item.removed);
+  if(!row||!user||conversation?.friendRemoved||!membershipRevision)return;
+  const account=user.number,id=chat,epoch=generation,visit=chatVisit,revision=membershipRevision;
+  const token=account+'/'+row.id;
+  if(pendingReactions.has(token))return;
+  const inMenu=messageAction?.id===row.id&&messageActions.matches(':popover-open');
+  const active=!row.reactions?.some(item=>item.emoji===emoji&&item.mine);
+  const current=()=>generation===epoch&&chatVisit===visit&&membershipRevision===revision;
+  pendingReactions.add(token);
+  try {
+    const {reactionUpdates}=await api(thread(id)+'/messages/'+row.id+'/reaction',
+      {expectedAccount:account,revision,emoji,active},{expectedAccount:account});
+    if(!current())return;
+    reactionMutation++;
+    const closeMenu=inMenu&&messageAction?.id===row.id;
+    if(closeMenu)messageActions.hidePopover();
+    applyReactionUpdates(reactionUpdates);
+    if(closeMenu)historyView.querySelector('[data-message-action="'+row.id+'"]')?.focus({preventScroll:true});
+  }catch(error){
+    if(current())(inMenu&&messageAction?.id===row.id?$('#message-action-status'):$('#send-error')).textContent=textError(error);
+  }finally {pendingReactions.delete(token);}
+}
+function visibleReactionIds(){
+  const viewport=historyView.getBoundingClientRect(), ids=[];
+  for(const bubble of historyView.querySelectorAll('[data-history-message]')){
+    const rect=bubble.getBoundingClientRect();
+    if(rect.top>=viewport.bottom)break;
+    if(rect.bottom>viewport.top)ids.push(bubble.dataset.historyMessage);
+    if(ids.length===100)break;
+  }
+  return ids.join(',');
 }
 function resolveMessageAction(){
   if(messageAction?.chat===chat)return visibleHistory().find(row=>row.id===messageAction.id&&!row.removed);
@@ -1969,6 +2060,7 @@ function showMessageActions(id,control){
   if(!row)return;
   historyView.querySelector('[aria-expanded="true"][data-message-action]')?.setAttribute('aria-expanded','false');
   control.setAttribute('aria-expanded','true');
+  paintReactionChoices(row);
   const reply=$('#reply-message');
   if(reply)reply.hidden=messageBox.readOnly||sending.has(chat)||!$('#reply-target');
   $('#copy-message').hidden=!!row.attachment;
@@ -2048,7 +2140,7 @@ function mergeHistoryRows(previous,rows,append){
   for(const row of rows) {
     const previous=known.get(row.id);
     if(!previous?append:previous.aiReply==='pending'&&['answered','failed'].includes(row.aiReply)){
-      known.set(row.id,row);
+      known.set(row.id,previous?{...row,reactions:previous.reactions}:row);
       changed=true;
     }
   }
@@ -2090,7 +2182,9 @@ async function syncHistory(loadOlder=false) {
     const pending=messages.find(row=>!row.removed&&row.aiReply==='pending');
     const after=pending?Math.min(pending.id-1,historyAfter):historyAfter;
     const cursor=loadOlder?'before='+(context?.messages??messages)[0].id:'after='+after;
-    const data=await api(thread(id)+'/messages?'+cursor+'&limit='+pageSize+'&removedAfter='+moderationCursor);
+    const reactionIds=loadOlder?'':visibleReactionIds(), reactionAtStart=reactionMutation;
+    const data=await api(thread(id)+'/messages?'+cursor+'&limit='+pageSize+'&removedAfter='+moderationCursor+
+      (reactionIds?'&reactionIds='+reactionIds:''),undefined,{expectedAccount:user.number});
     if(generation!==epoch||chatVisit!==visit||loadOlder&&historyContext!==context) return false;
     if(data.moderation&&(data.moderation.historyFloor!==historyFloor||
       data.moderation.membershipRevision!==membershipRevision)){
@@ -2108,6 +2202,7 @@ async function syncHistory(loadOlder=false) {
     }else historyAfter=Math.max(historyAfter,data.messages.at(-1)?.id??0);
     const nearEnd=historyView.scrollHeight-historyView.scrollTop-historyView.clientHeight<100;
     merge(data.messages,loadOlder?'prepend':nearEnd?'end':'keep',data.moderation?.removedIds,loadOlder&&!!context);
+    if(reactionAtStart===reactionMutation)applyReactionUpdates(data.reactionUpdates);
     if(!loadOlder&&nearEnd)void acknowledgeRead();
     return true;
   } catch(error) {

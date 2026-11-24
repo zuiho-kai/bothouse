@@ -773,6 +773,36 @@ class SocialStore {
     const messages = (forward ? rows : rows.reverse()).map(r => this.message(r));
     return moderation ? {messages,moderation} : {messages};
   }
+  reactionSummaries(a,id,ids) {
+    const summaries=Object.fromEntries(ids.map(message=>[message,[]]));
+    if(!ids.length)return summaries;
+    const {since}=this.access(a,id);
+    const slots=ids.map(()=>'?').join(',');
+    const rows=this.all(`SELECT r.message,r.emoji,count(*) AS count,max(r.account=?) AS mine
+      FROM message_reactions r JOIN messages m ON m.id=r.message
+      JOIN members voter ON voter.chat=m.chat AND voter.account=r.account AND m.id>voter.since
+      WHERE m.chat=? AND m.id>? AND m.removed=0 AND m.id IN (${slots})
+      GROUP BY r.message,r.emoji ORDER BY r.emoji`,a,id,since,...ids);
+    for(const {message,emoji,count,mine} of rows)summaries[message].push({emoji,count,mine:!!mine});
+    return summaries;
+  }
+  withMessageReactions(a,id,messages) {
+    const summaries=this.reactionSummaries(a,id,messages.filter(row=>!row.removed).map(row=>row.id));
+    return messages.map(row=>summaries[row.id]?.length?{...row,reactions:summaries[row.id]}:row);
+  }
+  setMessageReaction(a,id,message,{expectedAccount,revision,emoji,active}) {
+    if(expectedAccount!==a)fail(409,'reaction_session','账号已切换，请重新打开会话');
+    const chat=this.writableChat(a,id);
+    if(revision!==chat.membershipRevision)fail(409,'reaction_session','会话权限已变更，请重新打开');
+    if(this.user(a).kind!=='human')fail(403,'reaction_human_only','只有真人账号可以回应消息');
+    if(!['👍','😂','❤️','😮','👏'].includes(emoji)||typeof active!=='boolean')
+      fail(400,'reaction_invalid','请选择一种回应');
+    if(!Number.isSafeInteger(message)||!this.one('SELECT 1 FROM messages WHERE chat=? AND id=? AND id>? AND removed=0',id,message,chat.since))
+      fail(404,'unknown_message','这条消息已移除或不可查看');
+    if(active)this.run('INSERT INTO message_reactions VALUES(?,?,?) ON CONFLICT DO NOTHING',message,a,emoji);
+    else this.run('DELETE FROM message_reactions WHERE message=? AND account=? AND emoji=?',message,a,emoji);
+    return {reactionUpdates:this.reactionSummaries(a,id,[message])};
+  }
   // Project quotes only for the recipient of an HTTP response. Internal AI history
   // and turn staging continue to receive the original, unexpanded message bodies.
   withReplyPreviews(a,id,messages) {
