@@ -131,7 +131,7 @@ var resumeWaitingExternalFn = (*Engine).resumeWaitingExternal
 func (e *Engine) resumeWaitingExternal(it teamTaskBoardItem) {
 	why := strings.TrimPrefix(it.PauseWhy, team.WaitExternalWhy)
 	note := "到点重试：上次卡在「" + why + "」。先查这个条件满足没有：满足就接着做没做完的；还不满足，不要重做已做的，" +
-		"照旧交 [report]，写一行「等外部：卡在什么」和一行「再看：<多久后或到点钟点，如 2h、11-23 18:00>」。"
+		"照旧交 [report]，写一行「等外部：卡在什么」和一行" + team.WaitAgainHint + "。"
 	if len(it.PRNews) > 0 {
 		note = prNewsNote(it.PRNews)
 	}

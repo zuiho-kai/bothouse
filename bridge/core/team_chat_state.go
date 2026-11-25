@@ -293,7 +293,10 @@ func (e *Engine) syncChatWaiting(poster ChatNotePoster, st *teamChatState, chat 
 }
 
 // chatStopOf: why item it is stopped and what happens next; "" when it is not a ② stop. The
-// stamp keys the stop so it is said once.
+// stamp keys the stop so it is said once. Only a real stop is a ②: the work is let go (paused,
+// workspace released, waiting outside). A watchdog's "stuck" (nudged without progress, wakes
+// unanswered, park failed) is the lead's business, not the user's: the workspace still holds it
+// and usually reports back on its own (#1993).
 func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time, text string) {
 	// a stop the user ordered (「用户 22:2x「不要并行太多」…」) is not news to the user
 	if it.Backlog != "" || it.Probe || it.waitsAnswer() || strings.HasPrefix(strings.TrimSpace(it.PauseWhy), "用户") {
@@ -317,29 +320,16 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if why == "" {
 			why = "没写原因"
 		}
-		next := "没有自动接着做的安排，你说接着做就接着派。"
+		// #1993 user 11-25「为什么自动锤自动拍」: no retry clock, no 「自动」 — what the user can do
+		next := "你说接着做就接着派。"
 		if it.WaitUntil > 0 {
-			next = chatClock(time.Unix(it.WaitUntil, 0), now) + " 自动再派人接着做。"
+			next = "卡住的那件事好了再接着做；要现在做或不做了，说一声。"
 		}
 		stamp = "p" + it.PausedAt + it.Paused
 		if it.Paused == "" {
 			stamp = "r" + at.Format(time.RFC3339)
 		}
 		return stamp, at, fmt.Sprintf("②停了%s%s 起停着，卡在：%s\n接下来：%s", name, at.In(now.Location()).Format("15:04"), shortLabel(why, 120), next)
-	case teamTaskStuck:
-		where := ""
-		if it.wsName != "" {
-			where = "（" + it.wsName + "）"
-		}
-		// at: when it went quiet (its last activity), so a stall from before the feature is not said
-		at := teamTaskBoardLastActive(it, now)
-		if it.WS != "" {
-			at = teamTaskBoardWorkspaceActive(it, now)
-		}
-		if at.IsZero() {
-			at = now
-		}
-		return "s" + it.Bound, at, fmt.Sprintf("②停了%s%s%s\n接下来：会自动催它接着做。", name, where, why)
 	}
 	return "", time.Time{}, ""
 }

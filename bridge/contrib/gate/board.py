@@ -2049,6 +2049,8 @@ def prune_why(i, its, now, prs, idle_after=None):
         m = _MERGED_INTO.search(i.get(field) or "")
         if m and int(m.group(1)) in live and int(m.group(1)) != i.get("id"):
             return f"已并入 #{m.group(1)}"
+    if (i.get("wait_until") or 0) > now:
+        return None  # 等外部、约好的时间还没到：不是闲着（#1993：等到 11-27 的被 24 小时截短重派）
     if _waiting_user(i) or "主线" in (i.get("what") or ""):
         return None  # 等用户：只免③（PR 已合/已并入时等的事已过，照①②收）；主线条目闲着也不收
     idle_after = prune_idle_after() if idle_after is None else idle_after

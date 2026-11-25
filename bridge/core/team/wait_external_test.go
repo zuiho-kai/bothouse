@@ -14,9 +14,13 @@ const clockReport = "细节：\n等外部：等周末那轮跑完\n" +
 
 func TestWaitExternalClockTime(t *testing.T) {
 	now := time.Date(2026, 11, 21, 13, 37, 0, 0, time.Local)
-	// 11-23 18:00 is 52h away: held at the 24h cap, not the 1h default.
-	if _, after, unread, ok := waitExternal(clockReport, now); !ok || unread != "" || after != WaitExternalMax {
-		t.Fatalf("#1836 line: after = %v unread %q ok %v, want %v", after, unread, ok, WaitExternalMax)
+	// 11-23 18:00 is 52h away: kept (#1993: no 24h cap), not the 1h default.
+	if _, after, unread, ok := waitExternal(clockReport, now); !ok || unread != "" || after != 52*time.Hour+23*time.Minute {
+		t.Fatalf("#1836 line: after = %v unread %q ok %v", after, unread, ok)
+	}
+	// #1993: the reason says the blocker clears 11-27 14:00; a 再看 before it is moved to it.
+	if _, after, _, _ := waitExternal("等外部：平台额度 11-27 14:00 才恢复\n再看：11-22 10:04", now); after != 6*24*time.Hour+23*time.Minute {
+		t.Fatalf("blocker clock in the reason: after = %v", after)
 	}
 	if _, after, _, _ := waitExternal("等外部：x\n再看：11-22 09:00 之后", now); after != 19*time.Hour+23*time.Minute {
 		t.Fatalf("clock within a day: after = %v", after)

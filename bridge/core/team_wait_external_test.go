@@ -37,7 +37,7 @@ func TestWaitExternalOf(t *testing.T) {
 	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：1 分钟"); after != team.WaitExternalMin {
 		t.Fatalf("min clamp: %v", after)
 	}
-	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：72h"); after != team.WaitExternalMax {
+	if _, after, _ := team.WaitExternalOf("等外部：x\n再看：200h"); after != team.WaitExternalMax {
 		t.Fatalf("max clamp: %v", after)
 	}
 	for _, body := range []string{"[report] #1 做完了\n要你做的：没有", "等外部：无", "我们不必等外部：直接做了"} {
