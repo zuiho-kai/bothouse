@@ -754,6 +754,10 @@ type ProjectConfig struct {
 	// (core/team_task_assigner.go, #988). Default off (user 11-23 「做个开关默认关闭 有的人可能
 	// 不喜欢被打扰」); the assigner is still recorded on the board row either way.
 	MentionAssigner *bool `toml:"mention_assigner,omitempty"`
+	// KeepRunning (lead only): when a chat's task-board work runs out, the bridge wakes the chat's
+	// lead once to dispatch the next task or wrap up (core/team_lead_autowake.go). Unset = on;
+	// keep_running = false turns it off for every chat, board keep-running on|off overrides per chat.
+	KeepRunning *bool `toml:"keep_running,omitempty"`
 	// MentionHumanGate: gate human @ notifications so ordinary bot replies keep <@human> as text
 	// without pinging; only release posts (ws-pass, controlled by mention_assigner) and decision
 	// asks (ws-forward --ask-user / bothouse send --ask-user) ping, with short-window dedup
@@ -872,6 +876,9 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
 // TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
 func (p ProjectConfig) TaskForumEnabled() bool { return p.TaskForum == nil || *p.TaskForum }
+
+// KeepRunningEnabled: default on — it only fires once per chat when its work runs out.
+func (p ProjectConfig) KeepRunningEnabled() bool { return p.KeepRunning == nil || *p.KeepRunning }
 
 // MentionAssignerEnabled: default off (user 11-23 「做个开关默认关闭」); mention_assigner = true
 // restores the #988 mentions.

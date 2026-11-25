@@ -56,6 +56,8 @@
   board refresh                          # 把一小时没进展的工作区条目转暂停（停滞检查定时调用），再自动收起没用的暂停条目
   board prune [--dry-run]                # 只做自动收起（--dry-run 只列不动）；收起的条目 board resume <编号> 能找回
   board prune --off | --on | --idle <小时> # 整块板子关掉 / 打开自动收起、改闲置门槛（默认开、24 小时），打印当前设定
+  board keep-running [on|off|default]    # 本频道持续推进（不带参数看状态）：活都做完或都停了 20 分钟，桥叫主角色一轮续派或收工，只叫一次；
+                                         # 不设就跟主角色项目的 keep_running（默认开），on/off 只改本频道，default 回到跟默认
   add 拒绝纯回看条目：事情以「#编号」开头指向板上另一条，或状态以「等着」开头且没有 PR 号/路径；
     改用完成通知，或在原条目上 board update / later <编号>（later 在原条目上记「下次看」，不新建回看条目）。
   --next / board next：下次几点回来看这件事（如 14:30），显示在板上，让用户知道后面还会不会处理。
@@ -1925,6 +1927,39 @@ def set_prune_conf(on=None, idle_hours=None):
     return conf
 
 
+KEEP_RUNNING = "keep-running.json"  # 桥 core/team_lead_autowake.go 读同一个文件
+
+
+def _this_chat():
+    """CC_SESSION_KEY 的「平台:频道」部分（形如 discord:<频道 id>）。"""
+    parts = os.environ.get("CC_SESSION_KEY", "").split(":")
+    return ":".join(parts[:2]) if len(parts) >= 2 and parts[1] else ""
+
+
+def keep_running(on=None):
+    """board keep-running：on=True/False 改本频道开关，"default" 去掉本频道设定，None 只看；
+    返回 (频道, 本频道设定 dict 或 None=跟默认)。"""
+    chat = _this_chat()
+    if not chat:
+        raise SystemExit("不知道是哪个频道（没有 CC_SESSION_KEY），在要持续推进的频道里跑")
+    with _locked():
+        try:
+            conf = json.loads(_path(KEEP_RUNNING).read_text())
+        except (FileNotFoundError, ValueError):
+            conf = {}
+        if on is True and (conf.get(chat) or {}).get("on") is not True:
+            conf[chat] = {"on": True, "since": datetime.now().astimezone().isoformat(timespec="seconds")}
+        elif on is False:
+            conf[chat] = {"on": False}
+        elif on == "default":
+            conf.pop(chat, None)
+        if on is not None:
+            tmp = _path(f"{KEEP_RUNNING}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(conf))
+            os.replace(tmp, _path(KEEP_RUNNING))
+    return chat, conf.get(chat)
+
+
 def prune_on():
     return prune_conf()["on"]
 
@@ -2558,6 +2593,10 @@ def main(argv):
             got = hold(nids, opt) if cmd == "hold" else unhold(nids, opt)
             word = "为发布暂停" if cmd == "hold" else "去掉为发布暂停"
             print(f"{word}：" + ("、".join(f"#{n}" for n in got) if got else "没有符合的条目"))
+        elif cmd == "keep-running" and argv[1:] in ([], ["on"], ["off"], ["default"]):
+            chat, c = keep_running({"on": True, "off": False, "default": "default"}.get(argv[1]) if len(argv) == 2 else None)
+            state = "跟主角色项目的 keep_running（默认开）" if c is None else ("开（" + c.get("since", "") + " 起）" if c.get("on", True) else "关")
+            print(f"{chat} 持续推进：{state}；开着时活都做完或都停了 20 分钟，桥叫主角色一轮续派或收工，只叫一次")
         elif cmd == "rework" and len(argv) <= 2:
             print(rework_report(int(argv[1]) if len(argv) > 1 else REWORK_DAYS))
         else:

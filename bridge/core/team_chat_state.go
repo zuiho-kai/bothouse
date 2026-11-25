@@ -53,6 +53,12 @@ type teamChatState struct {
 	// channel (experimental script, not in the product) posts these lines instead of judging stops
 	// itself (#1976: the two wrote different 「接下来」 for one stop).
 	Stops map[string]chatStopSaid `json:"stops"`
+	// KeepArm: keep-running chats whose work may run out and wake the lead once (team_lead_autowake.go).
+	KeepArm map[string]*keepArm `json:"keep_arm,omitempty"`
+	// KeepOnSeen: chat → the board keep-running on stamp already armed, so it arms once.
+	KeepOnSeen map[string]string `json:"keep_on_seen,omitempty"`
+	// StuckWoke: "<id>@s<bound>" → when the lead was woken for that stuck item (not a ②, #1993).
+	StuckWoke map[string]time.Time `json:"stuck_woke,omitempty"`
 }
 
 type chatStopSaid struct {
@@ -133,6 +139,18 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 			changed = true
 		}
 		if e.announceChatStops(poster, st, chat, stopItems, now) {
+			changed = true
+		}
+	}
+	if e.wakeStuckLeads(st, items, now) {
+		changed = true
+	}
+	if e.wakeKeepRunning(st, items, now) {
+		changed = true
+	}
+	for k, at := range st.StuckWoke {
+		if now.Sub(at) > 14*24*time.Hour {
+			delete(st.StuckWoke, k)
 			changed = true
 		}
 	}
@@ -411,6 +429,9 @@ func (e *Engine) announceChatStops(poster ChatNotePoster, st *teamChatState, cha
 		}
 		st.Stopped[key] = now
 		changed = true
+		if stopWakesLead(it) && !leadAutowake(e, chat, "停摆唤醒 #"+strconv.Itoa(it.ID), stopLeadPrompt(it, text), it.ID) {
+			slog.Warn("team chat state: lead not woken for ②", "chat", chat, "board_item", it.ID)
+		}
 	}
 	return changed
 }
