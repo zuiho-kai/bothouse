@@ -82,11 +82,18 @@ func isRateLimitError(msg string) bool {
 //   - relay overloaded: "unexpected status 502 Bad Gateway", "503 Service Unavailable"
 //     (当前模型服务暂不可用，请稍后重试), "temporarily unavailable", plus 504/529/overloaded;
 //   - DSH upstream: 「上游请求超时」「上游连接中断」「上游服务异常」, and request / first-token timeouts.
+//   - #2002: wordings read out of each backend's own source instead of our logs (our machine never
+//     produced them, so #1997's "DeepSeek Messages transport failed" slipped through): DSH desktop's
+//     LlmError TRANSPORT/SERVER texts (dsh-llm-deepseek: "could not reach <url>", "request failed
+//     (stream error)" / "(5xx)", "Files API request to <url> failed"); Claude Code's "Connection
+//     error."; Node fetch/socket failures every Node CLI (claude, gemini, DSH) passes through:
+//     "fetch failed", "socket hang up", "Premature close", ECONNRESET / ECONNREFUSED / ETIMEDOUT /
+//     EPIPE / EAI_AGAIN.
 //
 // Never retried, whatever else the text says (a retry gets the same answer): auth (401, 403,
 // 上游认证失败), spent balance or quota, a 400 bad request (e.g. the relay's own pricing-expression
 // error seen 11-04), and content-safety blocks.
-var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|transport (?:failed|error)|stream (?:closed|ended|terminated|interrupted)|adapter_eof|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
+var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|transport (?:failed|error)|could not reach|request failed \((?:stream error|5\d\d)\)|request to \S+ failed|connection error|fetch failed|socket hang up|premature close|\bE(?:CONNRESET|CONNREFUSED|TIMEDOUT|PIPE|AI_AGAIN)\b|stream (?:closed|ended|terminated|interrupted)|adapter_eof|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
 
 var permanentErrorRE = regexp.MustCompile(`(?i)\b40[0-3]\b|unauthori[sz]ed|forbidden|invalid api key|authentication|认证失败|鉴权|insufficient balance|余额不足|quota|resource_exhausted|content[ _-]?(?:filter|policy)|safety|内容安全|违规`)
 

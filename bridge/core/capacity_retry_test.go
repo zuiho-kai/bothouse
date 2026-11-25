@@ -735,6 +735,17 @@ func TestTransientErrorFromLiveLogs(t *testing.T) {
 		"acp: initialize: json-rpc -32000: acp: read closed: EOF",
 		"529 overloaded_error: Overloaded",
 		"json-rpc -32603: Internal error: turn failed: DeepSeek Messages transport failed", // 外部用户 11-25（#1997）
+		// #2002: read out of the backends' own source (dsh-llm-deepseek, Claude Code, Node CLIs).
+		"json-rpc -32603: Internal error: turn failed: could not reach https://api.deepseek.com/models",
+		"json-rpc -32603: Internal error: turn failed: DeepSeek Messages request failed (stream error)",
+		"json-rpc -32603: Internal error: turn failed: DeepSeek Messages request failed (500)",
+		"json-rpc -32603: Internal error: turn failed: DeepSeek Files API request to https://api.deepseek.com failed",
+		"API Error: Connection error.",
+		"TypeError: fetch failed",
+		"Error: socket hang up",
+		"read ECONNRESET",
+		"connect ETIMEDOUT 104.18.1.1:443",
+		"Premature close",
 	}
 	keep := []string{
 		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游认证失败；已完成的工具操作可能已生效，请先核对成果。",

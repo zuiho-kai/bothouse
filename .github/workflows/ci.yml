@@ -394,7 +394,11 @@ jobs:
         working-directory: .
         run: PNPM="npx -y pnpm@10.34.7" node dsh/scripts/bundle.mjs
       - name: Windows Go tests
-        run: go test -tags no_web -count=1 -timeout 10m -run '^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp)$' ./core ./cmd/cc-connect
+        # #2002: every test in a *_windows_test.go file runs here, collected from the files; a hand list
+        # alone let #1997's restart test and new Windows tests sit unrun (they only cross-compiled).
+        run: |
+          auto=$(grep -ho '^func Test[A-Za-z0-9_]*' core/*_windows_test.go cmd/cc-connect/*_windows_test.go | sed 's/^func //' | paste -sd'|' -)
+          go test -tags no_web -count=1 -timeout 10m -run "^(TestProcessAliveWindows|TestDSHWebParentPIDWindows|TestDSHWebCommandLineNativeWindows|TestDSHWebOwnedWhenTheRecordedPIDLaunchedTheListener|TestDSHWebListenersWindows|TestWindowsLeadArgvRunsScripts|TestLeadShimsRunByName|TestStartOldThenExit|TestPythonChildUsesUTF8|TestDSHProxy.*|TestWriteYAMLWindows.*|TestRenameDSHYAMLWindows.*|TestManagementDSHConfigureWindowsLocks|TestPluginsUninstallWindowsTimeoutStopsTreeBeforeUnlock|TestPluginsUninstallWindowsJobWaitGivesUp|$auto)$" ./core ./cmd/cc-connect
       - name: QQ package and candidate CLI (ACP media and receipts)
         # #1749: run on Windows, including the real candidate binary, rather than only cross-compile.
         env:
