@@ -115,9 +115,9 @@ func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent)
 
 // contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless
 // inject_team_rules is off, then the local house rules (<data dir>/rules/house.md, kept even when
-// inject_team_rules is off: they are the owner's own rules), plus aboutHint for agents that do not
-// take AgentSystemPrompt natively (Codex, Gemini, DSH, Antigravity, ACP…), so every role knows to run
-// `bothouse about`. The house file is read on every delivery; teamRulesOnce hashes the whole text,
+// inject_team_rules is off: they are the owner's own rules), plus bridgeInstructions for agents that do
+// not take AgentSystemPrompt natively (Codex, Gemini, DSH, Antigravity, ACP…), so every CLI reads the
+// same bridge instructions as Claude (send files back, cron, NO_REPLY, `bothouse about`…). The house file is read on every delivery; teamRulesOnce hashes the whole text,
 // so an edited file reaches each role on its next turn.
 func (e *Engine) contextRules(rules string, session *Session, agent Agent) string {
 	if e.skipTeamModeRules.Load() {
@@ -132,9 +132,9 @@ func (e *Engine) contextRules(rules string, session *Session, agent Agent) strin
 	}
 	if _, native := agent.(SystemPromptSupporter); !native {
 		if rules == "" {
-			rules = aboutHint
+			rules = bridgeInstructionsBlock + "\n"
 		} else {
-			rules += "\n" + aboutHint
+			rules += "\n\n" + bridgeInstructionsBlock + "\n"
 		}
 	}
 	if rules == "" {
