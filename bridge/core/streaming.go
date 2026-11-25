@@ -473,6 +473,8 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		close(sp.timerStop)
 	}
 
+	finalText = stripSilentReply(finalText)
+
 	if replier, ok := sp.platform.(PreviewReplier); ok && sp.previewMsgID != nil && !sp.degraded && finalText != "" {
 		finalCtx := sp.replyCtx
 		if m, ok := sp.platform.(FinalReplyMarker); ok {

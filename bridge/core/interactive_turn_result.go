@@ -257,14 +257,17 @@ func (e *Engine) composeTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		isSilent = true
 	}
 	if !isSilent {
-		if stripped, ok := stripTrailingSilent(baseResponse); ok {
+		_, hadTrailing := stripTrailingSilent(baseResponse)
+		if stripped := stripSilentReply(baseResponse); stripped != baseResponse {
 			turn.state.mu.Lock()
 			scheduled := turn.state.turnScheduled
 			turn.state.mu.Unlock()
 			// #1188: a cron/timer turn (兜底到点, 工作区上报, later) has no
-			// user waiting; text before its NO_REPLY is the agent's plan
+			// user waiting; text before a trailing NO_REPLY is the agent's plan
 			// ("我会先核对…"), not a message. Swallow the whole turn.
-			if strings.TrimSpace(stripped) == "" || scheduled {
+			// Leading/mid-turn standalone NO_REPLY markers followed by real text
+			// still deliver the text.
+			if strings.TrimSpace(stripped) == "" || (hadTrailing && scheduled) {
 				isSilent = true
 			} else {
 				baseResponse = stripped
@@ -452,10 +455,7 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		// orphaned shell. Finalizing-in-place avoids the "撤回了一条消息"
 		// gray bar that DeletePreviewMessage would leave in Lark.
 		if hasRichCard && turn.cardMessageID != nil {
-			silentBody := turn.partialText
-			if stripped, ok := stripTrailingSilent(turn.partialText); ok {
-				silentBody = strings.TrimRight(stripped, " \t\r\n")
-			}
+			silentBody := strings.TrimRight(stripSilentReply(turn.partialText), " \t\r\n")
 			if silentBody != "" || len(turn.toolSteps) > 0 {
 				card := buildResolvedRichCard(CardStatusDone, "", turn.toolSteps, silentBody, false, e.composeRichStatusFooter(false, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
@@ -534,11 +534,7 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 			unsent = finalReplyText(unsent)
 			// The text before the tool call already went out, so the whole-reply
 			// NO_REPLY check above does not cover this remainder after a tool call.
-			if isSilentReply(unsent) {
-				unsent = ""
-			} else if stripped, ok := stripTrailingSilent(unsent); ok {
-				unsent = stripped
-			}
+			unsent = stripSilentReply(unsent)
 			if unsent == "" {
 				turn.sp.discard()
 			} else {
