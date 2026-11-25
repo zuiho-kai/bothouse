@@ -93,13 +93,18 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	user.ID, user.Short, user.PauseWhy = 7, "用户叫停的", "用户 22:2x「不要并行太多」：收窄"
 	elsewhere := stop
 	elsewhere.ID, elsewhere.own = 8, "discord:c2"
-	items := []teamTaskBoardItem{stop, old, user, elsewhere}
+	// #1993: a watchdog's 「卡住」 (nudged without progress) is not a stop the user hears of
+	stuck := teamTaskBoardItem{ID: 9, Short: "期权采集恢复+报警", WS: "discord:ws9", wsName: "工作区9", wsStuckWhy: "看门催促无进展", own: chat}
+	items := []teamTaskBoardItem{stop, old, user, elsewhere, stuck}
+	if s, _, _ := chatStopOf(stuck, now); s != "" {
+		t.Fatalf("stuck item gave a ② stamp %q", s)
+	}
 	e.announceChatStops(f, st, chat, items, now)
 	e.announceChatStops(f, st, chat, items, now)
 	if len(f.sent) != 1 {
 		t.Fatalf("want one ② for the new stop only, got %q", f.sent)
 	}
-	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 自动再派人接着做。"; f.sent[0] != want {
+	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 再接着做，你说不做就撤掉。"; f.sent[0] != want {
 		t.Fatalf("② = %q", f.sent[0])
 	}
 	// #1976: the secretary channel reads the same line from the state, for every chat, said once
@@ -121,7 +126,7 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	}
 }
 
-const want0 = "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 自动再派人接着做。"
+const want0 = "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 再接着做，你说不做就撤掉。"
 
 func TestChatClock(t *testing.T) {
 	now := time.Date(2026, 11, 24, 23, 0, 0, 0, time.Local)
