@@ -78,7 +78,26 @@ func exitBoardItem(t *testing.T, e *Engine, id int, what string) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\"}\n", id, what); err != nil {
+	// the task's owner chat (taskOwnerChat, #2010): the chat that owns the fixture's workspace
+	chat := ""
+	e.teamExit.mu.Lock()
+	r := e.teamExit.resolver
+	e.teamExit.mu.Unlock()
+	if r != nil {
+		for _, k := range []string{exitWSKey, teamChatKey(exitWSKey), teamChannelID(exitWSKey)} {
+			if parent, ok := r.WorkspaceParent(k); ok && parent != "" {
+				chat = teamChatKey(parent)
+				if !strings.Contains(parent, ":") {
+					chat = "discord:" + parent
+				}
+				break
+			}
+		}
+	}
+	if chat == "" {
+		chat = teamChatKey(exitChatKey)
+	}
+	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\",\"chat\":%q}\n", id, what, chat); err != nil {
 		t.Fatal(err)
 	}
 }
