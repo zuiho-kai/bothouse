@@ -214,6 +214,13 @@ type generalReplyContext struct {
 
 func (p *generalPlatform) Name() string { return "general" }
 
+func (p *generalPlatform) ReconstructReplyCtx(sessionKey string) (any, error) {
+	if sessionKey != GeneralSessionKey {
+		return nil, fmt.Errorf("invalid General session key %q", sessionKey)
+	}
+	return generalReplyContext{}, nil
+}
+
 func (p *generalPlatform) Start(handler MessageHandler) error {
 	p.room.mu.Lock()
 	defer p.room.mu.Unlock()
