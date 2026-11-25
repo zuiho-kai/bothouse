@@ -1,25 +1,25 @@
 <!-- bothouse-readme-status:v1 -->
 # bothouse repository status / 仓库状态
 
-Last successful update / 最后成功更新: **2026-11-25T08:34:39Z**
+Last successful update / 最后成功更新: **2026-11-25T21:41:49Z**
 
 | Metric / 指标 | Value / 数值 |
 | --- | ---: |
-| Stars | 291 |
-| Forks | 38 |
+| Stars | 295 |
+| Forks | 41 |
 | Open issues / 未关闭 Issues | 8 |
-| Open PRs / 未关闭 PR | 10 |
-| Closed PRs in 30 days / 30 天内关闭 PR | 1412 |
-| Commits in 30 days / 30 天内提交 | 2542 |
-| Latest release / 最新版本 | v0.1.92 |
+| Open PRs / 未关闭 PR | 16 |
+| Closed PRs in 30 days / 30 天内关闭 PR | 1393 |
+| Commits in 30 days / 30 天内提交 | 2568 |
+| Latest release / 最新版本 | v0.1.93 |
 
-Window / 统计窗口（UTC）: 2026-10-26T08:34:39Z → 2026-11-25T08:34:39Z.
+Window / 统计窗口（UTC）: 2026-10-26T21:41:49Z → 2026-11-25T21:41:49Z.
 
 Closed PRs include merged PRs. Commits count all history reachable from the default branch, including merge and bot commits. GitHub search can lag behind recent events.
 
 关闭 PR 包含已合并 PR。提交按默认分支所有可达历史统计，包含合并提交和机器人提交。GitHub 搜索可能有延迟。
 
-Default branch / 默认分支: [main at 5d2317b5aa1692342fcbcc51750b0650d208ad79](https://github.com/zuiho-kai/bothouse/commit/5d2317b5aa1692342fcbcc51750b0650d208ad79).
+Default branch / 默认分支: [main at 0c4c12c5e4235fc87aad190ead7d492622de5221](https://github.com/zuiho-kai/bothouse/commit/0c4c12c5e4235fc87aad190ead7d492622de5221).
 
 Updated every six hours. A failed run keeps the last successful snapshot. / 每六小时更新，任务失败时保留上次成功结果。
 
