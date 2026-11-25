@@ -197,7 +197,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	posted := false
 	if p != nil {
-		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, id, false, "")
+		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, e.boardItemByID(id), false, "")
 	}
 	slog.Warn("workspace self-pause: no report after the wakes; last words handed to the chat lead", "session", key, "board_item", id, "handed", posted)
 	chat := parent
