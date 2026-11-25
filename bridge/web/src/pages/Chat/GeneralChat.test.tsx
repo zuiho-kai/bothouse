@@ -119,3 +119,48 @@ it('shows how to enable the room when the management API returns 404', async () 
   expect(container.querySelector('textarea')).toBeNull();
   expect(MessageStream.current).toBeUndefined();
 });
+
+it('joins an existing project to General and waits for an explicit restart', async () => {
+  let restarted = false;
+  const fetch = vi.fn(async (url: string, request: RequestInit) => {
+    if (url.endsWith('/projects')) return success({ projects: [
+      { name: 'load test', agent_type: 'codex', platforms: ['discord'] },
+      { name: 'member', agent_type: 'codex', platforms: ['general'] },
+    ] });
+    if (url.endsWith('/add-platform') && request.method === 'POST') return success({ restart_required: true });
+    if (url.endsWith('/restart') && request.method === 'POST') {
+      restarted = true;
+      return success({});
+    }
+    if (restarted && url.endsWith('/members')) return success({ members: [{ project: 'load test', display_name: 'Load test' }] });
+    if (restarted && url.endsWith('/messages')) return success({ messages: [] });
+    return Response.json({ ok: false }, { status: 404 });
+  });
+  vi.stubGlobal('fetch', fetch);
+  vi.stubGlobal('confirm', vi.fn(() => true));
+  await renderRoom();
+
+  const addProject = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
+  expect(addProject).not.toBeNull();
+  await act(async () => addProject!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const select = dialog.querySelector('select')!;
+  expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'load test']);
+  await act(async () => {
+    select.value = 'load test';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  expect(fetch).toHaveBeenCalledWith('/api/v1/projects/load%20test/add-platform', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ type: 'general', options: {} }),
+  }));
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/restart'))).toBe(false);
+  expect(container.textContent).toContain('general.projectSaved');
+
+  const restart = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'setup.restartNow')!;
+  await act(async () => restart.click());
+  const reload = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'general.reloadRoom')!;
+  await act(async () => reload.click());
+  expect(container.textContent).toContain('@load test');
+  expect(container.textContent).not.toContain('general.projectSaved');
+});

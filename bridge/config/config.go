@@ -4236,11 +4236,14 @@ func RemoveProject(projectName string) error {
 	return saveConfig(cfg)
 }
 
-// AddPlatformToProject appends a platform config to a project. The local DSH
-// connection can also update its room and always requires an existing project.
+// AddPlatformToProject appends a platform config to a project. General membership
+// and local DSH connections require an existing project.
 // If the project doesn't exist, it is created using agentType and workDir when provided,
 // otherwise agent config is cloned from the first existing project when present.
 func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, agentType string) error {
+	if platform.Type == "general" {
+		return addProjectToGeneral(projectName)
+	}
 	if room, localDSH := platform.Options[core.LocalDSHRoomOption]; localDSH && platform.Type == "cloud_web" {
 		_, err := ApplyWizardProjects(func(projects []WizardProjectSnapshot) ([]WizardProjectOptions, error) {
 			for _, project := range projects {
@@ -4309,6 +4312,36 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 		Platforms: []PlatformConfig{platform},
 	})
 	return saveConfig(cfg)
+}
+
+func addProjectToGeneral(projectName string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if ConfigPath == "" {
+		return fmt.Errorf("config path not set")
+	}
+	raw, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+	doc := map[string]any{}
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	projects, err := tableList(doc, "projects")
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		if project["name"] == projectName {
+			if project["general"] == true {
+				return nil
+			}
+			project["general"] = true
+			return saveConfig(doc)
+		}
+	}
+	return fmt.Errorf("project %q: %w", projectName, core.ErrProjectNotFound)
 }
 
 func writeRawConfig(content string) error {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestProjectGateBurstWindowDecode(t *testing.T) {
@@ -2873,6 +2875,51 @@ func TestGetProjectConfigDetails(t *testing.T) {
 	pcs, ok := details["platform_configs"].([]map[string]any)
 	if !ok || len(pcs) < 2 {
 		t.Fatalf("platform_configs = %#v", details["platform_configs"])
+	}
+}
+
+func TestAddPlatformToProject_GeneralEnablesOnlyExistingProject(t *testing.T) {
+	path := writeConfigFixture(t, `
+[[projects]]
+name = "review"
+general = false
+future_option = "keep"
+[projects.agent]
+type = "codex"
+
+[[projects.platforms]]
+type = "discord"
+[projects.platforms.options]
+token = "fixture"
+
+[[projects]]
+name = "other"
+[projects.agent]
+type = "claudecode"
+`)
+	patchConfigPath(t, path)
+	general := PlatformConfig{Type: "general"}
+	for i := 0; i < 2; i++ {
+		if err := AddPlatformToProject("review", general, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := AddPlatformToProject("missing", general, "", ""); !errors.Is(err, core.ErrProjectNotFound) {
+		t.Fatalf("expected unknown project error, got %v", err)
+	}
+	cfg := readConfigFixture(t, path)
+	review := cfg.Projects[0]
+	if len(cfg.Projects) != 2 || !review.General || cfg.Projects[1].General ||
+		review.Agent.Type != "codex" || len(review.Platforms) != 1 || review.Platforms[0].Type != "discord" ||
+		review.Platforms[0].Options["token"] != "fixture" {
+		t.Fatalf("unexpected project settings after adding to General: %+v", cfg.Projects)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `future_option = "keep"`) {
+		t.Fatal("unknown project option was removed")
 	}
 }
 

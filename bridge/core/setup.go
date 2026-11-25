@@ -504,6 +504,10 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		return
 	}
 	if err := m.addPlatformToProject(projectName, req.Type, req.Options, req.WorkDir, req.AgentType); err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			mgmtError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		if errors.Is(err, ErrACPCommandRequired) {
 			mgmtError(w, http.StatusBadRequest, err.Error())
 			return

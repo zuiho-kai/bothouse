@@ -63,6 +63,8 @@ This repo is built the same way: I hand out work in the group, the agents each t
 | **One model, one account** | Create several members on the same model, each with its own job. See [A team from one CLI](docs/single-cli-team.en.md). |
 | **DSH** (DeepSeek Harness, DeepSeek's own AI assistant app) | Say "install bothouse-dsh for me" in DSH, or run `bothouse module add dsh`. See [bothouse in DSH](docs/platforms/dsh.en.md). |
 
+To chat with existing projects in a shared room, open **Chat → General → Add project**. Restart the service to apply the saved membership, then start a message with `@project-name` to address that project.
+
 
 <a id="install"></a>
 

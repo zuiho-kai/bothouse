@@ -74,7 +74,7 @@ export const updateProject = (name: string, body: ProjectSettingsUpdate) => api.
 
 export const addPlatformToProject = (projectName: string, body: {
   type: string; options: Record<string, any>; work_dir?: string; agent_type?: string;
-}) => api.post<{ message: string; restart_required: boolean }>(`/projects/${projectName}/add-platform`, body);
+}) => api.post<{ message: string; restart_required: boolean }>(`/projects/${encodeURIComponent(projectName)}/add-platform`, body);
 
 // hot_load: the service stopped the role without a restart (projects_removed), or why it could
 // not (hot_load_error; restart_required is then true)

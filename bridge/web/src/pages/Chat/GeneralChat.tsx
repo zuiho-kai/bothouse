@@ -11,6 +11,7 @@ import {
 } from '@/api/general';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import GeneralMembership from './GeneralMembership';
 
 type RoomStatus = 'loading' | 'unavailable' | 'loadError' | 'connecting' | 'live' | 'reconnecting' | 'disconnected';
 
@@ -78,6 +79,11 @@ export default function GeneralChat() {
     return () => window.removeEventListener('resize', follow);
   }, [messages]);
 
+  function reloadRoom() {
+    setStatus('loading');
+    setAttempt((value) => value + 1);
+  }
+
   function mention(project: string) {
     setDraft((current) => {
       const text = current.trimStart();
@@ -123,8 +129,7 @@ export default function GeneralChat() {
             <p className="text-xs text-ink-mute" role="status">{t(`general.status.${status}`)}</p>
           </div>
           {retryable && (
-            <Button type="button" variant="secondary" size="sm" disabled={sending}
-              onClick={() => { setStatus('loading'); setAttempt((value) => value + 1); }}>
+            <Button type="button" variant="secondary" size="sm" disabled={sending} onClick={reloadRoom}>
               {t('common.retry')}
             </Button>
           )}
@@ -147,6 +152,7 @@ export default function GeneralChat() {
             )}
           </div>
         )}
+        <GeneralMembership members={members} onRefresh={reloadRoom} />
       </header>
 
       <div ref={transcript} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-canvas/60 p-4 sm:px-6"
