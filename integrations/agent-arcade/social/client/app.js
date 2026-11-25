@@ -893,7 +893,12 @@ function showPostComposer() {
   const note=el('p','文字和图片可以单独发。最多 1000 字、3 张静态 PNG 或 JPEG，每张不超过 4 MB。'+
     '你和当前好友可见。以后互加的好友也能查看仍保留的动态原图；原图可能含拍摄时间或位置。','minor');
   const files=el('input');files.type='file';files.multiple=true;files.accept='image/png,image/jpeg';
-  const fileLabel=el('label','添加图片');fileLabel.append(files);
+  files.hidden=true;
+  const picker=button('添加图片',()=>files.click());
+  const selectionStatus=el('span','未添加图片','minor');
+  selectionStatus.setAttribute('role','status');
+  const selectionControls=el('div',null,'actions');
+  selectionControls.append(picker,selectionStatus);
   const gallery=el('div',null,'feed-images');
   const submit=el('button','发布动态','primary');submit.type='submit';
   const cancel=button('取消',closeDialog);
@@ -903,7 +908,7 @@ function showPostComposer() {
   input.setAttribute('aria-describedby',note.id);
   input.value=postAttemptFor(account)?.text||'';
   label.htmlFor=input.id;
-  form.append(author,label,input,fileLabel,note,gallery,actions);
+  form.append(author,label,input,files,selectionControls,note,gallery,actions);
   const scope=openDialog('发动态',[form]);
   const current=()=>scope===dialogGeneration&&epoch===generation;
   const status=$('#dialog-error');
@@ -911,6 +916,7 @@ function showPostComposer() {
   input.focus();
 
   function renderPreviews(){
+    selectionStatus.textContent=selected.length?'已选 '+selected.length+' 张图片':'未添加图片';
     gallery.replaceChildren();
     selected.forEach(({url},index)=>{
       const tile=el('div',null,'feed-image-preview'), preview=el('img');
@@ -920,7 +926,7 @@ function showPostComposer() {
         selected=selected.filter((_,position)=>position!==index);
         status.textContent='';
         renderPreviews();
-        (gallery.children[index]?.querySelector('button')??files).focus();
+        (gallery.children[index]?.querySelector('button')??picker).focus();
       });
       remove.setAttribute('aria-label','移除第 '+(index+1)+' 张图片');
       tile.append(preview,remove);gallery.append(tile);
@@ -936,7 +942,8 @@ function showPostComposer() {
       status.textContent='每条动态最多 3 张图片。';
       return;
     }
-    reading=files.disabled=submit.disabled=true;
+    const restorePickerFocus=document.activeElement===picker;
+    reading=files.disabled=picker.disabled=submit.disabled=true;
     try{
       const additions=[];
       for(const file of picked){
@@ -951,12 +958,11 @@ function showPostComposer() {
       }
       selected=[...selected,...additions];
       renderPreviews();
-      files.disabled=false;
-      files.focus();
     }catch(error){
       if(current())status.textContent=error.message;
     }finally{
-      reading=files.disabled=submit.disabled=false;
+      reading=files.disabled=picker.disabled=submit.disabled=false;
+      if(current()&&restorePickerFocus&&document.activeElement===document.body)picker.focus();
     }
   });
 
@@ -975,7 +981,7 @@ function showPostComposer() {
       draft?.text===text?draft:{text,expectedAccount:account,clientId:clientNonce()};
     if(selected.length)imageAttempt=attempt;
     else savePostAttempt(attempt);
-    input.readOnly=files.disabled=cancel.disabled=true;
+    input.readOnly=files.disabled=picker.disabled=cancel.disabled=true;
     const removals=gallery.querySelectorAll('button');
     removals.forEach(control=>control.disabled=true);
     void perform(async()=>{
@@ -996,7 +1002,7 @@ function showPostComposer() {
         }
         throw error;
       }finally{
-        input.readOnly=files.disabled=cancel.disabled=false;
+        input.readOnly=files.disabled=picker.disabled=cancel.disabled=false;
         removals.forEach(control=>control.disabled=false);
       }
       if(epoch!==generation)return;
@@ -2436,7 +2442,12 @@ function closeDialog() {
   if(returnToMembers&&!$('#members').hidden)$('#members').focus({preventScroll:true});
 }
 $('#dialog-close').addEventListener('click',closeDialog);
-dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
+dialog.addEventListener('cancel',event=>{
+  // File pickers can bubble their own cancel event through the dialog.
+  if(event.target!==dialog)return;
+  event.preventDefault();
+  closeDialog();
+});
 function openDialog(title, nodes, groupId, memberPanel=false) {
   const dock=memberPanel&&wideMembers.matches;
   if(dialog.open&&dock===dialog.matches(':modal'))dialog.close();
