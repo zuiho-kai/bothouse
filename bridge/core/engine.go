@@ -6785,7 +6785,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			case EventResult:
 				fullResponse := event.Content
 				if fullResponse == "" && len(textParts) > 0 {
-					fullResponse = strings.Join(textParts, "")
+					fullResponse = joinReplyParts(textParts)
 				}
 				if reset, ok := QuotaExhaustedReset(event); ok {
 					fullResponse = e.quotaExhaustedMessage(reset, agentSession, nil)
@@ -7446,7 +7446,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		// A boundary ends the current segment even when quiet mode joins the
 		// surrounding prose. Remove its control marker before the next text.
 		if (event.Type == EventToolUse || event.Type == EventThinking || event.Type == EventPermissionRequest) && len(turn.textParts) > turn.segmentStart {
-			segment := strings.Join(turn.textParts[turn.segmentStart:], "")
+			segment := joinReplyParts(turn.textParts[turn.segmentStart:])
 			if clean := stripSilentReply(segment); clean != segment {
 				turn.textParts = append(turn.textParts[:turn.segmentStart], clean)
 			}
@@ -7531,7 +7531,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 						turn.sp.detachPreview()
 					} else {
-						segment := stripSilentReply(strings.Join(turn.textParts[turn.segmentStart:], ""))
+						segment := stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))
 						if segment != "" {
 							turn.sendReplySegment(p, turn.replyCtx, segment)
 						}
@@ -7565,7 +7565,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {
 					if !previewActive {
-						segment := stripSilentReply(strings.Join(turn.textParts[turn.segmentStart:], ""))
+						segment := stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))
 						if segment != "" {
 							turn.sendReplySegment(p, turn.replyCtx, segment)
 						}
@@ -7665,7 +7665,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						}
 						turn.sp.detachPreview()
 					} else {
-						segment := stripSilentReply(strings.Join(turn.textParts[turn.segmentStart:], ""))
+						segment := stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))
 						if segment != "" {
 							turn.sendReplySegment(p, turn.replyCtx, segment)
 						}
@@ -7709,7 +7709,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				previewActive := turn.sp.canPreview()
 				if len(turn.textParts) > turn.segmentStart {
 					if !previewActive {
-						segment := stripSilentReply(strings.Join(turn.textParts[turn.segmentStart:], ""))
+						segment := stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))
 						if segment != "" {
 							turn.sendReplySegment(p, turn.replyCtx, segment)
 						}
@@ -8013,7 +8013,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			previewActive := turn.sp.canPreview()
 			if len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) {
 				if !previewActive {
-					segment := stripSilentReply(strings.Join(turn.textParts[turn.segmentStart:], ""))
+					segment := stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))
 					if segment != "" {
 						turn.sendReplySegment(p, turn.replyCtx, segment)
 					}
@@ -8375,7 +8375,7 @@ channelClosed:
 		p := inputOutputPlatform(turn.state.platform, turn.input)
 		turn.state.mu.Unlock()
 
-		fullResponse := strings.Join(turn.textParts, "")
+		fullResponse := joinReplyParts(turn.textParts)
 		turn.session.AddHistory("assistant", fullResponse)
 		// Persist immediately — this path runs on abnormal channel close,
 		// so deferring the save until the next foreground turn risks losing
@@ -8437,7 +8437,7 @@ channelClosed:
 		// Same rule as the normal end: text before segmentStart already went out (#700).
 		if turn.segmentStart > 0 {
 			if turn.segmentStart < len(turn.textParts) {
-				unsent := strings.Join(turn.textParts[turn.segmentStart:], "")
+				unsent := joinReplyParts(turn.textParts[turn.segmentStart:])
 				unsent = closedFinalReplyText(unsent)
 				if unsent == "" {
 					turn.sp.discard()
@@ -20358,12 +20358,30 @@ func stripAgentFooterLines(text string) string {
 // so the agent stays silent in group chats where a reply would be noise.
 var silentReplyRe = regexp.MustCompile(`(?i)^NO_REPLY[.!?,;:。！？…，；：、]*$`)
 
-// silentReplyTrailingRe matches a trailing NO_REPLY marker preceded by whitespace or
-// markdown emphasis (`*`). Lets agents that narrate their reasoning before the marker
-// still suppress the marker from the delivered text (mirroring OpenClaw's stripSilentToken).
-// With tool progress hidden, text segments around tool calls are joined with no separator,
-// so the marker can sit right after CJK text or punctuation; group 1 preserves that character.
-var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^|[\s\p{Z}]+|\*+|([^\x00-\x7F]|[.!?,;:)\]]))NO_REPLY[.!?,;:。！？…，；：、\s\p{Z}]*$`)
+// silentReplyTrailingRe matches a trailing NO_REPLY marker that stands as its own
+// last line or follows a sentence-ending mark ("说明。NO_REPLY", "Done. NO_REPLY"),
+// optionally wrapped in markdown emphasis. A NO_REPLY written as a word inside a
+// sentence ("没漏洞只回 NO_REPLY", an instruction to a teammate) is not a marker:
+// such a reply is content and must reach the chat whole (#2021). Group 1 keeps the
+// sentence-ending mark. Text segments joined around tool calls are separated by
+// joinReplyParts, so a marker that was its own segment still lands on its own line.
+var silentReplyTrailingRe = regexp.MustCompile(`(?i)(?:^\**|\n[ \t\p{Z}]*\**|([.!?。！？…])[ \t\p{Z}]*\**)NO_REPLY[*.!?,;:。！？…，；：、\s\p{Z}]*$`)
+
+// joinReplyParts joins streamed text segments. A segment that is nothing but a
+// NO_REPLY marker goes on its own line, so the marker rule above still sees it
+// as a marker after tool calls glued the segments together ("是这张" + "NO_REPLY").
+func joinReplyParts(parts []string) string {
+	var b strings.Builder
+	for _, part := range parts {
+		if IsSilentReply(part) && b.Len() > 0 {
+			if prev := b.String(); !strings.HasSuffix(prev, "\n") {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString(part)
+	}
+	return b.String()
+}
 
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {

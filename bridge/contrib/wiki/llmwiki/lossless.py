@@ -14,6 +14,9 @@ README's `- [name](target) — …` entries (ingest rewrites them with the page)
 target (`](x)` → `]()`, `[[x]]` → `[[]]`): a page that moved or merged has its links repointed, its words stay.
 Whole lines, not substrings: "X 已启用" → "X 已启用的说法有误" must keep the old line somewhere (as ingest's unkept()).
 A line the writer no longer holds true goes to its page's 「## 历史」 section, unchanged.
+The four credibility markers at a line's end — （推论）（推断）（判断）（推测） — are metadata like the forum floor
+tag: they are stripped from both sides before comparing, so tagging an old line or correcting its tag is not a loss;
+any other change of the wording still is.
 """
 import re, subprocess, sys
 from pathlib import Path
@@ -29,10 +32,16 @@ ENTRY = re.compile(r"\s*- \[[^\]]*\]\([^)]*\)")
 MDLINK = re.compile(r"\]\([^)]*\)")
 WIKILINK = re.compile(r"\[\[[^\]]*\]\]")
 FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 论坛楼层帖标注（同 lint.FLOOR_TAG）：元数据，改标题、楼号不算丢内容
+# 行尾四类标记（推论/推断/判断/推测，#1486）：元数据，补标、改标不算丢内容；剥掉再比，其余字照旧逐字比
+TAG = re.compile(r"(?:[。．.]\s*)?[（(](?:推论|推断|判断|推测)[）)]\s*[。．.]?\s*$")
+
+
+TRAIL = re.compile(r"[。．.]\s*$")  # 句末句号不算内容：行尾标记两种写法（「X（推论）。」「X。（推论）」）剥完要能对上
 
 
 def norm(line):
-    return WIKILINK.sub("[[]]", MDLINK.sub("]()", FLOOR_TAG.sub("", line).strip()))
+    l = TAG.sub("", FLOOR_TAG.sub("", line).strip())
+    return TRAIL.sub("", WIKILINK.sub("[[]]", MDLINK.sub("]()", l)))
 
 
 def kept_split(line, pages):
