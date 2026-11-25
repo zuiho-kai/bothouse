@@ -109,9 +109,9 @@ func (e *Engine) resumeReleaseHoldsPass() int {
 		if it.ReleaseHold == nil || !it.ReleaseHold.before(StartTime) {
 			continue
 		}
-		chat := it.Chat
+		chat := taskOwnerOf(it) // the owner chat only, no sk fallback (11-25 #2010)
 		if chat == "" {
-			chat = it.SK
+			slog.Error("release hold: task has no owner chat; its notices are not posted", "board", it.ID)
 		}
 		a, ok := e.releaseHoldAssignment(it.ID)
 		if !ok {

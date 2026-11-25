@@ -357,15 +357,9 @@ const (
 
 // taskForumChat: the chat channel the item came from (a handoff's chat, else the channel it lives in).
 func taskForumChat(it teamTaskBoardItem) string {
-	for _, c := range []string{it.Chat, it.parent, it.own, it.SK} {
-		if c = chatOf(strings.TrimSpace(c)); c != "" {
-			return c
-		}
-	}
-	if it.Ch != "" {
-		return "discord:" + it.Ch
-	}
-	return ""
+	// the task's owner chat only (taskOwnerOf): no thread under the workspace's current owner,
+	// its sk or its card channel for a row with no owner (11-25 #2010)
+	return taskOwnerOf(it)
 }
 
 var taskForumSectionHead = regexp.MustCompile(`(?m)^##\s+`)

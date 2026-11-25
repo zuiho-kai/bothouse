@@ -209,8 +209,12 @@ def compare_gate(nid, files, msg):
 
 def say_diffs(rec, text):
     """文字汇报放行后，把对照件的三处差别跟着发到同一个聊天频道（桥照原文贴汇报，差别加不进正文）。"""
-    chat = rec.get("chat") or os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
-    if not text or not chat or getattr(board, "is_probe", lambda _: False)(rec.get("board")):
+    if not text or getattr(board, "is_probe", lambda _: False)(rec.get("board")):
+        return
+    nid = board_id(rec, rec.get("file") or "")
+    chat = board.owner_chat(board.item_by_id(nid)) if nid else ""
+    if not chat:  # 只按任务号查归属，查不到就不发（不退到跑命令的频道）
+        print(f"ws-pass: 三处差别没发出去（#{nid or '?'} 没记归属频道），手动补发：\n{text}", file=sys.stderr)
         return
     r = subprocess.run([cc_bin(), "send", "-p", _team.project(), "-s", chat, "--message", text],
                        capture_output=True, text=True, timeout=300)
@@ -334,12 +338,12 @@ def main(argv):
     diffs = compare_gate(nid or board_id(rec, path), [p for p in shots if p != compare], msg)
     if diffs:
         msg = msg + "\n\n" + diffs  # 三处差别跟成品同一条消息到用户手里
-    chat = rec.get("chat") or key
-    if not chat:
-        sys.exit("ws-pass: 不知道发到哪个频道（没有 CC_SESSION_KEY，也没找到交接记录）")
     if board.is_probe(rec.get("board")):
-        print(f"ws-pass: 探针（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
+        print(f"ws-pass: 探针（{rec.get('task')}），没有发到聊天频道：{'、'.join(shots)}", file=sys.stderr)
         return
+    if not (nid or board_id(rec, path)):
+        sys.exit("ws-pass: 找不到这件活的任务板编号，不知道它归哪个频道；没发")
+    chat = board.owner_or_exit(nid or board_id(rec, path), "ws-pass")  # 只按任务号查归属（11-25 传错频道根治）
     # #988：成品附件就是结果，开头 @ 布置人；同一次一并放行的文字汇报已 @ 过就不再 @
     # #2200：视频版本说明行与纯英文数字文件名由桥统一处理，脚本只把任务号和 --label 传给桥。
     texted = close_text(rec, path, verdict, nid)

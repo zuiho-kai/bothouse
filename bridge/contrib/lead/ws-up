@@ -77,14 +77,23 @@ def pick_chat(last: dict, cur: str, notes=None, report_id=0):
         hit = list(hits.items())
     else:
         hit = list(mine.items())
-    chats = {v.get("chat") for _, v in hit if v.get("chat")}
-    if not chats:
-        sys.exit("ws-up: 交接记录里没有来源聊天频道（用旧版 ws-handoff 交的活），请在聊天频道重跑一次 ws-handoff")
-    if len(chats) > 1:
-        sys.exit(f"ws-up: 本工作区的活来自多个聊天频道，不知道报给谁；用 --notes 写明是哪件：{opts}")
-    chat = chats.pop()
-    path = next(k for k, v in reversed(hit) if v.get("chat") == chat)
-    return chat, path
+    # 归属只按任务号查任务板（board.owner_chat）：交接记录里抄的 chat 不算数，查不到就停（11-25 传错频道根治）
+    owners = {}
+    for k, v in hit:
+        ids = [int(x) for x in (v.get("board") or []) if str(x).isdigit()]
+        if report_id:
+            ids = [report_id] if report_id in ids or not ids else []
+        for i in ids:
+            owners.setdefault(board.owner_chat(board.item_by_id(i)), []).append((k, i))
+    if not owners:
+        sys.exit("ws-up: 交接记录里没有任务板编号，不知道这件活归哪个频道；没发。用 --notes 写明是哪件，或让主角色重交")
+    if "" in owners:
+        ids = "、".join(f"#{i}" for _, i in owners[""])
+        sys.exit(f"ws-up: {ids} 没记归属频道，没发。让主角色在派它的频道跑 board move <编号> --to <频道会话 key> 补上")
+    if len(owners) > 1:
+        sys.exit(f"ws-up: 本工作区的活归多个聊天频道，不知道报给谁；用 --notes 写明是哪件：{opts}")
+    chat, rows = owners.popitem()
+    return chat, rows[-1][0]
 
 
 def cc_bin() -> str:
