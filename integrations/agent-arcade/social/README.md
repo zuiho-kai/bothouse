@@ -4,6 +4,32 @@
 
 Windows 聊天中点 **截图** 可调用系统截屏。系统工具无法启动时，点 **应用内截图**，选择窗口或屏幕并截取画面，拖动框选后点 **预览选区**。只有在原会话点 **发送截图** 才上传所选区域。关闭选区或发送预览即可取消。
 
+## 朋友第一次使用 / First use
+
+1. 当前提供 Windows 内测包，微软商店尚未上架。打开运营方提供的内测包，注册或登录后，在「通讯录」搜朋友的用户号并发送好友申请。
+2. 从「消息」打开私聊互发文字。在通讯录选好友可建群。配套 Windows 包使用构建时写入的同一好友服务原点。见 [Windows 构建与安装](windows/README.md)。
+3. 要和 AI 聊天，从「我 → 复制用户号」把号码给 Bothouse 房主。房主按你的注册账号分享后，直接从「通讯录 → AI 联系人」找到角色，点「打开私聊」。如果收到的是配对码，再按下文兑换。私聊可直接交办，群内用 @ 选择已加入的角色，结果回原会话。
+4. 桌面从「更多 → 小星球」进入自己的星球。房主允许来访后，从好友私聊的「会话设置」进入对方星球。返回后继续原会话与草稿。见 [世界安装器](https://github.com/zuiho-kai/bothouse/pull/2181)。
+
+1. A Windows test build is available from your Friends service operator and is not yet listed in the Microsoft Store. Register or sign in, then look up your friend’s user number in **Contacts** and send a friend request.
+2. Open the direct chat in **Messages** and exchange a message. Select friends in Contacts to start a group. A paired Windows package uses the same Friends origin. See [Windows build and installation](windows/README.md).
+3. In **我 → 复制用户号** (Me → Copy user number), copy your number and give it to the Bothouse host. Once the host shares a role with that registered account, go to **通讯录 → AI 联系人 → 打开私聊** (Contacts → AI contacts → Open direct chat). If the host sends a pairing code, redeem it as described below. Assign work in the direct chat or @ an added role in a group. Results return to the original chat.
+4. In the desktop app, **More → Little Worlds** opens your home. Once a friend allows visits, use the conversation settings in their private chat. Returning restores the chat and its draft. See the [world installer](https://github.com/zuiho-kai/bothouse/pull/2181).
+
+## 联系 Bothouse 角色
+
+房主在配套的 Bothouse 管理页打开「项目 → 项目详情 → 设置」，填写「好友用户号」，点「查找好友」，核对注册昵称和号码后点「确认分享角色」。[Bothouse 分享功能 #2185](https://github.com/zuiho-kai/bothouse/pull/2185) 需搭配本 Friends 服务。两端在服务主机使用同一个 Bothouse 实例目录，Friends 监听回环并生成该实例的查号凭据。[同机部署](deploy/README.md)
+
+从 **通讯录 → AI 联系人** 找到当前账号可用的 Bothouse 角色，核对角色名和用户号，点 **打开私聊**。群主可在 **群成员 → 群内 AI** 加入角色，群友在输入框通过 @ 选中它。角色由 Bothouse 提供。目录尚未分享时，请把自己的用户号告诉分享人。服务未连时可点 **重新加载 AI 联系人**，持续失败则联系好友服务管理员。
+
+In **Contacts → AI contacts**, find an available Bothouse role by name and user ID and choose **打开私聊** (Open direct chat). A group owner can add a role under **Group members → Group AI**. In the group composer, select that member with @. If a role has not been shared with you, tell the person sharing it your user ID. If the directory cannot connect, use **重新加载 AI 联系人** (Reload AI contacts) or tell the Friends service operator.
+
+如果对方用配对码分享角色，管理员会在好友服务主机核对账号归属并签发一次性配对码。登录对应好友账号，在 **通讯录 → AI 联系人 → 使用角色配对码** 兑换。已获授权的角色会一起出现，普通用户可以直接聊天。[管理员操作](server/bothouse/README.md)
+
+If the service operator shares access by code, they can verify the account and issue a one-time pairing code. Sign in to that Friends account and redeem it under **Contacts → AI contacts → 使用角色配对码** (Use a role pairing code). All roles shared with the account then appear together. [Host operator instructions](server/bothouse/README.md)
+
+已有个人 AI 的聊天记录可从消息列表打开。曾保存过角色资料的账号，可在「通讯录 → AI 联系人 → 原有 AI 的授权与资料」查看和撤回。
+
 ## 本机启动
 
 需要 Node.js 24.18 或更新的 24.x。服务使用 Node 自带的 HTTP、scrypt 与 SQLite，无 npm 运行依赖。从 Bothouse 仓库根目录运行以下命令。单独部署时按[单机部署清单](deploy/README.md)一并安装共享模块。
@@ -13,30 +39,6 @@ npm --prefix integrations/agent-arcade/social start
 ```
 
 浏览器打开 `http://127.0.0.1:8787/`。两个独立浏览器档案可各自注册一个合成账号；同一档案下的两个标签页共享登录。用户号可由用户选择，昵称可重复。服务重启或换设备后使用原号和密码登录。首版无找回密码和端到端加密。默认数据库在当前操作系统用户目录的 `.agent-arcade-social/social.sqlite`，也可用 `SOCIAL_DB` 指定持久磁盘上的路径。部署进程账户独占此目录的读写权限。
-
-## 朋友第一次使用 / First use
-
-1. 从同一好友服务注册或登录。测试时用两个浏览器档案注册不同用户号。在「通讯录」搜对方号码，发送申请并接受。
-2. 从「消息」打开私聊互发文字。在通讯录选好友可建群。配套 Windows 包使用构建时写入的同一好友服务原点。见 [Windows 构建与安装](windows/README.md)。
-3. 需要 AI 时，由管理员在桌面「更多 → Bothouse 管理」准备并授权角色。收到配对码时，按下文兑换。从「通讯录 → AI 联系人」打开获准角色。私聊直接交办，群内通过 @ 选择已加入的角色。结果回原会话。
-4. 桌面从「更多 → 小星球」进入自己的星球。房主允许来访后，从好友私聊的「会话设置」进入对方星球。返回后继续原会话与草稿。见 [世界安装器](https://github.com/zuiho-kai/bothouse/pull/2181)。
-
-1. Register or sign in on the same Friends service. For a local test, use two browser profiles and different user IDs. In **Contacts**, find the other ID, send a request and accept it.
-2. Open the direct chat in **Messages** and exchange a message. Select friends in Contacts to start a group. A paired Windows package uses the same Friends origin. See [Windows build and installation](windows/README.md).
-3. The operator prepares and shares roles through **More → Bothouse management**. If you receive a pairing code, follow the instructions below. Open an authorized role in **Contacts → AI contacts**. Assign work directly in a private chat, or @ an added role in a group. Results come back to the original chat.
-4. In the desktop app, **More → Little Worlds** opens your home. Once a friend allows visits, use the conversation settings in their private chat. Returning restores the chat and its draft. See the [world installer](https://github.com/zuiho-kai/bothouse/pull/2181).
-
-## 联系 Bothouse 角色
-
-从 **通讯录 → AI 联系人** 找到当前账号可用的 Bothouse 角色，核对角色名和用户号，点 **打开私聊**。群主可在 **群成员 → 群内 AI** 加入角色，群友在输入框通过 @ 选中它。角色由 Bothouse 提供。目录尚未分享时，请把自己的用户号告诉分享人。服务未连时可点 **重新加载 AI 联系人**，持续失败则联系好友服务管理员。
-
-In **Contacts → AI contacts**, find an available Bothouse role by name and user ID and choose **打开私聊** (Open direct chat). A group owner can add a role under **Group members → Group AI**. In the group composer, select that member with @. If a role has not been shared with you, tell the person sharing it your user ID. If the directory cannot connect, use **重新加载 AI 联系人** (Reload AI contacts) or tell the Friends service operator.
-
-如果对方用配对码分享角色，管理员会在好友服务主机核对账号归属并签发一次性配对码。登录对应好友账号，在 **通讯录 → AI 联系人 → 使用角色配对码** 兑换。已获授权的角色会一起出现，普通用户可以直接聊天。[管理员操作](server/bothouse/README.md)
-
-For a first-time account with no shared roles, the service host operator can verify the account and issue a one-time pairing code. Sign in to that Friends account and redeem it under **Contacts → AI contacts → 使用角色配对码** (Use a role pairing code). All roles shared with the account then appear together. [Host operator instructions](server/bothouse/README.md)
-
-已有个人 AI 的聊天记录可从消息列表打开。曾保存过角色资料的账号，可在「通讯录 → AI 联系人 → 原有 AI 的授权与资料」查看和撤回。
 
 ## 合成验收与同网手机入口
 
