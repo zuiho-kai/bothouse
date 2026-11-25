@@ -145,15 +145,15 @@ This conversation supports native quoted text replies. To deliberately quote a p
 
 Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
 
-// aboutHint points every role at the built-in product notes (`bothouse about`). Agents that take
-// AgentSystemPrompt natively get it there; the others get it with the turn rules (contextRules).
+// aboutHint points every role at the built-in product notes (`bothouse about`); part of
+// bridgeInstructions.
 const aboutHint = "When asked what you or bothouse are, what bothouse can do, or how it compares with another project (LobeHub, OpenClaw…), run `bothouse about` first and answer from its product notes and this machine's actual roles and platforms: lead with a clear conclusion, then the reasons and what was not tested. When asked whether a bothouse feature is on or off, run `bothouse features list` first and answer from its output."
 
-// AgentSystemPrompt returns the system prompt fragment that informs agents about
-// cc-connect capabilities (cron scheduling, etc.).
-// The prompt is designed to be appended to the agent's existing system prompt.
-func AgentSystemPrompt() string {
-	return `You are running inside bothouse, a bridge that connects you to messaging platforms.
+// bridgeInstructions is the one copy of what every CLI must know about the bridge (replies, sending
+// files back, DMs, cron/timer, relay, NO_REPLY). Agents with a native system prompt (Claude) get it
+// there through AgentSystemPrompt; every other CLI gets the same text once per agent context with
+// the turn rules (contextRules). Edit it here only: no per-CLI copies (#1994).
+const bridgeInstructions = `You are running inside bothouse, a bridge that connects you to messaging platforms.
 Your normal text responses are automatically delivered to the user — just reply normally, do NOT use bothouse send for ordinary text replies.
 ` + aboutHint + `
 
@@ -318,11 +318,23 @@ the trailing marker before delivery:
 - If you wrote reasoning before the marker, the stripped reasoning is still
   delivered as a normal reply (the marker only suppresses itself, not the
   surrounding text).
-Use this sparingly; when in doubt, send a brief reply instead.
+Use this sparingly; when in doubt, send a brief reply instead.`
 
-` + modelSwitchPromptForExe() + `
-`
+// AgentSystemPrompt is the system prompt fragment for agents that take one natively:
+// bridgeInstructions plus the model-control skill.
+func AgentSystemPrompt() string {
+	return bridgeInstructions + "\n\n" + modelSwitchPromptForExe() + "\n"
 }
+
+// Markers around bridgeInstructions in a turn; handoffs strip the block from old user turns.
+const (
+	bridgeInstructionsHead = "[bothouse bridge instructions]"
+	bridgeInstructionsEnd  = "[/bothouse bridge instructions]"
+)
+
+// bridgeInstructionsBlock is bridgeInstructions as sent in a turn to agents without a native
+// system prompt.
+const bridgeInstructionsBlock = bridgeInstructionsHead + "\n" + bridgeInstructions + "\n" + bridgeInstructionsEnd
 
 // SystemPromptSupporter is an optional marker interface for agents that
 // natively inject AgentSystemPrompt() (e.g., via --append-system-prompt).
