@@ -77,11 +77,15 @@ func reapInheritedChildren() {}
 // createNoWindow — 来源：Win32 process creation flags, CREATE_NO_WINDOW = 0x08000000.
 const createNoWindow = 0x08000000
 
-// hasConsole: this process is attached to a console. The DSH plugin starts the bridge detached
-// (no console), and the tray build frees the console it was given on a double-click.
+// hasConsole: this process is attached to a console, visible or not. The DSH plugin starts the
+// bridge detached (no console), and the tray build frees the console it was given on a double-click.
+// GetConsoleCP, not GetConsoleWindow: a windowless console (CI runners, conpty, a CREATE_NO_WINDOW
+// parent) has no window but is still shared, and a child moved off it no longer gets the Ctrl+Break
+// that stops the bridge — it kept the instance lock and the next start failed (#2197 windows-e2e).
+// GetConsoleCP returns 0 only when no console is attached (Win32 docs).
 func hasConsole() bool {
-	h, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow").Call()
-	return h != 0
+	cp, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleCP").Call()
+	return cp != 0
 }
 
 // restartChildAttr: without a console of our own, the restarted child (a console-subsystem exe)
