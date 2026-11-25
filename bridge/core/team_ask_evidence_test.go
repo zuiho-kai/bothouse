@@ -59,7 +59,9 @@ func TestAskBounceWakeLimit(t *testing.T) {
 	if n := count(); n != team.ExitRules.Bounce.WakeLimit {
 		t.Fatalf("bounces = %d", n)
 	}
-	e.forwardWorkspaceExit(p, exitWSKey, "[ask]\n问一下")
+	// past the limit it is forwarded with the note, so it needs its task number to have an owner
+	// chat (#2010); the ones above are bounced inside the workspace and need none
+	e.forwardWorkspaceExit(p, exitWSKey, "[ask] #7\n问一下")
 	if n := count(); n != 0 {
 		t.Fatalf("bounce past the wake limit was not forwarded: bounces = %d", n)
 	}

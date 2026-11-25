@@ -13,11 +13,18 @@ import (
 
 const (
 	WaitExternalWhy = "等外部："
+	// WaitAgainHint: how a workspace writes when to look again — one wording for every prompt that
+	// teaches it (exit intent, hand-back, PR news; ws-handoff copies it). #1993: #1973 knew the quota came
+	// back 11-27 14:00 and still asked to be retried the next morning, a hand-back that could only fail.
+	WaitAgainHint = "「再看：<卡的那件事最早能好的时候，如 2h、11-23 18:00；知道它几点才好就写那个点或更晚，不写更早的例行时刻>」"
 	// WaitExternalDefault: retry time when the report names none. Source: 橘 1283 — the guard timer was
 	// 30 minutes and woke the workspace for nothing; an hour is one hourly 收口.
 	WaitExternalDefault = time.Hour
 	WaitExternalMin     = 10 * time.Minute // the watch's own cadence (watchCheckAfterDefault)
-	WaitExternalMax     = 24 * time.Hour   // board auto-prune's idle threshold (board.py PRUNE_IDLE_DEFAULT_H)
+	// WaitExternalMax: a week. It was 24h (board auto-prune's idle threshold), so a wait the writer knew
+	// ran to 11-27 was retried the next day for nothing (#1993); board.py now spares an item whose
+	// wait_until is still ahead from that prune.
+	WaitExternalMax = 7 * 24 * time.Hour
 )
 
 var (
@@ -103,6 +110,11 @@ func waitExternal(body string, now time.Time) (why string, after time.Duration, 
 		} else {
 			unread = a[1]
 		}
+	}
+	// #1993: the reason itself names when the blocker clears (「平台额度 11-27 14:00 才恢复」) and the
+	// 再看 comes before it: a hand-back then can only find it still blocked. Wait until it clears.
+	if at, read := parseWaitClock(why, now); read && at.Sub(now) > after {
+		after = at.Sub(now)
 	}
 	if after < WaitExternalMin {
 		after = WaitExternalMin

@@ -81,6 +81,10 @@ class PassLinkTest(unittest.TestCase):
         self.assertNotIn("https:/github.com", r.stderr)  # 不再把链接拼成相对路径
 
     def test_many_tasks_hint_names_ids(self):
+        # 本频道的活按任务号查归属（#2010）：板上 #11、#12 都归 test:100
+        (self.setup / "team" / "board.jsonl").write_text("".join(json.dumps(
+            {"id": i, "what": w, "status": "在做", "who": "工作区1", "at": "11-10 16:36", "chat": "test:100"},
+            ensure_ascii=False) + "\n" for i, w in ((11, "A"), (12, "B"))), encoding="utf-8")
         r = self.run_tool("ws-pass", "--verdict", "逐条：用户原话那条做到，证据是截图")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--id 11", r.stderr)

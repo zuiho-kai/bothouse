@@ -9,7 +9,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { defaultBridgeConfig, dialHost, managementSettings } from './panel.mjs';
 
@@ -199,6 +199,10 @@ export class Bridge {
    */
   constructor({ dataDir, origin, token, members, lead = () => undefined, online = () => false, logger, env = process.env, configFile = defaultBridgeConfig(env), checkWait = CHECK_WAIT_MS, checkPoll = CHECK_POLL_MS, reviveWait = REVIVE_WAIT_MS }) {
     Object.assign(this, { dataDir, origin, token, members, lead, online, logger, env, configFile, checkWait, checkPoll, reviveWait });
+    // #1997: the bridge picks ./config.toml from its working directory before the data directory, so a
+    // bridge started from DSH's directory could load another config than the one this plugin reads and
+    // writes. Every bridge command names the plugin's file, and agents it starts get the same data dir.
+    if (String(env.BOTHOUSE_DATA_DIR ?? '').trim() === '') this.env = { ...env, BOTHOUSE_DATA_DIR: dirname(configFile) };
     /** #1798: called with selfCheck()'s result after each successful apply (the plugin posts it in #general). */
     this.onCheck = undefined;
     /** #1798: called with each first-start progress step ({ stage, … }, prepText) while preparing is true. */
@@ -343,6 +347,11 @@ export class Bridge {
     return true;
   }
 
+  /** Bridge arguments with the plugin's config file in front (a root flag every subcommand honours, #1384). */
+  cli(args) {
+    return ['--config', this.configFile, ...args];
+  }
+
   /** Write the roles (setup apply), then have the running bridge load them, or start it. */
   async apply() {
     const url = this.origin();
@@ -363,7 +372,7 @@ export class Bridge {
     this.progress({ stage: 'apply' });
     const req = applyRequest(members, { url, token: this.token, lead: this.lead(), remove });
     const before = this.configText();
-    const r = await run(bin, ['setup', 'apply', '--json', '-'], { input: JSON.stringify(req), timeout: APPLY_TIMEOUT_MS, log: join(this.dataDir, 'bothouse-apply.log'), env: this.env });
+    const r = await run(bin, this.cli(['setup', 'apply', '--json', '-']), { input: JSON.stringify(req), timeout: APPLY_TIMEOUT_MS, log: join(this.dataDir, 'bothouse-apply.log'), env: this.env });
     let res;
     try { res = JSON.parse(r.out.slice(r.out.indexOf('{'))); } catch { res = undefined; }
     // saved = the roles are written; its warnings (a CLI not logged in…) are for the user, the roles still run.
@@ -453,7 +462,7 @@ export class Bridge {
   async deleteWorkspace(workspace) {
     const bin = bridgeBinary(this.env);
     if (bin === undefined) return { deleted: false, reason: 'unreachable', error: 'bothouse is not installed' };
-    const r = await run(bin, ['workspace', 'delete', workspace, '--session-key', `cloud_web:${workspace}`, '--json'], { timeout: WORKSPACE_TIMEOUT_MS, env: this.env });
+    const r = await run(bin, this.cli(['workspace', 'delete', workspace, '--session-key', `cloud_web:${workspace}`, '--json']), { timeout: WORKSPACE_TIMEOUT_MS, env: this.env });
     let res;
     try { res = JSON.parse(r.out.slice(r.out.indexOf('{'))); } catch { res = undefined; }
     if (typeof res?.deleted !== 'boolean') return { deleted: false, reason: 'unreachable', error: r.out.trim().slice(-300) };
@@ -493,7 +502,7 @@ export class Bridge {
    */
   start(bin) {
     const log = openSync(join(this.dataDir, 'bothouse.log'), 'a', 0o600);
-    const child = spawn(bin, ['--headless'], { detached: true, stdio: ['ignore', log, log], windowsHide: true, env: this.env });
+    const child = spawn(bin, this.cli(['--headless']), { detached: true, stdio: ['ignore', log, log], windowsHide: true, env: this.env });
     const exited = new Promise(resolve => {
       child.on('error', error => { this.logger?.warn?.('conest-collab: starting bothouse failed: %s', error?.message ?? error); resolve(String(error?.message ?? error)); });
       child.on('exit', code => resolve(code));

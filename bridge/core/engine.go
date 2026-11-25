@@ -382,6 +382,7 @@ type RateLimitCfg struct {
 type Engine struct {
 	taskForumOff           atomic.Bool
 	mentionAssignerOn      atomic.Bool
+	keepRunningOn          atomic.Bool
 	mentionHumanGateOn     atomic.Bool
 	humanMentions          humanMentionGate
 	proactiveMu            sync.Mutex
@@ -13944,6 +13945,11 @@ type SendOptions struct {
 	AtAll              bool
 	ReplyToMessageID   string
 	AllowHumanMentions []string
+	BoardID            int
+	VideoLabels        []string
+	// ReplyBoard: the board item the message is for; each posted message id is recorded with it
+	// (team_reply_tasks.json), so a user's reply to it is known to be about that task (#2010).
+	ReplyBoard int
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13960,7 +13966,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 			return err
 		}
 		if useWorkDirSession {
-			return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, opts.AtUsers, opts.AtAll, opts.AllowHumanMentions)
+			return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, opts.AtUsers, opts.AtAll, opts.AllowHumanMentions, opts.BoardID, opts.VideoLabels)
 		}
 	}
 
@@ -13972,6 +13978,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	if p == nil {
 		return fmt.Errorf("no active session found (key=%q)", sessionKey)
 	}
+	replyCtx = e.recordReplyTask(p, replyCtx, opts.ReplyBoard)
 
 	if message == "" && len(images) == 0 && len(files) == 0 {
 		return fmt.Errorf("message or attachment is required")
@@ -14074,11 +14081,27 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	// a workspace's images go back to the chat channel with its [report]/[ask] (team_exit_images.go)
 	e.noteWorkspaceImages(sessionKey, images)
 	e.noteWorkspaceFiles(sessionKey, files)
-	for _, file := range files {
+	prepared := prepareFileSends(files, opts.BoardID, opts.VideoLabels)
+	videoCount := 0
+	for _, item := range prepared {
+		if item.label != "" {
+			videoCount++
+		}
+	}
+	trimmedMsg := strings.TrimSpace(message)
+	for _, item := range prepared {
+		if item.label != "" && !(videoCount == 1 && trimmedMsg == item.label) {
+			if err := e.waitOutgoing(p); err != nil {
+				return err
+			}
+			if err := p.Send(e.ctx, replyCtx, item.label); err != nil {
+				return err
+			}
+		}
 		if err := e.waitOutgoing(p); err != nil {
 			return err
 		}
-		if err := fileSender.SendFile(e.ctx, replyCtx, file); err != nil {
+		if err := fileSender.SendFile(e.ctx, replyCtx, item.file); err != nil {
 			return err
 		}
 		if state != nil {
@@ -14098,10 +14121,10 @@ type sendTarget struct {
 }
 
 func (e *Engine) SendToSessionInWorkDir(sessionKey, message string, images []ImageAttachment, files []FileAttachment, workDir string, atUsers []string, atAll bool) error {
-	return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, atUsers, atAll, nil)
+	return e.sendToSessionInWorkDir(sessionKey, message, images, files, workDir, atUsers, atAll, nil, 0, nil)
 }
 
-func (e *Engine) sendToSessionInWorkDir(sessionKey, message string, images []ImageAttachment, files []FileAttachment, workDir string, atUsers []string, atAll bool, allowHumans []string) error {
+func (e *Engine) sendToSessionInWorkDir(sessionKey, message string, images []ImageAttachment, files []FileAttachment, workDir string, atUsers []string, atAll bool, allowHumans []string, boardID int, videoLabels []string) error {
 	if message == "" && len(images) == 0 && len(files) == 0 {
 		return fmt.Errorf("message or attachment is required")
 	}
@@ -14190,11 +14213,27 @@ func (e *Engine) sendToSessionInWorkDir(sessionKey, message string, images []Ima
 	}
 	e.noteWorkspaceImages(target.sessionKey, images)
 	e.noteWorkspaceFiles(target.sessionKey, files)
-	for _, file := range files {
+	prepared := prepareFileSends(files, boardID, videoLabels)
+	videoCount := 0
+	for _, item := range prepared {
+		if item.label != "" {
+			videoCount++
+		}
+	}
+	trimmedMsg := strings.TrimSpace(message)
+	for _, item := range prepared {
+		if item.label != "" && !(videoCount == 1 && trimmedMsg == item.label) {
+			if err := e.waitOutgoing(target.platform); err != nil {
+				return err
+			}
+			if err := target.platform.Send(e.ctx, target.replyCtx, item.label); err != nil {
+				return err
+			}
+		}
 		if err := e.waitOutgoing(target.platform); err != nil {
 			return err
 		}
-		if err := fileSender.SendFile(e.ctx, target.replyCtx, file); err != nil {
+		if err := fileSender.SendFile(e.ctx, target.replyCtx, item.file); err != nil {
 			return err
 		}
 		if target.state != nil {
@@ -14431,6 +14470,10 @@ func (e *Engine) SendAudiosToSession(sessionKey string, audios []FileAttachment)
 // platform's VideoSender (native video bubble) when supported, falling
 // back to FileSender otherwise. Used by `cc-connect send --video`.
 func (e *Engine) SendVideosToSession(sessionKey string, videos []FileAttachment) error {
+	return e.SendVideosToSessionWithOptions(sessionKey, videos, SendOptions{})
+}
+
+func (e *Engine) SendVideosToSessionWithOptions(sessionKey string, videos []FileAttachment, opts SendOptions) error {
 	if len(videos) == 0 {
 		return nil
 	}
@@ -14441,6 +14484,7 @@ func (e *Engine) SendVideosToSession(sessionKey string, videos []FileAttachment)
 	if !e.attachmentSendEnabled {
 		return ErrAttachmentSendDisabled
 	}
+	replyCtx = e.recordReplyTask(p, replyCtx, opts.ReplyBoard)
 
 	videoSender, videoOK := p.(VideoSender)
 	fileSender, fileOK := p.(FileSender)
@@ -14448,20 +14492,28 @@ func (e *Engine) SendVideosToSession(sessionKey string, videos []FileAttachment)
 		return fmt.Errorf("platform %s: %w", p.Name(), ErrNotSupported)
 	}
 
-	for _, v := range videos {
+	for _, item := range prepareFileSends(videos, opts.BoardID, opts.VideoLabels) {
+		if item.label != "" {
+			if err := e.waitOutgoing(p); err != nil {
+				return err
+			}
+			if err := p.Send(e.ctx, replyCtx, item.label); err != nil {
+				return err
+			}
+		}
 		if err := e.waitOutgoing(p); err != nil {
 			return err
 		}
-		format := videoFormatHint(v)
+		format := videoFormatHint(item.file)
 		if videoOK {
-			if err := videoSender.SendVideo(e.ctx, replyCtx, v.Data, format, v.FileName); err != nil {
+			if err := videoSender.SendVideo(e.ctx, replyCtx, item.file.Data, format, item.file.FileName); err != nil {
 				return err
 			}
 			continue
 		}
 		slog.Warn("send: platform has no VideoSender, falling back to SendFile",
-			"platform", p.Name(), "file_name", v.FileName, "format", format)
-		if err := fileSender.SendFile(e.ctx, replyCtx, v); err != nil {
+			"platform", p.Name(), "file_name", item.file.FileName, "format", format)
+		if err := fileSender.SendFile(e.ctx, replyCtx, item.file); err != nil {
 			return err
 		}
 	}

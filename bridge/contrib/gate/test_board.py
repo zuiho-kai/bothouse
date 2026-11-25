@@ -12,19 +12,37 @@ os.environ.pop("DISCORD_BOT_TOKEN", None)  # board 不读平台 token、不发�
 # #699 D：board done/pause/wait 先问桥改状态；测试里的「没有桥」只回 transition（known=false），别的命令都失败
 NOBRIDGE = os.path.join(tempfile.mkdtemp(), "nobridge")
 with open(NOBRIDGE, "w") as _f:
-    _f.write('#!/bin/sh\n[ "$2" = transition ] && { echo \'{"known":false}\'; exit 0; }\nexit 1\n')
+    # 建活都带归属频道（#2010），暂停时会挂定时：没有桥时 timer add 也只回一个假编号
+    _f.write('#!/bin/sh\n[ "$2" = transition ] && { echo \'{"known":false}\'; exit 0; }\n'
+             '[ "$1 $2" = "timer add" ] && { echo "Timer created: t-test"; exit 0; }\nexit 1\n')
 os.chmod(NOBRIDGE, 0o755)
 os.environ["CC_BIN"] = NOBRIDGE  # 不问真桥
 os.environ.pop("BOARD_PR_REPO", None)  # done 后不调 gh
 import board  # noqa: E402
 import ctxsvc  # noqa: E402
 
+# board add 要归属频道（#2010）：测试里不在聊天频道跑的建活，默认归这个频道；不在聊天频道里跑的其他命令照旧
+TEST_CHAT = "discord:testchat"
+_board_add = board.add
+
+
+def _add_with_owner(*a, chat=None, **k):
+    if not chat and ":" not in os.environ.get("CC_SESSION_KEY", ""):
+        chat = TEST_CHAT
+    return _board_add(*a, chat=chat, **k)
+
+
+board.add = _add_with_owner
+
 
 def cli(*args):
-    if args[:1] == ("add",) and len(args) >= 5 and "--short" not in args:
-        args = (*args, "--short", "测试")  # board add 要短名（10-30）
-    p = subprocess.run([str(HERE.parent / "lead" / "board"), *args], capture_output=True, text=True,
-                       env={**os.environ, "BOARD_DIR": TMP})
+    env = {**os.environ, "BOARD_DIR": TMP}
+    if args[:1] == ("add",):
+        if len(args) >= 5 and "--short" not in args:
+            args = (*args, "--short", "测试")  # board add 要短名（10-30）
+        if ":" not in env.get("CC_SESSION_KEY", ""):
+            env["CC_SESSION_KEY"] = TEST_CHAT  # 在聊天频道里建，归属就是它
+    p = subprocess.run([str(HERE.parent / "lead" / "board"), *args], capture_output=True, text=True, env=env)
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
@@ -535,6 +553,9 @@ esac
             board.add("X 交的 B", "b.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100:u1")
             board.add("X 交的 E", "e.md", "已交接", "工作区1主角色", ws="discord:201", chat="discord:100")
             board.add("没记聊天频道", "c.md", "已交接", "工作区1主角色", ws="discord:201")
+            cur = board._read()  # 建活现在必带归属（#2010）；这里造一条归属没记的旧条目
+            cur[2].pop("chat", None)
+            board._write(cur)
             bound = board.items()[0].get("bound")
             board.main(["pause", "1"])
             board.main(["update", "2", "s", "", "待接手"])  # 待接手：离开工作区（#1111 后只改负责人不再解绑）

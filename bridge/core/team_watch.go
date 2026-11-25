@@ -649,7 +649,10 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	switch {
 	case err == nil:
 		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
-		if serr := w.send(p, h.Chat, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
+		if w.e.chatHearsStops(p, h.Chat) {
+			return time.Time{}
+		}
+		if serr := w.sendOwner(p, h, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
 			slog.Warn("team watch: park notice failed", "chat", h.Chat, "error", serr)
 		}
 		return time.Time{}
@@ -670,7 +673,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	}
 	slog.Error("team watch: park failed; giving up", "workspace", key, "attempts", fails, "error", err)
 	_, _ = w.updateHandoff(key, h, func(x *TeamHandoff) { x.ParkFails = fails; x.Due = time.Time{} })
-	if serr := w.send(p, h.Chat, "看门暂停失败："+channelLabel(plat, teamChannelID(key))+"："+err.Error()); serr != nil {
+	if serr := w.sendOwner(p, h, "看门暂停失败："+channelLabel(plat, teamChannelID(key))+"："+err.Error()); serr != nil {
 		slog.Warn("team watch: report park failure failed", "chat", h.Chat, "error", serr)
 	}
 	return time.Time{}
@@ -865,6 +868,17 @@ func watchOwnerID(owner string) string {
 }
 
 // send posts text to channel key ("<platform>:<channel id>") on p.
+// sendOwner posts text to the owner chat of h's task (handoffOwnerChat), never to the handoff
+// record's copy of the chat: no owner, nothing posted (11-25 #2010).
+func (w *handoffWatch) sendOwner(p Platform, h TeamHandoff, text string) error {
+	owner, err := w.e.handoffOwnerChat(h)
+	if err != nil {
+		slog.Error("team watch: no owner chat for the task; notice not posted", "handoff", h.Title, "board", h.Board, "error", err)
+		return err
+	}
+	return w.send(p, owner, text)
+}
+
 func (w *handoffWatch) send(p Platform, key, text string) error {
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
@@ -937,6 +951,15 @@ func teamWorkspaceWatchDueLocked(st *teamWorkspaceState, key string) time.Time {
 	return due
 }
 
+// chatHearsStops: chat shows the board as a summary on a platform that posts chat notes, so it
+// hears a real stop as one ②停了 line (team_chat_state.go chatStopOf). The watch's own steps —
+// a resume, a park — stay out of it there (#1993 user 11-25「这些是什么狗屎」「也特别吵」); other
+// chats have no ② and keep the watch's notices.
+func (e *Engine) chatHearsStops(p Platform, chat string) bool {
+	_, notes := p.(ChatNotePoster)
+	return notes && e.teamBoardKindOf(chat) == teamBoardSummary
+}
+
 // autoResume stops the turns running in workspace key (a hung request keeps the session busy
 // without events), posts a notice in the chat the task came from, and wakes the workspace's role
 // to continue the task in the same agent session.
@@ -950,8 +973,10 @@ func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
 	}
 	sender := w.e.watchSender(h)
 	label := channelLabel(plat, teamChannelID(key))
-	if err := w.send(p, h.Chat, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
-		slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+	if !w.e.chatHearsStops(p, h.Chat) {
+		if err := w.sendOwner(p, h, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
+			slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+		}
 	}
 	text := sender.i18n.Tf(MsgWatchResume, h.Title)
 	if notes := w.e.watchTaskNotes(h); notes != "" {

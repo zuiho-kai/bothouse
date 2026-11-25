@@ -71,7 +71,7 @@ class DataDir(unittest.TestCase):
         # 第1轮盘点的错位：board 不设变量时写 ~/.cc-connect/team，gate（GATE_SETUP_DIR=数据目录）读 ~/.bothouse/team
         d = self.home / "data"
         e = {k: v for k, v in os.environ.items() if k not in KEYS}
-        e.update(HOME=str(self.home), CC_BIN="false", BOTHOUSE_DATA_DIR=str(d))
+        e.update(HOME=str(self.home), CC_BIN="false", BOTHOUSE_DATA_DIR=str(d), CC_SESSION_KEY="discord:testchat")  # 建活要归属（#2010）
         out = subprocess.run([str(HERE.parent / "lead" / "board"), "add", "task", "-", "doing", "role", "--short", "task"],
                              capture_output=True, text=True, env=e)
         self.assertEqual(out.returncode, 0, out.stderr)

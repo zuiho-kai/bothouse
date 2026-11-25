@@ -78,7 +78,40 @@ func exitBoardItem(t *testing.T, e *Engine, id int, what string) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\"}\n", id, what); err != nil {
+	// the task's owner chat (taskOwnerChat, #2010): the chat that owns the fixture's workspace
+	chat := ""
+	e.teamExit.mu.Lock()
+	r := e.teamExit.resolver
+	e.teamExit.mu.Unlock()
+	if r != nil {
+		for _, k := range []string{exitWSKey, teamChatKey(exitWSKey), teamChannelID(exitWSKey)} {
+			if parent, ok := r.WorkspaceParent(k); ok && parent != "" {
+				chat = teamChatKey(parent)
+				if !strings.Contains(parent, ":") {
+					chat = "discord:" + parent
+				}
+				break
+			}
+		}
+	}
+	if chat == "" {
+		chat = teamChatKey(exitChatKey)
+	}
+	exitBoardItemChat(t, e, id, what, chat)
+}
+
+// exitBoardItemChat adds board item id owned by chat ("<platform>:<id>").
+func exitBoardItemChat(t *testing.T, e *Engine, id int, what, chat string) {
+	t.Helper()
+	if e.team == nil {
+		e.SetTeam(t.TempDir(), "橘", false)
+	}
+	f, err := os.OpenFile(filepath.Join(e.team.dir, team.TaskBoardFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\",\"chat\":%q}\n", id, what, chat); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -211,7 +244,7 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
 	inputDone(a, "ok")
-	if !strings.Contains(prompt, "单模型多进程") || strings.Contains(prompt, "先当面派给成员") || strings.Contains(prompt, "## ") {
+	if !strings.Contains(prompt, "单模型多进程") || strings.Contains(prompt, "先当面派给成员") || strings.Contains(strings.Split(prompt, bridgeInstructionsHead)[0], "## ") { // the shared bridge instructions have their own headings (#1994)
 		t.Fatalf("solo prompt: %q", prompt)
 	}
 	for mode, want := range map[string]string{DispatchTeam: "派活方式：完全团队", DispatchMixed: "派活方式：混合", "bogus": "派活方式：混合"} {

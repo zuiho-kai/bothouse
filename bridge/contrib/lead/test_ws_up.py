@@ -36,9 +36,29 @@ class WsUpTest(unittest.TestCase):
                               text=True, env={**self.env, "CC_SESSION_KEY": key})
 
     def timers(self):
-        return [json.loads(l) for l in self.calls.read_text().splitlines()] if self.calls.exists() else []
+        calls = [json.loads(l) for l in self.calls.read_text().splitlines()] if self.calls.exists() else []
+        return [c for c in calls if c[-1:] != ["--help"]]  # 查命令支不支持某参数的探测不算发出去的命令
 
     def write_last(self, tasks, **top):
+        """归属只按任务号查任务板（board.owner_chat，11-25 #2010）：记录里有 chat 的，任务板上补一条带这个 chat 的条目。"""
+        team = self.setup / "team"
+        team.mkdir(exist_ok=True)
+        rows = team / "board.jsonl"
+        have = {json.loads(l)["id"] for l in rows.read_text().splitlines() if l.strip()} if rows.exists() else set()
+        add = []
+        for n, (k, v) in enumerate(tasks.items()):
+            if not isinstance(v, dict) or not v.get("chat"):
+                continue
+            if not v.get("board"):
+                v["board"] = [9000 + n]
+            for i in v["board"]:
+                if i not in have:
+                    have.add(i)
+                    add.append(json.dumps({"id": i, "what": v.get("task") or "t", "where": v.get("file") or k.split("@")[0],
+                                           "ws": "test:" + str(v.get("channel")), "chat": v["chat"]}, ensure_ascii=False))
+        if add:
+            with rows.open("a", encoding="utf-8") as f:
+                f.write("".join(a + "\n" for a in add))
         self.last.write_text(json.dumps({**top, "tasks": tasks}, ensure_ascii=False), encoding="utf-8")
 
     def test_report_uses_active_board_task_when_notes_cache_is_missing_or_reused(self):
@@ -46,7 +66,7 @@ class WsUpTest(unittest.TestCase):
         notes.write_text("# task\n")
         draft.write_text("[report] #830 背景：分批交回。\n")
         team = self.setup / "team"
-        team.mkdir()
+        team.mkdir(exist_ok=True)
         (team / "board.jsonl").write_text(json.dumps(dict(
             id=830, where=str(notes), ws="test:900", chat="test:100")) + "\n")
         for tasks in ({}, {str(notes): dict(channel="900", chat="test:100", board=[810]),
@@ -84,7 +104,7 @@ class WsUpTest(unittest.TestCase):
     def test_report_sends_its_files_before_the_handback(self):
         """#1729：--report 带的 --file/--image 以前被丢掉，成品只剩草稿里一条本机路径。现在先发到工作区（桥随交回
         贴到聊天频道），再交回；草稿里有链接时文档不发、图照发（同提问那条路）。"""
-        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
+        self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A", "board": [1]}})
         draft, doc, shot = self.tmp / "d.md", self.tmp / "审查报告.pdf", self.tmp / "s.png"
         draft.write_text("[report] #1 背景：审查做完了\n", encoding="utf-8")
         doc.write_bytes(b"%PDF"); shot.write_bytes(b"png")
@@ -109,7 +129,7 @@ class WsUpTest(unittest.TestCase):
         """提问原文按任务编号只存一份（asks/<编号>.md），任务板行只留短标题和去向；暂停原因只写「等主角色定」，
         不算等用户（11-17 #1727：原文塞进暂停原因被截成半句，帖子还直接标了「等你」）。"""
         team = self.setup / "team"
-        team.mkdir()
+        team.mkdir(exist_ok=True)
         (team / "board.jsonl").write_text(json.dumps(
             {"id": 7, "what": "出样片", "status": "在做：Bash sed -n '1,20...", "ws": "test:900", "chat": "test:100"},
             ensure_ascii=False) + "\n", encoding="utf-8")
@@ -278,7 +298,7 @@ class WsUpTest(unittest.TestCase):
         for f in (final, raw, tmpdoc, wiki):
             f.write_text("x")
         team = self.setup / "team"
-        team.mkdir()
+        team.mkdir(exist_ok=True)
         (team / "board.jsonl").write_text(json.dumps(dict(id=1095, where=str(notes), ws="test:900", chat="test:100",
                                                           bound=bound)) + "\n")
         self.write_last({str(notes): dict(channel="900", chat="test:100", board=[1095])})

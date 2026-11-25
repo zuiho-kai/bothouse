@@ -53,6 +53,12 @@ type teamChatState struct {
 	// channel (experimental script, not in the product) posts these lines instead of judging stops
 	// itself (#1976: the two wrote different 「接下来」 for one stop).
 	Stops map[string]chatStopSaid `json:"stops"`
+	// KeepArm: keep-running chats whose work may run out and wake the lead once (team_lead_autowake.go).
+	KeepArm map[string]*keepArm `json:"keep_arm,omitempty"`
+	// KeepOnSeen: chat → the board keep-running on stamp already armed, so it arms once.
+	KeepOnSeen map[string]string `json:"keep_on_seen,omitempty"`
+	// StuckWoke: "<id>@s<bound>" → when the lead was woken for that stuck item (not a ②, #1993).
+	StuckWoke map[string]time.Time `json:"stuck_woke,omitempty"`
 }
 
 type chatStopSaid struct {
@@ -98,7 +104,17 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		st.Since, changed = now, true
 	}
 	items := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
-	if recordChatStops(st, items, now) {
+	// a report held for the lead's verdict is not a stop yet: the lead may send the work straight
+	// back (#2000: #1998 was told 「②停了…等外部」 19 s before the lead redispatched it)
+	stopItems := make([]teamTaskBoardItem, 0, len(items))
+	for _, it := range items {
+		platform, _, _ := strings.Cut(it.Chat, ":")
+		if it.ID > 0 && e.reportHeldForLead(platform, it.ID) {
+			continue
+		}
+		stopItems = append(stopItems, it)
+	}
+	if recordChatStops(st, stopItems, now) {
 		changed = true
 	}
 	chats := map[string]bool{}
@@ -122,7 +138,19 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		if e.syncChatWaiting(poster, st, chat, items, now) {
 			changed = true
 		}
-		if e.announceChatStops(poster, st, chat, items, now) {
+		if e.announceChatStops(poster, st, chat, stopItems, now) {
+			changed = true
+		}
+	}
+	if e.wakeStuckLeads(st, items, now) {
+		changed = true
+	}
+	if e.wakeKeepRunning(st, items, now) {
+		changed = true
+	}
+	for k, at := range st.StuckWoke {
+		if now.Sub(at) > 14*24*time.Hour {
+			delete(st.StuckWoke, k)
 			changed = true
 		}
 	}
@@ -293,7 +321,10 @@ func (e *Engine) syncChatWaiting(poster ChatNotePoster, st *teamChatState, chat 
 }
 
 // chatStopOf: why item it is stopped and what happens next; "" when it is not a ② stop. The
-// stamp keys the stop so it is said once.
+// stamp keys the stop so it is said once. Only a real stop is a ②: the work is let go (paused,
+// workspace released, waiting outside). A watchdog's "stuck" (nudged without progress, wakes
+// unanswered, park failed) is the lead's business, not the user's: the workspace still holds it
+// and usually reports back on its own (#1993).
 func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time, text string) {
 	// a stop the user ordered (「用户 22:2x「不要并行太多」…」) is not news to the user
 	if it.Backlog != "" || it.Probe || it.waitsAnswer() || strings.HasPrefix(strings.TrimSpace(it.PauseWhy), "用户") {
@@ -308,7 +339,9 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 			// released by its workspace without a pause: since its last activity
 			at = teamTaskBoardLastActive(it, now)
 		}
-		if at.IsZero() {
+		// a pause that is over within chatStopSettle was a step, not a stop: rework and
+		// ws-handoff --resume pause the item and dispatch it seconds later (#2000)
+		if at.IsZero() || now.Sub(at) < chatStopSettle {
 			return "", time.Time{}, ""
 		}
 		if r := strings.TrimSpace(it.PauseWhy); r != "" {
@@ -317,32 +350,23 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if why == "" {
 			why = "没写原因"
 		}
-		next := "没有自动接着做的安排，你说接着做就接着派。"
+		// #1993 user 11-25「为什么自动锤自动拍」: no retry clock, no 「自动」 — what the user can do
+		next := "你说接着做就接着派。"
 		if it.WaitUntil > 0 {
-			next = chatClock(time.Unix(it.WaitUntil, 0), now) + " 自动再派人接着做。"
+			next = "卡住的那件事好了再接着做；要现在做或不做了，说一声。"
 		}
 		stamp = "p" + it.PausedAt + it.Paused
 		if it.Paused == "" {
 			stamp = "r" + at.Format(time.RFC3339)
 		}
 		return stamp, at, fmt.Sprintf("②停了%s%s 起停着，卡在：%s\n接下来：%s", name, at.In(now.Location()).Format("15:04"), shortLabel(why, 120), next)
-	case teamTaskStuck:
-		where := ""
-		if it.wsName != "" {
-			where = "（" + it.wsName + "）"
-		}
-		// at: when it went quiet (its last activity), so a stall from before the feature is not said
-		at := teamTaskBoardLastActive(it, now)
-		if it.WS != "" {
-			at = teamTaskBoardWorkspaceActive(it, now)
-		}
-		if at.IsZero() {
-			at = now
-		}
-		return "s" + it.Bound, at, fmt.Sprintf("②停了%s%s%s\n接下来：会自动催它接着做。", name, where, why)
 	}
 	return "", time.Time{}, ""
 }
+
+// chatStopSettle: how long a pause must last before it is a ② stop. The board pass runs every
+// teamBoardInterval (10 s); a rework or resume redispatches within seconds (#1974: 7 s).
+const chatStopSettle = time.Minute
 
 // recordChatStops keeps st.Stops: the ② line of every stop since Since, in any chat, once.
 func recordChatStops(st *teamChatState, items []teamTaskBoardItem, now time.Time) bool {
@@ -405,6 +429,9 @@ func (e *Engine) announceChatStops(poster ChatNotePoster, st *teamChatState, cha
 		}
 		st.Stopped[key] = now
 		changed = true
+		if stopWakesLead(it) && !leadAutowake(e, chat, "停摆唤醒 #"+strconv.Itoa(it.ID), stopLeadPrompt(it, text), it.ID) {
+			slog.Warn("team chat state: lead not woken for ②", "chat", chat, "board_item", it.ID)
+		}
 	}
 	return changed
 }

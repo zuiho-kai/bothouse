@@ -55,7 +55,11 @@ func TestEmbeddedLeadInstallAndExecute(t *testing.T) {
 	}
 	run := func(name string, args ...string) string {
 		t.Helper()
-		out, err := exec.Command(filepath.Join(bin, name), args...).CombinedOutput()
+		cmd := exec.Command(filepath.Join(bin, name), args...)
+		if os.Getenv("CC_SESSION_KEY") == "" && os.Getenv("CC_SESSION") == "" {
+			cmd.Env = append(os.Environ(), "CC_SESSION_KEY=discord:testchat") // board add needs the owner chat (#2010)
+		}
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s: %v: %s", name, err, out)
 		}

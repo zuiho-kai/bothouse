@@ -24,7 +24,9 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
 
 </div>
 
-<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="720" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
+<a id="demo"></a>
+
+<p align="center"><img src="docs/assets/readme/demo-flow.en.gif" width="800" alt="9-second loop: you ask in the group for a forgot-password flow plus tests; the lead splits it into two workspaces — Codex writes the reset-password API, DeepSeek builds the page and its tests — both finish, you say merge, and it is merged"></p>
 
 <a id="video"></a>
 
@@ -95,6 +97,8 @@ Only three ideas to learn:
 - **The team-lead AI** ("the lead" in the docs) — the AI you talk to in each chat channel. It splits real work and hands it out by skill and quota, so five AIs in one group still don't talk over each other. The others reply when you mention or name them.
 - **Workspaces** — big jobs (more than about ten minutes, or code changes and tests) go to a separate job channel with a handoff that carries your original words, the scope and what "done" looks like. Chat never stalls; one workspace, one job. The lead keeps a task board, and the bridge looks at every job every ten minutes. Results come back with proof, and only decisions that need you come back to chat. This is what we call **team mode**.
 - **Shared memory** — every role reads and writes the same Markdown notes, so whoever picks up a job already knows the background. See [Memory](#memory).
+
+<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="720" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
 
 Jobs can return results in batches: accepting a batch keeps the job and workspace open, while accepting the final report closes the job. Workspace agents use `ws-up --report <draft> --batch` for intermediate results and `--final` (the default) for the final handback; see the [workspace playbook](bridge/contrib/lead/PLAYBOOK.zh-CN.md).
 

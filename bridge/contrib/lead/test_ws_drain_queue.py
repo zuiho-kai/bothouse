@@ -26,29 +26,8 @@ class DrainQueue(unittest.TestCase):
         # 替身按真 _ws_state 的语义来：team_workspaces.json 读不到就 {}
         self.g["_ws_state"] = lambda: json.loads(self.state.read_text()) if self.state.exists() else {}
 
-    def test_lead_chat_maps_workspace_to_its_chat(self):
-        self.state.write_text(json.dumps({
-            "parents": {"room:main": [{"id": "w1", "name": "工作区1"}]},
-            "handoffs": {"room:w2": [{"chat": "room:other"}, {"chat": "room:main"}], "room:w1": []},
-        }))
-        lead_chat = self.mod["lead_chat"]
-        self.assertEqual(lead_chat("room:w1"), "room:main")    # 占着的工作区 → owner
-        self.assertEqual(lead_chat("room:w2"), "room:main")    # 空着的工作区 → 最近一件交接的频道
-        self.assertEqual(lead_chat("room:main"), "room:main")  # 聊天频道原样
-
-    def test_notes_chat_wins_over_running_chat(self):
-        # #1346：交接「原话出处」写的聊天频道和跑命令的不同 → 按交接的记；没写、相同、在工作区里跑 → 原样
-        self.state.write_text(json.dumps({"parents": {"room:main": [{"id": "w1", "name": "工作区1"}]}, "handoffs": {}}))
-        nc = self.mod["notes_chat"]
-        src = "## 原话出处（程序附）\n- 聊天频道：room:mv\n- 时间窗：x\n"
-        self.assertEqual(nc("# t\n" + src, "room:main"), "room:mv")
-        self.assertEqual(nc("# t\n", "room:main"), "room:main")
-        self.assertEqual(nc("# t\n" + src.replace("room:mv", "room:main"), "room:main"), "room:main")
-        self.assertEqual(nc("# t\n" + src, "room:w1"), "room:w1")       # 工作区里跑：交给 lead_chat
-        self.assertEqual(nc("# t\n" + src.replace("room:mv", "room:w1"), "room:main"), "room:main")  # 写的是工作区
-        self.assertEqual(nc("# t\n" + src.replace("room:mv", "feishu:x"), "room:main"), "room:main")  # 跨平台
-        self.assertEqual(nc("- 聊天频道：room:mv\n", "room:main"), "room:main")  # 不在原话出处节里不算
-
+    # lead_chat / notes_chat（工作区 → 它眼下的主人、交接「原话出处」的频道）11-25 #2010 删了：归属建活时定一次，
+    # 不再按跑命令的地方或交接文字猜；它们的用例跟着删。pick_pool 收到的就是归属频道。
 
     def test_pick_pool_claims_as_chat_channel(self):
         self.state.write_text(json.dumps({"parents": {}, "handoffs": {"room:w2": [{"chat": "room:main"}]}}))
@@ -62,7 +41,7 @@ class DrainQueue(unittest.TestCase):
             returncode = 0
         with patch.dict(self.g, {"ws_cmd": ws_cmd}), \
                 patch.object(self.g["subprocess"], "run", side_effect=lambda cmd, **k: seen.setdefault("claim", cmd) and R()):
-            got = self.mod["pick_pool"]("room:w2", "任务", 7)
+            got = self.mod["pick_pool"]("room:main", "任务", 7)  # 调用方给的是归属频道（#2010），pick_pool 不再改写
         self.assertEqual(seen["list"], "room:main")
         self.assertIn("room:main", seen["claim"])
         self.assertEqual(got, ("room:w3", "工作区3", "room:main"))

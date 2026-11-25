@@ -305,13 +305,13 @@ func assertWatchResumesThenParks(t *testing.T, rest *guildREST, owner, title str
 	if len(posts) != 2 || posts[1] != wantResume {
 		t.Fatalf("want one nudge then one resume, got %v", posts)
 	}
-	chat := waitPosts(t, rest, "100", 2, 5*time.Second)
-	if len(chat) != 2 || chat[0] != i18n.Tf(core.MsgWatchAutoResumed, "<#103>", title) ||
-		chat[1] != i18n.Tf(core.MsgWatchParkedNotice, "<#103>", title) {
-		t.Fatalf("want resume then park notices in the originating chat, got %v", chat)
-	}
 	time.Sleep(1500 * time.Millisecond) // existing test window: another check must not post again
-	if len(rest.postsTo("103")) != 2 || len(rest.postsTo("100")) != 2 {
+	// #1993: the originating chat is a team chat on Discord — it hears the stop as one ②停了
+	// line from the chat state, not the watch's resume and park notices.
+	if chat := rest.postsTo("100"); len(chat) != 0 {
+		t.Fatalf("the watch's own steps must stay out of the originating chat, got %v", chat)
+	}
+	if len(rest.postsTo("103")) != 2 {
 		t.Fatal("parked watch posted another nudge, resume or notice")
 	}
 }

@@ -6,7 +6,7 @@
 // call itself. The panel page learns it is behind such a proxy from an injected
 // <meta name="bothouse-auth" content="proxy">, and <base href> is rewritten to the mount
 // path so its relative asset and API URLs land back here (bridge/web/src/lib/basePath.ts).
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -25,11 +25,30 @@ const PASS_RESPONSE = ['content-type', 'cache-control', 'etag', 'last-modified',
  * @param {NodeJS.ProcessEnv} env
  * @returns {string}
  */
-export function defaultBridgeConfig(env = process.env) {
+export function defaultBridgeConfig(env = process.env, exists = existsSync, isDir = dirExists) {
   const explicit = String(env.BOTHOUSE_CONFIG ?? '').trim();
   if (explicit !== '') return explicit;
-  const dataDir = String(env.BOTHOUSE_DATA_DIR ?? '').trim() || join(env.HOME || homedir(), '.bothouse');
-  return join(dataDir, 'config.toml');
+  return join(bridgeDataDir(env, exists, isDir), 'config.toml');
+}
+
+function dirExists(path) {
+  try { return statSync(path).isDirectory(); } catch { return false; }
+}
+
+/**
+ * The bridge's data directory, resolved the way the bridge itself does (bridge/brand.go dataDir):
+ * BOTHOUSE_DATA_DIR, else ~/.bothouse — unless that is missing and the legacy ~/.cc-connect exists.
+ * The plugin used to assume ~/.bothouse, so on a machine that still had only ~/.cc-connect it wrote
+ * one config while the bridge ran from the other: two instances fighting over the members
+ * (外部用户 11-25 报告 #1997「配置分叉 / 重复实例」).
+ */
+export function bridgeDataDir(env = process.env, exists = existsSync, isDir = dirExists) {
+  const home = env.HOME || env.USERPROFILE || homedir();
+  const set = String(env.BOTHOUSE_DATA_DIR ?? '').trim();
+  if (set !== '') return set === '~' || set.startsWith('~/') ? join(home, set.slice(1)) : set;
+  const preferred = join(home, '.bothouse');
+  const legacy = join(home, '.cc-connect');
+  return !exists(preferred) && isDir(legacy) ? legacy : preferred;
 }
 
 /** Value of one TOML scalar (quoted string, number or bare word); comments stripped. */

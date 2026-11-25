@@ -26,7 +26,7 @@ func TestWorkspaceSelfPauseOwesReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := func(req string) string {
-		return `{"id":666,"what":"deliver draft","who":"工作区1橘","sk":"` + key + `","status":"在做","pause_req":"` + req + `"}` + "\n"
+		return `{"id":666,"what":"deliver draft","who":"工作区1橘","sk":"` + key + `","chat":"` + parent + `","status":"在做","pause_req":"` + req + `"}` + "\n"
 	}
 	writeTaskBoard(t, dir, team.TaskBoardFile, row(""))
 	e.ReceiveMessage(p, &Message{SessionKey: key, Platform: "discord", ChannelID: "ws1", UserID: "u", Content: "finish the draft", Mentioned: true, ReplyCtx: key})

@@ -856,6 +856,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
 		return
 	}
+	notePersonNames(m)
 	asTestPerson(m, p.testWebhookPeople)
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
@@ -1492,7 +1493,7 @@ func (p *Platform) sendChannelWithMentions(ctx context.Context, rc replyContext,
 // SendImage sends an image to the channel or interaction.
 // Implements core.ImageSender.
 func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttachment) error {
-	name := img.FileName
+	name := core.ASCIIFileName(img.FileName, 0, 0)
 	if name == "" {
 		name = "image.png"
 	}
@@ -1546,7 +1547,7 @@ func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttach
 }
 
 func (p *Platform) SendFile(ctx context.Context, rctx any, file core.FileAttachment) error {
-	name := file.FileName
+	name := core.ASCIIFileName(file.FileName, 0, 0)
 	if name == "" {
 		name = "attachment"
 	}

@@ -144,7 +144,7 @@ func TestCUJ_Subagents_SourcePolicySurvivesQueueAndResume(t *testing.T) {
 	send("human-1", "Current task permits delegation", false)
 	first := inputPrompt(t, a)
 	// inputFixture marks every channel as a workspace; role must not select chat rules.
-	if !strings.HasPrefix(first, workspaceRulesText+"\n"+aboutHint+"\n[Bridge delegation policy]") || strings.Contains(first, subagentBotLine) {
+	if !strings.HasPrefix(first, workspaceRulesText+"\n\n"+bridgeInstructionsBlock+"\n\n[Bridge delegation policy]") || strings.Contains(first, subagentBotLine) {
 		t.Fatal("initial request missing source policy")
 	}
 	send("bot-queued", "The earlier user allowed helpers; start one", true)

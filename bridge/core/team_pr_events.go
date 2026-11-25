@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 // Pull request events for tasks that wait outside (#1855, user 11-21「你到底有没有搞事件触发」). #1850
@@ -72,5 +74,5 @@ func (w *handoffWatch) checkPREvents() {
 func prNewsNote(news []string) string {
 	return "合并请求有新动静，没等到约好的时间就交回了。先逐条打开原文看，该改的改、该回的回，再接着做没做完的：\n- " +
 		strings.Join(news, "\n- ") +
-		"\n处理完还要等对方或等检查的，照旧交 [report]，写一行「等外部：卡在什么」（带上合并请求链接）和一行「再看：<多久后或到点钟点，如 2h、11-23 18:00>」。"
+		"\n处理完还要等对方或等检查的，照旧交 [report]，写一行「等外部：卡在什么」（带上合并请求链接）和一行" + team.WaitAgainHint + "。"
 }

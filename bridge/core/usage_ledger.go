@@ -384,7 +384,13 @@ func (l *UsageLedger) QueryMember(from, to time.Time, group, role, model, member
 		return nil, err
 	}
 	records := []UsageRecord{}
-	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+	// Step over calendar days, not over 24-hour spans from the clock time of
+	// `from`: a range that starts late in the evening (23:30 → 01:30) used to
+	// step from 23:30 to 23:30 the next day, past `to`, and never read the day
+	// that holds the actual records.
+	first := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, from.Location())
+	last := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, to.Location())
+	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
 		day, err := l.readDay(d.Format("2006-01-02"))
 		if err != nil {
 			return nil, err
