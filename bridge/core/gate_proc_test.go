@@ -243,9 +243,15 @@ func TestGateRunsForDSHRouteOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	EnsureGateForDSH(dataDir)
-	waitGate(t, "gate started for the DSH route", 5*time.Second, GateRunning)
+	// The supervisor's port availability probe also briefly accepts TCP connections.
+	// Wait for the intended child to serve /whoami before asking the wizard to reload it.
+	waitGate(t, "gate started for the DSH route", 5*time.Second, func() bool {
+		return gateStarts(dataDir) == 1 && gateIsOurs(dataDir)
+	})
 	reloadGateAfterWizard(dataDir, WizardSnapshot{}) // no projects: the DSH members keep it wanted
-	waitGate(t, "gate back after reload", 5*time.Second, func() bool { return gateStarts(dataDir) == 2 && GateRunning() })
+	waitGate(t, "gate back after reload", 5*time.Second, func() bool {
+		return gateStarts(dataDir) == 2 && gateIsOurs(dataDir)
+	})
 }
 
 // TestGateWikiEnv: /context searches the main wiki FindWiki names ($WIKI_DIR counts) plus the roles' wikis listed
