@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -51,8 +52,20 @@ func attachHiddenConsole() error {
 	if err := holder.Start(); err != nil {
 		return err
 	}
-	// cmd.exe owns its console from CreateProcess on, and blocks reading the open stdin pipe.
-	_, _, attachErr := windows.NewLazySystemDLL("kernel32.dll").NewProc("AttachConsole").Call(uintptr(holder.Process.Pid))
+	// cmd.exe blocks reading the open stdin pipe. Its console is set up while cmd.exe initialises,
+	// after CreateProcess has returned: attaching right away fails with "The handle is invalid"
+	// (bridge-windows CI, #2002), so it is retried for up to two seconds.
+	attach := windows.NewLazySystemDLL("kernel32.dll").NewProc("AttachConsole")
+	var attachErr error
+	for i := 0; i < 40; i++ {
+		ok, _, err := attach.Call(uintptr(holder.Process.Pid))
+		if ok != 0 {
+			attachErr = nil
+			break
+		}
+		attachErr = err
+		time.Sleep(50 * time.Millisecond)
+	}
 	_ = stdin.Close() // EOF: cmd.exe exits; the console stays, this process is attached to it
 	_ = holder.Wait()
 	if !hasConsole() {
