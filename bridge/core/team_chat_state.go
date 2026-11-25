@@ -320,9 +320,10 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 		if why == "" {
 			why = "没写原因"
 		}
-		next := "没有自动接着做的安排，你说接着做就接着派。"
+		// #1993 user 11-25「为什么自动锤自动拍」: no retry clock, no 「自动」 — what the user can do
+		next := "你说接着做就接着派。"
 		if it.WaitUntil > 0 {
-			next = chatClock(time.Unix(it.WaitUntil, 0), now) + " 再接着做，你说不做就撤掉。"
+			next = "卡住的那件事好了再接着做；要现在做或不做了，说一声。"
 		}
 		stamp = "p" + it.PausedAt + it.Paused
 		if it.Paused == "" {

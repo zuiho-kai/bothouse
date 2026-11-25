@@ -104,7 +104,7 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	if len(f.sent) != 1 {
 		t.Fatalf("want one ② for the new stop only, got %q", f.sent)
 	}
-	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 再接着做，你说不做就撤掉。"; f.sent[0] != want {
+	if want := "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：卡住的那件事好了再接着做；要现在做或不做了，说一声。"; f.sent[0] != want {
 		t.Fatalf("② = %q", f.sent[0])
 	}
 	// #1976: the secretary channel reads the same line from the state, for every chat, said once
@@ -126,7 +126,7 @@ func TestChatStopSaidOnceOnlyForNewStops(t *testing.T) {
 	}
 }
 
-const want0 = "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：17:00 再接着做，你说不做就撤掉。"
+const want0 = "post ②停了【记忆推送劣化】14:30 起停着，卡在：等外部：等夜里那批数据\n接下来：卡住的那件事好了再接着做；要现在做或不做了，说一声。"
 
 func TestChatClock(t *testing.T) {
 	now := time.Date(2026, 11, 24, 23, 0, 0, 0, time.Local)
