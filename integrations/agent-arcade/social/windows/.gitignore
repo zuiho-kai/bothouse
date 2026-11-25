@@ -1,0 +1,4 @@
+out/
+*.pfx
+*.cer
+identity.local.json

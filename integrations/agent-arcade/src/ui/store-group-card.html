@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>选择本机角色卡</title>
+  <link rel="stylesheet" href="store-group-card.css">
+  <script src="store-group-card.js" defer></script>
+</head>
+<body><main>
+  <h1 id="review-title">选择本机角色卡</h1>
+  <p id="target"></p>
+  <label id="library-label" for="card">本机角色库</label>
+  <select id="card"><option value="">选择一张卡</option></select>
+  <section id="preview" hidden>
+    <div id="card-details"><h2>会共享的角色资料</h2>
+    <dl><dt>名称</dt><dd id="name"></dd><dt>设定</dt><dd id="description"></dd><dt>台词示例</dt><dd id="examples"></dd></dl></div>
+    <h2 id="entries-title">随卡带入的世界书条目</h2>
+    <p id="book-info"></p><div id="entries"></div>
+    <section id="portrait" hidden>
+      <h2>绘图卡面</h2>
+      <img id="portrait-image" alt="用于绘图的角色卡面">
+      <label class="entry"><input id="share-portrait" type="checkbox"> <span id="portrait-permission">允许用这张卡面画本群这个角色</span></label>
+      <p id="portrait-note">选中并保存后，群友点名请这个角色画自己时，好友服务会把这张 PNG 交给 Cloudflare Workers AI。画其他题材时只发文字。可随时在本群角色卡撤销。</p>
+    </section>
+  </section>
+  <p id="notice" role="status"></p>
+  <footer><button id="cancel">取消</button><button id="accept" disabled>将所选内容带到群设置</button></footer>
+</main></body></html>

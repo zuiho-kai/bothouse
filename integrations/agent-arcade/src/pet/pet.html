@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Agent Arcade desktop companion</title>
+  <link rel="stylesheet" href="pet.css">
+</head>
+<body>
+  <div id="ground" aria-hidden="true"></div>
+  <canvas id="stage" role="img" aria-label="Desktop companion"></canvas>
+  <div id="cue" role="img" hidden><span></span><span hidden></span></div>
+  <script type="module" src="desktop.js"></script>
+</body>
+</html>

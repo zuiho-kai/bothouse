@@ -29,3 +29,5 @@ bothouse 是接入 [cc-connect](https://github.com/chenhg5/cc-connect)、DSH 等
 贡献需在每个提交中签署 DCO（`Signed-off-by`），见 [CONTRIBUTING.md](CONTRIBUTING.md#贡献签署dco) 和 [DCO](DCO)。
 
 integrations/dsh-acp-stream/source.patch 及其派生代码采用 MIT；DeepSeek Harness 版权与许可保留于 integrations/dsh-acp-stream/LICENSE-MIT-DeepSeek。
+
+Agent Arcade 自有代码采用 [AGPL-3.0-only](integrations/agent-arcade/LICENSE)。该目录内的第三方代码和素材按[随附许可与署名](integrations/agent-arcade/THIRD_PARTY_NOTICES.md)分项标明。

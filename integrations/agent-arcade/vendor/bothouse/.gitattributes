@@ -1,0 +1,2 @@
+upstream/** -text
+provenance/*.json -text whitespace=cr-at-eol

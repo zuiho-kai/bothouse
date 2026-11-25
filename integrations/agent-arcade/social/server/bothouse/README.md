@@ -1,0 +1,23 @@
+# Bothouse contacts in Friends
+
+The Friends service reads its local Bothouse instance at `BOTHOUSE_DATA_DIR/config.toml`, or the usual `~/.bothouse/config.toml` (legacy `~/.cc-connect`). The local helper needs Python 3.11+ and `websockets==15.0.1`. A service installation can select its interpreter with `SOCIAL_BOTHOUSE_PYTHON`. No Python dependency is installed at runtime.
+
+This path uses Bothouse's authenticated management listener and authenticated Bridge WebSocket on loopback. The helper uses the management and bridge tokens locally. It never outputs the TOML, model keys, or transport tokens. The current configuration reader supports literal transport tokens. Give the service account access only to its intended instance. A separately hosted Friends server cannot use someone's desktop instance implicitly.
+
+Contacts are live Bridge projects from `GET /api/v1/roles`. Existing explicit `arcade:<Friends account>` assignments work directly. For a first-time Friends user without one, the Bothouse host operator can pair the account once. The operator must verify whose upstream identity or projects are being authorized. Friends numbers and display names alone do not establish this.
+
+Run the following on the trusted service host with its normal database and Bothouse configuration. The real local entry is `node social/server/bothouse/pair.cjs`. The examples use synthetic names.
+
+- `projects` lists exact project IDs and whether they are selectable. The host's management listener must authenticate successfully.
+- `issue reader_a --identity upstream-user-12` uses this person's existing Bothouse project user IDs. Only projects explicitly assigning that exact identity are eligible. The grant follows live changes to those assignments. Neither a wildcard nor a default user role qualifies.
+- For a personal installation without project user policies, `issue reader_a --projects tide-east tide-west` selects those projects together for that account. A project with its own user policy cannot be added this way. Creating a project later does not silently share it.
+- The operator gives the short-lived code privately to the intended person. In the authenticated Friends session, redeem it once with `POST /api/v1/ai-contacts/pair` and `{expectedAccount,code}`, then reload the directory. The service stores a digest of each pending code. Codes expire in five minutes. A new code replaces that account's previous unused code. Redeeming replaces its previous pairing. Only the trusted local tool may issue a code.
+- `GET /api/v1/ai-contacts/pair` reports whether this account has a stored pairing. `POST /api/v1/ai-contacts/unpair` with `{expectedAccount}`, or local `revoke reader_a`, removes the pairing. Normal restart preserves it. Disaster recovery with `--prepare-restore` clears codes and pairings.
+
+Public visibility decisions use only the logged-in Friends account, the instance identity, and live project policy. Other platforms' nicknames, wildcard or default roles and the browser's claims never grant visibility. DSH-native members use a different protocol and remain outside this Bridge path.
+
+The upstream instance public signing key and exact project name identify a contact. Display names are labels. A key change yields new contacts; a display-name change keeps the old identity. Before listing a role as available, the helper also checks the live bridge's `capabilities_snapshot_v1`. This checks the chat transport, not a provider's account balance or model availability.
+
+Private chats route to their stored peer. Groups use the selected `mentionAccount` and require current membership. The upstream session includes the instance, actor, target and both membership revisions. Only the submitted line goes over the wire. The request-specific reply context and session key must both match. Retries with the original social message ID do not submit again. An upstream timeout has unknown delivery and is not retried automatically. Readable legacy chats retain their original authors and are never mapped by nickname.
+
+The ordinary Friends APIs are `GET /api/v1/ai-contacts`, `POST /api/v1/ai-contacts/start` (`expectedAccount, number`), `GET/POST /api/v1/groups/:id/ai` (edit uses `expectedAccount, number, enabled`), and `POST /api/v1/conversations/:id/messages`. Use `directoryStatus` and the contact's `configured`. For tasks, await `directory.resolveMember(authenticatedAccount, number)`; use the returned project's `id` together with its instance-scoped social `number`. Before submission and on return also validate both conversation memberships. Task recognition runs before ordinary dialogue. A board receipt is handled by the task dispatcher.

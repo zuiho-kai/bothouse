@@ -1,0 +1,6 @@
+# Replace this example hostname with the approved public DNS name.
+import social-proxy.caddy
+
+social.example.com {
+	import arcade_social_proxy 127.0.0.1:8787
+}

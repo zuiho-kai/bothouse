@@ -1,0 +1,27 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{fork}=require('node:child_process');
+const {fixture,P}=require('./fixture.cjs');
+async function worker(f,phase){const file=path.join(f.root,'synthetic-config.json');fs.writeFileSync(file,JSON.stringify(f.config));const child=fork(path.join(__dirname,'crash-worker.cjs'),[file,phase],{windowsHide:true,stdio:['ignore','ignore','pipe','ipc']});let stderr='';child.stderr.on('data',b=>stderr+=b);const exit=new Promise(resolve=>child.once('exit',(code,signal)=>resolve({code,signal})));
+  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('worker timeout')),5000);child.once('message',message=>{clearTimeout(timer);f.port=message.port;resolve();});child.once('exit',()=>{clearTimeout(timer);reject(new Error('worker start failed '+stderr));});});return {child,exit};}
+for(const [phase,expected]of [['upload-bytes',0],['upload-flushed',0],['upload-offset',4]])test('actual helper process exit86 at '+phase+' restores only durable prefix',async t=>{
+  const f=await fixture(t),bytes=Buffer.from('abcdefgh'),u=await f.createUpload(bytes);await f.close();const w=await worker(f,phase);await assert.rejects(()=>f.patch(u,bytes.subarray(0,4)));assert.equal((await w.exit).code,86);await f.start();const h=await f.head(u);assert.equal(Number(h.headers['upload-offset']),expected);const j=f.service.store._load(u.clientJobId);assert.equal(fs.statSync(f.service.store._blob(j)).size,expected);await f.patch(u,bytes.subarray(expected),expected);const result=await f.finalize(u);assert.equal(result.json.job.published,true);assert.deepEqual(fs.readFileSync(path.join(f.dirs.files,'new.bin')),bytes);
+});
+test('actual helper process exits after publication link; status reconciles same inode without replay',async t=>{
+  const f=await fixture(t),bytes=Buffer.from('publication'),u=await f.createUpload(bytes);await f.patch(u,bytes);await f.close();const w=await worker(f,'publish-linked');await assert.rejects(()=>f.finalize(u));assert.equal((await w.exit).code,86);const original=fs.statSync(path.join(f.dirs.files,'new.bin'));await f.start();const status=await f.job(u);assert.equal(status.job.published,true);assert.equal((await f.finalize(u)).status,409);assert.equal(fs.statSync(path.join(f.dirs.files,'new.bin')).ino,original.ino);assert.deepEqual(fs.readFileSync(path.join(f.dirs.files,'new.bin')),bytes);
+});
+test('actual helper exits before link; restart retains unknown and never publishes by reading status',async t=>{
+  const f=await fixture(t),bytes=Buffer.from('intent'),u=await f.createUpload(bytes);await f.patch(u,bytes);await f.close();const w=await worker(f,'publish-intent');await assert.rejects(()=>f.finalize(u));assert.equal((await w.exit).code,86);await f.start();const status=await f.job(u);assert.equal(status.job.state,'publishing');assert.equal(status.job.published,null);assert.equal(fs.existsSync(path.join(f.dirs.files,'new.bin')),false);assert.equal((await f.finalize(u)).status,409);
+});
+test('partial PATCH interruption can retain an intermediate durable offset; later HEAD is authoritative',async t=>{
+  const f=await fixture(t),u=await f.createUpload(Buffer.from('12345678'));const id=u.url.split('/').at(-1);const stream=(async function*(){yield Buffer.from('123');throw new Error('synthetic disconnect');})();await assert.rejects(()=>f.service.store.exclusive(u.clientJobId,()=>f.service.store.writeUpload(id,stream,0)));assert.equal((await f.head(u)).headers['upload-offset'],'3');await f.patch(u,Buffer.from('45678'),3);assert.equal((await f.finalize(u)).json.job.published,true);
+});
+test('two real processes racing after a crash use one OS owner; stale PID text is never removed',async t=>{
+  const f=await fixture(t);await f.close();const stale=path.join(f.dirs.state,'owner.lock'),bytes=Buffer.from('{"pid":2147483000,"nonce":"synthetic stale text is not authority"}');fs.writeFileSync(stale,bytes);
+  const config=path.join(f.root,'synthetic-config.json');fs.writeFileSync(config,JSON.stringify(f.config));const attempts=[0,1].map(()=>{const child=fork(path.join(__dirname,'crash-worker.cjs'),[config,'never'],{windowsHide:true,stdio:['ignore','ignore','ignore','ipc']});return {child,result:new Promise(resolve=>child.once('message',resolve)),exit:new Promise(resolve=>child.once('exit',resolve))};});
+  const results=await Promise.all(attempts.map(a=>a.result));assert.equal(results.filter(r=>r.ready).length,1);assert.equal(results.filter(r=>r.error==='busy').length,1);assert.deepEqual(fs.readFileSync(stale),bytes);
+  for(let i=0;i<attempts.length;i++)if(results[i].ready)attempts[i].child.send('close');const exits=await Promise.all(attempts.map(a=>a.exit));assert.deepEqual(exits.sort(),[0,1]);
+});
+test('corrupt durable record is rejected before truncation or cleanup',async t=>{
+  const f=await fixture(t),u=await f.createUpload(Buffer.from('12345'));await f.patch(u,Buffer.from('123'));const j=f.service.store._load(u.clientJobId),blob=f.service.store._blob(j);await f.close();
+  const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(path.join(f.dirs.state,'jobs.sqlite'));j.directory.relative='../outside';j.offset=0;db.prepare('UPDATE jobs SET record=? WHERE id=?').run(JSON.stringify(j),u.clientJobId);db.close();await assert.rejects(()=>f.start(),e=>e.code==='recovery_required');assert.equal(fs.readFileSync(blob,'utf8'),'123');
+});

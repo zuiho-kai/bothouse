@@ -1,0 +1,162 @@
+/* Shared room material. Existing fonts, sizes, geometry and scene palette stay intact. */
+:root {
+  color-scheme:light;
+  --text:#302b32;--muted:#706770;--paper:#fffdfe;--surface:#faf6f9;
+  --line:#eadfe6;--action:#a44775;--action-hover:#8f3c65;--action-soft:#f8e8f0;
+  --room-soft:#f3edf1;--room-outline:#d7c3ce;--room-shadow:#49304212;
+  --button-bg:#a44775;--button-hover:#8f3c65;--button-text:#fff;
+  --error:#a13c52;--error-soft:#fbecef;--error-line:#c98495;
+  --success:#35694e;--success-soft:#eaf3ed;--warning:#805717;--warning-soft:#fbf0dc;
+  --highlight:#ffffffd9;--veil:#503b4c30;--motif:#bb82a1;--motif-opacity:.28;
+  --card-shadow:0 2px 3px #49304204,0 8px 24px #49304206;
+  --floating-shadow:0 10px 28px #49304217,0 26px 64px #49304212;
+  --selection:#e8c4d8;--selection-text:#30202b;
+}
+:root[data-color-scheme="dark"] {
+  color-scheme:dark;
+  --text:#f3eaf2;--muted:#beb1c3;--paper:#2b2531;--surface:#211d27;
+  --line:#483e50;--action:#e7adcb;--action-hover:#f2c4dc;--action-soft:#493044;
+  --room-soft:#342d3d;--room-outline:#786881;--room-shadow:#08050c66;
+  --button-bg:#dfa4c3;--button-hover:#efbad5;--button-text:#2b1d27;
+  --error:#ffb4bf;--error-soft:#482c37;--error-line:#a4687b;
+  --success:#a4d7b5;--success-soft:#273e35;--warning:#ebc888;--warning-soft:#453a29;
+  --highlight:#fff0fa0b;--veil:#100c18a6;--motif:#c899bb;--motif-opacity:.25;
+  --card-shadow:0 2px 4px #08050c20,0 8px 24px #08050c24;
+  --floating-shadow:0 10px 28px #08050c50,0 26px 64px #08050c40;
+  --selection:#805774;--selection-text:#fff5fb;
+}
+::selection{background:var(--selection);color:var(--selection-text)}
+body{background:var(--surface);color:var(--text)}
+/* The earlier QQ-only palette must not shadow the chosen application scheme. */
+body[data-view="qq-runtime"],#qq-runtime-view.qq-login-workspace,#qq-runtime-view[data-palette]{--surface:inherit;--paper:inherit;--text:inherit;--muted:inherit;--line:inherit;--action:inherit;--action-hover:inherit;--action-soft:inherit}
+.sidebar,main>header{background:linear-gradient(var(--highlight),transparent 34px),var(--paper);border-color:var(--line)}
+body[data-view="qq-runtime"] .sidebar{background:var(--paper)}
+.sidebar{box-shadow:1px 0 0 var(--highlight)}
+.compact-nav,.connection-description,.persona-controls select,.onboarding-key-row input,
+.social-field input,.social-field select,.social-field textarea,.companion-manager input,
+.qq-runtime-panel input,.qq-runtime-panel select,.qq-directory-controls input,.qq-directory-controls select{
+  background:var(--paper);color:var(--text);border-color:var(--room-outline)
+}
+.connection-description{box-shadow:var(--floating-shadow)}
+.nav:hover,.companion-tab:hover,.icon-button:hover{background:var(--room-soft);color:var(--text)}
+.nav.active,.nav.active:hover{background:var(--action-soft);color:var(--action)}
+.quiet[aria-pressed=true],.companion-tab[aria-pressed=true],.portrait-choice[aria-pressed=true],
+.onboarding-mode[aria-pressed=true],.onboarding-method[aria-pressed=true],.partner-choice[aria-pressed=true]{border-color:var(--room-outline)}
+.companion-tab[aria-pressed=true]{box-shadow:inset 0 1px var(--highlight),var(--card-shadow)}
+.secondary,.voice-controls button{color:var(--text);background:var(--paper);border-color:var(--room-outline)}
+.secondary:hover:not(:disabled),.bot-inbox .voice-panel .voice-controls button:not(.primary):hover:not(:disabled){background:var(--action-soft);border-color:var(--action);color:var(--text)}
+.primary,.qq-account-dialog .qq-login-primary button,.qq-requests .primary,.voice-review button,
+.voice-controls .primary,.bot-inbox .voice-panel .primary,.bot-inbox .voice-panel .voice-review button{
+  background:var(--button-bg);color:var(--button-text);border-color:var(--button-bg);box-shadow:inset 0 1px var(--highlight)
+}
+.primary:hover:not(:disabled),.voice-controls .primary:hover:not(:disabled),.voice-review button:hover:not(:disabled){background:var(--button-hover);border-color:var(--button-hover)}
+:is(input,textarea,select):not([type=checkbox]):not([type=radio]){caret-color:var(--action)}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
+.social-field input:disabled,.social-field select:disabled,.social-field textarea:disabled{color:var(--muted);background:var(--surface)}
+:is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline-color:var(--action)}
+.qq-requests button:focus-visible,.qq-requests-scroll:focus-visible{outline-color:var(--action)}
+.problem,.qq-runtime-panel>p.problem,.qq-requests .problem,.message-delivery-error{color:var(--error);background:var(--error-soft);border-color:var(--error-line)}
+.voice-error,.profile-validation,.gp-validation,.ga-validation,.ca-validation,.ca-danger summary,
+.qq-owner-remark-count.problem,.qq-voice-text-count.invalid{color:var(--error)}
+.ca-danger button,.ca-destructive,.qrmt-actions .danger{color:var(--error);border-color:var(--error-line)}
+.ca-danger button:hover:not(:disabled),.ca-destructive:hover:not(:disabled){background:var(--error-soft)}
+:is(input,textarea,select)[aria-invalid=true]{border-color:var(--error)}
+.ga-destructive{background:#993e50;color:#fff}.ga-destructive:hover:not(:disabled){background:#843447}
+.state-pill,.qq-check[data-state=checked],.qq-components-prepared,.qq-first-setup-program{color:var(--success);background:var(--success-soft);border-color:var(--success)}
+.state-pill.waiting,.qq-check[data-state=attention],.qq-check[data-state=failed]{color:var(--warning);background:var(--warning-soft);border-color:var(--warning)}
+.state-pill.error{color:var(--error);background:var(--error-soft)}
+.state-pill.unknown,.state-pill.ended{color:var(--muted);background:var(--room-soft)}
+.social-state[data-active=true],.voice-state[data-state=listening],.voice-state[data-state=speaking]{color:var(--success)}
+.qq-first-setup-badge{color:var(--success)}
+.provider-login-status{border-left-color:var(--room-outline)}
+.provider-login-status[data-state=signed_in],.qq-backup-receipt{border-left-color:var(--success)}
+.provider-login-status[data-state=signed_out],.provider-login-status[data-state=not_installed]{border-left-color:var(--warning)}
+.qq-check[data-state=empty]{border-color:var(--room-outline)}
+.banner,.outcome-note,.bot-inbox #bot-task-state{color:var(--muted);background:var(--room-soft);border-color:var(--room-outline)}
+.toast{background:var(--text);color:var(--paper);box-shadow:var(--floating-shadow)}
+.close,.message-author,.from-user .message-author,.voice-state,.voice-hint{color:var(--muted)}
+.task-card{background:var(--paper);box-shadow:inset 0 1px var(--highlight),var(--card-shadow)}
+.task-card:hover,.partner-choice:hover{background:var(--room-soft)}
+.settings-card,.partner-choice,.bot-inbox{box-shadow:inset 0 1px var(--highlight)}
+.bot-setup{background:var(--surface)}
+.bot-message.from-user,.bot-message[data-role=user]{background:var(--action-soft)}
+.outgoing .qq-history-bubble{border-color:var(--room-outline)}
+.bot-message.from-agent .message-author:before{background:var(--success)}
+.latest-message{color:var(--action);background:var(--paper);border-color:var(--room-outline);box-shadow:var(--card-shadow)}
+.message-avatar,.connection-avatar,.social-avatar,.portrait-choice>img,.portrait-pixel,.persona-active>img,.partner-choice>img{background:var(--room-soft)}
+.relationship-card-preview{background:var(--room-soft);border-color:var(--room-outline)}
+.relationship-heading h1:after,.onboarding-header h1:after,.companion-manager-heading h2:after{background:var(--room-outline)}
+.voice-panel,.bot-inbox .voice-panel{background:var(--surface);color:var(--text);border-color:var(--line)}
+.voice-reply,.bot-inbox .voice-panel .voice-reply,.qq-voice-player,.qq-voice-empty{background:var(--room-soft)}
+.voice-advanced{border-color:var(--line)}
+.voice-advanced summary,.voice-review-label{color:var(--muted)}
+.voice-editor,.voice-options select{color:var(--text);background:var(--paper);border-color:var(--room-outline)}
+.voice-check input{accent-color:var(--action)}
+/* Every overlay shares an opaque reading surface, including independent management panels. */
+dialog{color:var(--text);background:var(--paper);border-color:var(--room-outline);box-shadow:var(--floating-shadow)}
+dialog::backdrop,.qq-account-dialog::backdrop,.qq-requests::backdrop,.companion-manager::backdrop,
+.qq-owner-history::backdrop,.self-profile::backdrop,.qq-plugin-admin::backdrop,.qq-remote::backdrop,
+.qq-components::backdrop,.qq-directory::backdrop,.qq-first-setup::backdrop,.qq-media::backdrop,.qq-voice::backdrop{
+  background:var(--veil);backdrop-filter:none
+}
+.qq-requests,.qq-components,.qq-directory,.qq-first-setup,.qq-media,.qq-voice,.self-profile,.qq-owner-history,.qq-plugin-admin,.qq-remote{box-shadow:var(--floating-shadow)}
+.qq-login-more[open] .qq-login-more-body,.qq-overview-tools details[open]>form,.qq-overview-tools details[open]>.qq-runtime-installation-body{
+  background:var(--paper);border-color:var(--room-outline);box-shadow:var(--floating-shadow)
+}
+.qq-login-more-body>button{color:var(--text)}
+.qq-login-content,#qq-runtime-view.qq-login-workspace{background:var(--paper)}
+#qq-runtime-view[data-palette] .qq-login-sidebar{background:var(--surface)}
+.qq-login-account:hover{background:var(--room-soft)}
+.qq-runtime-state{background:var(--room-soft);color:var(--muted)}
+.qq-runtime-state:is([data-state=online],[data-state=connected],[data-state=logged-in]){background:var(--success-soft);color:var(--success)}
+.qq-runtime-state:is([data-state=qr],[data-state=waiting],[data-state=starting],[data-state=login_required],[data-state=reconnecting],[data-state=initializing]){background:var(--warning-soft);color:var(--warning)}
+.qq-runtime-state:is([data-state=error],[data-state=failed]){background:var(--error-soft);color:var(--error)}
+.qq-overview-identity .qq-runtime-state{background:transparent}
+.qq-runtime-installation,.qq-runtime-log{background:var(--room-soft);border-color:var(--line);color:var(--text)}
+.qq-overview-card{background:linear-gradient(125deg,var(--paper),#fbf1f7);border-color:var(--line);box-shadow:inset 0 1px var(--highlight),var(--card-shadow)}
+.qq-overview-card[data-character=dragon]{background:linear-gradient(125deg,var(--paper),#f5f0fc)}
+.qq-overview-card[data-character=whale]{background:linear-gradient(125deg,var(--paper),#edf5fb)}
+:root[data-color-scheme=dark] .qq-overview-card{background:linear-gradient(125deg,var(--paper),#342735)}
+:root[data-color-scheme=dark] .qq-overview-card[data-character=dragon]{background:linear-gradient(125deg,var(--paper),#302a3e)}
+:root[data-color-scheme=dark] .qq-overview-card[data-character=whale]{background:linear-gradient(125deg,var(--paper),#26303d)}
+.qq-overview-avatar,.qq-account-dialog .qq-login-avatar-crop{border-color:var(--line);background:var(--room-soft)}
+.qq-account-dialog{--action:inherit;--action-soft:inherit;--line:inherit;--text:inherit;--muted:inherit;background:var(--paper);border-color:var(--room-outline);box-shadow:var(--floating-shadow)}
+.qq-account-dialog .qq-login-detail-head:before,.qq-account-dialog .qq-login-help:before{background:var(--paper);border-color:var(--room-outline)}
+.qq-account-dialog>.qq-runtime-card:before,.qq-account-dialog>.qq-runtime-card:after{border-color:var(--room-outline)}
+.qq-account-dialog-close{color:var(--muted);background:transparent}
+.qq-account-dialog>.qq-login-notice{background:var(--action-soft);color:var(--text)}
+.qq-account-dialog .secondary{border-color:var(--room-outline);color:var(--text)}
+:root[data-color-scheme=dark] .qq-overview-art{opacity:.16}
+:root[data-color-scheme=dark] .qq-overview-corner{opacity:.15;mix-blend-mode:screen}
+:root[data-color-scheme=dark] .qq-account-dialog .qq-login-detail-head:after{opacity:.2;mix-blend-mode:screen}
+/* The QR bitmap and its quiet zone never inherit tinted material or image filters. */
+.qq-runtime-qr,.qq-login-stage .qq-runtime-qr,.qq-account-dialog .qq-runtime-qr,.qrmt-login-qr{background:#fff;border-color:#e4dce1;color:#111;box-shadow:none}
+.qrmt-login-wait{background:var(--room-soft)}
+#artifact-app{background:var(--surface);color-scheme:inherit}
+/* New preference controls use the existing body type. The input remains native and keyboard reachable. */
+.appearance-options{display:flex;flex-wrap:wrap;gap:10px;margin:0;padding:0;border:0;min-width:0}
+.appearance-option{display:flex;align-items:center;gap:9px;padding:11px 14px;border:1px solid var(--room-outline);border-radius:10px;background:var(--paper);cursor:pointer;box-shadow:inset 0 1px var(--highlight)}
+.appearance-option:has(input:checked){border-color:var(--action);background:var(--action-soft)}
+.appearance-option input{margin:0;accent-color:var(--action)}
+.appearance-option:has(input:focus-visible){outline:2px solid var(--action);outline-offset:3px}
+#appearance-note,#appearance-status{color:var(--muted)}
+/* Original line ornaments: corners only, behind content, never semantic indicators. */
+.view{position:relative;isolation:isolate}
+.view:before{content:"";position:absolute;right:14px;top:8px;width:190px;height:130px;background:var(--motif);opacity:var(--motif-opacity);mask:var(--page-motif) no-repeat right top/contain;pointer-events:none;z-index:-1}
+#bot-view:before{display:none}
+.chat-heading{position:relative;isolation:isolate}
+.chat-heading:after{content:"";position:absolute;left:37%;top:1px;width:90px;height:65px;background:var(--motif);opacity:.2;mask:url('ornaments/room-chat.svg') no-repeat center/contain;pointer-events:none;z-index:-1}
+#connections-view{--page-motif:url('ornaments/room-connections.svg')}
+#work-view{--page-motif:url('ornaments/room-work.svg')}
+
+#settings-view{--page-motif:url('ornaments/room-settings.svg')}
+#relationship-view{--page-motif:url('ornaments/room-relationship.svg')}
+#accounts-view{--page-motif:url('ornaments/room-accounts.svg')}
+#accounts-view:before{width:120px;height:82px;right:100px}
+#scene-view{--page-motif:url('ornaments/room-scene.svg')}
+#scene-view:before{top:220px;height:85px}
+#qq-runtime-view:before{display:none}
+
+@media(max-width:650px){.view:before{width:110px;height:80px;right:0;opacity:.16}.chat-heading:after{display:none}}
+@media(max-width:1050px){.chat-heading:after{display:none}}
+@media(forced-colors:active){.view:before,.chat-heading:after,.qq-overview-art,.qq-overview-corner{display:none}.appearance-option:has(input:checked){outline:2px solid Highlight}}

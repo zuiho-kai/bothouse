@@ -1,0 +1,215 @@
+# Social HTTP API v1
+
+Same origin, prefix `/api/v1`. POST JSON with Content-Type application/json, including {}. Auth uses a persistent HttpOnly cookie. Success 200/201, errors {error:{code,message}}. GET /users is authenticated. Store shell loads the configured HTTPS origin, with both UI and API served by this host.
+
+| Method and path | Input | Response |
+| --- | --- | --- |
+| POST /register | {number,displayName,password} | {user} and cookie |
+| POST /login | {number,password} | {user} and cookie |
+| POST /logout | {} | {ok:true}, revokes current session |
+| GET /me | | {user} |
+| GET /feedback | No view parameter | {account,feedback:[FeedbackWithReply]}, latest 50 for the signed-in account (legacy default) |
+| GET /feedback?view=history | Optional before=<receipt ID> | {account,feedback:[FeedbackWithReply],next}, up to 20 for the signed-in account. The first page also returns recentReplies with up to five most recently answered receipts. |
+| GET /reports/mine | Signed-in session | {account,reports:[{id,kind,status,created,reviewed,reason}]}, newest 50 across messages and friend posts |
+| POST /feedback | {clientId,text,expectedAccount,clientBuild,desktopVersion?} | {feedback:Feedback} |
+| GET /users?number=... | exact number | {user} or 404 |
+| GET /friends | | {friends:[User]} |
+| GET /friend-feed | Optional scope=friends (default) or mine, optional before=positive post ID | {account,posts:[FriendPost],nextBefore,role,roles}. roles lists the public AI identities plus available and following. Legacy role is the Whale Girl entry or null. Newest first, up to 30 |
+| POST /friend-feed/follow | {role,enabled,expectedAccount} | {account,role,roles}, with role the selected companion. Turning off hides that author’s retained posts on the next read. Turning on requires the configured role service |
+| POST /friend-feed | {clientId,text,expectedAccount}, 1–1000 Unicode characters after trimming | {post:FriendPost}. Exact retry returns the original post |
+| POST /friend-feed/:id/delete | {expectedAccount} | {ok:true}, limited to the author and safe to retry |
+| POST /friend-feed/:id/report | {reason}, with current account in X-Social-Account | {report:{id,status}}, one receipt per eligible reporter and post |
+| GET /friend-requests | | {incoming:[Request],outgoing:[Request]} pending only |
+| POST /friend-requests | {number,expectedAccount?} | {request} for a human target. For a built-in AI target, expectedAccount is required and the accepted friendship returns {conversation}. This does not grant cloud chat. |
+| POST /friend-requests/:id/accept | {} | {conversation} |
+| POST /friend-requests/:id/decline | {} | {ok:true} |
+| GET /conversations | | {conversations:[Conversation]} newest activity first |
+| POST /direct | {number} of an accepted friend | {conversation}, reuses existing chat |
+| GET /ai-contacts | | {contacts:[User]}, only configured roles. Dragon includes `provider:"openai"`, Ju includes `provider:"anthropic"` |
+| POST /ai-contacts/start | {number,expectedAccount,allowCloud:true,provider?} | {conversation}, creates the initial consent or opens the existing AI private chat with its current consent |
+| POST /conversations/:id/ai-consent | {expectedAccount,allowCloud,revision,provider?} | {conversation}, updates consent for this account and AI private chat |
+| GET /conversations/:id/ai-proactive | Signed-in participant of an existing supported AI private chat | {account,settings:{available,cloudEnabled,enabled,startMinute,endMinute,timeZone,revision}} |
+| POST /conversations/:id/ai-proactive | {expectedAccount,enabled,startMinute,endMinute,timeZone,revision} | Same settings envelope. Minutes are local minutes since midnight and the endpoints must differ |
+| POST /groups | {title,memberNumbers:[number,...]} | {conversation} |
+| GET /conversations/:id | | {conversation} |
+| POST /groups/:id/members | {memberNumbers:[number,...]} | {conversation} |
+| POST /groups/:id/remove | {number} | {conversation}, owner removes someone else |
+| POST /groups/:id/leave | {} | {ok:true}, ordinary member leaves |
+| GET /groups/:id/ai | | {groupAi:{joined,canManage,available}}, joined roles include provider, configured, sharing and sharesPrevious for the signed-in member |
+| POST /groups/:id/ai | {number,expectedAccount,enabled} | {groupAi}, owner adds or removes a supported AI |
+| POST /groups/:id/ai-consent | {expectedAccount,number,provider,enabled} | {groupAi}, controls sharing to the selected role and cloud provider for the signed-in member only |
+| POST /groups/:id/ai-context | {expectedAccount,number,provider,enabled} | {groupAi}, optional permission to include the sender's immediately preceding exchange with the selected AI |
+| GET /conversations/:id/messages | optional after or before (exclusive integer message ID), limit 1..100 default 50, and optional removedAfter | {messages:[Message]} oldest first, plus moderation when requested |
+| POST /conversations/:id/messages | {clientId,text}, plus aiConsentRevision for AI direct chat or mentionAccount for a structured group mention. If supplied, X-Social-Account must match the active session | {message,reply?}, exact retry returns the original message |
+| POST /conversations/:id/voices | Raw `audio/wav` with `X-Social-Account` and `X-Social-Client-Id`. Mono PCM at 16 kHz, 16-bit, 200 ms to 30 seconds | {message} from a human in a friend direct chat or a group. Exact retry returns the original message |
+| GET /conversations/:id/messages/:messageId/voice | `X-Social-Account` for the active session | Private, no-store WAV. Membership, join boundary and message removal apply |
+
+Report receipts use `kind: "message" | "friend_post"` and `status: "open" | "removed" | "dismissed"`. `created` and `reviewed` are UTC timestamps, with `reviewed` null while open. Results sort by descending creation time, then receipt ID and kind. The top-level account is the authenticated user number, so a client can discard a response after an account switch. Each receipt contains only that session's own submitted reason. Receipts remain available after leaving the conversation or after removal of the reported item.
+
+User = {number,displayName,kind:"human"|"ai"}. Permanent user-chosen number is 4–24 ASCII letters, digits or underscores, case-insensitive and returned lowercase. Display names are 1–48 trimmed characters and may repeat. Passwords are 8–128 characters. Registration creates humans.
+
+Proactive private chat is a separate, default-off preference of the human participant of a Whale Girl, Dragon Girl or Ju private chat. It requires existing cloud chat consent. The service can attempt one greeting per local contact day after six quiet hours, including when all clients have closed. An overnight window belongs to its starting date. Attempts share the chat and service quotas and are at least 20 hours apart. Unfinished, cancelled and failed attempts are never replayed. The provider receives only public persona instructions and a fixed idle-chat cue. Closing cloud chat disables proactive contact until the participant opts in again.
+
+FriendPost = {id,author:User,text,createdAt}. The default feed includes your posts and posts by currently accepted human friends, including retained posts published before acceptance. Shared group membership, pending friend requests, and AI chats do not grant access. The signed-in human account supplies the author identity. Posts use plain text. Deleting clears the live post text and keeps its retry key, so a delayed publish retry returns 409 without restoring it. An accepted post report snapshots that post for operators only. A new report after removal returns 404. An eligible reporter can retry their existing receipt after removal.
+
+AI posts are authored by the corresponding service-owned identity: 鲸鱼娘 (`arcade_whale`), 橘娘 (`arcade_ju`) or 龙娘 (`arcade_dragon`). Only current followers of that author can see or report the post. Following is independent of friendship, chat consent, proactive contact and group membership. An AI with followers may publish one shared text post per UTC day or remain silent. Its DeepSeek, Anthropic or OpenAI adapter receives only the public persona, fixed publishing instructions and the UTC date. These turns share the service-wide AI budget and never replay after a restart. Old Whale follows remain scoped to Whale.
+
+Request = {id,from:User,to:User,createdAt}. Only recipient accepts or declines. Acceptance opens the shared direct chat. Crossed requests require explicit acceptance. Groups require a title of 1–80 characters, one or more selected friends and at most 100 members including the owner. Members add their own friends. Owner can remove others. Owner remains in the group. New members see only messages after their latest join.
+
+Conversation = {id,type:"direct"|"group",title,ownerNumber,members:[User],lastMessage:Message|null}. Direct titles are the peer display name, ownerNumber is null. Conversation and request IDs are opaque strings.
+
+Conversation responses additionally return the caller's `readThrough` (message ID or membership floor) and `unreadThrough` (newest visible unremoved message from somebody else after that position, or null). POST `/conversations/:id/read` accepts `{expectedAccount,through}` and returns the confirmed `{readThrough}`. The cursor only advances and the ID must belong to the caller's visible history in this conversation. A client acknowledges the rendered history response, rather than the latest server message. The one-time upgrade starts existing history as read. New memberships begin at their visible history floor.
+
+Message = {id,conversationId,sender:User,clientId,text,createdAt}. Message IDs are positive integers ordered by insertion. Timestamps are ISO UTC. Text is 1–4000 characters. Generate a distinct clientId per send (8–100 letters, digits, hyphens or underscores), reuse across retries. HTTP LAN supports crypto.getRandomValues. A changed payload under the same sender, conversation and clientId gives 409. Without cursor get the newest page, before=firstId gets older pages, after=lastId gets new messages (after=0 starts from beginning). Poll active conversation and refresh conversation/request lists on foreground/reconnect. Deduplicate by message ID.
+
+Voice messages use `text: "[语音]"` and `attachment: {type:"voice",mime:"audio/wav",durationMs,bytes}`. The upload stores the recording for authorized human participants to replay. Group AI presence and cloud consent do not affect sending attachments. Uploads do not start model or transcription requests. A group text message containing an internal attachment address stays in the group and is omitted from AI turns and their context.
+
+401 requires login, 403 forbidden, 404 unknown/inaccessible resource, 409 state conflict, 400 invalid input, 429 throttled. Render all user-provided strings as text.
+
+Static host maps social/client/index.html to / and social/client files to matching root paths such as /app.js. Use relative assets and hash routes or query parameters. Local and trusted test LAN use the same client. Public/Store service requires one operator-configured HTTPS base origin. No server URL, API key or invitation link is required from ordinary users.
+
+## Report a message
+
+The browser client sends `X-Social-Account` with the account currently shown in the UI. A mismatch with the authenticated cookie returns 409. A newly filed report requires a visible, unremoved message. An existing reporter can retry against an already removed message to recover the original receipt.
+
+POST /conversations/:id/messages/:messageId/report with {reason} (1–500 trimmed characters) returns {report:{id,status}}. Show the receipt to the reporter. Repeat submissions by the same user for the same message return the original receipt. Only messages visible to that member can be reported. Review is local to the service operator. A removed message keeps its ID and returns text "[已移除]" and removed:true. The operator reviews only the selected message and reason. The client should link its conduct guidelines from the report action or account view.
+
+When the reporter explicitly checks the attachment option, send `includeMedia:true` and `X-Social-Account` for the current account. The server binds this decision to the exact visible message and returns `sharedMedia` with its MIME type. Repeat submissions preserve the original scope. The local operator's `media REPORT_ID PRIVATE_DIRECTORY` command exports the selected attachment for an open report. No media is exported for older reports or when only a reason was supplied.
+
+When opening a conversation, send `removedAfter=latest` with the initial history request and retain the returned `moderation.cursor`. Include `removedAfter=<cursor>` in subsequent history requests for that conversation. Each response returns `moderation:{cursor,removedIds,historyFloor,membershipRevision}`, with up to 100 removal IDs for messages visible to the current membership. Apply those IDs to already loaded messages on any page and advance the removal cursor separately from message pagination. `membershipRevision` is opaque and changes when a member leaves and rejoins, including when `historyFloor` stays the same. If either value changes or access is lost, discard the prior view and its drafts before reopening the conversation.
+
+After a login expires, the web client's ordinary unsent text can resume in the same tab after signing in as the same account. Compare its saved membership revision and history floor to the original conversation's current authorized history response before showing the text. A server that does not provide a membership revision cannot verify expired drafts. Explicit sign-out and signing in as another account discard the drafts. Expiry recovery never restores a send attempt, a selected mention or an attachment, and never sends a message automatically.
+
+## Trial feedback
+
+FeedbackWithReply extends Feedback with nullable `replyText`, `retestVersion` and `repliedAt`. The service host can record one current operator reply per receipt with `moderate -- feedback-reply FEEDBACK_ID "RESULT" [RETEST_VERSION]`. An identical command leaves the stored reply and its timestamp unchanged. The authenticated feedback list exposes replies only to the author. History pages sort by submission time and receipt ID, newest first. Use next as before on the next request. A null next means the end of the list. A cursor outside the signed-in account is rejected with HTTP 400. POST /feedback has no reply input and continues to return the original submission receipt.
+
+Feedback = {id,text,createdAt,clientType,clientBuild,desktopVersion}. The authenticated account scopes storage and lookup. Submit 1–1000 trimmed characters. `expectedAccount` must match the session so a switched browser session cannot submit another account's draft. Reusing the same account and `clientId` returns the original receipt for identical text. Reusing it with different text fails with 409. A pending submission keeps its ID and both version fields across reloads and client updates. A successful receipt clears the retry.
+
+The server attaches the SHA-256 of the served `app.js` source to that script. An updated client sends the fingerprint captured on its first attempt and `desktopVersion` (a four-part Windows package version, or null). Earlier clients omit `desktopVersion` and still use the current fingerprint for new submissions. Records with a reported desktop version have `clientType:"windows"`. Records without one, including historical feedback, have `clientType:"web"` and `desktopVersion:null`. These are client-reported release correlation values without Store or device attestation. No conversation, message, contact, password, or credential fields are accepted.
+
+An older draft with neither first-attempt version can be retried with the original nonce, `clientBuild:null`, and no `desktopVersion` field. An existing receipt is returned unchanged. A newly accepted retry records `clientType:"unknown"` and both versions as null. The receiving page's build does not become the original build.
+
+## Trusted role adapter
+
+Configured AI direct contacts are `arcade_whale` (鲸鱼娘, DeepSeek), `arcade_dragon` (龙娘, OpenAI GPT) and `arcade_ju` (橘娘, Anthropic Claude). Conversation metadata exposes the role's provider as `aiProvider`. When opening or resuming a direct grant, Dragon requires `provider:"openai"` and Ju requires `provider:"anthropic"`. The Whale contact listing retains its original shape and a Whale request may omit its provider. Pending requests from humans to built-in AI friends are accepted on service startup. New ones are accepted immediately. Requests from AI friends to a human still require that human to accept. The consent action is tied to the logged-in human and specific role conversation. Human-to-human messages and old trusted adapter bindings do not trigger the cloud provider. AI identities cannot log in.
+
+Closing an existing direct grant may omit the provider. The expected account, conversation membership and current revision still apply. Opening or resuming a Dragon grant requires explicit OpenAI confirmation. A request without the provider receives `ai_provider_confirmation` so an older page prompts for a refresh before the user confirms again.
+
+GET `/ai-friend-preferences` returns `{account,roles:[{number,displayName,enabled,revision,available}]}` for the signed-in human. POST takes `{number,enabled,revision,expectedAccount}` and returns the refreshed view. New roles default off. The old singular route and its `preference:{enabled,revision,available}` response continue to manage only 鲸鱼娘 and use the same saved Whale preference. Clients that send `X-Social-AI-Friend-Roles: 1` see the new roles' pending requests in the existing inbox. 橘娘 additionally requires the existing Claude-capable UI header.
+
+An opted-in role may choose to send one friend request during an explicitly addressed, authorized group reply. The decision shares the reply's existing model request and commits with its text reply. The inbox reports the sending AI identity and `reason:"group_interaction"`. A friendship, prior request by that role, or a reverse pending request prevents another invitation. Disabling one role withdraws only its pending requests and invalidates its in-flight decisions. Accepting opens the sender's direct conversation. The conversation still requires separate consent for its own provider. Restore preparation clears all such preferences and withdraws pending AI invitations. Other role preferences cascade when the legacy preference row is deleted, including by the 1.0.27 restore tool.
+
+For a newly sent message in an approved AI private chat, the service reserves one bounded cloud turn, uses only recent visible messages in this conversation and inserts the reply as the AI member. The regular send response still returns `message` and can also include `reply`. An AI conversation's human message can have `aiReply` of `pending`, `answered` or `failed`. The saved human message remains readable on failure. A retry with the same `clientId` returns its current receipt, with no new provider request. Unfinished turns become failed after a service restart. The caller can send a new message deliberately. Busy and daily-limit responses use HTTP 429 with no new message saved.
+
+An approved AI direct conversation includes `cloudChat:{enabled,revision}` for its own human member. The chat header offers withdrawal and explicit restoration. Withdrawal keeps visible history, rejects new sends and makes unfinished replies terminal. The service aborts its upstream request where possible and discards late results. Data already sent to the provider cannot be recalled by this action. Existing consent migrates as enabled at revision 0. Consent changes require the last read revision, and new sends with an absent or outdated revision fail with 409. On restoration the next deliberate send starts a fresh provider context. Earlier history stays readable, and pending drafts are never sent automatically. These controls do not change group or human direct chats.
+
+The database also refuses a provider turn for a paused direct chat if an older service tries to reuse the original grant. The offline restore preparation command publishes a separate copy with direct grants paused and group consent cleared. See [deployment and restore](deploy/README.md#持久化备份与还原).
+
+## AI private appointments
+
+GET `/conversations/:id/appointments` lists one-time agreements for the current human and their original Whale Girl direct chat. POST takes `{action,id,expectedAccount}` with `task,wall,timeZone` for create or `revision` for cancellation. Moving takes `revision,wall,timeZone`. A wall time is a minute in an IANA zone, with DST gaps and ambiguous overlaps rejected. Native text messages can carry `timeZone`; explicitly phrased reminder requests and a subsequent unambiguous time clarification are answered within the social service. Their acknowledgments, adjustments, and due messages are excluded from model history.
+
+The service polls committed rows and saves each reminder message and its delivery state in one SQLite transaction. It checks the original human and AI membership and uses a deterministic message nonce. Pending items due up to five minutes ago are delivered after a normal restart; earlier ones are marked missed. Preparing a backup for restore clears pending delivery and incomplete drafts. These agreements do not require proactive greetings or a cloud generation call.
+
+## AI reply voices
+
+AI reply voice preferences belong to a human account and AI role. Permission to synthesize belongs to a specific conversation, human, role and backend. GET `/conversations/:id/ai-voice` returns available catalog choices, eligible roles, current voice and permission revisions. POST the same path with `{number,voice,revision,expectedAccount}` saves a catalog choice or null. POST `{action:"scope",number,allowed,revision,scopeRevision,expectedAccount}` enables or revokes the current backend for this chat. POST `/conversations/:id/ai-voice/preview` with `{number,voice,expectedAccount}` returns a fixed WAV sample. Spoken replies synthesize the original reply into one attachment under the existing turn nonce, for up to 600 code points and 120 seconds. An explicit voice request outside the synthesis capacity keeps the full text and a brief delivery note. Human recording uploads retain the 30-second cap.
+
+The same local privacy rules run before choosing a modality and again before synthesis. Rejected private image requests, protected echoes and internal attachment links are excluded from the speech payload. A voice reply stores the original wording for eligible model history and the same privacy filter applies to that wording. Revoking chat consent clears the corresponding speech scope even when an older service changes consent against the same SQLite file. Preparing a restored snapshot also clears speech scopes and saved voice choices.
+
+## AI in a group
+
+Cloud drawing uses an explicit address to a current AI group member whose chat provider was consented to by the sender. With a configured drawing provider, each participating role can draw by default. The owner can POST `{number,enabled,expectedAccount}` to `/groups/:id/ai-drawing`; explicit pauses persist. The earlier service did not retain a row for disabled drawing, so missing legacy settings use the new default. The group AI view includes per-role drawing availability and group usage. A new drawing reserves a bounded call under the same turn nonce. The parsed visual description reaches the image provider, with the selected public avatar or approved group card portrait when the request qualifies for that role reference. A requester can resend their own existing image for the same role and group without a provider call. Generated images use the existing authenticated image route with `attachment.drawing:{title}`. Original removal also removes copies. Restore preparation pauses drawing for current group roles and clears card approval and member consent.
+
+The group owner can add configured roles including 鲸鱼娘 (`arcade_whale`, DeepSeek), 龙娘 (`arcade_dragon`, OpenAI GPT) and 橘娘 (`arcade_ju`, Anthropic Claude). The owner and each ordinary member decide separately whether to share future messages with each role and its provider. Enabling a provider never reuses another provider's consent. Leaving a group or removing a role clears the affected grants. An in-flight reply is cancelled when the source member's grant or the replying AI's membership is withdrawn.
+
+Clients that display the Claude provider in their confirmation UI send `X-Social-Claude-UI: 1` on the Friends API. Earlier clients keep their DeepSeek and OpenAI controls, with Claude withheld from their consent lists. A legacy request that explicitly targets Claude receives a refresh response. The schema upgrade drops only pre-fix Anthropic group approvals for Ju, including their previous-turn scope, because those rows did not record what the client showed. Each member must confirm again in the updated UI. Existing private chat approvals required the provider explicitly and are preserved.
+
+Pick a member from the group panel to send a structured mention. The returned and stored message includes `mention:User`. Reusing a nonce with a different target conflicts. A typed prefix such as `@龙娘 分享一个办法` is accepted only when the name resolves to one current member across humans and AI. A typed name shared by multiple members stays in the normal chat path. An opening call such as `龙娘，帮我看看` or `龙娘能不能帮我看看` also resolves across all current group members. Only one explicitly named, authorized AI may answer. A collision, multiple opening names, a human target or a revoked cloud consent leaves the message in group chat. A short acknowledgement by the same human can preserve a recent linked exchange for the next question, within the existing freshness window and authorization checks. A clear farewell, pause or end records a per-member, per-group boundary at that message ID. Replies linked to earlier prompts cannot resume the exchange after acknowledgement bursts, late delivery or service restart. A new explicitly addressed prompt starts a fresh exchange for that member. Another group member's recent replies keep their usual cooldown.
+
+For unaddressed messages the server looks at the current question or invitation and limited local turn metadata. A bare name with a direct request, a name shared by multiple group members, or an uncertain direct addressee keeps the message in the human chat path, including immediately after an AI reply. A third-person report followed by a clearly separate question about the last AI reply can continue that exchange. The same recent AI and the sender's current provider permission must still match. Choose a member in the group panel to address them explicitly. Within two minutes, a follow-up to the latest eligible reply may select the same AI. A current human-to-human exchange has priority. A general invitation or an open question in a quiet group may select one authorized AI. Other unsolicited replies wait at least 25 seconds after a recent AI reply. A human interjection can cancel an implicit reply still in progress. AI output and ambiguous multi-target text do not initiate turns. These decisions make no independent model request.
+
+By default, the provider receives the current eligible text and public persona. The separate optional context permission can include the sender's immediately preceding question and the selected AI's answer, when the same role and provider authorization are still valid. Existing grants remain current-text only. No other members' messages, private chat, or earlier group history are sent. The reply uses the ordinary message and report contract. Group and direct AI turns share concurrency and daily limits. An implicit turn that hits a limit remains quiet, while a failed submitted turn keeps the original human message and a visible failure state.
+
+Replies from an already consented AI direct or group turn may contain one bundled role sticker. The reply uses the ordinary image message and authenticated image URL, with `text:"[表情图]"` and `attachment.sticker:{label}` for the original-image details. The reply and turn state commit together under the existing permission checks. Explicit requests for a supported mood use the fixed catalog locally. In other turns the existing chat provider can select a mood with a text code. Image bytes stay within the social service and its authorized clients.
+
+The Windows group owner can open the group member panel, choose a joined AI, and select a card from their local library. The trusted local picker previews the public name, description, speaking examples and individually selected embedded book entries before releasing the projection to the social client. A confirmed save applies that snapshot to future turns for this group and AI. Editing local source material requires a new preview and approval to change the shared snapshot. A web browser has no access to the desktop library.
+
+GET `/groups/:id/ai` exposes the current card and role revision to the owner. POST `/groups/:id/ai-card` takes `{expectedAccount,number,expectedRevision,card}`. A card contains `{name,description,examples,entries:[{keys,content}]}`. Send `card:null` to restore the default. Stale revisions fail. Each effective change invalidates previous-role context and pending replies for that group and AI. Only matching approved book material enters a provider request. The public card is reference data for first-person dialogue. The social account, mention target, provider, and each member's existing consent continue to identify who may reply.
+
+The Windows picker can submit an optional canonical `portrait` alongside the card in the same save, after the owner explicitly confirms the preview. The request accepts bounded PNG bytes encoded as base64. The approved PNG is tied to the group, AI and new role revision. Group settings return only the owner's `portraitApproved` flag. A new save without a portrait clears the image approval. For an eligible explicitly addressed drawing of the approved character, Workers AI receives the scene and the approved PNG in `input_image_0`. A built-in role uses its bundled public avatar when explicitly requested as the reference or when the scene depicts that role itself. An imported role can use only the portrait approved in that group. A text-only scene keeps the existing text request. Image uploads, URLs, file paths and chat history do not supply drawing references.
+
+Trusted role hosts bind an AI account to an existing conversation through server/ai-adapter.cjs. The same User object identifies friends, group members and message senders. messageEventsAfter(cursor) returns [{type:"social.message.created",cursor:message.id,conversationId,message}]. Consume in cursor order and keep the last processed ID per role and conversation. send({clientId,text}) uses that binding and the ordinary membership/visibility checks. No credentials, QQ routes or local owner-memory fields are in the social message contract.
+## Public reaction images
+
+Explicit public reaction requests in an authorized AI direct chat, or addressed to an authorized group AI, can return one picture. Common reaction phrases match a pinned OpenMoji public catalogue locally. Descriptions pairing a supported animal and action search Wikimedia Commons with those public words only. A candidate needs explicit metadata tying the action to that animal; conflicting subjects and ambiguous relationships are rejected. The service fetches a licensed original PNG/JPEG without sending account, chat, original text or media data. Private-looking requests are rejected locally before any provider call. Text-only instructions, withdrawal, and missing authorization prevent the search. Requests for image text get a plain explanation because the service does not verify lettering or visual composition.
+
+On an already authorized group turn, the same ordinary reply call may select one of a fixed set of public reaction intents. Animal–action options are offered and accepted only with matching cues in the current message. A complete valid code can produce one image; mixed text and control codes stay in the text path. Existing group selection, context scope, turn limits, and before-send authorization checks still apply. Public image messages extend `attachment.sticker` with `source:{author,title,license,licenseUrl,url}`. The recipient views the original bytes through the same authenticated route as other images. Bundled stickers keep their existing label and have no `source`.
+
+Private-looking image requests remain visible to authorized human chat members but are excluded from provider context and trusted role history. The model boundary also excludes linked replies to those prompts and messages that repeat the request or an identifiable protected literal from the same conversation. Existing databases and restored snapshots are indexed locally before model history is returned. Enabling group previous context or reopening a direct cloud chat does not override this boundary. Ordinary shareable messages retain their existing consent and history rules.
+
+## Static chat images
+
+A human can POST raw `image/png` or `image/jpeg` bytes to `/conversations/:id/images` in a friend direct chat or any group they belong to. Use `X-Social-Client-Id` (same rule as text) and `X-Social-Account` (the displayed signed-in account). Responses use the usual `{message}` envelope. An image message has display text `[图片]` and `attachment:{type:"image",mime,width,height,bytes}`. The same sender, chat, client ID and original bytes return the original receipt. Text and attachment messages share a nonce namespace.
+
+The maximum input is 4 MiB, with sides up to 8192 and pixel area up to 16 Mi pixels. The server applies the shared PNG/JPEG structural checks. Supported files are static PNG and common 8-bit JPEG. GET `/conversations/:id/messages/:messageId/image` returns the validated original bytes with private session checks and no cache. Members can read only attachments from their visible message history. Leaving, member removal or message removal takes effect on the next server request. The PNG/JPEG bytes are part of the SQLite snapshot and retain any metadata in the selected original.
+
+GET `/conversations/:id/messages/:messageId/image/download` applies the same checks and serves the bytes as an attachment. The Windows shell accepts this save action only from the corresponding active chat and reads the original again under the same account after the save dialog confirms a destination. For either image URL, `X-Social-Account`, when supplied, must match the authenticated account.
+
+### Ask an AI about a photo
+
+Open a human-authored PNG or JPEG message and choose **问 AI**. The dialog shows the exact image and one selected role with its existing cloud provider. An authorized AI private chat now accepts photos through the same validated image upload. The send dialog can submit the selected photo and the optional question together, using the displayed provider. Uploads and ordinary chat turns never include a photo in a model request. This flow sends the new question and a copy of the selected pixels without camera metadata. Group replies use the same approved character projection and matching book entries as ordinary text, with no previous turns included. JPEG retains a regenerated orientation-only tag. The download continues to return the original bytes. Group viewers need role consent and a per-image, per-role author grant to ask about another person's photo. An author can revoke the grant in the photo dialog.
+
+`GET /conversations/:id/messages/:image/vision` lists roles, current availability, and the revision for each target. POST to the same path with `{expectedAccount,number,provider,revision,text,clientId}` to ask once. POST `{expectedAccount,number,provider,enabled}` to the sibling `vision-permission` route to allow or revoke use of the photo by other group members. The ordinary reply budget and message visibility apply. Responses to a late revocation or removal are discarded. Content already submitted to a provider cannot be recalled. Restored snapshots clear grants.
+
+### Friends public web search
+
+Use **Conversation settings → Public web search** in an active AI direct conversation or a group with an AI member. Each conversation starts off. The direct participant or group owner can change its setting; group members retain their own role authorization and must explicitly address that role to search. Try `帮我搜一下大熊猫的栖息地`, `帮我查一下 Blender 的官网`, or `联网查：Blender`. Use **复制网址** beside a result to copy that address. Attribution and the licence are under **来源说明**. Search returns titles and links without loading the destination pages. A successful reply includes `webResults:[{title,url}]` alongside plain text for older clients.
+
+`POST /conversations/:id/web-search` takes `{expectedAccount,enabled,revision}` and returns `{conversation}`. The conversation view carries `webSearch:{enabled,revision,canManage}` where applicable. Groups with a participating role use web search by default unless the owner paused it. AI private chats retain their opt-in search setting. Normal restarts and in-place upgrades preserve explicit settings. Preparing an older snapshot for restore disables its web search authorizations. Search consumes an ordinary, deduplicated AI turn and the service uses the existing anonymous Mwmbl adapter. Only a public query from the current message is sent. The service locally rejects searches for account identifiers, current participants, or private chat context. Those prompts stay in the conversation. They are flagged at write time and checked again when older messages enter model context, including after provider downtime. Results, empty replies and failures are produced directly by the service; the chat model does not receive a prompt to perform the lookup. Search takes no new key and uses the provider's shared anonymous limit. Mwmbl makes its index results available under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/); see the [Mwmbl API terms](https://developer.mwmbl.org/terms/). This route is for noncommercial use.
+
+Run the local, headless acceptance with `node social/client/.qa/verify-web-search.cjs <evidence-directory>`.
+
+
+## 当前角色聊天入口
+
+在「通讯录 → AI 联系人」打开本账号已获准使用的 Bothouse 角色即可私聊，在群内通过成员选择器 @ 该角色。首次需要领取共享角色时，由服务运营者按当前好友号签发一次性配对码，用户在同一入口选择「使用角色配对码」。一次配对可取得该范围内的角色；模型和密钥在 Bothouse 管理。见[账号授权与配对](server/bothouse/README.md)。
+
+## 历史契约：个人 AI 绑定与群聊授权
+
+下列字段、授权和旧菜单描述此前版本的个人 AI 接入。升级后，旧会话历史仍可读；保存过个人 AI 资料的账号可在「原有 AI 的授权与资料」查看和撤回。旧凭据不会转为 Bothouse 角色授权。
+
+主人可以从「我的 AI」添加自己的角色并打开私聊。个人 AI 默认仅主人可添加；开启「好友权限 → 允许其他人按编号添加」后，其他真人按稳定编号添加也自动通过。添加本身不会开启云聊天或消耗模型用量，真人好友申请仍由收到的一方处理。
+
+个人 AI 私聊会把已同意的本人新文字、同一会话的近期获准对话、角色昵称与已批准的私聊角色设定交给主人所选的聊天服务。世界书按本轮关键词匹配。群资料、其他会话和本次同意之前的历史不随请求发送。迁移旧版仅允许当条文字的授权时，须由聊天者再次同意。主人允许已添加好友使用自己的聊天服务之后，好友才可在其私聊中单独同意并发送。关闭开放或关闭好友云聊天会撤下相关好友的云许可，包括在途结果；好友关系及已收历史仍可访问。恢复后好友需重新同意。主人断开也会暂停该 AI 的私聊授权。
+
+`GET/POST /api/v1/personal-ai/friend-settings` 供角色主人读取和修改。写入包含 `{number,expectedAccount,revision,discoverable,guestCloud}`，`guestCloud` 依赖公开添加。仍用 `POST /api/v1/friend-requests` 建立自动好友和会话、另用既有云聊天接口授权。恢复旧备份会重置这项开放和付费范围。
+
+「我的 AI → 角色设定」分开预览及批准群聊与私聊资料。主人在自己角色的私聊也可直接打开「会话设置 → 私聊角色设定」。`GET/POST /api/v1/personal-ai/private-profile` 沿用群聊角色投影的字段和版本校验，但独立保存。更换或撤回私聊投影会中止旧回复，并把该角色已授权私聊的上下文起点移至新消息。私聊开启或恢复的确认须带 `personalContext: true`，后续沿用既有会话授权版本和消息重试处理。主人可在同一个私聊角色设定批准 PNG 卡面。选择器预览去除卡内数据的图片，保存卡时提交可选的 `portrait`。真的画本角色时，Cloudflare Workers AI 只收到本轮画面描述和该角色当前批准的图片。选其他卡或关闭卡面会撤销旧图，世界书单独保存时保留当前参考。
+
+旧版用户曾在「通讯录 → AI 联系人 → 我的 AI」选择角色，并填写自己的云服务 API key。一个真人账号绑定一个稳定 AI 编号及角色。密钥只在服务进程内使用，服务重启后需在同一入口重新连接。可使用公开 HTTPS 入口或本机回环入口。群内只显示昵称、编号、主人、服务商和连接状态。
+
+在「群成员 → 群内 AI → 成员带来的 AI」邀请本人的 AI，由该群群主接受。成员分别授权发送给指定 AI 后，可在成员列表按编号点名。同名 AI 有不同的编号。模型收到发送者点名的当条文字、这位 AI 的公开名字，以及主人批准的公开设定和当轮适用条目。回复绑定原群及原消息。主人可以在单群移除，或从个人入口断开并撤销全部群邀请。主人退群同时移除本人的 AI。旧的云回包即使在重新授权后抵达也会被丢弃。
+
+主人可从 Windows 版「我的 AI → 角色设定 → 群聊角色设定」打开既有本机角色库和世界书预览，勾选愿意分享的条目，并确认供这位 AI 获准加入的群使用。绑定昵称仍是群内本人身份。即使未选卡也使用该昵称。角色原件、卡面、创作者备注、私聊记忆和未批准条目不进这条数据流。世界书每轮按原有关键词规则筛选。可独立撤回卡或另选的世界书，替换或撤回会使旧设定下未投递的回复失效。群内文字和 AI 合成台词使用同一身份。
+
+`GET/POST /api/v1/personal-ai/profile` 仅供该角色本人账号的主人读取和修改。提交 `{expectedAccount,number,expectedRevision,card}` 或将 `card` 换成 `lorebook`。对应字段为 `null` 时撤回。校验沿用群卡公开格式。恢复旧备份时清除该批准。
+
+`GET/POST /api/v1/personal-ai` 查询本人身份、绑定或断开。 `GET/POST /api/v1/groups/:id/personal-ai` 查询和更改本群邀请、接受、发送授权与撤回。写入携带当前真人账号、该绑定或邀请的版本；更改本人的发送授权也核对授权版本。普通回帖继续使用群消息的稳定 `mentionAccount` 和 `clientId`。
+
+主人可在「我的 AI → 选择群 AI 音色」选择好友服务提供的 Azure 音色，也可试听固定示例。音色按主人和 AI 编号保存。群成员同意文字对话后，可从「成员带来的 AI → 本群语音」单独允许 Azure 朗读这位 AI 的群内回复。同名角色按主人和编号区分。Azure 收到要朗读的台词，群内仍用原消息权限控制播放。合成使用好友服务配置的 Azure 凭据；聊天仍使用该 AI 主人连接的服务。要求只发文字时按文字回复。
+
+`GET/POST /api/v1/personal-ai/voice` 读取和保存自己的音色，保存使用 `{expectedAccount,number,voice,revision}`，其中 `voice:null` 清除选择。向同一路径下的 `preview` 发送 `{expectedAccount,number,voice}` 试听。群成员仍使用 `/api/v1/conversations/:id/ai-voice` 的会话语音授权，成员侧的音色来自该角色主人。普通重启保留音色和群授权，但聊天凭据仍需要主人重连。语音授权撤回后，在途生成的音频不会送达，已有文字授权的当轮可保留一条文字。撤回文字授权、移出 AI 或主人断开会丢弃尚未送达的整条回复。已提交给云服务的请求无法撤回。
+
+已有文字授权的成员第一次点名索取语音时，可在原消息旁选择「仅本群允许并继续」「记住 Azure 选择并继续」或「仅回文字」。只有发送者能操作，等待选择期间不会请求聊天或语音服务。记住的许可按真人账号和 Azure 保存，适用于该成员可访问且已授权该角色接话的群。它只自动用于明确的语音请求。角色音色仍由主人选，群内单独暂停与本人停用记住的选择优先。正常重启保留许可，恢复旧备份前会清除有效的全局许可与待继续请求。
+
+消息返回仅向发送者提供 `personalVoiceOffer:{revision,provider}`。相同群消息下的 `POST /api/v1/conversations/:id/messages/:message/personal-voice` 接收 `{expectedAccount,revision,action}`，动作是 `room`、`remember` 或 `text`。待续请求各自绑定原消息，提前允许语音或继续其中一条不会领走另一条。角色、成员或音色变化和许可撤回会使受影响的旧请求失效。群语音设置可继续暂停当前角色，也可停用或恢复本人的 Azure 选择。
+
+### Bothouse 聊天派工
+
+在原 messages POST 中发送明确的任务。私聊取本会话的 AI 对端，群聊使用结构化 mentionAccount。按已认证发信账号在当前 Bothouse 目录解析项目。客户端沿用原 clientId，草稿不提交。同一条已提交消息只建一个任务。历史中原消息的 task 包含 messageId、target、state、attempt 和 boardId；板号在 Bothouse 实际收单后可用。queued 表示本机已登记，accepted、running、returned 分别表示任务板已接单、执行器在处理和已交回交付物。交回供用户核对。状态和文本交付物来自同会话内被派角色。
+
+失败的发起人可在原私聊发送「重试任务 #消息号」，在群内选择同一角色再发送。按钮可 POST `/api/v1/conversations/:id/messages/:messageId/task-retry`，提供当前 expectedAccount 和原消息上显示的 attempt，返回 task。重复同次重试沿用原订单。
+
+服务端对接同一 Bothouse 目录的异步 resolveMember(account,number)。已安装的 Bothouse gate 使用 `bridge/contrib/gate/board.py` 的 add、update 和 returned。板目录按项目及会话隔离，默认位于社交 SQLite 旁的 bothouse-work。已有部署可用 SOCIAL_BOTHOUSE_GATE 指定已安装的 gate，用 SOCIAL_BOTHOUSE_WORK_DIR 指定该服务的专用板根。角色已获准的文本执行适配可以提供 runTextTask(turn)，复用普通聊天所用的 Bothouse 实例与项目绑定。对带清单的分类任务，它返回与条目一一对应的类别；工作进程保留原条目，写入并校验实际交付物。其他任务由该角色获准的执行器通过任务板接单和交回。浏览器只发送消息与重试，不提供执行器指令、路径或凭据。

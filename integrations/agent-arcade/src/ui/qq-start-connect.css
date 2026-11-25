@@ -1,0 +1,4 @@
+/* Saved connection entry; keep the room typography and palette. */
+.saved-connection{margin:14px 0 18px;padding:16px 18px;border:1px solid var(--room-outline);border-radius:12px;background:var(--paper);color:var(--text);font-size:14px;line-height:1.75;overflow-wrap:anywhere}
+.saved-connection h2{font:inherit;font-size:17px;font-weight:600;margin:0 0 8px}.saved-connection p{margin:8px 0}.saved-connection .button-row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.saved-connection button{font:inherit;font-size:14px;min-height:36px}.saved-connection-note{color:var(--muted)}.saved-connection-status{font-weight:500}.saved-connection :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:620px){.saved-connection{padding:14px}.saved-connection .button-row{align-items:stretch}.saved-connection button{white-space:normal;max-width:100%}}
