@@ -166,9 +166,17 @@ func TestTeamWorkspaceChannelsFromThread(t *testing.T) {
 		if err := p.workspaceShelfStore().rememberThread("g1", gone, "100"); err != nil {
 			t.Fatal(err)
 		}
-		rc, err := p.ReconstructReplyCtx("discord:" + gone)
-		if err != nil || rc.(replyContext).channelID != "100" || rc.(replyContext).threadID != "" {
-			t.Fatalf("thread %s gone: reply ctx = %+v %v, want its text channel 100", gone, rc, err)
+		legacyKey := "discord:" + gone + ":alice"
+		p.threadSessionPerUser = false
+		if rc, err := p.ReconstructReplyCtx(legacyKey); err != nil || rc.(replyContext).channelID != gone {
+			t.Fatalf("legacy per-user channel target for %s = %+v, %v", legacyKey, rc, err)
+		}
+		p.threadSessionPerUser = true
+		for _, key := range []string{"discord:" + gone, legacyKey} {
+			rc, err := p.ReconstructReplyCtx(key)
+			if err != nil || rc.(replyContext).channelID != "100" || rc.(replyContext).threadID != "" {
+				t.Fatalf("thread %s gone: reply ctx = %+v %v, want its text channel 100", key, rc, err)
+			}
 		}
 	}
 	if h := p.workspaceShelfStore().threadHost("200"); h != "100" {

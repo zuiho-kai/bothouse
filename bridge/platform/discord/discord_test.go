@@ -113,7 +113,8 @@ func TestResolveThreadReplyContext_UsesExistingThreadChannel(t *testing.T) {
 		},
 	}
 
-	sessionKey, rc, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	sessionKey, rc, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -151,7 +152,8 @@ func TestResolveThreadReplyContext_FallsBackToMessageChannelWhenParentMissing(t 
 			Author:    &discordgo.User{ID: "u1"},
 		},
 	}
-	_, _, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	_, _, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -197,7 +199,8 @@ func TestResolveThreadReplyContext_CreatesThreadForGuildMessage(t *testing.T) {
 		},
 	}
 
-	sessionKey, rc, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	sessionKey, rc, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -228,8 +231,9 @@ func TestSessionKeyForChannel_UsesThreadKeyWhenChannelIsThread(t *testing.T) {
 		},
 	}
 
-	if got := resolveSessionKeyForChannel("thread-7", "user-1", false, true, ops); got != "discord:thread-7" {
-		t.Fatalf("resolveSessionKeyForChannel() = %q, want discord:thread-7", got)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	if got, _ := p.interactionKeys("thread-7", "user-1"); got != "discord:thread-7" {
+		t.Fatalf("interaction key = %q, want discord:thread-7", got)
 	}
 }
 
@@ -275,8 +279,9 @@ func TestResolveParentChannelID(t *testing.T) {
 				ch := tc.channel
 				ops.resolveChannel = func(string) (*discordgo.Channel, error) { return ch, nil }
 			}
-			if got := resolveParentChannelID(tc.channelID, ops); got != tc.want {
-				t.Errorf("resolveParentChannelID(%q) = %q, want %q", tc.channelID, got, tc.want)
+			p := &Platform{threadIsolation: true, threadOps: ops}
+			if _, got := p.interactionKeys(tc.channelID, "user"); got != tc.want {
+				t.Errorf("interaction parent(%q) = %q, want %q", tc.channelID, got, tc.want)
 			}
 		})
 	}
@@ -322,7 +327,8 @@ func TestResolveCronReplyTarget_CreatesStandaloneThread(t *testing.T) {
 		return nil
 	}
 
-	sessionKey, rc, err := resolveCronReplyTarget("discord:channel-1:user-1", "Daily sync", ops)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	sessionKey, rc, err := p.resolveCronReplyTarget("discord:channel-1:user-1", "Daily sync")
 	if err != nil {
 		t.Fatalf("resolveCronReplyTarget() error = %v", err)
 	}
@@ -343,6 +349,16 @@ func TestResolveCronReplyTarget_CreatesStandaloneThread(t *testing.T) {
 	}
 	if joinedThread != "thread-fresh" {
 		t.Fatalf("joinedThread = %q, want thread-fresh", joinedThread)
+	}
+	p.threadSessionPerUser = true
+	for source, want := range map[string]string{
+		"discord:channel-1:user-1": "discord:thread-fresh:user-1",
+		"discord:channel-1":        "discord:thread-fresh",
+	} {
+		key, ctx, err := p.ResolveCronReplyTarget(source, "Daily sync")
+		if err != nil || key != want || ctx.(replyContext).targetChannelID() != "thread-fresh" {
+			t.Errorf("scheduled thread for %s = %s, %+v, %v", source, key, ctx, err)
+		}
 	}
 }
 
@@ -367,7 +383,8 @@ func TestResolveCronReplyTarget_ReusesExistingThreadKey(t *testing.T) {
 		return &discordgo.Channel{ID: "thread-fresh-2", Type: discordgo.ChannelTypeGuildPublicThread}, nil
 	}
 
-	sessionKey, rc, err := resolveCronReplyTarget("discord:thread-1", "cron", ops)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	sessionKey, rc, err := p.resolveCronReplyTarget("discord:thread-1", "cron")
 	if err != nil {
 		t.Fatalf("resolveCronReplyTarget() error = %v", err)
 	}
@@ -1733,7 +1750,8 @@ func TestDispatchMessage_SetsChannelKeyForThreadIsolation(t *testing.T) {
 		Author:    &discordgo.User{ID: "U1", Username: "user1"},
 	}}
 
-	threadSessionKey, rctx, _, err := resolveThreadReplyContext(m, "BOT_ID", ops)
+	p.threadOps = ops
+	threadSessionKey, rctx, _, err := p.resolveThreadReplyContext(m)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext error: %v", err)
 	}
