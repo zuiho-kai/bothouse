@@ -291,6 +291,17 @@ def _sections(rel, root=None):
     return out
 
 
+def in_history(rel, ln, root=None):
+    """这行在「## 历史」节里：已被新说法取代、原样挪进历史的旧行。不推送，原文留在页里、手动搜得到
+    （用户 11-24「旧的直接把它给它踩一脚，它就滚下去了…再也不存在了」；照 Discourse 的 Unlisted：列表不出、原文还在）。"""
+    sec = ""
+    for n, s in _sections(rel, root):
+        if n > int(ln):
+            break
+        sec = s
+    return sec in OLD_HEADS
+
+
 def cred(rel, ln, line, root=None):
     """这行的可信度标记：【旧】= 历史节里的、或写着「曾以为…→」/「过时」的旧说法；【未核】= 自己标了推测没核的；
     【推论】= 写着推论/推断/判断的。旧说法推的时候排到最后（别的不够五条时才轮得到），未核、推论只加标记、排序不动。"""
@@ -438,6 +449,8 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     shown_th = set()
     weak_of = weak_lines(need, [line for _, _, line in hits])
     for (rel, ln, line), weak in zip(hits, weak_of):  # 按首次出现排页
+        if in_history(rel, ln, root) or (FORUM and FORUM.collapsed(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))):
+            continue  # 被取代挪进历史的、被踩到折叠的不推（#1978）；论坛页和手动搜照样看得到
         th = _thread(rel, line, root)
         if th and th["tid"] in shown_th:
             continue  # 同一帖的别的楼已经推过标题和最高分楼
@@ -449,13 +462,12 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
         if th:
             shown_th.add(th["tid"])
             rows = [dict(r, weak=True) if weak else r for r in _thread_rows(th, rel, root, line, mark)]
-            if rows:
-                for r in rows:  # 旧楼逐条排到最后，新的照常
-                    if "【旧】" in r["text"]:
-                        defer.append((rel, r))
-                    else:
-                        pages[rel]["rows"].append(r)
-                continue
+            for r in rows:  # 旧楼逐条排到最后，新的照常
+                if "【旧】" in r["text"]:
+                    defer.append((rel, r))
+                else:
+                    pages[rel]["rows"].append(r)
+            continue  # 帖里的楼全在历史节或已折叠：整帖不推（#1978）
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
         row = _row(rel, line, f"{ln}: {fold}{mark}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
         if weak:
@@ -492,7 +504,10 @@ def _thread(rel, line, root):
     if not FORUM or not hasattr(FORUM, "thread_of"):
         return None
     th = FORUM.thread_of(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))
-    return th if th and len(th.get("floors", [])) > 1 else None
+    if not th:
+        return None
+    # 按模块起的帖（标题「[版块] 对象」，#1978）只有一楼也推帖标题；旧问句标题的单楼帖照旧推这一行
+    return th if len(th.get("floors", [])) > 1 or (th.get("title") or "").startswith("[") else None
 
 
 def _floor_line(cid):
@@ -514,7 +529,8 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
     别的页上的楼写出页路径。"""
     floors = {f["id"]: f for f in th["floors"]}
     found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
-    found = [(f, x) for f, x in found if x and is_item(x[2])]
+    found = [(f, x) for f, x in found if x and is_item(x[2]) and not FORUM.collapsed(f["id"])
+             and not in_history(x[0].as_posix(), x[1], Path("/"))]  # 历史节、折叠的楼不推（#1978）
     if not found:
         return []
     top = found[0]
