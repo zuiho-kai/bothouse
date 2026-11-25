@@ -98,7 +98,17 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		st.Since, changed = now, true
 	}
 	items := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
-	if recordChatStops(st, items, now) {
+	// a report held for the lead's verdict is not a stop yet: the lead may send the work straight
+	// back (#2000: #1998 was told 「②停了…等外部」 19 s before the lead redispatched it)
+	stopItems := make([]teamTaskBoardItem, 0, len(items))
+	for _, it := range items {
+		platform, _, _ := strings.Cut(it.Chat, ":")
+		if it.ID > 0 && e.reportHeldForLead(platform, it.ID) {
+			continue
+		}
+		stopItems = append(stopItems, it)
+	}
+	if recordChatStops(st, stopItems, now) {
 		changed = true
 	}
 	chats := map[string]bool{}
@@ -122,7 +132,7 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		if e.syncChatWaiting(poster, st, chat, items, now) {
 			changed = true
 		}
-		if e.announceChatStops(poster, st, chat, items, now) {
+		if e.announceChatStops(poster, st, chat, stopItems, now) {
 			changed = true
 		}
 	}
@@ -311,7 +321,9 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 			// released by its workspace without a pause: since its last activity
 			at = teamTaskBoardLastActive(it, now)
 		}
-		if at.IsZero() {
+		// a pause that is over within chatStopSettle was a step, not a stop: rework and
+		// ws-handoff --resume pause the item and dispatch it seconds later (#2000)
+		if at.IsZero() || now.Sub(at) < chatStopSettle {
 			return "", time.Time{}, ""
 		}
 		if r := strings.TrimSpace(it.PauseWhy); r != "" {
@@ -333,6 +345,10 @@ func chatStopOf(it teamTaskBoardItem, now time.Time) (stamp string, at time.Time
 	}
 	return "", time.Time{}, ""
 }
+
+// chatStopSettle: how long a pause must last before it is a ② stop. The board pass runs every
+// teamBoardInterval (10 s); a rework or resume redispatches within seconds (#1974: 7 s).
+const chatStopSettle = time.Minute
 
 // recordChatStops keeps st.Stops: the ② line of every stop since Since, in any chat, once.
 func recordChatStops(st *teamChatState, items []teamTaskBoardItem, now time.Time) bool {

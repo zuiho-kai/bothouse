@@ -140,3 +140,17 @@ func TestChatClock(t *testing.T) {
 		}
 	}
 }
+
+// #2000: rework reopens an item paused for a moment and dispatches it seconds later; that
+// moment is not a ② stop. A pause that lasts is.
+func TestChatStopSkipsPauseThatIsOverInSeconds(t *testing.T) {
+	now := time.Date(2026, 11, 25, 13, 6, 11, 0, time.Local)
+	it := teamTaskBoardItem{ID: 1974, Short: "没跟仓口径", Status: "待接续", Paused: "11-25 13:06",
+		PausedAt: now.Add(-7 * time.Second).Format(time.RFC3339Nano), own: "discord:c1"}
+	if s, _, txt := chatStopOf(it, now); s != "" {
+		t.Fatalf("a 7 s old rework pause gave ② %q", txt)
+	}
+	if s, _, _ := chatStopOf(it, now.Add(chatStopSettle)); s == "" {
+		t.Fatal("a pause that lasted chatStopSettle must still be a ②")
+	}
+}
