@@ -329,6 +329,10 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 		req.Message = strings.Join(positional, " ")
 	}
 
+	if msg := foreignMediaProblem(dataDir, req.SessionKey, append(append(append(append([]string{}, imagePaths...), filePaths...), audioPaths...), videoPaths...)); msg != "" {
+		return req, "", fmt.Errorf("%s", msg)
+	}
+
 	maxAtt := resolveMaxAttachmentSize(loadSendConfigBestEffort())
 
 	images, err := loadImageAttachments(imagePaths, maxAtt)
