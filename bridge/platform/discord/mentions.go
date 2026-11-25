@@ -4,10 +4,35 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
+
+// personNames: a person's username, global name and server nickname → their user id, learned
+// from the messages they post (any bot of this process). linkTeamMentions turns "@zzzx0757" in a
+// bot's reply into <@id> with it; without it the person saw plain text and got no ping
+// (2026-11-25, user: 「没@对 很奇怪」).
+var personNames sync.Map
+
+// notePersonNames records the author of a person's message. Bots and webhooks are skipped:
+// teammates come from teamPlatforms, and a webhook's author id cannot be mentioned.
+func notePersonNames(m *discordgo.MessageCreate) {
+	if m == nil || m.Author == nil || m.Author.Bot || m.WebhookID != "" || m.Author.ID == "" {
+		return
+	}
+	names := []string{m.Author.Username, m.Author.GlobalName}
+	if m.Member != nil {
+		names = append(names, m.Member.Nick)
+	}
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" && !strings.ContainsAny(n, " \t\n") {
+			personNames.Store(n, m.Author.ID)
+		}
+	}
+}
 
 // linkTeamMentions turns a plain-text "@name" of a teammate bot running in this process into a
 // real Discord mention (<@id>). Models often write "@Claude橘" instead of the <@id> syntax;
@@ -18,6 +43,9 @@ import (
 // A teammate's name opening a line as a call ("grok娘，帮我…") becomes <@id> too: Discord delivers a
 // bot's message to another bot only with an explicit mention, so the name alone never reached her
 // (issue #971). The opening rule is core.NameCalled's, so "龙娘刚才写的…" stays text.
+//
+// "@name" of a person seen in chat (personNames) becomes <@id> too; a teammate's name wins a clash.
+// Only the "@" form: a person's name at a line start stays text.
 func linkTeamMentions(content, selfID string) string {
 	alias := map[string]string{}
 	var self []string
@@ -43,7 +71,19 @@ func linkTeamMentions(content, selfID string) string {
 		return true
 	})
 	if strings.Contains(content, "@") {
-		content = replaceMentions(content, alias)
+		at := make(map[string]string, len(alias))
+		for n, id := range alias {
+			at[n] = id
+		}
+		personNames.Range(func(k, v any) bool {
+			n, _ := k.(string)
+			id, _ := v.(string)
+			if _, taken := at[n]; !taken && n != "" && id != "" && id != selfID {
+				at[n] = id
+			}
+			return true
+		})
+		content = replaceMentions(content, at)
 	}
 	return core.LinkLeadingNames(content, alias, self, func(id string) string { return "<@" + id + ">" })
 }
@@ -71,7 +111,7 @@ func replaceMentions(content string, alias map[string]string) string {
 			s = s[at+1:]
 			matched := false
 			for _, n := range names {
-				if strings.HasPrefix(s, n) {
+				if strings.HasPrefix(s, n) && !asciiWordContinues(n, s[len(n):]) {
 					b.WriteString("<@" + alias[n] + ">")
 					s = s[len(n):]
 					matched = true
@@ -154,4 +194,16 @@ func teamRoleMentions(content, guildID, selfID string) string {
 		return true
 	})
 	return content
+}
+
+// asciiWordContinues: "@bob" must not match inside "@bobby" — a name ending in an ASCII letter or
+// digit only matches when the next character is not one too.
+func asciiWordContinues(name, rest string) bool {
+	if name == "" || rest == "" {
+		return false
+	}
+	isWord := func(c byte) bool {
+		return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
+	return isWord(name[len(name)-1]) && isWord(rest[0])
 }
