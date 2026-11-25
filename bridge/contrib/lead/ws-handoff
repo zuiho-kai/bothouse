@@ -97,6 +97,36 @@ def resume_ref(task: str, notes: str):
     return next((i for i in board.items() if i.get("id") == int(m.group(1))), None) if m else None
 
 
+# 放行时视频改成的英文文件名带着那件活的编号（「1148_A_chunguqin.mp4」，ws-pass 多视频放行，Issue #2200）
+MEDIA_REF = re.compile(r"(?<![\w#])(\d+)_[\w.-]*\.(?:mp4|mov|webm|m4a|mp3|wav|png|jpe?g|gif|webp)\b", re.I)
+
+
+def follow_ref(task: str, notes: str):
+    """这件活接着哪件旧活做：任务句或标题点名的（resume_ref），否则「用户原话」节里用户回复的成品文件名带着的编号，
+    只指向一件、任务板或已完成记录里查得到才算；都没有返回 None。
+    来源：11-25 #1153。#1152 自测把 #1148 的两版成品（1148_A_chunguqin.mp4 等）贴进了测试频道，用户在那里回「字太小了」，
+    续改的活就记成测试频道的，放行和验收通知都贴到了测试频道，用户「为啥发到这里了」——#1148 是宣传频道的活。"""
+    ref = resume_ref(task, notes)
+    if ref:
+        return ref
+    m = re.search(r"^#+ 用户原话\s*$(.*?)(?=^#+ |\Z)", notes, re.M | re.S)
+    ids = {int(n) for n in MEDIA_REF.findall(m.group(1))} if m else set()
+    return board.item_by_id(ids.pop()) if len(ids) == 1 else None
+
+
+def follow_chat(ref, chat: str) -> str:
+    """续做旧活的新任务记到旧活的聊天频道（汇报、验收通知、放行、[ask] 都回那里）；旧活就是本频道的、没记频道、
+    跨平台、频道是个工作区，或跑命令的是工作区时原样返回（同 notes_chat）。"""
+    want = board.channel_of(ref) if ref else ""
+    if not want or not chat or ":" not in chat or want == chat or want.split(":", 1)[0] != chat.split(":", 1)[0]:
+        return chat
+    if lead_chat(chat) != chat or lead_chat(want) != want:
+        return chat
+    print(f"ws-handoff: 这件接着 #{ref['id']} 做，#{ref['id']} 是 {want} 派的；这件活记到 {want}，汇报、验收通知、放行、[ask] 都回那里",
+          file=sys.stderr)
+    return want
+
+
 def in_progress(it) -> bool:
     """条目真有工作区在做：板上绑着工作区、没暂停、没进待办、没交回，而且桥里那个工作区眼下认领着的就是它。
     板上还挂着「在做」、工作区已经归了别的活的不算（11-17 #1727 交回后板上没收，工作区6 已在做 #1736）。"""
@@ -815,11 +845,12 @@ def main(argv):
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，小模型没调成写「没搜成（原因）」
     # 并照实打印（接回时重搜），都不拦交活
     recall = _recall.start(path)  # 和下面挑工作区、上任务板同时跑，叫醒工作区前收（#1732）
-    chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
-    if append_source(path, chat):
+    said = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))  # 用户说话的频道：原话从这导
+    chat = follow_chat(ref or follow_ref(task, notes), said)  # 这件活记到的频道：续做别的频道的旧活就记到那边（#1153）
+    if append_source(path, said):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
     else:  # 这份交接交过（原话文件已在）：只把上次导出之后聊天频道里新说的补进去
-        _source.append_new(path, chat)
+        _source.append_new(path, said)
     if fold_lead_notes(path):
         print(f"ws-handoff: 主角色写的节已归到「{_source.LEAD_SAYS}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件

@@ -39,15 +39,18 @@ func TestChatStopWakesLeadOnce(t *testing.T) {
 		PauseWhy: "等外部：下载依赖", WaitKind: &ext, own: chat}
 	timed := stop // a pause with a scheduled re-dispatch carries on by itself
 	timed.ID, timed.WaitUntil = 1146, now.Add(time.Hour).Unix()
-	items := []teamTaskBoardItem{stop, timed}
+	none := ""
+	halted := stop // #1990: paused with board pause on someone's word, waits for that person
+	halted.ID, halted.PauseWhy, halted.WaitKind, halted.Halted = 1990, "等负责人看：先别做，等他看一下", &none, true
+	items := []teamTaskBoardItem{stop, timed, halted}
 	f := &fakeNotePoster{}
 	e.announceChatStops(f, st, chat, items, now)
 	e.announceChatStops(f, st, chat, items, now)
-	if len(f.sent) != 2 {
-		t.Fatalf("both stops posted once, got %q", f.sent)
+	if len(f.sent) != 3 {
+		t.Fatalf("each stop posted once, got %q", f.sent)
 	}
 	if len(*calls) != 1 {
-		t.Fatalf("want one lead wake (the stop without a scheduled re-dispatch), got %+v", *calls)
+		t.Fatalf("want one lead wake (not the scheduled re-dispatch, not the ordered pause), got %+v", *calls)
 	}
 	c := (*calls)[0]
 	if c.chat != chat || c.board != 42 || !strings.Contains(c.prompt, "#42") || !strings.Contains(c.prompt, "整理发布说明") {

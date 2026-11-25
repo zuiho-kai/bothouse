@@ -754,7 +754,9 @@ def handoff_of(it):
 
 
 # 暂停：条目留在 board.jsonl（不写 board-done.jsonl，不算完成），带 paused（暂停时刻）和 pause_why；团队板上单列「暂停」块。
-def pause(nid, why=None):
+def pause(nid, why=None, ordered=False):
+    """ordered：有人用 board pause 叫停的（不是提问让出、等外部）。记 halted，桥（core/team_lead_autowake.go stopWakesLead）
+    见到它不叫醒主角色续派（11-25 #1990「先别做，等某人看一下」被 #2206 的停摆唤醒当成卡住续派）。"""
     with _locked():
         cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
@@ -765,6 +767,10 @@ def pause(nid, why=None):
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
         hit.pop("pause_req", None)
         hit.pop("pause_req_at", None)
+        if ordered:
+            hit["halted"] = True
+        else:
+            hit.pop("halted", None)
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
@@ -890,6 +896,7 @@ def wait_stop(nid, why):
         if hit is None:
             return False
         hit.pop("wait_until", None)
+        hit.pop("halted", None)
         hit["pause_why"] = f"重试停了：{why}"[:200]
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
@@ -1545,6 +1552,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             hit["ws_was"] = hit.pop("ws")
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        hit.pop("halted", None)
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 真交回了：从待办回到待验收
         _back_to_chat(hit)
@@ -1575,6 +1583,7 @@ def reject(nid, reason):
         hit["paused"] = hit["at"] = _now()
         hit["paused_at"] = _bound_now()
         hit["paused_by"] = os.environ.get("CC_PROJECT", "")
+        hit.pop("halted", None)
         hit["review_rejected"] = reason
         rounds = hit.get("reject_reasons") or []
         rounds.append(reason)
@@ -1761,6 +1770,7 @@ def resume(nid):
             return None if hit is None else False
         hit.pop("paused", None)
         hit.pop("pause_why", None)
+        hit.pop("halted", None)
         hit.pop("ask", None)  # 答复到了：这次提问结束（原文文件留着，下次提问覆盖）
         hit.pop("pr_news", None)  # 合并请求新动静已随交回带走（pr_seen 留着，不重复叫）
         hit.pop("backlog", None)
@@ -1787,6 +1797,7 @@ def backlog(nid, why=None):
         hit["backlog"] = hit["at"] = _now()
         hit.pop("paused", None)  # 从暂停挪进待办：团队板的「暂停 N 件」不能再算它
         hit.pop("pause_why", None)
+        hit.pop("halted", None)
         hit["backlog_at"] = _bound_now()
         hit["backlog_by"] = os.environ.get("CC_PROJECT", "")
         hit.pop("unpruned", None)
@@ -2466,7 +2477,7 @@ def main(argv):
                 except RuntimeError as e:
                     sys.exit(f"工作区放回失败（{e}），未暂停；请重试 board pause")
             task_state(nid, "paused", argv[2] if len(argv) > 2 else "board pause", in_workspace_ok=True)
-            hit = pause(nid, argv[2] if len(argv) > 2 else None)
+            hit = pause(nid, argv[2] if len(argv) > 2 else None, ordered=True)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")

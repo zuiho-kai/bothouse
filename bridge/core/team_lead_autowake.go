@@ -80,9 +80,10 @@ func readKeepRunning(dir string) map[string]keepRunningOverride {
 }
 
 // stopWakesLead: a ② stop the lead has to act on. A pause with a scheduled re-dispatch
-// (WaitUntil) carries on by itself.
+// (WaitUntil) carries on by itself; a pause someone ordered with board pause (Halted, e.g.
+// 「先别做，等某人看一下」, #1990) waits for that person, not for the lead to carry it on.
 func stopWakesLead(it teamTaskBoardItem) bool {
-	return it.WaitUntil == 0
+	return it.WaitUntil == 0 && !(it.Halted && it.Paused != "")
 }
 
 func stopLeadPrompt(it teamTaskBoardItem, text string) string {
