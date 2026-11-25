@@ -10,13 +10,19 @@
       给 PR 当前 head（或 --commit）登记一份验证。截图/日志文件必须存在且非空；登录说明里带「假/mock/模拟/未登录」的不收。
   merge-gate check --pr <PR>
       目标是发布分支（0.2.8、release/x 这类版本号分支）时，PR 当前 head 必须有登记，否则 exit 1。不是发布分支直接放行。
+  merge-gate reverts --pr <PR> [--cwd <目录>]
+      GitHub PR 合进去会不会把目标分支上已合的提交原样退回去（见下），会就 exit 1 并列出是哪几个提交。
   merge-gate guard --cmd '<shell 命令>' [--cwd <目录>]
       给 ~/.claude/hooks/bash-guard.py 用：命令里有合并、转非草稿、/lgtm /approve /merge 评论、建非草稿发布分支 PR，
-      就按上面检查；不该放行时把原因打到 stdout、exit 1。
+      就按上面检查；gh pr merge 另查 reverts；不该放行时把原因打到 stdout、exit 1。
+退回检查：PR 改到的文件上，目标分支每个已合的提交（只看这些文件那部分）在目标分支上还在、在 PR 头上却正好被改回提交前的样子，
+就算这个 PR 会退回它。出处：#2206 在分支上 git reset --soft 到已含 #2205 的 develop 再提交，旧工作区把 #2205 原样删了，
+合并时没人发现。确实要退回的，PR 标题或正文写「Reverts <提交 sha 前 7 位或它的 PR 号>」就放行。
+本地有这个仓库的克隆（--cwd 在里面）就用它，否则在登记目录下留一份裸克隆。
 PR 写法：gitcode:openJiuwen/jiuwenswarm!9279、github:Kuddev/bothouse#12，或 gitcode.com / github.com 的 PR 链接。
 登记放 ~/.bothouse/merge-evidence/（MERGE_EVIDENCE_DIR 可改，测试用）。验证跟着 commit 走：PR 再推新提交，旧登记不算。
 """
-import argparse, json, os, re, shlex, subprocess, sys, time, urllib.request
+import argparse, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, urllib.request
 
 EVID = os.environ.get('MERGE_EVIDENCE_DIR') or os.path.expanduser('~/.bothouse/merge-evidence')
 RELEASE = re.compile(r'^(v?\d+\.\d+(\.\d+)*|release[/-].+)$')
@@ -171,6 +177,91 @@ def gh_resolve(repo, sel, cwd):
     return parse_pr(d['url'])
 
 
+def git(d, *args, timeout=60, **kw):
+    return subprocess.run(['git', '-C', d, *args], capture_output=True, text=True, timeout=timeout, **kw)
+
+
+def local_repo(repo, cwd):
+    """有这个 GitHub 仓库对象的本地目录：cwd 所在克隆（remote 指向它）优先，否则登记目录下的裸克隆（没有就克隆）。"""
+    if cwd and git(cwd, 'rev-parse').returncode == 0 and re.search(
+            rf'github\.com[:/]{re.escape(repo)}(\.git)?\s', git(cwd, 'remote', '-v').stdout, re.I):
+        return cwd
+    d = os.path.join(EVID, 'git', repo.replace('/', '_') + '.git')
+    if not os.path.isdir(d):  # 先克隆到临时目录再改名：钩子超时打断时不留半截克隆
+        os.makedirs(os.path.dirname(d), exist_ok=True)
+        tmp = tempfile.mkdtemp(prefix='clone.', dir=os.path.dirname(d))
+        r = subprocess.run(['git', 'clone', '-q', '--bare', f'https://github.com/{repo}.git', tmp],
+                           capture_output=True, text=True, timeout=600)
+        if r.returncode:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise RuntimeError(f'克隆 {repo} 失败：{r.stderr.strip()[-200:]}')
+        os.rename(tmp, d)
+    return d
+
+
+def reverted(d, base, head):
+    """把 head 合进 base 的结果（三方合并，同 GitHub 合并/压缩合并的内容）在 head 改到的文件上，
+    base 第一父链上哪些提交被原样改回去了：[(sha, 标题)]。合不进去（有冲突）返回 []，GitHub 本来就合不了。"""
+    mb = git(d, 'merge-base', base, head).stdout.strip() or base
+    files = [f for f in git(d, 'diff', '--name-only', mb, head).stdout.splitlines() if f]
+    m = git(d, 'merge-tree', '--write-tree', base, head)
+    if not files or m.returncode:
+        return []
+    tmp = tempfile.mkdtemp(prefix='merge-gate.')
+    idx = {}
+    for k, tree in (('base', base), ('head', m.stdout.split()[0])):
+        idx[k] = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, k))
+        git(d, 'read-tree', tree, env=idx[k])
+    out = []
+    for line in git(d, 'log', '--first-parent', '--format=%H %s', base, '--', *files).stdout.splitlines():
+        c, _, subj = line.partition(' ')
+        patch = git(d, 'diff', '--binary', f'{c}^', c, '--', *files).stdout
+        if not patch.strip():
+            continue
+        def fits(k, *rev):
+            return git(d, 'apply', '--cached', '--check', *rev, '-', input=patch, env=idx[k]).returncode == 0
+        # 底上确实在：倒着打得上、正着打不上；合并结果里没了：正着打得上、倒着打不上。
+        # 两头都要「一个方向能打、另一个不能」，只加行的补丁靠上下文两个方向都打得上，判不出来就不算（回放 #2146 误报）
+        if fits('base', '-R') and not fits('base') and fits('head') and not fits('head', '-R'):
+            out.append((c, subj))
+    shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+def waived(c, subj, said):
+    """PR 标题/正文写明要退回这个提交：「Reverts <sha 前 7 位>」或「Reverts #<它的 PR 号>」。"""
+    refs = [c[:7]] + re.findall(r'\(#(\d+)\)', subj)
+    return any(re.search(rf'\brevert(s|ing)?\b[^\n]*?(?<![\w#]){"#?" if x.isdigit() else ""}{re.escape(x)}\b', said, re.I)
+               for x in refs)
+
+
+def reverts(repo, n, cwd=None):
+    """None = 不会退回已合的提交（或 PR 里写明了要退回）；否则返回拒绝原因。只查 GitHub。"""
+    r = subprocess.run(['gh', 'pr', 'view', str(n), '-R', repo, '--json', 'baseRefName,headRefOid,title,body'],
+                       capture_output=True, text=True, timeout=15)
+    if r.returncode:
+        return f'合并 {repo}#{n} 前要查它会不会退回已合的提交，但查不到 PR：{r.stderr.strip()[:200]}'
+    pr = json.loads(r.stdout)
+    try:
+        d = local_repo(repo, cwd)
+        f = git(d, 'fetch', '-q', f'https://github.com/{repo}.git',
+                f'+refs/heads/{pr["baseRefName"]}:refs/merge-gate/base', f'+refs/pull/{n}/head:refs/merge-gate/pr-{n}')
+        if f.returncode:
+            raise RuntimeError(f'取 PR 提交失败：{f.stderr.strip()[-200:]}')
+        if not git(d, 'rev-parse', f'refs/merge-gate/pr-{n}').stdout.startswith(pr['headRefOid']):
+            raise RuntimeError('取到的 PR 头和 GitHub 上的不一致，稍后重试')
+        hits = reverted(d, 'refs/merge-gate/base', f'refs/merge-gate/pr-{n}')
+    except (RuntimeError, subprocess.TimeoutExpired) as e:
+        return f'合并 {repo}#{n} 前要查它会不会退回已合的提交，但{e}。查不到就不合。'
+    said = f"{pr.get('title') or ''}\n{pr.get('body') or ''}"
+    left = [f'  {c[:9]} {subj}' for c, subj in hits if not waived(c, subj, said)]
+    if not left:
+        return None
+    return (f'{repo}#{n} 合进 {pr["baseRefName"]} 会把下面已合的提交原样退回去（PR 改到的文件上，它们的改动在 PR 头上没了）：\n'
+            + '\n'.join(left) + '\n多半是分支在旧底上 reset --soft、复制旧文件或解冲突取了自己那份。'
+            '先把分支 rebase 到最新的目标分支、补回这些改动再合；确实要退回的，在 PR 正文写「Reverts <sha 前 7 位或 #PR 号>」。')
+
+
 def cmd_guard(a):
     cmd = a.cmd
     for repo, n, act in gitcode_actions(cmd):
@@ -192,7 +283,7 @@ def cmd_guard(a):
         except (RuntimeError, subprocess.TimeoutExpired) as e:
             print(f'gh pr merge 前要核对真实入口验证，但查不到是哪个 PR：{e}')
             sys.exit(1)
-        why = check(host, r, n)
+        why = check(host, r, n) or (reverts(r, n, a.cwd) if host == 'github' else None)
         if why:
             print(why)
             sys.exit(1)
@@ -209,6 +300,9 @@ def main():
     r.add_argument('--proof', action='append', required=True)
     c = sp.add_parser('check')
     c.add_argument('--pr', required=True)
+    v = sp.add_parser('reverts')
+    v.add_argument('--pr', required=True)
+    v.add_argument('--cwd')
     g = sp.add_parser('guard')
     g.add_argument('--cmd', required=True)
     g.add_argument('--cwd')
@@ -220,6 +314,12 @@ def main():
         if why:
             sys.exit(why)
         print('merge-gate: 可以合（不是发布分支，或当前提交已有真实入口验证）')
+    elif a.op == 'reverts':
+        host, repo, n = parse_pr(a.pr)
+        why = reverts(repo, n, a.cwd or os.getcwd()) if host == 'github' else None
+        if why:
+            sys.exit(why)
+        print('merge-gate: 没有退回已合的提交')
     else:
         cmd_guard(a)
 
