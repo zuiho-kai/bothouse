@@ -15,21 +15,23 @@
 #   对照件（#1904）：这件活登记过成品（board stage）时，放行前要有和现在这份成品一致的对照件（board compare <任务号>），
 #     三处差别自动跟在给用户的话后面（只放行文字时紧跟着另发一条）；没有原件也没有认可样的，话里要有一句问话。
 #   哪件活：--id <任务板编号> 指定（验收提示给的就是它）；也可 --notes <交接文件>，或路径栏里的 PR/分支/提交链接（#1371）；不给时按 ws-handoff-last.json 里来源是当前聊天频道（CC_SESSION_KEY）的活，只有一件才自动认。
-import json, os, shutil, subprocess, sys, time
+import json, os, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here))
 import _team  # noqa: E402
 import _handoff_rules  # noqa: E402
+import _pinyin  # noqa: E402
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
 USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
-         '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
+         '       ws-pass [--notes <交接>] [--compare <并排图>] [--label <版本说明>]... <附件>... "<给用户的话>"\n'
          '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报，随交回的成品桥一并贴出）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
-MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
+VIDEO = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi")
+MEDIA = VIDEO + (".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
 
 
@@ -257,7 +259,7 @@ def main(argv):
     if not argv or any(a in ("-h", "--help") for a in argv):
         print(f"用法：{USAGE}")
         return
-    notes, compare, do_stitch, cover_ok, verdict, rest, it = None, None, False, False, "", [], iter(argv)
+    notes, compare, do_stitch, cover_ok, verdict, labels, rest, it = None, None, False, False, "", [], [], iter(argv)
     nid = 0
     for a in it:
         if a == "--id":
@@ -267,6 +269,11 @@ def main(argv):
             notes = next(it, "") or sys.exit(f"用法：{USAGE}（--notes 后面要跟交接文件）")
         elif a == "--compare":
             compare = next(it, "") or sys.exit(f"用法：{USAGE}（--compare 后面要跟并排图）")
+        elif a == "--label":
+            v = next(it, "")
+            if not v.strip():
+                sys.exit(f"用法：{USAGE}（--label 后面要跟视频版本说明）")
+            labels.append(v.strip())
         elif a == "--stitch":
             do_stitch = True
         elif a == "--verdict":
@@ -338,15 +345,50 @@ def main(argv):
     # #988：成品附件就是结果，开头 @ 布置人；同一次一并放行的文字汇报已 @ 过就不再 @
     texted = close_text(rec, path, verdict, nid)
     nid = nid or board_id(rec, path)
-    args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
+    videos = [p for p in shots if p.lower().endswith(VIDEO)]
+    non_videos = [p for p in shots if p not in videos]
+    if not videos:
+        args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
+        if nid and not texted:
+            args += ["--mention-assigner", str(nid)]
+        for p in shots:
+            args += ["--image" if p.lower().endswith(IMG) else "--file", p]
+        r = subprocess.run(args + ["--message", msg], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            sys.exit(f"ws-pass: 发到 {chat} 失败：{r.stderr.strip() or r.stdout.strip()}")
+        print(f"ws-pass: 已发到聊天频道 {chat}（{len(shots)} 个附件）", file=sys.stderr)
+        return
+
+    # #2200：放行视频附件时，先发主消息（及非视频附件），再逐条在每个视频前发一行版本说明，
+    # 上传前把含非 ASCII 的文件名转为英文和数字（如 1148_A_chunguqin.mp4），避免 Discord 去掉中文。
+    main_args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
     if nid and not texted:
-        args += ["--mention-assigner", str(nid)]
-    for p in shots:
-        args += ["--image" if p.lower().endswith(IMG) else "--file", p]
-    r = subprocess.run(args + ["--message", msg], capture_output=True, text=True, timeout=300)
+        main_args += ["--mention-assigner", str(nid)]
+    for p in non_videos:
+        main_args += ["--image" if p.lower().endswith(IMG) else "--file", p]
+    r = subprocess.run(main_args + ["--message", msg], capture_output=True, text=True, timeout=300)
     if r.returncode != 0:
         sys.exit(f"ws-pass: 发到 {chat} 失败：{r.stderr.strip() or r.stdout.strip()}")
-    print(f"ws-pass: 已发到聊天频道 {chat}（{len(shots)} 个附件）", file=sys.stderr)
+
+    vid_labels = _pinyin.video_labels(videos, labels)
+    prefix = str(nid) if nid else ""
+    used_names = set()
+    with tempfile.TemporaryDirectory(prefix="ws-pass-ascii-") as stage_dir:
+        for vp, label in zip(videos, vid_labels):
+            ascii_name = _pinyin.ascii_filename(os.path.basename(vp), prefix=prefix, hint=label, used=used_names)
+            if os.path.basename(vp) == ascii_name:
+                upload_path = vp
+            else:
+                upload_path = os.path.join(stage_dir, ascii_name)
+                try:
+                    os.symlink(vp, upload_path)
+                except OSError:
+                    shutil.copy2(vp, upload_path)
+            v_args = [cc_bin(), "send", "-p", _team.project(), "-s", chat, "--message", label, "--file", upload_path]
+            r = subprocess.run(v_args, capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                sys.exit(f"ws-pass: 发视频 {ascii_name} 到 {chat} 失败：{r.stderr.strip() or r.stdout.strip()}")
+    print(f"ws-pass: 已发到聊天频道 {chat}（{len(shots)} 个附件，含 {len(videos)} 条视频）", file=sys.stderr)
 
 
 if __name__ == "__main__":

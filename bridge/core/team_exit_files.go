@@ -300,7 +300,9 @@ func filterExitVideos(files []FileAttachment) []FileAttachment {
 }
 
 // postExitFiles posts files in the chat channel after the exit's text. Best effort.
-func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []FileAttachment) {
+// #2200: each video attachment is preceded by a version label line and uploaded with an ASCII
+// filename (e.g. "1148_A_chunguqin.mp4") so platforms like Discord do not strip Chinese characters.
+func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, boardID int, files []FileAttachment) {
 	if len(files) == 0 {
 		return
 	}
@@ -309,8 +311,38 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []
 		slog.Warn("team exit: platform cannot send files; documents stay as paths", "platform", p.Name(), "files", len(files))
 		return
 	}
+	var videoNames []string
+	videoIdx := make([]int, 0, len(files))
+	for i, f := range files {
+		if isVideoFile(f) {
+			videoIdx = append(videoIdx, i)
+			videoNames = append(videoNames, f.FileName)
+		}
+	}
+	labels := VideoAttachmentLabels(videoNames)
+	labelByFile := make(map[int]string, len(videoIdx))
+	for j, idx := range videoIdx {
+		labelByFile[idx] = labels[j]
+	}
+	prefix := ""
+	if boardID > 0 {
+		prefix = strconv.Itoa(boardID)
+	}
+	used := map[string]bool{}
 	sent := 0
-	for _, f := range files {
+	for i, f := range files {
+		if label, isVid := labelByFile[i]; isVid {
+			if label != "" {
+				if err := e.waitOutgoing(p); err != nil {
+					slog.Warn("team exit: video label rate wait failed", "error", err)
+					break
+				}
+				if err := authorizedOutput(ctx, func() error { return p.Send(ctx, rc, label) }); err != nil {
+					slog.Warn("team exit: video label post failed", "file", f.FileName, "label", label, "error", err)
+				}
+			}
+			f.FileName = uniqueASCIIFileName(ASCIIFileName(f.FileName, prefix, label), used)
+		}
 		if err := e.waitOutgoing(p); err != nil {
 			slog.Warn("team exit: file send rate wait failed", "error", err)
 			break

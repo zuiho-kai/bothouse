@@ -633,6 +633,68 @@ func TestSendFile_SendsChannelAttachment(t *testing.T) {
 	}
 }
 
+// #2200: Discord strips non-ASCII characters from uploaded attachment filenames (turning Chinese
+// names into "--A--Discord.mp4"). SendFile must sanitize non-ASCII names to ASCII letters/digits.
+func TestSendFile_SanitizesChineseFilenameToASCII(t *testing.T) {
+	var uploadedName string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mr, err := r.MultipartReader()
+		if err == nil {
+			for {
+				part, err := mr.NextPart()
+				if err != nil {
+					break
+				}
+				if fn := part.FileName(); fn != "" {
+					uploadedName = fn
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg-file","channel_id":"ch-1"}`)
+	}))
+	defer server.Close()
+
+	oldEndpointDiscord := discordgo.EndpointDiscord
+	oldEndpointAPI := discordgo.EndpointAPI
+	oldEndpointChannels := discordgo.EndpointChannels
+	discordgo.EndpointDiscord = server.URL + "/"
+	discordgo.EndpointAPI = discordgo.EndpointDiscord + "api/v" + discordgo.APIVersion + "/"
+	discordgo.EndpointChannels = discordgo.EndpointAPI + "channels/"
+	defer func() {
+		discordgo.EndpointDiscord = oldEndpointDiscord
+		discordgo.EndpointAPI = oldEndpointAPI
+		discordgo.EndpointChannels = oldEndpointChannels
+	}()
+
+	s, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("discordgo.New() error = %v", err)
+	}
+	s.Client = server.Client()
+
+	p := &Platform{session: s}
+	err = p.SendFile(context.Background(), replyContext{channelID: "ch-1"}, core.FileAttachment{
+		FileName: "词舟破晦-李清照三韵-A版纯古琴-低清-Discord.mp4",
+		MimeType: "video/mp4",
+		Data:     []byte("video-data"),
+	})
+	if err != nil {
+		t.Fatalf("SendFile() error = %v", err)
+	}
+	if uploadedName == "" || !strings.HasSuffix(uploadedName, ".mp4") {
+		t.Fatalf("uploaded filename = %q, want non-empty .mp4", uploadedName)
+	}
+	for _, r := range uploadedName {
+		if r > 127 || !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.') {
+			t.Fatalf("uploaded filename %q contains non-ASCII or unsafe char %q", uploadedName, r)
+		}
+	}
+	if strings.HasPrefix(uploadedName, "-") || strings.HasPrefix(uploadedName, "_") {
+		t.Fatalf("uploaded filename %q should start with ASCII letter or digit", uploadedName)
+	}
+}
+
 func TestSendFile_UsesInteractionEndpoints(t *testing.T) {
 	requests := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

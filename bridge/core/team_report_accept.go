@@ -549,7 +549,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	// task forum post (#1888: #1885's video went only into the forum post, archived a second later).
 	if !withhold {
 		e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
-		e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+		e.postExitFiles(ctx, p, rc, cp.Board, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	}
 	if !cp.Batch {
 		e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)

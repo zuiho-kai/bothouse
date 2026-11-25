@@ -270,7 +270,11 @@ func exitImagesFor(dataDir, chat, sessionKey, body string, item *teamTaskBoardIt
 // postExitImages posts this exit's images, then its documents (team_exit_files.go), in chat
 // channel parent after its text. Best effort: the text already went; a failed one is logged.
 func (e *Engine) postExitImages(ctx context.Context, p Platform, rc any, parent, sessionKey, body string, item *teamTaskBoardItem) {
-	defer func() { e.postExitFiles(ctx, p, rc, exitFilesFor(sessionKey, body, item, nil, true)) }()
+	boardID := 0
+	if item != nil {
+		boardID = item.ID
+	}
+	defer func() { e.postExitFiles(ctx, p, rc, boardID, exitFilesFor(sessionKey, body, item, nil, true)) }()
 	chat := exitImageChat(p.Name(), parent)
 	images := exitImagesFor(e.dataDir, chat, sessionKey, body, item)
 	if len(images) == 0 {
