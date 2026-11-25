@@ -300,7 +300,9 @@ func filterExitVideos(files []FileAttachment) []FileAttachment {
 }
 
 // postExitFiles posts files in the chat channel after the exit's text. Best effort.
-func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []FileAttachment) {
+// #2200: each video attachment is preceded by a version label line and uploaded with an ASCII
+// filename (e.g. "1148_1_A_guqin.mp4" or "1148_1.mp4") so platforms like Discord do not strip Chinese.
+func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, boardID int, files []FileAttachment) {
 	if len(files) == 0 {
 		return
 	}
@@ -310,13 +312,22 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []
 		return
 	}
 	sent := 0
-	for _, f := range files {
+	for _, item := range prepareFileSends(files, boardID, nil) {
+		if item.label != "" {
+			if err := e.waitOutgoing(p); err != nil {
+				slog.Warn("team exit: video label rate wait failed", "error", err)
+				break
+			}
+			if err := authorizedOutput(ctx, func() error { return p.Send(ctx, rc, item.label) }); err != nil {
+				slog.Warn("team exit: video label post failed", "file", item.file.FileName, "label", item.label, "error", err)
+			}
+		}
 		if err := e.waitOutgoing(p); err != nil {
 			slog.Warn("team exit: file send rate wait failed", "error", err)
 			break
 		}
-		if err := authorizedOutput(ctx, func() error { return sender.SendFile(ctx, rc, f) }); err != nil {
-			slog.Warn("team exit: file post failed", "file", f.FileName, "error", err)
+		if err := authorizedOutput(ctx, func() error { return sender.SendFile(ctx, rc, item.file) }); err != nil {
+			slog.Warn("team exit: file post failed", "file", item.file.FileName, "error", err)
 			continue
 		}
 		sent++

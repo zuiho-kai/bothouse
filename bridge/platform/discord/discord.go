@@ -1492,7 +1492,7 @@ func (p *Platform) sendChannelWithMentions(ctx context.Context, rc replyContext,
 // SendImage sends an image to the channel or interaction.
 // Implements core.ImageSender.
 func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttachment) error {
-	name := img.FileName
+	name := core.ASCIIFileName(img.FileName, 0, 0)
 	if name == "" {
 		name = "image.png"
 	}
@@ -1546,7 +1546,7 @@ func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttach
 }
 
 func (p *Platform) SendFile(ctx context.Context, rctx any, file core.FileAttachment) error {
-	name := file.FileName
+	name := core.ASCIIFileName(file.FileName, 0, 0)
 	if name == "" {
 		name = "attachment"
 	}

@@ -26,10 +26,10 @@ sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
 USAGE = ('ws-pass [--notes <交接>] --stitch <成品图>...\n'
-         '       ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"\n'
+         '       ws-pass [--notes <交接>] [--compare <并排图>] [--label <版本说明>]... <附件>... "<给用户的话>"\n'
          '       ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"   （不带附件：放行文字汇报，随交回的成品桥一并贴出）')
 IMG = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
-MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
+MEDIA = (".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi", ".mp3", ".wav", ".m4a", ".ogg", ".opus")
 OUT = Path(os.environ.get("WS_PASS_OUT") or Path.home() / "work" / "ref" / "compare")
 
 
@@ -257,7 +257,7 @@ def main(argv):
     if not argv or any(a in ("-h", "--help") for a in argv):
         print(f"用法：{USAGE}")
         return
-    notes, compare, do_stitch, cover_ok, verdict, rest, it = None, None, False, False, "", [], iter(argv)
+    notes, compare, do_stitch, cover_ok, verdict, labels, rest, it = None, None, False, False, "", [], [], iter(argv)
     nid = 0
     for a in it:
         if a == "--id":
@@ -267,6 +267,11 @@ def main(argv):
             notes = next(it, "") or sys.exit(f"用法：{USAGE}（--notes 后面要跟交接文件）")
         elif a == "--compare":
             compare = next(it, "") or sys.exit(f"用法：{USAGE}（--compare 后面要跟并排图）")
+        elif a == "--label":
+            v = next(it, "")
+            if not v.strip():
+                sys.exit(f"用法：{USAGE}（--label 后面要跟视频版本说明）")
+            labels.append(v.strip())
         elif a == "--stitch":
             do_stitch = True
         elif a == "--verdict":
@@ -336,11 +341,16 @@ def main(argv):
         print(f"ws-pass: 探针（{rec.get('task')}），没有发到聊天频道 {chat}：{'、'.join(shots)}", file=sys.stderr)
         return
     # #988：成品附件就是结果，开头 @ 布置人；同一次一并放行的文字汇报已 @ 过就不再 @
+    # #2200：视频版本说明行与纯英文数字文件名由桥统一处理，脚本只把任务号和 --label 传给桥。
     texted = close_text(rec, path, verdict, nid)
     nid = nid or board_id(rec, path)
     args = [cc_bin(), "send", "-p", _team.project(), "-s", chat]
+    if nid:
+        args += ["--board-id", str(nid)]
     if nid and not texted:
         args += ["--mention-assigner", str(nid)]
+    for lbl in labels:
+        args += ["--label", lbl]
     for p in shots:
         args += ["--image" if p.lower().endswith(IMG) else "--file", p]
     r = subprocess.run(args + ["--message", msg], capture_output=True, text=True, timeout=300)
