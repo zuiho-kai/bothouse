@@ -454,6 +454,7 @@ level = "info" # debug, info, warn, error
 #
 # [bridge]
 # enabled = true
+# host = "127.0.0.1"                 # Optional; empty or omitted listens on all interfaces / 可选，留空或省略则监听所有网卡
 # port = 9810                         # WebSocket listen port (default: 9810) / 监听端口
 # token = "your-bridge-secret"        # Auth token (required) / 认证密钥（必填）
 # path = "/bridge/ws"                 # URL path (default: "/bridge/ws") / URL 路径

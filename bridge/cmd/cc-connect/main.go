@@ -642,6 +642,7 @@ func runMain() {
 			slog.Error("bridge: failed to create server - token is required (or set insecure=true for local dev)")
 			os.Exit(1)
 		}
+		bridgeSrv.SetHost(cfg.Bridge.Host)
 		rt.bridgeSrv = bridgeSrv
 		for i, e := range engines {
 			rt.registerBridge(builtProjs[i].Name, e)
