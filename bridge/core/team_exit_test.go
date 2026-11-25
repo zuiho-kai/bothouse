@@ -211,7 +211,7 @@ func TestTeamModeRulesOnlyCurrentMode(t *testing.T) {
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
 	inputDone(a, "ok")
-	if !strings.Contains(prompt, "单模型多进程") || strings.Contains(prompt, "先当面派给成员") || strings.Contains(prompt, "## ") {
+	if !strings.Contains(prompt, "单模型多进程") || strings.Contains(prompt, "先当面派给成员") || strings.Contains(strings.Split(prompt, bridgeInstructionsHead)[0], "## ") { // the shared bridge instructions have their own headings (#1994)
 		t.Fatalf("solo prompt: %q", prompt)
 	}
 	for mode, want := range map[string]string{DispatchTeam: "派活方式：完全团队", DispatchMixed: "派活方式：混合", "bogus": "派活方式：混合"} {
