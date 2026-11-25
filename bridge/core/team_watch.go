@@ -649,9 +649,7 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	switch {
 	case err == nil:
 		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
-		// #1993: a chat that shows the board as a summary gets its ②停了 line for this pause
-		// (team_chat_state.go chatStopOf); a second, watch-worded notice there is noise.
-		if _, notes := p.(ChatNotePoster); notes && w.e.teamBoardKindOf(h.Chat) == teamBoardSummary {
+		if w.e.chatHearsStops(p, h.Chat) {
 			return time.Time{}
 		}
 		if serr := w.send(p, h.Chat, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
@@ -942,6 +940,15 @@ func teamWorkspaceWatchDueLocked(st *teamWorkspaceState, key string) time.Time {
 	return due
 }
 
+// chatHearsStops: chat shows the board as a summary on a platform that posts chat notes, so it
+// hears a real stop as one ②停了 line (team_chat_state.go chatStopOf). The watch's own steps —
+// a resume, a park — stay out of it there (#1993 user 11-25「这些是什么狗屎」「也特别吵」); other
+// chats have no ② and keep the watch's notices.
+func (e *Engine) chatHearsStops(p Platform, chat string) bool {
+	_, notes := p.(ChatNotePoster)
+	return notes && e.teamBoardKindOf(chat) == teamBoardSummary
+}
+
 // autoResume stops the turns running in workspace key (a hung request keeps the session busy
 // without events), posts a notice in the chat the task came from, and wakes the workspace's role
 // to continue the task in the same agent session.
@@ -955,8 +962,10 @@ func (w *handoffWatch) autoResume(p Platform, key string, h TeamHandoff) {
 	}
 	sender := w.e.watchSender(h)
 	label := channelLabel(plat, teamChannelID(key))
-	if err := w.send(p, h.Chat, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
-		slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+	if !w.e.chatHearsStops(p, h.Chat) {
+		if err := w.send(p, h.Chat, sender.i18n.Tf(MsgWatchAutoResumed, label, h.Title)); err != nil {
+			slog.Warn("team watch: auto-resume notice failed", "chat", h.Chat, "error", err)
+		}
 	}
 	text := sender.i18n.Tf(MsgWatchResume, h.Title)
 	if notes := w.e.watchTaskNotes(h); notes != "" {
