@@ -243,7 +243,16 @@ type preparedFileSend struct {
 // prepareFileSends prepares a batch of outbound files: each video gets a human-readable version
 // label (to send right before the video) and an ASCII-safe upload filename (deduplicated within the
 // batch). Non-video files pass through unchanged.
+// Only deliveries tied to a board item (ws-pass, held/exit reports) or with explicit --label get
+// labels and renaming; an ordinary `send --file/--video` keeps its original name and sends no extra line.
 func prepareFileSends(files []FileAttachment, boardID int, explicitVideoLabels []string) []preparedFileSend {
+	if boardID <= 0 && len(explicitVideoLabels) == 0 {
+		out := make([]preparedFileSend, len(files))
+		for i, f := range files {
+			out[i] = preparedFileSend{file: f}
+		}
+		return out
+	}
 	var videoNames []string
 	for _, f := range files {
 		if isVideoFile(f) {

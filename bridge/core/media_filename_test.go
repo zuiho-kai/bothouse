@@ -70,3 +70,12 @@ func TestASCIIFileName(t *testing.T) {
 		t.Fatalf("uniqueASCIIFileName = %q, %q", a, b)
 	}
 }
+
+func TestPrepareFileSends_PlainSendUnchanged(t *testing.T) {
+	files := []FileAttachment{{FileName: "演示视频.mp4", MimeType: "video/mp4"}, {FileName: "demo.mp4", MimeType: "video/mp4"}}
+	for i, item := range prepareFileSends(files, 0, nil) {
+		if item.label != "" || item.file.FileName != files[i].FileName {
+			t.Fatalf("plain send item %d = %+v, want no label and original name", i, item)
+		}
+	}
+}
