@@ -29,8 +29,8 @@ class ResumeRefTest(unittest.TestCase):
                      "# 规矩\n# 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
-    def handoff(self, notes, task, short, chat="test:100"):
-        return subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", short],
+    def handoff(self, notes, task, short, chat="test:100", *extra):
+        return subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", short, *extra],
                               capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": chat})
 
     def claims(self, ws, rows):
@@ -60,7 +60,8 @@ class ResumeRefTest(unittest.TestCase):
     def test_resume_handoff_joins_the_task_in_progress(self):
         old = self.start_old()
         new = self.note("resume", f"接回 #{old['id']}：用量面板")
-        r = self.handoff(new, f"接回 #{old['id']}：完成面板并收口", "面板收口", chat="test:200")  # 11-17 是另一个聊天频道发的
+        # 11-17 是另一个聊天频道发的；续别的频道的活要明写 --follow（#2010），归属跟着旧活
+        r = self.handoff(new, f"接回 #{old['id']}：完成面板并收口", "面板收口", "test:200", "--follow", str(old["id"]))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual([i["id"] for i in self.items()], [old["id"]])  # 任务板没有新编号
         self.assertEqual(len(self.timers("工作区接手")), 1)  # 只有旧任务那一个会话被叫去开工

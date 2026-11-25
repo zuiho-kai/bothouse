@@ -73,7 +73,9 @@ def find_task(key: str, notes, nid: int = 0):
         path = os.path.abspath(os.path.expanduser(notes))
         rec = tasks.get(path) or next((v for v in tasks.values() if v.get("file") == path), {})
         return path, rec, 0
-    mine = {k: v for k, v in tasks.items() if v.get("chat") == key}
+    here = ":".join(str(key or "").split(":", 2)[:2])
+    owned = lambda v: any(board.owner_chat(board.item_by_id(int(b))) == here for b in v.get("board") or [] if str(b).isdigit())
+    mine = {k: v for k, v in tasks.items() if owned(v)}  # 本频道的活：按任务号查归属，不看交接记录抄的 chat（#2010）
     if len(mine) > 1:
         sys.exit("ws-pass: 本频道交出去的活有好几件，用 --id <任务号> 写明是哪件：" + "；".join(
             f"--id {'/'.join(str(x) for x in v.get('board') or []) or '?'} 或 --notes {k}（{v.get('task') or ''}）" for k, v in mine.items()))

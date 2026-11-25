@@ -1,6 +1,5 @@
-"""接着别的频道旧活做的新交接，记到旧活的聊天频道：汇报、验收通知、放行都回那里。
-来源：11-25 #1153。#1152 自测把 #1148（宣传频道的活）的两版成品贴进了测试频道，用户在测试频道回「字太小了」，
-续改的活被记成测试频道的，放行贴到了测试频道（用户「为啥发到这里了」）。假桥和池子沿用 test_ws_up 的 FAKE_POOL。"""
+"""新活的归属频道建活时定一次：--follow 的旧活归哪就归哪，否则是跑命令的聊天频道；不再按成品文件名、交接正文猜。
+来源：11-25 #1153（续改的活被记成测试频道的）、#2010（Fable：猜测层就是传错频道的来路）。假桥和池子沿用 test_ws_up 的 FAKE_POOL。"""
 import json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
@@ -29,8 +28,8 @@ class FollowChatTest(unittest.TestCase):
                      "## 相关改动\n冲突：无\n## 规矩\n## 参照实现\n- bridge/contrib/lead/ws-up:1\n", encoding="utf-8")
         return str(p)
 
-    def handoff(self, notes, task, short, chat):
-        return subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", short],
+    def handoff(self, notes, task, short, chat, *extra):
+        return subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), notes, task, "--short", short, *extra],
                               capture_output=True, text=True, env={**self.env, "CC_SESSION_KEY": chat})
 
     def items(self):
@@ -43,27 +42,32 @@ class FollowChatTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return self.items()[0]
 
-    def test_reply_to_old_deliverable_goes_to_old_channel(self):
+    def test_follow_takes_the_old_task_owner(self):
         old = self.old_from_promo()
-        said = f"- [15:24] 用户（回复频道里刚发的 `{old['id']}_A_chunguqin.mp4`、`{old['id']}_B_xiaoxianyue.mp4`）：`字太小了`"
-        r = self.handoff(self.note("new", said), "放大短片字体", "放大字体", "test:100")
+        r = self.handoff(self.note("new", "- 用户：`字太小了`"), "放大短片字体", "放大字体", "test:100", "--follow", str(old["id"]))
         self.assertEqual(r.returncode, 0, r.stderr)
         new = [i for i in self.items() if i["id"] != old["id"]][0]
-        self.assertEqual(new["chat"], "test:200")  # 改前：test:100（用户回话的测试频道）
-        self.assertIn(f"#{old['id']}", r.stderr)
+        self.assertEqual(new["chat"], "test:200")
 
-    def test_unrelated_handoff_stays_here(self):
-        self.old_from_promo()
-        r = self.handoff(self.note("new", "- 用户：`字太小了`（看 demo_v2.mp4）"), "放大字体", "放大字体", "test:100")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.items()[-1]["chat"], "test:100")
-
-    def test_two_old_tasks_named_is_ambiguous(self):
+    def test_file_name_is_not_a_guess_any_more(self):
         old = self.old_from_promo()
-        said = f"- 用户：`{old['id']}_A.mp4` 和 `{old['id'] + 1}_B.mp4` 对比一下"
-        r = self.handoff(self.note("new", said), "对比两版", "对比两版", "test:100")
+        said = f"- [15:24] 用户（回复频道里刚发的 `{old['id']}_A_chunguqin.mp4`）：`字太小了`"
+        r = self.handoff(self.note("new", said), "放大字体", "放大字体", "test:100")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.items()[-1]["chat"], "test:100")
+        self.assertEqual(self.items()[-1]["chat"], "test:100")  # 没写 --follow：就是这个频道的新活
+
+    def test_named_other_channel_task_without_follow_is_refused(self):
+        old = self.old_from_promo()
+        r = self.handoff(self.note("new", "- 用户：`字太小了`"), f"续做 #{old['id']}：放大字体", "放大字体", "test:100")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(f"--follow {old['id']}", r.stderr)
+        self.assertEqual(len(self.items()), 1)
+
+    def test_follow_unknown_task_is_refused(self):
+        r = self.handoff(self.note("new", "- 用户：x"), "做 x", "做x", "test:100", "--follow", "999")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("#999", r.stderr)
+        self.assertEqual(self.items(), [])
 
 
 if __name__ == "__main__":

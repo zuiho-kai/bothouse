@@ -17,7 +17,7 @@ ITEMS = [
     {"id": 1904, "what": "宣传片 v9", "short": "宣传片", "where": "-", "status": "进行中", "who": "工作区1C酱",
      "at": "11-23 10:00", "chat": MAIN, "sk": WS, "ch": WS.split(":")[1], "ws": WS},
     {"id": 1905, "what": "封面图", "short": "封面图", "where": "-", "status": "进行中", "who": "橘", "at": "11-23 10:05",
-     "sk": MAIN, "ch": MAIN.split(":")[1]},
+     "chat": MAIN, "sk": MAIN, "ch": MAIN.split(":")[1]},
 ]
 KEYS = {"id", "title", "chat", "stage", "product", "refs", "approvals", "compares"}
 DIFFS = ["片头比原件慢半拍", "字幕颜色原件是白的、成品偏黄", "结尾少了原件最后一个镜头"]
@@ -116,8 +116,8 @@ class Deliver(unittest.TestCase):
         self.assertEqual(deliver.load(1904), rec)
         self.assertIsNone(deliver.load(1905))
 
-    def test_chat_falls_back_to_item_channel(self):
-        run("stage", "1905", "样")  # 条目没有 chat，只有 sk：所属频道按 board.channel_of 认
+    def test_chat_is_item_owner(self):
+        run("stage", "1905", "样")  # 所属频道就是条目的归属 chat（board.channel_of，#2010 起不再退到 sk、ch）
         self.assertEqual(record(1905)["chat"], MAIN)
         self.assertEqual(record(1905)["chat"], board.channel_of(ITEMS[1]))
 

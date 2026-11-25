@@ -88,7 +88,9 @@ class HandbackReview(unittest.TestCase):
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             def item():
                 return json.loads((Path(tmp) / "board.jsonl").read_text().strip())
+            env["CC_SESSION_KEY"] = "room:chat"  # 在聊天频道里建：归属必填（#2010）
             cli("add", "交回验收", "notes.md", "执行中", "worker", "--short", "交回验收")
+            env.pop("CC_SESSION_KEY")
             self.assertEqual(item()["dispatcher"], "dispatcher")
             data = item() | {"ws": "room:work", "chat": "room:chat", "sk": "room:work"}
             (Path(tmp) / "board.jsonl").write_text(json.dumps(data) + "\n")
