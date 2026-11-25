@@ -6792,12 +6792,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				}
 
 				// Honour the NO_REPLY marker here too: background task
-				// notifications often end in a bare NO_REPLY, which must not
-				// be relayed to the chat as literal text.
+				// notifications often end in or start with NO_REPLY, which must
+				// not be relayed to the chat as literal text.
 				if isSilentReply(fullResponse) {
 					fullResponse = ""
-				} else if stripped, ok := stripTrailingSilent(fullResponse); ok {
-					fullResponse = stripped
+				} else {
+					fullResponse = stripSilentReply(fullResponse)
 				}
 
 				if fullResponse != "" {
@@ -7545,7 +7545,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if turn.streamCard != nil && !turn.streamCard.Failed() {
 					turn.cardThinkingText = truncateIf(event.Content, e.display.ThinkingMaxLen)
 					_ = authorizedOutput(turn.outputCtx, func() error {
-						return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+						return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 					})
 					continue // skip original independent message sending
 				}
@@ -7555,7 +7555,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				// standalone chat messages, even after a card transport failure.
 				if turn.cp.style == progressStyleCard && len(turn.textParts) > turn.segmentStart {
 					turn.sp.discard()
-					if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+					if segment := strings.TrimSpace(stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))); segment != "" && turn.cp.Active() {
 						turn.cp.Append(segment)
 					}
 					turn.segmentStart = len(turn.textParts)
@@ -7610,7 +7610,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if !hasRichCard && len(turn.textParts) > turn.segmentStart && (turn.streamCard == nil || turn.streamCard.Failed()) &&
 				(turn.cp.style == progressStyleCard || (e.display.ToolMessages && turn.cp.Active())) {
 				turn.sp.discard()
-				if segment := strings.TrimSpace(strings.Join(turn.textParts[turn.segmentStart:], "")); segment != "" && !isSilentReply(segment) && turn.cp.Active() {
+				if segment := strings.TrimSpace(stripSilentReply(joinReplyParts(turn.textParts[turn.segmentStart:]))); segment != "" && turn.cp.Active() {
 					turn.cp.Append(segment)
 				}
 				turn.segmentStart = len(turn.textParts)
@@ -7700,7 +7700,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						Input: formattedInput,
 					})
 					_ = authorizedOutput(turn.outputCtx, func() error {
-						return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+						return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 					})
 					continue // skip original independent message sending
 				}
@@ -7859,12 +7859,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					turn.textParts = append(turn.textParts, content) // always accumulate for history
 					if !turn.silentHold {
 						if releasedNow {
+							// Write the full held segment so stripSilentReply preserves line boundaries
+							// across chunks and doesn't merge subsequent NO_REPLY lines into prior text.
 							turn.cardAnswerText.WriteString(peekSegment)
 						} else {
 							turn.cardAnswerText.WriteString(content)
 						}
 						_ = authorizedOutput(turn.outputCtx, func() error {
-							return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+							return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 						})
 					}
 					handledByStreamCard = true
@@ -7873,7 +7875,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if len(turn.textParts) == 0 {
 						if hasRichCard {
 							if turn.cardMessageID == nil && !turn.silentHold {
-								card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, turn.partialText, true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, stripSilentReply(turn.partialText), true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(turn.outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(turn.outputCtx, markAgentReply(p, turn.replyCtx, turn.session), card)
@@ -7899,7 +7901,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							// here using the accumulated partialText so the card emerges
 							// with the post-prefix content already in body.
 							if turn.cardMessageID == nil {
-								card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, turn.partialText, true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
+								card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, stripSilentReply(turn.partialText), true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
 								if starter, ok := p.(PreviewStarter); ok {
 									handle, err := authorizedOutputValue(turn.outputCtx, func() (any, error) {
 										return starter.SendPreviewStart(turn.outputCtx, markAgentReply(p, turn.replyCtx, turn.session), card)
@@ -7925,8 +7927,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 								// it engages Lark's native typewriter rendering. Falls back to
 								// full-card Patch on ErrNotSupported (handle without cardID) or any error.
 								streamed := false
+								cardBody := stripSilentReply(turn.partialText)
 								if hasStreamer {
-									streamBody := resolveRichCardMarkdown(turn.partialText, false)
+									streamBody := resolveRichCardMarkdown(cardBody, false)
 									if err := authorizedOutput(turn.outputCtx, func() error { return streamer.StreamRichCardText(turn.outputCtx, turn.cardMessageID, streamBody) }); err == nil {
 										turn.lastRichCardUpdate = time.Now()
 										turn.lastRichCardLen = len(turn.partialText)
@@ -7936,7 +7939,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 									}
 								}
 								if !streamed {
-									card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, turn.partialText, true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
+									card := buildResolvedRichCard(CardStatusWorking, "", turn.toolSteps, cardBody, true, e.composeRichStatusFooter(true, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
 									if updater, ok := p.(MessageUpdater); ok {
 										if err := authorizedOutput(turn.outputCtx, func() error { return updater.UpdateMessage(turn.outputCtx, turn.cardMessageID, card) }); err == nil {
 											turn.lastRichCardUpdate = time.Now()
@@ -8397,7 +8400,7 @@ channelClosed:
 			slog.Info("silent reply suppressed (channel closed)", "session", turn.session.ID)
 			return
 		}
-		if stripped, ok := stripTrailingSilent(fullResponse); ok {
+		if stripped := stripSilentReply(fullResponse); stripped != fullResponse {
 			if strings.TrimSpace(stripped) == "" {
 				turn.sp.discard()
 				return
@@ -20383,15 +20386,88 @@ func joinReplyParts(parts []string) string {
 	return b.String()
 }
 
+// silentReplyLineRe matches a single standalone NO_REPLY marker line (case-insensitive,
+// optional horizontal whitespace, optional markdown `*` emphasis, and trailing punctuation).
+var silentReplyLineRe = regexp.MustCompile(`(?i)^[ \t\p{Z}]*\**NO_REPLY[*.!?,;:。！？…，；：、 \t\p{Z}]*$`)
+
 // isSilentReply reports whether text is exactly a NO_REPLY marker.
 func isSilentReply(text string) bool {
 	return IsSilentReply(text)
 }
 
-// IsSilentReply reports whether text is a NO_REPLY marker, ignoring surrounding
-// Unicode whitespace and sentence-ending punctuation. Agent handoffs share this check.
+// IsSilentReply reports whether text consists solely of one or more standalone NO_REPLY
+// markers, ignoring surrounding Unicode whitespace and sentence-ending punctuation.
+// Agent handoffs share this check.
 func IsSilentReply(text string) bool {
-	return silentReplyRe.MatchString(strings.TrimSpace(text))
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	if silentReplyRe.MatchString(trimmed) {
+		return true
+	}
+	stripped, ok := stripStandaloneSilentLines(trimmed)
+	return ok && strings.TrimSpace(stripped) == ""
+}
+
+// stripStandaloneSilentLines removes standalone NO_REPLY marker lines (outside fenced
+// code blocks) that an agent emitted in intermediate planner steps before, between, or
+// repeated around real output (#2228). Inline NO_REPLY words inside a sentence are kept.
+func stripStandaloneSilentLines(text string) (string, bool) {
+	lines := strings.Split(text, "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if !inFence {
+			if ch, n, ok := codeFencePrefix(trimmed); ok {
+				inFence = true
+				fenceChar, fenceLen = ch, n
+			} else if silentReplyLineRe.MatchString(line) {
+				removed = true
+				continue
+			}
+		} else if ch, n, ok := codeFencePrefix(trimmed); ok && ch == fenceChar && n >= fenceLen && strings.TrimLeft(trimmed, string(ch)) == "" {
+			inFence = false
+		}
+
+		if removed && trimmed == "" {
+			if len(kept) == 0 || strings.TrimSpace(kept[len(kept)-1]) == "" {
+				continue
+			}
+		}
+		kept = append(kept, raw)
+	}
+	if !removed {
+		return text, false
+	}
+	for len(kept) > 0 && strings.TrimSpace(strings.TrimRight(kept[len(kept)-1], "\r")) == "" {
+		kept = kept[:len(kept)-1]
+	}
+	if len(kept) == 0 {
+		return "", true
+	}
+	return strings.TrimRightFunc(strings.Join(kept, "\n"), unicode.IsSpace), true
+}
+
+func codeFencePrefix(trimmed string) (byte, int, bool) {
+	if len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0, false
+	}
+	ch := trimmed[0]
+	n := 0
+	for n < len(trimmed) && trimmed[n] == ch {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, false
+	}
+	return ch, n, true
 }
 
 // stripTrailingSilent removes a trailing NO_REPLY marker and returns the stripped text
@@ -20406,20 +20482,40 @@ func stripTrailingSilent(text string) (string, bool) {
 	return strings.TrimRightFunc(stripped, unicode.IsSpace), true
 }
 
-// stripSilentReply applies the same marker rules at text segment boundaries.
+// stripSilentReply removes standalone NO_REPLY lines and any trailing NO_REPLY marker.
 func stripSilentReply(text string) string {
 	if IsSilentReply(text) {
 		return ""
 	}
-	stripped, _ := stripTrailingSilent(text)
-	return stripped
+	cur, _ := stripStandaloneSilentLines(text)
+	if stripped, ok := stripTrailingSilent(cur); ok {
+		return stripped
+	}
+	return cur
 }
 
-// couldBeSilentPrefix reports whether the trimmed text is still a case-insensitive
-// prefix of "NO_REPLY". Used during streaming to hold the preview until we know
-// whether the response will resolve to a pure NO_REPLY marker.
+// couldBeSilentPrefix reports whether the trimmed text (after any already-completed
+// standalone NO_REPLY lines) is still a case-insensitive prefix of "NO_REPLY". Used
+// during streaming to hold the preview until we know whether the response will resolve
+// to silent markers only.
 func couldBeSilentPrefix(text string) bool {
-	t := strings.TrimSpace(text)
+	lines := strings.Split(text, "\n")
+	i := 0
+	for i < len(lines) {
+		line := strings.TrimRight(lines[i], "\r")
+		if strings.TrimSpace(line) == "" || silentReplyLineRe.MatchString(line) {
+			i++
+			continue
+		}
+		break
+	}
+	if i >= len(lines) {
+		return true
+	}
+	if i < len(lines)-1 {
+		return false
+	}
+	t := strings.TrimSpace(lines[i])
 	if t == "" {
 		return true
 	}
