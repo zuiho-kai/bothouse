@@ -259,6 +259,18 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 				return req, "", fmt.Errorf("--board-id requires a task board ID")
 			}
 			req.BoardID = n
+		case "--for":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--for requires a task board ID")
+			}
+			i++
+			n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(args[i]), "#"))
+			if err != nil || n <= 0 {
+				return req, "", fmt.Errorf("--for requires a task board ID")
+			}
+			req.ForTask = n
+		case "--cross-channel":
+			req.CrossChannel = true
 		case "--label":
 			if i+1 >= len(args) {
 				return req, "", fmt.Errorf("--label requires a value")
@@ -314,11 +326,19 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	} else if req.Channel != "" {
 		// The name is looked up in the server of the caller's own conversation.
 		req.FromSession = strings.TrimSpace(envSessionKey())
+	} else if req.SessionKey == "" && req.ForTask > 0 {
+		// --for without -s: the bridge posts to the task's owner chat (11-25 #2010).
+		req.FromSession = strings.TrimSpace(envSessionKey())
 	} else if req.SessionKey == "" {
 		req.SessionKey = strings.TrimSpace(envSessionKey())
 		req.SessionFromEnv = req.SessionKey != ""
 		// The workspace task this process was started for; the bridge moves attachments to the
 		// chat channel only while that task is in work.
+		req.Handoff = strings.TrimSpace(os.Getenv("CC_HANDOFF"))
+	}
+	if req.Handoff == "" && !req.DM {
+		// The workspace task this process was started for: the bridge holds its sends to that task's
+		// owner chat whatever the target (sendTaskTargetProblem), not only the ones without -s.
 		req.Handoff = strings.TrimSpace(os.Getenv("CC_HANDOFF"))
 	}
 	if req.FromSession == "" {
@@ -546,6 +566,10 @@ Options:
       --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
       --mention-assigner <id>  Open the message with an @ of whoever set task board item <id> (ws-pass; off unless the lead project sets mention_assigner)
       --board-id <id>      Task board ID used to prefix ASCII upload filenames for video attachments
+      --for <id>           The task board item this message is for. Without -s/--channel the bridge posts it
+                           to that task's own chat. With one, a target that is not the task's chat, its forum
+                           thread or a workspace is refused. In a workspace, CC_HANDOFF names the task.
+      --cross-channel      Send a task's message to another chat on purpose (skips the check above)
       --label <text>       Version label line sent right before each video attachment (repeatable)
       --ask-user           Ask a human to decide/answer: allows @ human mentions on this message (auto-mentions the owner if no <@id> is in the message)
       --experience         Hand work to a personal agent: append related team lessons and ask for 【经验】 lines back
