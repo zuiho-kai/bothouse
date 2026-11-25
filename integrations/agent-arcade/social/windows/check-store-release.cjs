@@ -1,12 +1,13 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
+const { pipeline } = require('node:stream/promises');
 const { parseArgs } = require('node:util');
 const { serviceOrigin } = require('./endpoint.cjs');
 const { identityFor, escapeXml, auditPackageContents } = require('./pack.cjs');
@@ -35,12 +36,38 @@ async function verifyFile(root, item, label) {
 }
 
 function readEntry(archive, name) {
-  assert(/^[\w.-]+(?:\/[\w.-]+)*$/u.test(name) && !name.split('/').some(part => ['.', '..'].includes(part)),
-    'Unexpected archive entry.');
+  const taskUnit = 'social/deploy/agent-arcade-social-task@.service';
+  assert((name === taskUnit || /^[\w.-]+(?:\/[\w.-]+)*$/u.test(name)) &&
+    !name.split('/').some(part => ['.', '..'].includes(part)), 'Unexpected archive entry: ' + name);
   return execFileSync('tar.exe', ['-xOf', archive, '--', name], { windowsHide: true, maxBuffer: maxBody });
 }
 
-function verifyServiceArchive(archive, inventory, publicFiles, stage) {
+async function verifyEmbeddedSource(archive, digest, stage) {
+  const tar = spawn('tar.exe', ['-xOf', archive, '--', 'source.zip'], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const exited = new Promise((resolve, reject) => {
+    tar.once('error', reject);
+    tar.once('close', code => code === 0 ? resolve() : reject(new Error('Could not read source.zip from the service ZIP.')));
+  });
+  const hash = createHash('sha256');
+  async function* digestChunks(chunks) {
+    for await (const chunk of chunks) {
+      hash.update(chunk);
+      yield chunk;
+    }
+  }
+  const discard = async chunks => { for await (const chunk of chunks) { /* digest only */ } };
+  const target = stage ? fs.createWriteStream(path.join(stage, 'source.zip'), { flags: 'wx' }) : discard;
+  try {
+    await Promise.all([pipeline(tar.stdout, digestChunks, target), exited]);
+  } finally {
+    if (tar.exitCode === null && tar.signalCode === null) tar.kill();
+  }
+  assert(hash.digest('hex') === digest, 'Service ZIP source mismatch: source.zip');
+}
+
+async function verifyServiceArchive(archive, inventory, publicFiles, stage) {
   assert(inventory && typeof inventory === 'object' && !Array.isArray(inventory), 'Service source inventory needs a file map.');
   const entries = execFileSync('tar.exe', ['-tf', archive], { windowsHide: true, maxBuffer: maxBody, encoding: 'utf8' })
     .split(/\r?\n/u).filter(name => name && !name.endsWith('/'));
@@ -57,6 +84,12 @@ function verifyServiceArchive(archive, inventory, publicFiles, stage) {
   const publicPaths = new Set([...publicFiles, ...entryFiles].map(name => 'social/client/' + name));
   for (const [entry, digest] of Object.entries(inventory)) {
     assert(shaPattern.test(digest), 'Invalid SHA-256 in service source inventory: ' + entry);
+    // The complete frozen source archive can be larger than the public-page buffer.
+    if (entry === 'source.zip') {
+      if (stage) fs.mkdirSync(stage, { recursive: true });
+      await verifyEmbeddedSource(archive, digest, stage);
+      continue;
+    }
     const bytes = readEntry(archive, entry);
     assert(sha256(bytes) === digest, 'Service ZIP source mismatch: ' + entry);
     if (stage) {
@@ -82,7 +115,7 @@ async function verifyUpgrade(priorFile, nextFile) {
       const inventory = json(await verifyFile(root, handoff.serviceFiles, 'Upgrade service inventory'));
       assert.equal(inventory.commit, handoff.freeze, 'Upgrade inventory source mismatch.');
       const directory = path.join(scratch, folder);
-      verifyServiceArchive(archive, inventory.files, ['index.html', 'app.js', 'style.css'], directory);
+      await verifyServiceArchive(archive, inventory.files, ['index.html', 'app.js', 'style.css'], directory);
       return { directory, origin: handoff.origin, version: handoff.version, source: handoff.freeze,
         sha256: handoff.service.sha256 };
     }
@@ -144,6 +177,23 @@ function readPublic(origin, route, tls, type, archive) {
   });
 }
 
+async function verifyLittleWorlds(origin, tls) {
+  try {
+    const body = await readPublic(origin, '/healthz', tls, /^application\/json(?:;|$)/iu);
+    let health;
+    try { health = JSON.parse(body); }
+    catch { throw new Error('/healthz returned invalid JSON.'); }
+    assert(health?.ok === true && ['home-sample', 'integrated', 'legacy-test'].includes(health.profile),
+      '/healthz did not identify a healthy Little Worlds service.');
+    const page = await readPublic(origin, '/', tls, /^text\/html(?:;|$)/iu);
+    assert(/<title>\s*Little Worlds\b[^<]*<\/title>/iu.test(page.toString('utf8')),
+      'The / homepage did not identify Little Worlds.');
+    return { origin, profile: health.profile, anonymousGet: ['/healthz', '/'] };
+  } catch (error) {
+    throw new Error('Little Worlds ' + origin + ': ' + (error.code ? error.code + ': ' : '') + error.message, { cause: error });
+  }
+}
+
 async function check(args) {
   const { values } = parseArgs({ args, options: {
     handoff: { type: 'string' }, version: { type: 'string' }, origin: { type: 'string' },
@@ -166,6 +216,9 @@ async function check(args) {
   assert(['store', 'test'].includes(mode), 'Use store or test mode.');
   const origin = serviceOrigin(values.origin, mode);
   const littleWorldsOrigin = values['world-origin'] === undefined ? undefined : serviceOrigin(values['world-origin'], mode);
+  if (littleWorldsOrigin) {
+    assert(new URL(littleWorldsOrigin).protocol === 'https:', '--world-origin must use HTTPS for this preflight.');
+  }
   const identity = identityFor(mode, values.identity);
   const contact = releaseContact({mode,origin,operatorName:values['operator-name'],support:values.support});
   const destination = new URL(contact.href);
@@ -214,7 +267,7 @@ async function check(args) {
   const expectsPublicSource = Object.hasOwn(serviceFiles.files ?? {}, 'social/client/source.html') ||
     Object.hasOwn(serviceFiles.files ?? {}, 'social/server/public-source.cjs');
   if (expectsPublicSource) publicFiles.push('source.html');
-  const assets = verifyServiceArchive(service, serviceFiles.files, publicFiles);
+  const assets = await verifyServiceArchive(service, serviceFiles.files, publicFiles);
 
   // Older releases may not use either module. Match the deployed service's frozen client.
   const app = assets.get('app.js');
@@ -299,7 +352,8 @@ async function check(args) {
     assert(!body.equals(privacyPage) && !body.equals(privacyTemplate), privacySupportError);
     support = 'same-origin-support-page-verified';
   }
-  return { mode, version, origin, littleWorldsOrigin, source: handoff.freeze, msixSha256: handoff.package.sha256, runtimeContents,
+  const worldPreflight = littleWorldsOrigin ? await verifyLittleWorlds(littleWorldsOrigin, tls) : undefined;
+  return { mode, version, origin, littleWorldsOrigin, ...(worldPreflight && { worldPreflight }), source: handoff.freeze, msixSha256: handoff.package.sha256, runtimeContents,
     serviceZipSha256: serviceHandoff.service.sha256, serviceFilesVerified: Object.keys(serviceFiles.files).length,
     anonymousGet: responses, support, offlineSupport, serviceUpgrade,
     purpose:historical?'historical-service-pairing':mode==='store'?'store-submission-preflight':'packaging-test',

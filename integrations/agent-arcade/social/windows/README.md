@@ -149,7 +149,7 @@ node social/windows/pack.cjs --audit "<实际 MSIX 或本次 stage 目录>"
 
 ### 公开地址与同版成品检查
 
-将 Partner Center 的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 填入 `store-identity.template.json` 的本地副本，`displayName` 使用获准的商店展示名。将同一个好友 HTTPS 原点填入打包和前检的 `--origin`、服务端的 `SOCIAL_PUBLIC_ORIGIN` 和反向代理。若发行包含小星球，两条命令均传同一个世界原点 `--world-origin $approvedWorldOrigin`，并在常用的客户端网络验证世界能打开。将送审资料中同一运营名称与支持地址用于打包、前检和服务端 `SOCIAL_PUBLIC_OPERATOR_NAME`、`SOCIAL_PUBLIC_PRIVACY_CONTACT`。正式桌面包把这两个公开值写入随包配置，好友服务完全断开时也能从本机恢复区阅读和复制。测试包只提示联系发放人。
+将 Partner Center 的 `Identity/Name`、`Identity/Publisher`、`PublisherDisplayName` 填入 `store-identity.template.json` 的本地副本，`displayName` 使用获准的商店展示名。将同一个好友 HTTPS 原点填入打包和前检的 `--origin`、服务端的 `SOCIAL_PUBLIC_ORIGIN` 和反向代理。若发行包含小星球，两条命令均传同一个世界原点 `--world-origin $approvedWorldOrigin`。前检会匿名请求该 HTTPS 世界原点的 `/healthz` 与首页，核对 Little Worlds 的健康响应和页面标识，并在回执 `worldPreflight` 记录结果。该检查沿用正常 TLS 信任，不创建玩家或验证真实客户端登录、落地及访友。仅聊天包省略参数，前检只访问好友服务。将送审资料中同一运营名称与支持地址用于打包、前检和服务端 `SOCIAL_PUBLIC_OPERATOR_NAME`、`SOCIAL_PUBLIC_PRIVACY_CONTACT`。正式桌面包把这两个公开值写入随包配置，好友服务完全断开时也能从本机恢复区阅读和复制。测试包只提示联系发放人。
 
 服务在获授权的地址可访问后，用 Windows 自带的 `tar.exe` 和 Node.js，从 Agent Arcade 模块根目录执行一次只读检查。
 
@@ -160,14 +160,19 @@ $handoff = Get-Content -LiteralPath $handoffPath -Raw | ConvertFrom-Json
 if ($handoff.origin -cne $approvedOrigin) {
     throw "交接清单的地址与获准的 HTTPS origin 不一致，已停止前检。"
 }
-node social/windows/check-store-release.cjs --handoff $handoffPath --version $handoff.version --origin $approvedOrigin --identity "<identity.local.json>" --operator-name $operatorName --support $support
+$worldArgs = @() # 仅聊天包
+# 随包配置世界时，用部署时独立确认的地址：
+# $worldArgs = @('--world-origin', $approvedWorldOrigin)
+node social/windows/check-store-release.cjs --handoff $handoffPath --version $handoff.version --origin $approvedOrigin --identity "<identity.local.json>" --operator-name $operatorName --support $support @worldArgs
 ```
 
 使用本次正式成品的交接文件。交接包含该批冻结提交 `freeze`、`version`、已批准的 HTTPS `origin`，以及实际 `package`、`service`、`packageFiles`、`serviceFiles` 的 `path` 和 SHA-256。相对路径以交接文件所在目录为准。同批发布时两份库存的 `commit` 均须指向同一冻结源码，客户端库存使用 `verifiedFiles` 映射，服务库存使用完整的 `files` 映射。命令在联网前核对 MSIX 身份以及服务 ZIP 的完整文件清单和逐项摘要，随后以匿名 GET 核对健康端点、登录页、内容准则、隐私、公开联系方式和主要静态资源。错包、错地址、错内容和缺联系方式返回非零状态。
 
 正式 Store 送审前检默认要求实际 MSIX 含离线求助入口及与本次参数一致的支持地址，缺少时在联网前失败。成功报告须为 `offlineSupport: matches-release-contact` 且 `storeSubmissionChecksPassed: true`，匿名隐私页也须通过同一组参数校验。已安装包的离线地址随桌面版本更新。
 
-仅复核历史 Store 桌面与服务的配对时，可在同一命令末尾加 `--historical`。缺离线功能的旧包可在此模式报告 `legacy-no-offline-contact`，检查结果标为 `purpose: historical-service-pairing`、`storeSubmissionChecksPassed: false`。已有离线入口但配置缺失或错配时，两种模式都返回失败。测试版仍用 `--mode test`，纯服务升级仍用 `--upgrade-only`。
+仅复核历史 Store 桌面与服务的配对时，可在同一命令末尾加 `--historical`。缺离线功能的旧包可在此模式报告 `legacy-no-offline-contact`，检查结果标为 `purpose: historical-service-pairing`、`storeSubmissionChecksPassed: false`。已有离线入口但配置缺失或错配时，两种模式都返回失败。纯服务升级仍用 `--upgrade-only`。
+
+回环 HTTPS 前检使用 `--mode test`、原 `PackagingTest` 未签测试身份（Publisher 含未签专用 OID）及 `--test-ca` 指定的临时 CA。这一路只报告打包测试结果。用开发证书安装的 `test-signed` 侧载包使用不同 Publisher，走现有来宾安装和签名验收。正式送审使用 `store` 的真实 Partner Center 身份和系统 TLS 信任。
 
 服务归档包含「开源与版本」时，命令还会从未登录首页验证该链接，核对服务版本页，并流式下载源码 ZIP，与交接中的 `source.path` 和 `source.sha256` 对照。报告中的 `version` 是桌面包版本，`publicSource.version` 和 `publicSource.commit` 是当前服务的发布身份。服务独立升级时，在同一命令附加 `--service-handoff "<现行服务的交接.json>"`。该文件沿用 `version`、`freeze`、`origin`、`service`、`serviceFiles` 和 `source` 字段，同源地址应和桌面包一致，服务库存的提交对应这份服务交接。
 
