@@ -163,11 +163,7 @@ func currentTeamTaskBoardItems(dir string) []teamTaskBoardItem {
 // heldReportThisRound: the report held for the lead of platform for board item it, when it belongs
 // to the item's current handoff (a hold made under another bind is an earlier round's).
 func (e *Engine) heldReportThisRound(platform string, it teamTaskBoardItem) *pendingReport {
-	owner := e
-	if lead := e.reportAcceptor(platform, &it); lead != nil {
-		owner = lead
-	}
-	rec := owner.heldReportFor(it.ID)
+	rec := e.heldReportOnAcceptor(platform, &it, it.ID)
 	if rec == nil || rec.HeldBound != "" && it.Bound != "" && rec.HeldBound != it.Bound {
 		return nil
 	}

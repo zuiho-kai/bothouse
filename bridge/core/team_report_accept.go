@@ -188,8 +188,11 @@ func boundTime(item *teamTaskBoardItem) time.Time {
 // that role runs here and can speak on platform, else the team lead. User 11-24: 「验收权跟派活人走」
 // — #1921's reports (12:21, 12:57) went only to the configured lead (鲸鱼娘); the dispatcher (橘),
 // who had promised to look, was never woken.
+// e is the engine whose workspace wrote the report: a dispatcher that is e itself does not accept
+// its own work, and the lead does (user 11-25 「为什么没有给我交回这个频道？」 — #1139 was dispatched
+// and done by 大豆包, which then passed its own report).
 func (e *Engine) reportAcceptor(platform string, item *teamTaskBoardItem) *Engine {
-	if item != nil && item.Dispatcher != "" {
+	if item != nil && item.Dispatcher != "" && item.Dispatcher != e.name {
 		for _, x := range e.watchEngines() {
 			if x.name == item.Dispatcher && x.lookupReadyPlatform(platform) != nil && x.timerScheduler != nil {
 				return x
@@ -285,11 +288,22 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 // reportHeldForLead: board item hid has a report held for the lead of platform that is neither
 // posted nor ended yet.
 func (e *Engine) reportHeldForLead(platform string, hid int) bool {
-	owner := e
-	if lead := e.reportAcceptor(platform, e.boardItemByID(hid)); lead != nil {
-		owner = lead
+	return e.heldReportOnAcceptor(platform, e.boardItemByID(hid), hid) != nil
+}
+
+// heldReportOnAcceptor: the report for hid held on whoever may have taken it — the acceptor as e
+// sees it, else the lead. e need not be the engine that wrote the report: when the dispatcher wrote
+// it, the hold sits on the lead while e's reportAcceptor still names the dispatcher.
+func (e *Engine) heldReportOnAcceptor(platform string, item *teamTaskBoardItem, hid int) *pendingReport {
+	for _, owner := range []*Engine{e.reportAcceptor(platform, item), e.reportLead(platform), e} {
+		if owner == nil {
+			continue
+		}
+		if rec := owner.heldReportFor(hid); rec != nil {
+			return rec
+		}
 	}
-	return owner.heldReportFor(hid) != nil
+	return nil
 }
 
 // heldReportFor is the newest held, undelivered record for board item hid on this engine.
