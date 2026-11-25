@@ -62,6 +62,9 @@ func (e *Engine) sendTaskTargetProblem(id int, target string, cross bool) string
 	if id <= 0 || target == "" || cross {
 		return ""
 	}
+	if e.teamStatusDir() == "" {
+		return "" // no task board on this install: a --board-id only labels the files, there is no owner to hold it to
+	}
 	tchat := teamChatKey(target)
 	if e.isWorkspaceKey(tchat) {
 		return ""
