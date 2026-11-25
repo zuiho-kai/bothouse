@@ -67,7 +67,7 @@ type teamTaskBoardItem struct {
 	PausedBy string `json:"paused_by"`
 	// Halted: someone stopped it with board pause (not an ask giving up its workspace, not a wait
 	// outside); the lead is not woken to carry it on (stopWakesLead).
-	Halted bool `json:"halted"`
+	Halted   bool   `json:"halted"`
 	PausedAt string `json:"paused_at"`
 	DoneAt   string `json:"done_at"` // board-done.jsonl: "MM-DD HH:MM", local time
 	// Backlog: board.py backlog moved this item to 待办 (small fixes and non-blocking findings
