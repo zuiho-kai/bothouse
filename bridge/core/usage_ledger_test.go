@@ -132,4 +132,19 @@ func TestUsageHoursAreSortedNumerically(t *testing.T) {
 	}
 }
 
+// A range that starts late at night and ends after midnight must read both
+// calendar days. It used to step 24 hours from the clock time of `from`
+// (23:30 → 23:30 next day), jump past `to`, and return nothing.
+func TestUsageQuerySpansMidnight(t *testing.T) {
+	l := NewUsageLedger(t.TempDir(), nil)
+	at := time.Date(2026, 3, 2, 0, 30, 0, 0, time.Local)
+	if err := l.Record(UsageRecord{Time: at, Role: "devin", Model: "m", Input: 10, Output: 5, Known: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := l.Query(at.Add(-time.Hour), at.Add(time.Hour), "", "", "")
+	if err != nil || len(rows) != 1 || rows[0].Model != "m" {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+}
+
 // A reply's usage record must not wait for disk writes or dashboard queries.

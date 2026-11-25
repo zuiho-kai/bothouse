@@ -69,14 +69,16 @@ func TestAboutNotesCoverReadmeComparison(t *testing.T) {
 			t.Fatal(err)
 		}
 		r := string(readme)
-		start := strings.Index(r, "## bothouse")
-		for start >= 0 && !strings.Contains(r[start:start+80], "other projects") && !strings.Contains(r[start:start+80], "其他项目") {
-			next := strings.Index(r[start+1:], "## bothouse")
-			if next < 0 {
-				start = -1
+		// Find the comparison heading by its text: English "## bothouse and other
+		// projects", Chinese used to be "## bothouse 和其他项目" and now reads
+		// "## 和别的项目比". Matching the heading text keeps the coverage check
+		// working when the copy around it is rewritten.
+		start := -1
+		for _, heading := range []string{"## bothouse and other projects", "## bothouse 和其他项目", "## 和别的项目比"} {
+			if i := strings.Index(r, heading); i >= 0 {
+				start = i
 				break
 			}
-			start += 1 + next
 		}
 		if start < 0 {
 			t.Fatalf("%s: comparison section not found", pair[0])
