@@ -856,6 +856,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		slog.Info("discord: DM skipped by dm_deny_from", "user", m.Author.ID, "msg_id", m.ID)
 		return
 	}
+	notePersonNames(m)
 	asTestPerson(m, p.testWebhookPeople)
 	// maomao fork: other bots get through only if listed in allow_bots or allow_bots_file,
 	// and only when they @ this bot (checked below), so bots can hand work to each other without loops.
