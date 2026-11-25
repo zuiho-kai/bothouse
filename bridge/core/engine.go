@@ -382,6 +382,7 @@ type RateLimitCfg struct {
 type Engine struct {
 	taskForumOff           atomic.Bool
 	mentionAssignerOn      atomic.Bool
+	keepRunningOn          atomic.Bool
 	mentionHumanGateOn     atomic.Bool
 	humanMentions          humanMentionGate
 	proactiveMu            sync.Mutex
