@@ -30,6 +30,7 @@ import _team  # noqa: E402
 import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.py）
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
+import _narrow_gate  # noqa: E402  #1999 缩范围句要有原话撑腰
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 import _source  # noqa: E402  讨论原文导出、续派补导、转话文本（_source.py）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
@@ -785,6 +786,9 @@ def main(argv):
         err = check_notes(notes, task)
     except RuntimeError as e:  # 规则文件读不到或写坏：报错不放行
         sys.exit(f"ws-handoff: {e}")
+    if err:
+        sys.exit(f"ws-handoff: {err}")
+    err = _narrow_gate.check(notes)  # #1999：缩范围的话要有用户原话撑着
     if err:
         sys.exit(f"ws-handoff: {err}")
     if effort and not model:  # 分流前统一拦：并进已有任务的分支只转 --model，单写的 --effort 会被丢掉（审稿 #2076 第三轮）

@@ -55,10 +55,11 @@ func TestHeldReportDispatcherMissingFallsBackToLead(t *testing.T) {
 	}
 }
 
-// User 11-25 「为什么没有给我交回这个频道？」: #1139 was dispatched by 大豆包 and done in its own
-// workspace, so its report woke 大豆包 to accept itself. The writer never accepts its own report;
-// the lead does, and the lookups from either engine find that hold.
-func TestHeldReportDispatcherIsWriterGoesToLead(t *testing.T) {
+// User 11-25 「返回为什么你没接收」: #1996 was dispatched by 橘 and done in 橘's own workspace; the
+// report went to the lead (鲸鱼娘), who closed it to the handoff, and 橘 never got it back to iterate.
+// The dispatcher accepts even when its own workspace wrote the report: the wake goes to its chat
+// session, and the lead is not woken.
+func TestHeldReportDispatcherIsWriterStillGoesToDispatcher(t *testing.T) {
 	e, p, writerStore, item := heldFixture(t)
 	lstore, err := NewTimerStore(t.TempDir())
 	if err != nil {
@@ -84,23 +85,23 @@ func TestHeldReportDispatcherIsWriterGoesToLead(t *testing.T) {
 	item.Dispatcher = e.name
 	writeReviewBoard(t, e, *item)
 	holdForTest(t, e, p, item, "")
-	if n := len(writerStore.List()); n != 0 {
-		t.Fatalf("writer woken %d times to accept its own report", n)
+	if n := len(lstore.List()); n != 0 {
+		t.Fatalf("lead woken %d times; the dispatcher accepts", n)
 	}
-	jobs := lstore.List()
-	if len(jobs) != 1 || jobs[0].Project != "lead" || jobs[0].SessionKey != "discord:chat1" {
-		t.Fatalf("lead wakes = %+v", jobs)
+	jobs := writerStore.List()
+	if len(jobs) != 1 || jobs[0].Project != e.name || jobs[0].SessionKey != "discord:chat1" {
+		t.Fatalf("dispatcher wakes = %+v", jobs)
 	}
-	if strings.Contains(jobs[0].Prompt, "验收归派活人") {
-		t.Fatalf("lead prompt says the dispatcher accepts:\n%s", jobs[0].Prompt)
+	for _, w := range []string{"验收归派活人", "照用户原话验", "接着派下一轮"} {
+		if !strings.Contains(jobs[0].Prompt, w) {
+			t.Fatalf("dispatcher prompt lacks %q:\n%s", w, jobs[0].Prompt)
+		}
 	}
-	if l.heldReportFor(46) == nil || e.heldReportFor(46) != nil {
-		t.Fatal("held record not kept on the lead")
+	if e.heldReportFor(46) == nil || l.heldReportFor(46) != nil {
+		t.Fatal("held record not kept on the dispatcher")
 	}
 	if !e.reportHeldForLead("discord", 46) || !l.reportHeldForLead("discord", 46) {
-		t.Fatal("reportHeldForLead misses the lead's hold")
-	}
-	if l.heldReportThisRound("discord", *item) == nil {
-		t.Fatal("the lead's handoff lines miss the hold")
+		t.Fatalf("reportHeldForLead misses the dispatcher's hold: from writer %v, from lead %v",
+			e.reportHeldForLead("discord", 46), l.reportHeldForLead("discord", 46))
 	}
 }
