@@ -474,9 +474,15 @@ var (
 	dshWebURL = regexp.MustCompile(`dsh web: (https?://\S+)`)
 )
 
+// dshWebStatePath sits in the bridge's data directory (ccconnect.DataDir). It used to be
+// ~/.bothouse whatever the data directory was (since a11809060, 10-23): on a machine that has only
+// the older ~/.cc-connect, opening DSH created ~/.bothouse, and from the next start the bridge
+// switched to that empty directory — a second config next to the real one (#2002, the same split
+// as #1997). A record an earlier release left in ~/.bothouse is still read until a new one exists.
 func dshWebStatePath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".bothouse", "dsh-web.json")
+	dir := dshLegacyFallback("dsh web state", ccconnect.DataDir(home), filepath.Join(home, ".bothouse"), "dsh-web.json")
+	return filepath.Join(dir, "dsh-web.json")
 }
 
 // OpenDSHWeb returns the running `dsh web` we started earlier, or starts a new one detached from

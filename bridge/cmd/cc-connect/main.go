@@ -263,6 +263,7 @@ func main() {
 }
 
 func runMain() {
+	ensureHiddenConsole()
 	reapInheritedChildren()
 	if trayMode {
 		defer quitDesktopTray()

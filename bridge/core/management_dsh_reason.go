@@ -85,7 +85,7 @@ func dshCollabNotMounted(ctx context.Context) string {
 
 // dshHostStateReadable explains an unreadable ~/.bothouse/dsh-web.json: the panel does not know where
 // dsh web is, which is not the same as dsh web being broken.
-const dshHostStateReadable = "读不到 DSH 的启动记录（~/.bothouse/dsh-web.json 内容不完整）：重新点「打开 DSH」会重写它。"
+const dshHostStateReadable = "读不到 DSH 的启动记录（数据目录里的 dsh-web.json 内容不完整）：重新点「打开 DSH」会重写它。"
 
 // dshStatusReason is the readable reason for a non-2xx answer from a dedicated DSH endpoint whose
 // body carried no usable error. A 404 on the /collab routes means the plugin is not mounted.

@@ -338,10 +338,9 @@ func InstallDSHPluginFor(ctx context.Context, lang string, desktop bool, dataDir
 	if app := dshDesktopApp(); app != "" && (nodeIssue != "" || pnpmErr != nil) {
 		dir := filepath.Join(os.TempDir(), "bothouse-dsh-runtime")
 		if home, err := os.UserHomeDir(); err == nil {
-			dir = filepath.Join(home, ".bothouse", "dsh-runtime")
-			if os.Getenv(ccconnect.DataDirEnv) != "" {
-				dir = filepath.Join(ccconnect.DataDir(home), "dsh-runtime")
-			}
+			// The bridge's data directory, not ~/.bothouse: creating ~/.bothouse on a machine that
+			// has only ~/.cc-connect moves the bridge to an empty data directory (#2002).
+			dir = filepath.Join(ccconnect.DataDir(home), "dsh-runtime")
 		}
 		if p, ok := dshDesktopRuntimePath(app, dir); ok {
 			if nodeIssue == "" {
