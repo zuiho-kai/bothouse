@@ -1643,13 +1643,18 @@ func (p *Platform) SendWithButtons(ctx context.Context, rctx any, content string
 		if err := p.sendInteraction(ctx, rc, content); err != nil {
 			return err
 		}
+		// The content was already delivered above, so the followup carries only the
+		// buttons (#2232): repeating the content shows it twice, and for long content
+		// the oversized followup fails and the caller's plain-text fallback sends the
+		// whole thing yet again. For the same reason a failed followup degrades to
+		// "no buttons" instead of an error — the text is already on screen.
 		sent, err := p.session.FollowupMessageCreate(rc.interaction, true, &discordgo.WebhookParams{
-			Content:         content,
 			Components:      components,
 			AllowedMentions: p.interactionAllowedMentions(ctx, rc.channelID, false),
 		}, discordReqOptions(ctx)...)
 		if err != nil {
-			return fmt.Errorf("discord: send button followup: %w", err)
+			slog.Warn("discord: button followup failed; content already sent, dropping buttons", "error", err)
+			return nil
 		}
 		p.noteInteractionSent(rc, sent)
 		return nil
