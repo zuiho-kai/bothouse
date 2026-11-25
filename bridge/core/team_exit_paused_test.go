@@ -18,13 +18,13 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 		name, item string
 		forward    bool
 	}{
-		{"user stopped", `{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停：先讨论不做"}`, false},
-		{"stopped without reason", `{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12"}`, false},
-		{"waiting on the user's answer", `{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "等待用户答复"}`, true},
-		{"in work", `{"id": 4, "what": "守卫", "ws": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00"}`, true},
-		{"older stopped item, newer one in work", `{"id": 3, "what": "旧活", "ws_was": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00", "paused": "10-28 10:12", "pause_why": "用户叫停"}` + "\n" +
-			`{"id": 4, "what": "守卫", "ws": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00"}`, true},
-		{"another workspace's stopped item", `{"id": 4, "what": "守卫", "ws_was": "discord:ws2", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`, true},
+		{"user stopped", `{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停：先讨论不做"}`, false},
+		{"stopped without reason", `{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12"}`, false},
+		{"waiting on the user's answer", `{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "等待用户答复"}`, true},
+		{"in work", `{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00"}`, true},
+		{"older stopped item, newer one in work", `{"id": 3, "what": "旧活", "chat": "discord:chat1", "ws_was": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00", "paused": "10-28 10:12", "pause_why": "用户叫停"}` + "\n" +
+			`{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00"}`, true},
+		{"another workspace's stopped item", `{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws_was": "discord:ws2", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
@@ -55,8 +55,8 @@ func TestPausedTaskExitNotForwarded(t *testing.T) {
 // The first line's #id decides which task is judged (#775): the item bound to the workspace
 // last was stopped by the user, while the reply is for another of its items, still in work.
 func TestStoppedJudgedByHeadlineID(t *testing.T) {
-	board := `{"id": 3, "what": "旧活", "ws": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00"}` + "\n" +
-		`{"id": 4, "what": "守卫", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`
+	board := `{"id": 3, "what": "旧活", "chat": "discord:chat1", "ws": "discord:ws1", "bound": "2026-10-28T01:00:00+00:00"}` + "\n" +
+		`{"id": 4, "what": "守卫", "chat": "discord:chat1", "ws_was": "discord:ws1", "bound": "2026-10-28T05:05:47+00:00", "paused": "10-28 14:12", "pause_why": "用户叫停"}`
 	for _, c := range []struct {
 		name, reply, head string
 		forward           bool

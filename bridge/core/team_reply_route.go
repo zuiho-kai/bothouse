@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -59,11 +60,17 @@ func (e *Engine) routeEndedTaskReply(p Platform, msg *Message) bool {
 	if !ok {
 		return false
 	}
-	parent := teamChannelID(teamChatKey(h.Chat))
-	if parent == ch {
+	// the ended task's owner chat on the board, not the handoff record's copy (11-25 #2010)
+	owner, err := e.handoffOwnerChat(h)
+	if err != nil {
+		slog.Error("team workspace: reply to an ended task has no owner chat; left in the workspace", "workspace", ws, "error", err)
 		return false
 	}
-	if _, isWS := e.workspaceOwner(parent); isWS {
+	if plat, _, _ := strings.Cut(owner, ":"); plat != p.Name() {
+		return false
+	}
+	parent := teamChannelID(owner)
+	if parent == ch {
 		return false
 	}
 	title := h.Title

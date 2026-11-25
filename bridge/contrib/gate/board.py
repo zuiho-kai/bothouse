@@ -365,6 +365,29 @@ def channel_of(it):
     return ":".join(c.split(":", 2)[:2]) or (f"discord:{it['ch']}" if it.get("ch") else "")
 
 
+def owner_chat(it):
+    """这件活归哪个聊天频道（<平台>:<id>）：只认条目的 chat（建活时定，改归属只走 board move）；没记返回空串。
+    往外发的口子（ws-up、ws-pass、ws-forward、桥的交回和看门）都只问这一处，查不到就停，不退到 sk、ch、
+    工作区主人或跑命令的频道（11-25 Fable 复盘：一个月 12 起传错频道，都是各口子各猜各的）。"""
+    c = str((it or {}).get("chat") or "").strip()
+    if not c:
+        return ""
+    c = c if ":" in c else f"discord:{c}"
+    return ":".join(c.split(":", 2)[:2])
+
+
+def owner_or_exit(nid, tool="board"):
+    """#nid 的归属频道；条目找不到或没记归属就退出，什么都不发。"""
+    n = int(str(nid).lstrip("#") or 0) if str(nid).lstrip("#").isdigit() else 0
+    it = item_by_id(n) if n else None
+    if not it:
+        sys.exit(f"{tool}: 任务板上找不到 #{nid}，不知道它归哪个频道；没发。")
+    c = owner_chat(it)
+    if not c:
+        sys.exit(f"{tool}: #{n} 没记归属频道，没发。到派它的频道跑 board move {n} --to <频道会话 key> 补上再来。")
+    return c
+
+
 def _channel_name(chat):
     cid = chat.split(":", 1)[1] if ":" in chat else chat
     return f"<#{cid}>" if chat.startswith("discord:") else (chat or "别的频道")

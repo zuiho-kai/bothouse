@@ -250,9 +250,9 @@ func TestTaskForumFollowsBoard(t *testing.T) {
 func TestTaskForumReportNodeAndSkips(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
 	writeTaskBoard(t, dir, team.TaskBoardFile,
-		`{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n"+
-			`{"id":6,"what":"验收探针","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","probe":true}`+"\n"+
-			`{"id":7,"what":"飞书的活","status":"在做","who":"G哥","at":"11-14 10:00","sk":"feishu:abc"}`+"\n")
+		`{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","chat":"discord:111"}`+"\n"+
+			`{"id":6,"what":"验收探针","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","chat":"discord:111","probe":true}`+"\n"+
+			`{"id":7,"what":"飞书的活","status":"在做","who":"G哥","at":"11-14 10:00","sk":"feishu:abc","chat":"feishu:abc"}`+"\n")
 	// A [report] delivered before the board pass opened the post opens it first, then posts.
 	e.postTaskForumNode(5, "📬 修登录：已修好")
 	if p.opens != 1 || len(p.post("th1").nodes) != 1 || p.post("th1").nodes[0] != "📬 修登录：已修好" {
@@ -267,7 +267,7 @@ func TestTaskForumReportNodeAndSkips(t *testing.T) {
 func TestTaskForumMissingPermissionDoesNotBlock(t *testing.T) {
 	e, p, dir := forumTestEngine(t)
 	p.ensureErr = &MissingPermissionError{Perm: PermManageChannels, Hint: "缺管理频道", Err: fmt.Errorf("50013")}
-	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","chat":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	e.syncTaskForum()
 	if p.opens != 0 || len(readForumState(t, e).Posts) != 0 {
@@ -322,7 +322,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 	notes := dir + "/h.handoff.md"
 	words := strings.Repeat("- 「很多任务我派了老忘，额外开帖子标注下任务，和工作区啥的也都打通联动」\n", 80)
 	writeTaskBoard(t, dir, "h.handoff.md", "# x\n\n## 用户原话\n"+words+"\n## 总目标\n"+"派出去的活不再被忘，用户打开帖子就能知道当前进度和下一步。"+"\n")
-	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","chat":"discord:111","paused":"11-14 16:00","pause_why":"等待用户答复：`+strings.Repeat("帖子区放在哪个分类？", 300)+`"}`+"\n")
 	e.syncTaskForum() // stub panics on an over-limit card
 	fp := p.post("th1")
 	if n := len([]rune(fp.card)); n > 1900 {
@@ -334,7 +334,7 @@ func TestTaskForumLongCardFitsDiscord(t *testing.T) {
 		}
 	}
 	// a long original alone (short question): the goal and the state stay, the words are cut
-	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111"}`+"\n")
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":9,"what":"帖子区","where":"`+notes+`","status":"在做","who":"C酱","at":"11-14 15:19","sk":"discord:111","chat":"discord:111"}`+"\n")
 	e.syncTaskForum()
 	fp = p.post("th1")
 	for _, want := range []string{"**⚙️ 在做**", "…\n**目标**：派出去的活", "\n-# 来源 <#111>", "任务板 #9"} {
@@ -359,7 +359,7 @@ func TestTaskForumOnePostAcrossEngines(t *testing.T) {
 		rm.RegisterEngine(e.name, e)
 	}
 	item := func(extra string) string {
-		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
+		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","chat":"discord:111"` + extra + "}\n"
 	}
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(""))
 	a.syncTaskForum()
@@ -412,7 +412,7 @@ func TestTaskForumNodeFacts(t *testing.T) {
 
 	e, p, dir := forumTestEngine(t)
 	item := func(extra string) string {
-		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111"` + extra + "}\n"
+		return `{"id":5,"what":"修登录","status":"在做","who":"G哥","at":"11-14 10:00","sk":"discord:111","chat":"discord:111"` + extra + "}\n"
 	}
 	writeTaskBoard(t, dir, team.TaskBoardFile, item(""))
 	e.syncTaskForum()

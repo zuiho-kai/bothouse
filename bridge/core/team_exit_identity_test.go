@@ -50,8 +50,9 @@ func TestWorkspaceRewriteUnknownOrUnmarkedIdentity(t *testing.T) {
 		name, reply string
 		want        int
 	}{
-		{"unknown explicit ID", "[report] #999 背景：旧任务。\n用量核完。", 0},
-		{"no explicit ID", "[report] 背景：旧任务。\n用量核完。", 0},
+		// no task on the board, so no owner chat: the answer stays in the workspace (#2010)
+		{"unknown explicit ID", "[report] #999 背景：旧任务。\n用量核完。", -1},
+		{"no explicit ID", "[report] 背景：旧任务。\n用量核完。", -1},
 		{"missing marker stays local", "#65 背景：旧任务。\n用量核完。", -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

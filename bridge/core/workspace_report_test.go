@@ -39,9 +39,9 @@ func TestWorkspaceMissingReportRecoversBeforeReset(t *testing.T) {
 				}
 				row := func(status, done string) string {
 					if tc.handoff {
-						return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"ch\":\"chat1\",\"status\":%q,\"done_at\":%q}\n", status, done)
+						return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"ch\":\"chat1\",\"chat\":%q,\"status\":%q,\"done_at\":%q}\n", parent, status, done)
 					}
-					return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"sk\":%q,\"status\":%q,\"done_at\":%q}\n", key, status, done)
+					return fmt.Sprintf("{\"id\":666,\"what\":\"deliver draft\",\"who\":\"工作区1橘\",\"sk\":%q,\"chat\":%q,\"status\":%q,\"done_at\":%q}\n", key, parent, status, done)
 				}
 				writeTaskBoard(t, dir, team.TaskBoardFile, row("在做", ""))
 				e.ReceiveMessage(p, &Message{SessionKey: key, Platform: platform, ChannelID: "ws1", UserID: "u", Content: "finish the draft", Mentioned: true, ReplyCtx: key})

@@ -43,6 +43,8 @@ class ForwardRecipientTest(unittest.TestCase):
             done_item=lambda p: None, paused_item=lambda p: None, done_records=lambda: [],
             items=lambda: [self.live], append_forward=Mock(), arm_guard=Mock(),
             refuse_foreign=Mock(),
+            owner_chat=lambda it: str((it or {}).get("chat") or ""),  # 同 board.owner_chat：只认条目的 chat（#2010）
+            item_by_id=lambda n: next((i for i in self.board.items() if i.get("id") == n), None),
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",

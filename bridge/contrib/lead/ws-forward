@@ -237,9 +237,9 @@ def ask_user(last: dict, nid: int, kind: str, plain: str = ""):
                  f"写成用户看得懂的几句：哪件事、卡在哪、有哪几个做法、你推荐哪个，最多 {_ask.PLAIN_MAX} 字，"
                  f"不带代码、路径、英文报错和内部状态词；再跑 ws-forward --id {it['id']} --ask-user {kind} \"<大白话>\"")
     text = plain.strip()
-    chat = it.get("chat") or last.get("chat") or ""
+    chat = board.owner_chat(it)  # 只按任务号查归属（11-25 传错频道根治），不退到交接记录里抄的频道
     if not chat:
-        sys.exit(f"ws-forward: #{it['id']} 没记交活的聊天频道，没转给用户")
+        sys.exit(f"ws-forward: #{it['id']} 没记归属频道，没转给用户；先 board move {it['id']} --to <频道会话 key> 补上")
     msg = _ask.to_user(board.short(it), kind, text, it.get("post") or "")
     r = subprocess.run([_team.cc_bin() or "cc-connect", "send", "-p", _team.project(), "-s", chat if ":" in chat else f"discord:{chat}",
                         "--message", msg], capture_output=True, text=True, timeout=60)
@@ -394,7 +394,7 @@ def main(argv):
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     # 转过去的话：聊天频道里用户新说的原话（原样补进 <交接>.原话.md）排前面，主角色写的这句标「只作参考」；
     # 桥原样转来的用户回复不标（_source.relay_text）。打回扣着的汇报仍用主角色的原句（下面 reject_held_report）。
-    chat = last.get("chat") or (live or {}).get("chat") or ""
+    chat = board.owner_chat(live or next((board.item_by_id(int(i)) for i in last.get("board") or [] if str(i).isdigit()), None))  # 读哪个频道的新原话：按任务号查归属
     said = _source.relay_text(_source.append_new(last["file"], chat, os.environ.get("CC_PROJECT", "")), argv[0]) or argv[0]
     append_result(last["file"], said, now)
     r = subprocess.run(timer_cmd(last["channel"], last["file"], said, interrupt, project), capture_output=True, text=True)
