@@ -396,3 +396,14 @@ func TestParseSendArgs_AskUser(t *testing.T) {
 		t.Fatalf("payload lacks ask_user flag: %s", payload)
 	}
 }
+
+func TestCrossBotSendNote(t *testing.T) {
+	if n := crossBotSendNote("caihongmao", "jingyu"); !strings.Contains(n, "caihongmao") || !strings.Contains(n, "不会因此被叫醒") {
+		t.Fatalf("cross-bot send must warn, got %q", n)
+	}
+	for _, c := range [][2]string{{"jingyu", "jingyu"}, {"jingyu", ""}, {"", "jingyu"}} {
+		if n := crossBotSendNote(c[0], c[1]); n != "" {
+			t.Fatalf("no note for %v, got %q", c, n)
+		}
+	}
+}

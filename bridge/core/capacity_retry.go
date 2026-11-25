@@ -86,7 +86,7 @@ func isRateLimitError(msg string) bool {
 // Never retried, whatever else the text says (a retry gets the same answer): auth (401, 403,
 // 上游认证失败), spent balance or quota, a 400 bad request (e.g. the relay's own pricing-expression
 // error seen 11-04), and content-safety blocks.
-var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|stream (?:closed|ended|terminated|interrupted)|adapter_eof|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
+var transientErrorRE = regexp.MustCompile(`(?i)stream disconnected|transport (?:failed|error)|stream (?:closed|ended|terminated|interrupted)|adapter_eof|\bEOF\b|connection (?:reset|refused|closed)|broken pipe|socks5 (?:upstream|socket)|idle timeout|\btime(?:d)? ?out\b|timeout|\b50[234]\b|\b529\b|bad gateway|service unavailable|gateway timeout|temporarily unavailable|overloaded|稍后重试|上游请求超时|上游连接中断|上游服务异常|首字超时|请求超时`)
 
 var permanentErrorRE = regexp.MustCompile(`(?i)\b40[0-3]\b|unauthori[sz]ed|forbidden|invalid api key|authentication|认证失败|鉴权|insufficient balance|余额不足|quota|resource_exhausted|content[ _-]?(?:filter|policy)|safety|内容安全|违规`)
 

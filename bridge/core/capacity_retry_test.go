@@ -734,6 +734,7 @@ func TestTransientErrorFromLiveLogs(t *testing.T) {
 		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游服务异常；已完成的工具操作可能已生效，请先核对成果。",
 		"acp: initialize: json-rpc -32000: acp: read closed: EOF",
 		"529 overloaded_error: Overloaded",
+		"json-rpc -32603: Internal error: turn failed: DeepSeek Messages transport failed", // 外部用户 11-25（#1997）
 	}
 	keep := []string{
 		"json-rpc -32603: Internal error: turn failed: 原模型请求失败：上游认证失败；已完成的工具操作可能已生效，请先核对成果。",

@@ -65,6 +65,11 @@ func runSend(args []string) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK {
+		if note := crossBotSendNote(req.Project, os.Getenv("CC_PROJECT")); note != "" {
+			defer fmt.Println(note)
+		}
+	}
 	if resp.StatusCode == http.StatusAccepted {
 		fmt.Println(string(body))
 		return
@@ -95,6 +100,18 @@ func runSend(args []string) {
 }
 
 var errSendUsage = errors.New("show send usage")
+
+// crossBotSendNote: a role that sends with -p <another bot> posts in that bot's name; the bot
+// itself is not woken and starts no turn. The plain "sent" receipt read as "assigned" (外部用户
+// 11-25 报告 #1997: a DSH lead "assigned" three members with send -p, none of them started), so
+// the receipt says what really happened and how work is handed over instead.
+func crossBotSendNote(target, caller string) string {
+	target, caller = strings.TrimSpace(target), strings.TrimSpace(caller)
+	if target == "" || caller == "" || target == caller {
+		return ""
+	}
+	return fmt.Sprintf("注意：这条是以「%s」的身份发出的，%s 不会因此被叫醒、也不会开工。要派活就在频道里 @ 它，或开工作区交给它。", target, target)
+}
 
 func parseSendArgs(args []string) (core.SendRequest, string, error) {
 	var req core.SendRequest
