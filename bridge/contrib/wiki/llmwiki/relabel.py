@@ -37,7 +37,10 @@ WORKERS = int(os.environ.get("RELABEL_WORKERS", "4"))
 # 15 lines per call, max_tokens: measured, see the module docstring
 MAXTOK = 6000
 # retries: see the module docstring
-RETRIES = 4
+RETRIES = 6
+# 0.6 秒一次请求、429 后全场停 30 秒：本轮实测（8 路并发把网关打到 429，整页失败率 64%；串行约 20 次/分钟不撞）
+MIN_INTERVAL = 0.6
+COOLDOWN = 30
 CHUNK = 15
 
 ROOT_FILES = {"MEMORY.md", "log.md", "CLAUDE.md"}
@@ -74,11 +77,29 @@ def provider(args):
     raise SystemExit("set --api-url/--api-key (or RELABEL_API_URL/RELABEL_API_KEY) to an OpenAI-compatible endpoint")
 
 
+RATE = threading.Lock()
+NEXT = [0.0]
+
+
+def gate():
+    with RATE:
+        wait = NEXT[0] - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        NEXT[0] = max(NEXT[0], time.time()) + MIN_INTERVAL
+
+
+def cool(sec):
+    with RATE:
+        NEXT[0] = max(NEXT[0], time.time() + sec)
+
+
 def chat(url, key, messages, model=MODEL):
     body = json.dumps({"model": model, "messages": messages, "max_tokens": MAXTOK,
                        "temperature": 0}).encode()
     last = ""
     for i in range(RETRIES):
+        gate()
         req = urllib.request.Request(url, data=body, headers={
             "Content-Type": "application/json", "Authorization": "Bearer " + key})
         try:
@@ -87,6 +108,8 @@ def chat(url, key, messages, model=MODEL):
             return j["choices"][0]["message"].get("content") or "", j.get("usage") or {}
         except Exception as e:  # noqa: BLE001
             last = f"{type(e).__name__}: {e}"
+            if "429" in str(e):
+                cool(COOLDOWN)
             time.sleep(min(60, 3 * 2 ** i))  # 60、3 秒：plan 第六节退避
     raise RuntimeError(last)
 
@@ -187,6 +210,14 @@ def parse_json(s):
 COMMENT = re.compile(r"\s*(<!--.*?-->)\s*$")
 
 
+def unmark(line):
+    """去掉行尾标记（标记在楼层注释前面也认），用来核对补标没改原文。"""
+    m = COMMENT.search(line)
+    if m:
+        return MARK.sub("", line[:m.start()]).rstrip() + " " + m.group(1)
+    return MARK.sub("", line)
+
+
 def add_mark(line, typ):
     """行尾补「（推论）」；行尾有楼层/帖子注释时放注释前面，注释保持在行尾（lossless/lint 认它）。"""
     m = COMMENT.search(line)
@@ -200,16 +231,25 @@ def apply_page(text, tags, moves):
     lines, prefix = body_of(text)
     problems, applied = [], {"tag": 0, "move": 0}
     content = {i: l for i, l, _ in parse(text)}
+    dropped = []
+    good_tags = {}
     for i, typ in tags.items():
         if i not in content:
-            problems.append(f"tag {i}: not a content line")
+            dropped.append(f"tag {i}: not a content line")
         elif typ not in ALLOWED:
-            problems.append(f"tag {i}: bad type {typ}")
+            dropped.append(f"tag {i}: bad type {typ}")
         elif MARK.search(lines[i]):
-            problems.append(f"tag {i}: already tagged")
+            dropped.append(f"tag {i}: already tagged")
+        else:
+            good_tags[i] = typ
+    tags = good_tags
+    good_moves = []
     for i in moves:
         if i not in content:
-            problems.append(f"move {i}: not a content line")
+            dropped.append(f"move {i}: not a content line")
+        else:
+            good_moves.append(i)
+    moves = good_moves
     if problems:
         return text, applied, problems
 
@@ -220,7 +260,7 @@ def apply_page(text, tags, moves):
             continue
         if i in tags:
             new.append(add_mark(l, tags[i]))
-            if MARK.sub("", new[-1]) != MARK.sub("", l):
+            if new[-1] != add_mark(l, tags[i]) or unmark(new[-1]) != unmark(l):
                 problems.append(f"tag {i}: wording changed")
         else:
             new.append(l)
@@ -247,6 +287,7 @@ def apply_page(text, tags, moves):
         return text, applied, problems
     applied["tag"] = len(tags)
     applied["move"] = len(moves)
+    applied["dropped"] = dropped
     return newtext, applied, []
 
 
