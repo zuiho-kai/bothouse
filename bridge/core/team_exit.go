@@ -235,6 +235,12 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 			"kind", kind, "workspace", ws, "board_item", id)
 		return ""
 	}
+	// A bounced [ask] goes back into the workspace itself, not out to a chat, so it needs no owner
+	// chat: an [ask] without its task number is bounced to add it, not dropped (#2010).
+	if problems != nil && (kind != team.ExitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
+		return ""
+	}
 	// Where the answer goes is the task's owner chat on the board and nothing else: not the
 	// workspace's current owner, not the workspace's last chat. No task number, no owner chat or
 	// one on another platform: the answer stays, the sender is told why (team_exit_command.go
@@ -269,10 +275,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// waited hours for it. Only an [ask] still bounces, since it would wait on the user.
 		// A report hands the user work it could do itself: that one still goes back once for another
 		// route (bounceWorkspaceExit forwards it with the note past wake_limit or on a timer turn).
-		if (kind != team.ExitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
-			noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
-			return ""
-		}
+		// (a bounce, if any, already went back above, before the owner lookup)
 		// No repair turn will come: forward it as is, with what the check found, so the user
 		// still gets the answer and sees the gap.
 		// the intent check's fail goes first, on its own line (user 11-07 交接: 「在 report 前加一行」)

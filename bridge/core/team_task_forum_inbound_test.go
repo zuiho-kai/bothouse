@@ -179,7 +179,7 @@ func TestTaskForumReplyPreservesUserSession(t *testing.T) {
 	_, e, _, base, _ := inputFixture(t)
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, inject: true}
-	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Ch: "source"})
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, Chat: "source"})
 	p := &forumReplySink{inputTestPlatform: base, perUser: true}
 	msg := &Message{SessionKey: "discord:post:human", UserID: "human", Mentioned: true, TaskForum: &TaskForumReply{Board: 779}, ReplyCtx: "post"}
 	if !e.prepareTaskForumReply(p, msg) || msg.SessionKey != "discord:source:human" || msg.ChannelID != "source" || msg.ReplyCtx != "post" {

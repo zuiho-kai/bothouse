@@ -87,7 +87,7 @@ func TestWorkspaceReportLeavesOutAnotherChannelsImage(t *testing.T) {
 	e.workspaceChatForTest = func(s string) bool { return strings.Contains(s, "ws1") || strings.Contains(s, "ws2") }
 	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
 	exitBoardItem(t, e, 1614, "宣传片 1080p")
-	exitBoardItem(t, e, 1617, "验收看图闸")
+	exitBoardItemChat(t, e, 1617, "验收看图闸", "discord:chat2")
 
 	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00")
 	dir := t.TempDir()

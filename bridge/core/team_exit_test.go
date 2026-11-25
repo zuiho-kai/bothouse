@@ -97,6 +97,20 @@ func exitBoardItem(t *testing.T, e *Engine, id int, what string) {
 	if chat == "" {
 		chat = teamChatKey(exitChatKey)
 	}
+	exitBoardItemChat(t, e, id, what, chat)
+}
+
+// exitBoardItemChat adds board item id owned by chat ("<platform>:<id>").
+func exitBoardItemChat(t *testing.T, e *Engine, id int, what, chat string) {
+	t.Helper()
+	if e.team == nil {
+		e.SetTeam(t.TempDir(), "橘", false)
+	}
+	f, err := os.OpenFile(filepath.Join(e.team.dir, team.TaskBoardFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
 	if _, err := fmt.Fprintf(f, "{\"id\":%d,\"what\":%q,\"status\":\"在做\",\"who\":\"橘\",\"chat\":%q}\n", id, what, chat); err != nil {
 		t.Fatal(err)
 	}
