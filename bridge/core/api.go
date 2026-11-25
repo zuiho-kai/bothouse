@@ -101,6 +101,11 @@ type SendRequest struct {
 	// MentionAssigner: the board item this message delivers the result of (ws-pass with
 	// attachments). The text opens with the mention of whoever set that task (#988).
 	MentionAssigner int `json:"mention_assigner,omitempty"`
+	// BoardID: optional task board item ID used to prefix sanitized ASCII filenames for video
+	// attachments (falls back to MentionAssigner when unset). #2200.
+	BoardID int `json:"board_id,omitempty"`
+	// VideoLabels: optional per-video version labels sent right before each video attachment (#2200).
+	VideoLabels []string `json:"video_labels,omitempty"`
 	// AskUser: explicit human decision/answer prompt from the lead in the chat channel (#2091).
 	// Allows human mentions in this message (auto-mentioning the owner if none is written).
 	AskUser bool `json:"ask_user,omitempty"`
@@ -445,6 +450,10 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 			ob.deliveredFrom(proactiveFrom, req.SessionKey)
 		}
 	}
+	boardID := req.BoardID
+	if boardID <= 0 {
+		boardID = req.MentionAssigner
+	}
 	if req.Message != "" || len(req.Images) > 0 || len(req.Files) > 0 {
 		if req.TaskText != nil {
 			req.TaskText.Text, req.TaskText.SessionKey = req.Message, req.SessionKey
@@ -460,7 +469,15 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		if dmNote == "refused-at-open" {
 			err, dmNote = errDMRefusedAtOpen, ""
 		} else {
-			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{WorkDir: workDir, AtUsers: req.AtUsers, AtAll: req.AtAll, ReplyToMessageID: req.ReplyToMessageID, AllowHumanMentions: allowHumans})
+			err = engine.SendToSessionWithOptions(req.SessionKey, req.Message, req.Images, req.Files, SendOptions{
+				WorkDir:            workDir,
+				AtUsers:            req.AtUsers,
+				AtAll:              req.AtAll,
+				ReplyToMessageID:   req.ReplyToMessageID,
+				AllowHumanMentions: allowHumans,
+				BoardID:            boardID,
+				VideoLabels:        req.VideoLabels,
+			})
 		}
 		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
 			// #1352: the person does not accept DMs from server members. Same person, no settings change:
@@ -474,7 +491,11 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			req.SessionKey = key
-			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{AllowHumanMentions: []string{dmUserID}})
+			err = engine.SendToSessionWithOptions(key, "<@"+dmUserID+"> "+req.Message, req.Images, req.Files, SendOptions{
+				AllowHumanMentions: []string{dmUserID},
+				BoardID:            boardID,
+				VideoLabels:        req.VideoLabels,
+			})
 			dmNote = "The DM was refused (this person does not accept DMs from server members), so it was sent in a private thread only they and server moderators can see."
 		}
 		if err != nil {
@@ -496,7 +517,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Videos) > 0 {
-		if err := engine.SendVideosToSession(req.SessionKey, req.Videos); err != nil {
+		if err := engine.SendVideosToSessionWithOptions(req.SessionKey, req.Videos, SendOptions{BoardID: boardID, VideoLabels: req.VideoLabels}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

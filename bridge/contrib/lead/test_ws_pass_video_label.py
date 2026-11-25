@@ -1,29 +1,18 @@
-"""#2200：ws-pass 放行视频附件时，每条视频前先发一行说明（版本名，没有就用文件名里的中文），
-且上传前把含中文的文件名转成纯英文和数字（如 1148_A_chunguqin.mp4），避免 Discord 去掉中文变成 --A--Discord.mp4。"""
-import json, os, re, subprocess, sys, tempfile, unittest
+"""#2200：ws-pass 放行视频附件时不再在脚本侧自己实现版本说明和改名，统一把 --board-id 和可选 --label 传给桥 `send`，
+由 Go 桥在一处处理每个视频前的说明行与纯英文数字文件名。"""
+import json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 VERDICT = "逐条：两版配乐不同，画面清晰，放行给用户试听"
 FAKE = r'''
-import json, os, sys
+import json, sys
 from pathlib import Path
-calls = Path(sys.argv[0]).parent / "calls.jsonl"
-args = sys.argv[1:]
-rec = {"args": args, "files": []}
-i = 0
-while i < len(args):
-    if args[i] in ("--file", "--image") and i + 1 < len(args):
-        p = args[i + 1]
-        rec["files"].append({"flag": args[i], "path": p, "name": os.path.basename(p), "exists": os.path.isfile(p)})
-        i += 2
-    else:
-        i += 1
-open(calls, "a", encoding="utf-8").write(json.dumps(rec, ensure_ascii=False) + "\n")
+open(Path(sys.argv[0]).parent / "calls.jsonl", "a", encoding="utf-8").write(json.dumps(sys.argv[1:], ensure_ascii=False) + "\n")
 '''
 
 
-class PassVideoLabelASCIITest(unittest.TestCase):
+class PassVideoLabelDelegationTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="ws-pass-video-"))
         self.setup = self.tmp / "setup"
@@ -66,40 +55,20 @@ class PassVideoLabelASCIITest(unittest.TestCase):
     def send_calls(self):
         if not self.calls.exists():
             return []
-        return [json.loads(l) for l in self.calls.read_text(encoding="utf-8").splitlines() if json.loads(l)["args"][0] == "send"]
+        return [json.loads(l) for l in self.calls.read_text(encoding="utf-8").splitlines() if json.loads(l)[0] == "send"]
 
-    @staticmethod
-    def msg_of(call):
-        a = call["args"]
-        return a[a.index("--message") + 1] if "--message" in a else ""
-
-    def test_multi_video_auto_label_and_ascii_filename(self):
+    def test_delegates_board_id_and_files_to_bridge(self):
         r = self.run_pass("--id", "1148", "--verdict", VERDICT, str(self.vid_a), str(self.vid_b), "请对比试听两版")
         self.assertEqual(r.returncode, 0, r.stderr)
         sends = self.send_calls()
-        # 主消息 + 每条视频各自带一行版本说明发送，共 3 次 send
-        self.assertEqual(len(sends), 3, f"expected 3 sends (main + 2 videos), got {sends}")
-        self.assertEqual(self.msg_of(sends[0]), "请对比试听两版")
-        self.assertEqual(sends[0]["files"], [])
+        self.assertEqual(len(sends), 1, f"ws-pass should call bridge send once, got {sends}")
+        a = sends[0]
+        self.assertEqual(a[a.index("--board-id") + 1], "1148")
+        self.assertEqual(a[a.index("--message") + 1], "请对比试听两版")
+        files = [a[i + 1] for i, tok in enumerate(a) if tok == "--file"]
+        self.assertEqual(files, [str(self.vid_a), str(self.vid_b)])
 
-        # 每条视频前面有对应说明（从文件名里的中文/版本段提取）
-        self.assertIn("纯古琴", self.msg_of(sends[1]))
-        self.assertIn("A", self.msg_of(sends[1]))
-        self.assertIn("箫弦乐", self.msg_of(sends[2]))
-        self.assertIn("B", self.msg_of(sends[2]))
-
-        # 每个视频上传文件名都是纯英文和数字（含任务号，无中文，文件真实可读，不重名）
-        names = []
-        for idx, call in enumerate(sends[1:], 1):
-            self.assertEqual(len(call["files"]), 1, f"video {idx} should send 1 file: {call}")
-            f = call["files"][0]
-            self.assertTrue(f["exists"], f"staged ascii file missing: {f}")
-            self.assertRegex(f["name"], r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.mp4$", f"non-ASCII filename: {f['name']}")
-            self.assertTrue(f["name"].startswith("1148_"), f"expected board id prefix 1148_, got {f['name']}")
-            names.append(f["name"])
-        self.assertEqual(len(set(names)), 2, f"duplicate ascii filenames: {names}")
-
-    def test_explicit_label_used_verbatim(self):
+    def test_forwards_explicit_labels_to_bridge(self):
         r = self.run_pass(
             "--id", "1148", "--verdict", VERDICT,
             "--label", "A 版·纯古琴", "--label", "B 版·箫弦乐",
@@ -107,21 +76,10 @@ class PassVideoLabelASCIITest(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         sends = self.send_calls()
-        self.assertEqual(len(sends), 3, sends)
-        self.assertEqual(self.msg_of(sends[1]), "A 版·纯古琴")
-        self.assertEqual(self.msg_of(sends[2]), "B 版·箫弦乐")
-        for call in sends[1:]:
-            self.assertRegex(call["files"][0]["name"], r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.mp4$")
-
-    def test_pure_ascii_video_name_kept_with_label(self):
-        ascii_vid = self.tmp / "1148_A_guqin.mp4"
-        ascii_vid.write_bytes(b"\x00\x00\x00\x18ftypmp42")
-        r = self.run_pass("--id", "1148", "--verdict", VERDICT, "--label", "A 版·纯古琴", str(ascii_vid), "给你看")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        sends = self.send_calls()
-        self.assertEqual(len(sends), 2, sends)
-        self.assertEqual(self.msg_of(sends[1]), "A 版·纯古琴")
-        self.assertEqual(sends[1]["files"][0]["name"], "1148_A_guqin.mp4")
+        self.assertEqual(len(sends), 1, sends)
+        a = sends[0]
+        labels = [a[i + 1] for i, tok in enumerate(a) if tok == "--label"]
+        self.assertEqual(labels, ["A 版·纯古琴", "B 版·箫弦乐"])
 
 
 if __name__ == "__main__":

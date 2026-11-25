@@ -249,7 +249,7 @@ func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T
 	got := p.sentMedia()
 	want := []string{
 		"discord:111 黎曼猜想xClaude-v10-抽帧拼图.jpg",
-		"discord:111 1061_limancaixiang_xClaude_v10_chengpian.mp4",
+		"discord:111 1061_1_xClaude_v10_720p.mp4",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("sent media = %q, want %q", got, want)
@@ -319,26 +319,13 @@ func TestHeldReportPassMultiVideoLabelsAndASCIIFilenames(t *testing.T) {
 		t.Fatalf("video 2 missing preceding label line; events=%v", events)
 	}
 
-	// Verify uploaded video filenames are pure ASCII letters/digits with task prefix and distinct.
+	// Verify uploaded video filenames are pure ASCII "<boardID>_<seq>_<alnum>.mp4" and distinct.
 	got := p.sentMedia()
-	if len(got) != 2 {
-		t.Fatalf("sentMedia = %v, want 2 videos", got)
+	wantMedia := []string{
+		"discord:111 1148_1_A_Discord.mp4",
+		"discord:111 1148_2_B_Discord.mp4",
 	}
-	seen := map[string]bool{}
-	for _, entry := range got {
-		parts := strings.SplitN(entry, " ", 2)
-		name := parts[1]
-		if !strings.HasPrefix(name, "1148_") || !strings.HasSuffix(name, ".mp4") {
-			t.Fatalf("uploaded video filename %q should start with 1148_ and end with .mp4", name)
-		}
-		for _, r := range name {
-			if r > 127 || !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.') {
-				t.Fatalf("uploaded video filename %q contains non-ASCII or unsafe char %q", name, r)
-			}
-		}
-		if seen[name] {
-			t.Fatalf("duplicate uploaded filename %q in %v", name, got)
-		}
-		seen[name] = true
+	if strings.Join(got, "|") != strings.Join(wantMedia, "|") {
+		t.Fatalf("sentMedia = %v, want %v", got, wantMedia)
 	}
 }

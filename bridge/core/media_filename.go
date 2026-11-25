@@ -7,35 +7,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"unicode"
 )
 
 var (
-	pinyinOnce sync.Once
-	pinyinMap  map[rune]string
-
 	mediaTokenSepRe   = regexp.MustCompile(`[-_\s]+`)
 	versionBanTokenRe = regexp.MustCompile(`^([A-Za-z0-9]+)版(.+)$`)
+	asciiAlnumRe      = regexp.MustCompile(`[A-Za-z0-9]+`)
 )
-
-func loadPinyinMap() map[rune]string {
-	pinyinOnce.Do(func() {
-		m := make(map[rune]string, 7000) // 来源：gb2312PinyinTable 共 6763 个 GB2312 一二级汉字
-		for _, line := range strings.Split(gb2312PinyinTable, "\n") {
-			idx := strings.IndexByte(line, ':')
-			if idx <= 0 {
-				continue
-			}
-			py := line[:idx]
-			for _, r := range line[idx+1:] {
-				m[r] = py
-			}
-		}
-		pinyinMap = m
-	})
-	return pinyinMap
-}
 
 func isNoiseMediaToken(tok string) bool {
 	switch strings.ToLower(strings.TrimSpace(tok)) {
@@ -75,9 +53,10 @@ func formatVideoLabel(tokens []string, fallbackStem string) string {
 }
 
 // VideoAttachmentLabels builds one human-readable version label per video file name.
-// When multiple videos share a common prefix/suffix (e.g. project title and delivery tag),
+// When explicit labels are provided, non-empty entries override the derived label for that index.
+// Otherwise, when multiple videos share a common prefix/suffix (e.g. project title and delivery tag),
 // the shared parts are stripped so each label highlights its version difference (e.g. "A版·纯古琴").
-func VideoAttachmentLabels(names []string) []string {
+func VideoAttachmentLabels(names, explicit []string) []string {
 	if len(names) == 0 {
 		return nil
 	}
@@ -144,6 +123,10 @@ func VideoAttachmentLabels(names []string) []string {
 	}
 	labels := make([]string, len(names))
 	for i := range names {
+		if i < len(explicit) && strings.TrimSpace(explicit[i]) != "" {
+			labels[i] = strings.TrimSpace(explicit[i])
+			continue
+		}
 		labels[i] = formatVideoLabel(toks[i], stems[i])
 	}
 	return labels
@@ -192,50 +175,16 @@ func cleanASCIIExt(ext string) string {
 	return "." + b.String()
 }
 
-func transliterateToASCII(src string) string {
-	lut := loadPinyinMap()
-	// Turn "A版·纯古琴" / "A版纯古琴" into "A_纯古琴" so the ASCII filename reads like "1148_A_chunguqin".
-	src = versionBanTokenRe.ReplaceAllString(strings.TrimSpace(src), "${1}_${2}")
-	var b strings.Builder
-	prevKind := 0 // 0=sep, 1=ascii, 2=cjk
-	writeSep := func() {
-		if b.Len() > 0 && prevKind != 0 {
-			b.WriteByte('_')
-			prevKind = 0
-		}
-	}
-	for _, r := range src {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
-			if prevKind == 2 {
-				b.WriteByte('_')
-			}
-			b.WriteRune(r)
-			prevKind = 1
-		case r == '_' || r == '-' || r == '.' || r == '·' || unicode.IsSpace(r) || unicode.IsPunct(r):
-			writeSep()
-		default:
-			if py, ok := lut[r]; ok {
-				if prevKind == 1 {
-					b.WriteByte('_')
-				}
-				b.WriteString(py)
-				prevKind = 2
-			}
-		}
-	}
-	return strings.Trim(b.String(), "_")
-}
-
 // maxASCIIStemLen caps generated ASCII upload stems so Discord shows the full identifier cleanly.
-// 来源：用户示例 1148_A_guqin.mp4 长度风格与 Discord 附件条可读宽度上限（约 48 字符）。
+// 来源：用户示例 1148_1_A_guqin.mp4 长度风格与 Discord 附件条可读宽度上限（约 48 字符）。
 const maxASCIIStemLen = 48
 
-// ASCIIFileName returns an ASCII-only filename (letters, digits, underscore, hyphen, plus extension)
-// safe for platforms like Discord that strip non-ASCII characters from uploaded filenames.
-// Pure ASCII filenames are returned unchanged. When hint is non-empty (e.g. a video version label),
-// non-ASCII filenames derive their readable slug from hint rather than the entire long title.
-func ASCIIFileName(name, prefix, hint string) string {
+// ASCIIFileName returns an ASCII-only filename safe for platforms like Discord that strip non-ASCII
+// characters from uploaded filenames. Pure ASCII filenames are returned unchanged. Non-ASCII names
+// are formatted as "<boardID>_<index>_<ascii-alnum-parts><ext>" (e.g. "1148_1_A_guqin.mp4", or
+// "1148_1.mp4" when the stem has no ASCII letters/digits); when boardID and index are both 0 and no
+// ASCII tokens exist, a short hash fallback ("file_<8hex><ext>") is used.
+func ASCIIFileName(name string, boardID, index int) string {
 	base := filepath.Base(strings.TrimSpace(name))
 	if base == "" || base == "." || base == "/" {
 		return ""
@@ -244,28 +193,26 @@ func ASCIIFileName(name, prefix, hint string) string {
 		return base
 	}
 	ext := cleanASCIIExt(filepath.Ext(base))
-	source := strings.TrimSpace(hint)
-	if source == "" {
-		toks := mediaLabelTokens(base)
-		if len(toks) > 0 {
-			source = strings.Join(toks, "_")
-		} else {
-			source = strings.TrimSuffix(base, filepath.Ext(base))
-		}
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	runs := asciiAlnumRe.FindAllString(stem, -1)
+	if boardID > 0 && len(runs) > 0 && runs[0] == strconv.Itoa(boardID) {
+		runs = runs[1:]
 	}
-	slug := transliterateToASCII(source)
-	cleanPrefix := transliterateToASCII(prefix)
-	if cleanPrefix != "" && slug != "" && !strings.HasPrefix(strings.ToLower(slug), strings.ToLower(cleanPrefix)+"_") && !strings.EqualFold(slug, cleanPrefix) {
-		slug = cleanPrefix + "_" + slug
-	} else if slug == "" {
+	parts := make([]string, 0, 3) // 来源：最多拼 任务号、序号、英文数字部分 三段
+	if boardID > 0 {
+		parts = append(parts, strconv.Itoa(boardID))
+	}
+	if index > 0 {
+		parts = append(parts, strconv.Itoa(index))
+	}
+	if len(runs) > 0 {
+		parts = append(parts, strings.Join(runs, "_"))
+	}
+	if len(parts) == 0 {
 		sum := sha256.Sum256([]byte(base))
-		shortHash := hex.EncodeToString(sum[:4]) // 来源：4 字节（8 位 hex）短摘要防重名兜底
-		if cleanPrefix != "" {
-			slug = cleanPrefix + "_" + shortHash
-		} else {
-			slug = "file_" + shortHash
-		}
+		parts = append(parts, "file_"+hex.EncodeToString(sum[:4])) // 来源：4 字节（8 位 hex）短摘要防重名兜底
 	}
+	slug := strings.Join(parts, "_")
 	if len(slug) > maxASCIIStemLen {
 		slug = strings.TrimRight(slug[:maxASCIIStemLen], "_-")
 	}
@@ -286,4 +233,36 @@ func uniqueASCIIFileName(name string, used map[string]bool) string {
 			return cand
 		}
 	}
+}
+
+type preparedFileSend struct {
+	file  FileAttachment
+	label string // non-empty only for video files
+}
+
+// prepareFileSends prepares a batch of outbound files: each video gets a human-readable version
+// label (to send right before the video) and an ASCII-safe upload filename (deduplicated within the
+// batch). Non-video files pass through unchanged.
+func prepareFileSends(files []FileAttachment, boardID int, explicitVideoLabels []string) []preparedFileSend {
+	var videoNames []string
+	for _, f := range files {
+		if isVideoFile(f) {
+			videoNames = append(videoNames, f.FileName)
+		}
+	}
+	labels := VideoAttachmentLabels(videoNames, explicitVideoLabels)
+	used := map[string]bool{}
+	out := make([]preparedFileSend, len(files))
+	vidSeq := 0
+	for i, f := range files {
+		if isVideoFile(f) {
+			vidSeq++
+			label := labels[vidSeq-1]
+			f.FileName = uniqueASCIIFileName(ASCIIFileName(f.FileName, boardID, vidSeq), used)
+			out[i] = preparedFileSend{file: f, label: label}
+		} else {
+			out[i] = preparedFileSend{file: f}
+		}
+	}
+	return out
 }

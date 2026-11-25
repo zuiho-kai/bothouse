@@ -249,6 +249,26 @@ func parseSendArgs(args []string) (core.SendRequest, string, error) {
 				return req, "", fmt.Errorf("--mention-assigner requires a task board ID")
 			}
 			req.MentionAssigner = n
+		case "--board-id":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--board-id requires a task board ID")
+			}
+			i++
+			n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(args[i]), "#"))
+			if err != nil || n <= 0 {
+				return req, "", fmt.Errorf("--board-id requires a task board ID")
+			}
+			req.BoardID = n
+		case "--label":
+			if i+1 >= len(args) {
+				return req, "", fmt.Errorf("--label requires a value")
+			}
+			i++
+			lbl := strings.TrimSpace(args[i])
+			if lbl == "" {
+				return req, "", fmt.Errorf("--label requires a non-empty value")
+			}
+			req.VideoLabels = append(req.VideoLabels, lbl)
 		case "--ask-user":
 			req.AskUser = true
 		case "--to":
@@ -521,6 +541,8 @@ Options:
       --at-all             @ everyone (platform permissions and limits apply)
       --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
       --mention-assigner <id>  Open the message with an @ of whoever set task board item <id> (ws-pass; off unless the lead project sets mention_assigner)
+      --board-id <id>      Task board ID used to prefix ASCII upload filenames for video attachments
+      --label <text>       Version label line sent right before each video attachment (repeatable)
       --ask-user           Ask a human to decide/answer: allows @ human mentions on this message (auto-mentions the owner if no <@id> is in the message)
       --experience         Hand work to a personal agent: append related team lessons and ask for 【经验】 lines back
       --dm                 Send privately; without --to only to the project owner (first ID in admin_from) (Discord, QQ)
