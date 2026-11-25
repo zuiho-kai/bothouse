@@ -30,7 +30,7 @@ func TestSetupOnlyRecoversExitedDSHHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	state := filepath.Join(home, ".bothouse", "dsh-web.json")
+	state := filepath.Join(home, "data", "dsh-web.json") // #2002: the data directory, not ~/.bothouse
 	readHost := func() core.DSHWeb {
 		var web core.DSHWeb
 		b, err := os.ReadFile(state)
