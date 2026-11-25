@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -51,5 +52,56 @@ func TestHeldReportDispatcherMissingFallsBackToLead(t *testing.T) {
 	}
 	if strings.Contains(leadStore.List()[0].Prompt, "验收归派活人") {
 		t.Fatal("lead prompt says the dispatcher accepts")
+	}
+}
+
+// User 11-25 「返回为什么你没接收」: #1996 was dispatched by 橘 and done in 橘's own workspace; the
+// report went to the lead (鲸鱼娘), who closed it to the handoff, and 橘 never got it back to iterate.
+// The dispatcher accepts even when its own workspace wrote the report: the wake goes to its chat
+// session, and the lead is not woken.
+func TestHeldReportDispatcherIsWriterStillGoesToDispatcher(t *testing.T) {
+	e, p, writerStore, item := heldFixture(t)
+	lstore, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &Engine{name: "lead", ctx: e.ctx, platformReady: map[Platform]bool{p: true}, timerScheduler: NewTimerScheduler(lstore)}
+	t.Cleanup(l.timerScheduler.Stop)
+	l.SetTeam(t.TempDir(), "主角色", true)
+	rm := NewRelayManager(t.TempDir())
+	rm.RegisterEngine(e.name, e)
+	rm.RegisterEngine(l.name, l)
+	e.relayManager, l.relayManager = rm, rm
+	if e.dataDir == "" {
+		e.dataDir = t.TempDir()
+	}
+	l.dataDir = e.dataDir
+	if err := os.WriteFile(e.leadStatePath(), []byte(`{"lead":"lead"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if e.isTeamLead() || !l.isTeamLead() {
+		t.Fatalf("fixture: writer lead=%v, lead lead=%v", e.isTeamLead(), l.isTeamLead())
+	}
+	item.Dispatcher = e.name
+	writeReviewBoard(t, e, *item)
+	holdForTest(t, e, p, item, "")
+	if n := len(lstore.List()); n != 0 {
+		t.Fatalf("lead woken %d times; the dispatcher accepts", n)
+	}
+	jobs := writerStore.List()
+	if len(jobs) != 1 || jobs[0].Project != e.name || jobs[0].SessionKey != "discord:chat1" {
+		t.Fatalf("dispatcher wakes = %+v", jobs)
+	}
+	for _, w := range []string{"验收归派活人", "照用户原话验", "接着派下一轮"} {
+		if !strings.Contains(jobs[0].Prompt, w) {
+			t.Fatalf("dispatcher prompt lacks %q:\n%s", w, jobs[0].Prompt)
+		}
+	}
+	if e.heldReportFor(46) == nil || l.heldReportFor(46) != nil {
+		t.Fatal("held record not kept on the dispatcher")
+	}
+	if !e.reportHeldForLead("discord", 46) || !l.reportHeldForLead("discord", 46) {
+		t.Fatalf("reportHeldForLead misses the dispatcher's hold: from writer %v, from lead %v",
+			e.reportHeldForLead("discord", 46), l.reportHeldForLead("discord", 46))
 	}
 }

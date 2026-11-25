@@ -70,7 +70,7 @@ func TestForwardReportWithoutChatLogs(t *testing.T) {
 	if out := e.forwardWorkspaceExit(p, exitWSKey, "[report]\n没有归属"); out != "" {
 		t.Fatalf("forward returned %q", out)
 	}
-	if !strings.Contains(logs.String(), "team exit: no chat channel for this workspace") {
+	if !strings.Contains(logs.String(), "team exit: no owner chat for the task") {
 		t.Fatalf("no warning logged: %s", logs.String())
 	}
 	if got := p.sentTo(exitWSKey); len(got) != 0 {

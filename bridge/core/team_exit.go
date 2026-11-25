@@ -93,30 +93,6 @@ func (e *Engine) workspaceParent(channelID string) (string, bool) {
 	return parent, true
 }
 
-// itemChatParent: the board item's own chat wins over the workspace's current owner. A late
-// [report] for a task this workspace already left was sent to the owner of the task it moved on
-// to: 11-10 #1331 (笨蛋英文 X 版, chat 1563772957040443482) came back while 工作区4 was doing #1337
-// for 1562131004234276945, so its acceptance went to that chat's lead, who then handed the next
-// rounds (#1340, #1342) from there and their 📬 posts landed in the wrong channel (#1346, user 「这个
-// 不是这个频道工作，但怎么往这个频道塞」). Only a chat on the same platform that is not the
-// workspace itself is taken, and not another workspace (ws-handoff run inside a workspace records
-// that workspace as the chat; its lead is the owner); otherwise the owner stays.
-func (e *Engine) itemChatParent(platform, ws, parent string, hid int, item *teamTaskBoardItem) string {
-	if item == nil || item.ID != hid || item.Chat == "" {
-		return parent
-	}
-	plat, id, full := strings.Cut(item.Chat, ":")
-	if !full || plat != platform || id == "" || id == ws || id == parent {
-		return parent
-	}
-	if _, isWorkspace := e.workspaceParent(id); isWorkspace {
-		return parent
-	}
-	slog.Info("team exit: answer goes to the task's own chat, not the workspace's current owner",
-		"board_item", hid, "workspace", ws, "owner", parent, "parent", id)
-	return id
-}
-
 // workspaceOwner is the chat that owns workspace channelID right now.
 func (e *Engine) workspaceOwner(channelID string) (string, bool) {
 	e.teamExit.mu.Lock()
@@ -259,20 +235,33 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 			"kind", kind, "workspace", ws, "board_item", id)
 		return ""
 	}
-	parent, ok := e.workspaceParent(teamChatKey(sessionKey))
-	if !ok {
-		parent, ok = e.workspaceParent(ws)
-	}
-	if !ok {
-		slog.Error("team exit: no chat channel for this workspace; the answer stays in the workspace",
-			"workspace", ws, "session", sessionKey)
-		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = "no chat channel for this workspace" })
+	// A bounced [ask] goes back into the workspace itself, not out to a chat, so it needs no owner
+	// chat: an [ask] without its task number is bounced to add it, not dropped (#2010).
+	if problems != nil && (kind != team.ExitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
 		return ""
 	}
-	if _, id, full := strings.Cut(parent, ":"); full {
-		parent = id
+	// Where the answer goes is the task's owner chat on the board and nothing else: not the
+	// workspace's current owner, not the workspace's last chat. No task number, no owner chat or
+	// one on another platform: the answer stays, the sender is told why (team_exit_command.go
+	// returns the error to ws-up), and the lead fixes the item with board move (11-25 #2010).
+	if item != nil && item.ID != hid {
+		item = nil
 	}
-	parent = e.itemChatParent(p.Name(), ws, parent, hid, item)
+	owner, oerr := e.taskOwnerChat(item)
+	if oerr == nil {
+		if plat, _, _ := strings.Cut(owner, ":"); plat != p.Name() {
+			oerr = fmt.Errorf("task #%d belongs to %s, another platform than this workspace's", hid, owner)
+		}
+	}
+	if oerr != nil {
+		slog.Error("team exit: no owner chat for the task; the answer stays in the workspace",
+			"workspace", ws, "session", sessionKey, "board_item", hid, "error", oerr)
+		why := oerr.Error()
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = why })
+		return ""
+	}
+	parent := teamChannelID(owner)
 	rec, ok := p.(ReplyContextReconstructor)
 	if !ok {
 		slog.Error("team exit: platform cannot rebuild a reply context", "platform", p.Name(), "workspace", ws)
@@ -286,10 +275,7 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		// waited hours for it. Only an [ask] still bounces, since it would wait on the user.
 		// A report hands the user work it could do itself: that one still goes back once for another
 		// route (bounceWorkspaceExit forwards it with the note past wake_limit or on a timer turn).
-		if (kind != team.ExitKindReport || selfRoute) && e.bounceWorkspaceExit(ctx, sessionKey, kind, problems) {
-			noteExitOutcome(ctx, func(o *exitOutcome) { o.bounced = true })
-			return ""
-		}
+		// (a bounce, if any, already went back above, before the owner lookup)
 		// No repair turn will come: forward it as is, with what the check found, so the user
 		// still gets the answer and sees the gap.
 		// the intent check's fail goes first, on its own line (user 11-07 交接: 「在 report 前加一行」)

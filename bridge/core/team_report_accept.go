@@ -95,8 +95,8 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 			Prompt:      leadAcceptPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, body, hid, item.Where, doubt, check, e.workspaceTaskBackground(sessionKey, hid), waitAfter(waiting, after)),
 			Description: "工作区汇报待验收 #" + fmt.Sprint(hid),
 		}
-		if !lead.isTeamLead() {
-			job.Prompt = "（这件活是你派的：验收归派活人，也就是你。照下面验收，放行或退回都由你来。）\n" + job.Prompt
+		if item.Dispatcher != "" && item.Dispatcher == lead.name {
+			job.Prompt = dispatcherAcceptNote + job.Prompt
 		}
 		job.Prompt += heldMediaPrompt(saveHeldMedia(e.dataDir, hid, heldImgs, heldFiles))
 		if refGated(item) {
@@ -140,6 +140,12 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 	slog.Info("team exit: report held for the lead's acceptance", "board_item", hid, "workspace", ws, "parent", parent, "lead", lead.name)
 	return true
 }
+
+// dispatcherAcceptNote heads the wake of the role that dispatched the task: it accepts, and when the
+// report falls short of what the user asked it sends the next round itself instead of closing it to its
+// own handoff (user 11-25 「我让你自己根据意见迭代，你没迭代，直接停了」).
+const dispatcherAcceptNote = "（这件活是你派的：验收归派活人，也就是你。照用户原话验，不照你写的交接验；" +
+	"用户原话要的结果没做到就退回或接着派下一轮，不要停在这份交回。放行或退回都由你来。）\n"
 
 // postUncheckedNow posts a report whose record could not be saved, marked unchecked.
 func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingReport, item *teamTaskBoardItem) {
@@ -188,6 +194,11 @@ func boundTime(item *teamTaskBoardItem) time.Time {
 // that role runs here and can speak on platform, else the team lead. User 11-24: 「验收权跟派活人走」
 // — #1921's reports (12:21, 12:57) went only to the configured lead (鲸鱼娘); the dispatcher (橘),
 // who had promised to look, was never woken.
+// A dispatcher that is e itself (its workspace session wrote the report) still accepts: the wake
+// goes to its chat session, a different context from the workspace that did the work, and it is the
+// one who knows what the user asked for and carries the next round (user 11-25 「返回为什么你没接收」
+// — #1996 was dispatched by 橘 and done in 橘's workspace; #2193 had sent it to 鲸鱼娘, who closed it
+// to the handoff, and 橘 never iterated on the reviews as the user wanted).
 func (e *Engine) reportAcceptor(platform string, item *teamTaskBoardItem) *Engine {
 	if item != nil && item.Dispatcher != "" {
 		for _, x := range e.watchEngines() {
@@ -285,11 +296,25 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 // reportHeldForLead: board item hid has a report held for the lead of platform that is neither
 // posted nor ended yet.
 func (e *Engine) reportHeldForLead(platform string, hid int) bool {
-	owner := e
-	if lead := e.reportAcceptor(platform, e.boardItemByID(hid)); lead != nil {
-		owner = lead
+	return e.heldReportOnAcceptor(platform, e.boardItemByID(hid), hid) != nil
+}
+
+// heldReportOnAcceptor: the report for hid held on whoever may have taken it — the acceptor as e
+// sees it, else the lead. e need not be the engine that wrote the report: when the dispatcher wrote
+// it, the hold sits on the lead while e's reportAcceptor still names the dispatcher.
+func (e *Engine) heldReportOnAcceptor(platform string, item *teamTaskBoardItem, hid int) *pendingReport {
+	// then every engine: an engine that cannot see the board row (item nil) still finds a hold its
+	// dispatcher keeps (#1999: the dispatcher accepts even when it wrote the report).
+	owners := append([]*Engine{e.reportAcceptor(platform, item), e.reportLead(platform), e}, e.watchEngines()...)
+	for _, owner := range owners {
+		if owner == nil {
+			continue
+		}
+		if rec := owner.heldReportFor(hid); rec != nil {
+			return rec
+		}
 	}
-	return owner.heldReportFor(hid) != nil
+	return nil
 }
 
 // heldReportFor is the newest held, undelivered record for board item hid on this engine.
@@ -524,7 +549,7 @@ func (e *Engine) deliverHeldReport(key, verdict string, unchecked bool) error {
 	// task forum post (#1888: #1885's video went only into the forum post, archived a second later).
 	if !withhold {
 		e.postHeldImages(ctx, p, rc, cp.Chat, imgs, cp.Body)
-		e.postExitFiles(ctx, p, rc, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
+		e.postExitFiles(ctx, p, rc, cp.Board, exitFilesFor(cp.Session, cp.Body, e.boardItemByID(cp.Board), files, false))
 	}
 	if !cp.Batch {
 		e.exitMarkPosted(team.ExitKindReport, cp.Board, cp.Headline)

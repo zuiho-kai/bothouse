@@ -539,3 +539,46 @@ func TestSetMaxAttachmentSize_ConcurrentSafe(t *testing.T) {
 	}
 	<-done
 }
+
+func TestHandleSend_MultiVideoLabelsAndASCIIFilenames(t *testing.T) {
+	p := &heldMediaPlatform{forumRoutingPlatform: &forumRoutingPlatform{stubForumPlatform: newStubForumPlatform()}}
+	engine := NewEngine("cjiang", &stubAgent{}, []Platform{p}, "", LangChinese)
+	t.Cleanup(engine.cancel)
+	engine.interactiveStates["discord:111"] = &interactiveState{
+		platform: p,
+		replyCtx: "discord:111",
+	}
+
+	api := &APIServer{engines: map[string]*Engine{"cjiang": engine}}
+	body, err := json.Marshal(SendRequest{
+		Project:    "cjiang",
+		SessionKey: "discord:111",
+		Message:    "两版配乐预览：",
+		BoardID:    1148,
+		Files: []FileAttachment{
+			{FileName: "词舟破晦-李清照三韵-A版纯古琴-低清-Discord.mp4", MimeType: "video/mp4", Data: []byte("a")},
+			{FileName: "纯箫弦乐.mp4", MimeType: "video/mp4", Data: []byte("b")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	api.handleSend(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	events := p.sentEvents()
+	wantEvents := []string{
+		"text:discord:111 两版配乐预览：",
+		"text:discord:111 词舟破晦·李清照三韵·A版·纯古琴",
+		"file:discord:111 1148_1_A_Discord.mp4",
+		"text:discord:111 纯箫弦乐",
+		"file:discord:111 1148_2.mp4",
+	}
+	if strings.Join(events, "\n") != strings.Join(wantEvents, "\n") {
+		t.Fatalf("events =\n%s\nwant:\n%s", strings.Join(events, "\n"), strings.Join(wantEvents, "\n"))
+	}
+}

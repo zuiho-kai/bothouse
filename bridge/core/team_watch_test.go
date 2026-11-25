@@ -121,7 +121,8 @@ func TestWatchParkNotOwnedStops(t *testing.T) {
 }
 
 func TestWatchParkFailureRetriesThenReports(t *testing.T) {
-	e, p, w, h := watchFixture(t, "u1", "")
+	e, p, w, h := watchFixtureBoard(t, "u1", "", 42)
+	exitBoardItemChat(t, e, 42, "看门", "discord:chatA") // the failure goes to the task's owner chat (#2010)
 	calls := 0
 	w.park = func(string, string, time.Time) (bool, error) { calls++; return false, errors.New("disk full") }
 	now := w.tick(h.Due) // warn before exercising park retries
@@ -1033,7 +1034,8 @@ func watchNudges(posts []string) []string {
 // workspace to continue (once, telling nobody is parked yet); only the next check without
 // progress parks, and the chat the task came from is told.
 func TestWatchResumesOnceBeforeParking(t *testing.T) {
-	e, p, w, h := watchFixture(t, "u1", "叠板")
+	e, p, w, h := watchFixtureBoard(t, "u1", "叠板", 42)
+	exitBoardItemChat(t, e, 42, "叠板", "discord:chatA") // the pause notice goes to the task's owner chat (#2010)
 	var resumed []string
 	w.resume = func(_ Platform, key string, _ TeamHandoff) { resumed = append(resumed, key) }
 	next := w.tick(h.Due) // nudge

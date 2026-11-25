@@ -66,7 +66,7 @@ func TestNativeQuoteContextReachesAgent(t *testing.T) {
 			if strings.Contains(prompt, "[Message IDs: current=104 reply_to=103]") != native {
 				t.Fatalf("message ID capability marker native=%v prompt=%q", native, prompt)
 			}
-			if strings.Contains(prompt, "bothouse send --reply-to") != native {
+			if native && !strings.Contains(prompt, "bothouse send --reply-to") { // every CLI also reads it in the shared bridge instructions (#1994)
 				t.Fatalf("native reply tool must be discoverable without backend system prompt support: native=%v prompt=%q", native, prompt)
 			}
 		})

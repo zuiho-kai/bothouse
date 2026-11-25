@@ -21,7 +21,8 @@ HERE = Path(__file__).resolve().parent
 def _env(tmp):
     env = {k: v for k, v in os.environ.items() if k not in ("BOTHOUSE_DATA_DIR", "CC_DATA_DIR", "GATE_SETUP_DIR", "BOARD_DIR")}
     env.update(HOME=str(tmp), USERPROFILE=str(tmp), BOTHOUSE_DATA_DIR=str(tmp / ".bothouse"),
-               BOARD_DIR=str(tmp / "team"), BOTHOUSE_TEST="1", PYTHONUTF8="1")
+               BOARD_DIR=str(tmp / "team"), BOTHOUSE_TEST="1", PYTHONUTF8="1",
+               CC_SESSION_KEY="discord:testchat")  # 在聊天频道里建：board add 要归属（#2010）
     return env
 
 

@@ -647,8 +647,9 @@ var staleBlocks = []struct{ head, end string }{
 	{handoffHead, handoffEnd}, // an earlier handoff
 	{"（本频道进展总结", ""},          // removed 2026-10-14; still in older transcripts
 	// Per-turn notes of adapters without a system prompt (antigravity).
-	{modelControlHead, modelControlEnd}, // PrependModelSwitchInstructions
-	{"[Task lifecycle]", "\n\n"},        // antigravity taskLifecycleInstructions
+	{modelControlHead, modelControlEnd},             // PrependModelSwitchInstructions
+	{bridgeInstructionsHead, bridgeInstructionsEnd}, // contextRules, CLIs without a system prompt
+	{"[Task lifecycle]", "\n\n"},                    // antigravity taskLifecycleInstructions
 }
 
 // stripStaleBlocks drops the stale blocks from a user turn, keeping the

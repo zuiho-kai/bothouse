@@ -38,7 +38,7 @@ func (e *Engine) reassignFailedWork(a idleAssignment, h TeamHandoff) bool {
 	sender := e.watchSender(h)
 	if p := sender.lookupReadyPlatform(plat); p != nil {
 		text := sender.i18n.Tf(MsgWatchFailReassigned, e.DisplayName(), h.Title, target.DisplayName())
-		if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+		if err := newHandoffWatch(sender).sendOwner(p, h, text); err != nil {
 			slog.Warn("watch reassign: notice failed", "error", err)
 		}
 	}

@@ -1,8 +1,11 @@
 #!/usr/bin/env -S python3 -I
 # 把一整块大活交给「工作区」频道里的主角色：检查交接文件，再用 cc-connect timer 叫她开工，输出 timer id。
-# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--model <id> [--effort <级别>]] [--guard 时长] [--force] [--probe]
+# 用法：ws-handoff <交接文件> "<一句话任务>" [--short 短名] [--follow 编号] [--model <id> [--effort <级别>]] [--guard 时长] [--force] [--probe]
 #   --model / --effort：这件活在工作区用的模型和推理强度（#2075）。id 照抄本项目 `model list` 里的，不在列表里就不交并列出可选项；
 #     工作区这一轮起按它跑，任务板记着，接回（--resume）、ws-forward 续做照它再切；工作区放回时桥换回原来的模型。不写就和原来一样。
+#   --follow <编号>：这件接着那件旧活做（用户回的是它的成品、要续改它）。新活的归属频道跟着旧活，汇报、放行、看门都回那边；
+#     不写就归跑命令的这个聊天频道。在工作区里交活必须写（工作区不是谁的归属）。任务句写了「#N 续办」而 #N 归别的频道、
+#     又没写 --follow 的不交，要你说清是不是续它（11-25 #2010：以前按交接正文、成品文件名猜，猜错就传错频道）。
 #   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   任务句或交接标题以「接回 #N」「续 #N」「续做 #N」「接着做 #N」开头、#N 还在工作区做着：不新开任务，内容转进那个工作区（见 join）。
@@ -30,6 +33,7 @@ import _team  # noqa: E402
 import _handoff_rules  # noqa: E402  交接校验（规则在 handoff-rules.json）
 import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.py）
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
+import _narrow_gate  # noqa: E402  #1999 缩范围句要有原话撑腰
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 import _source  # noqa: E402  讨论原文导出、续派补导、转话文本（_source.py）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
@@ -111,21 +115,24 @@ def held(it, chat: str):
     10:46 同时占了工作区4 和工作区1，11:08 占了工作区1 和工作区2；没人叫醒的那个 20 分钟后被看门报「到点没有进展」。"""
     if not in_progress(it):
         return None
-    r = ws_cmd(lead_chat(chat), "list")
+    r = ws_cmd(chat, "list")
     wid = it["ws"].split(":", 1)[-1]
     name = next((str(w["name"]) for w in r.get("pool") or [] if isinstance(w, dict) and str(w.get("id")) == wid and w.get("name")), wid)
-    return it["ws"], name, str(r.get("parent") or lead_chat(chat))
+    return it["ws"], name, str(r.get("parent") or chat)
 
 
-def join(old, path: str, task: str, model=None, effort=None) -> int:
+def join(old, path: str, task: str, model=None, effort=None, follow=False) -> int:
     """这次交的内容用 ws-forward 转进正在做 old 的工作区；转成返回 0，没转成退出并说明。两种都不上板、不认领。"""
     who = old.get("who") or "工作区"
     same = _real(old.get("where") or "") == _real(path)
     what = (f"同一份交接又交了一次，没新开任务，并进这件：{task}" if same else
             f"续做交接并进这件（没新开任务、没另派工作区）：{task}。新交接文件 {path}，先读它再接着做")
     env = dict(os.environ)
-    if board.foreign_why(old):  # 转话命令不碰别的频道派的活（#836）；交接点了名要进这件，按它的聊天频道转
-        env["CC_SESSION_KEY"] = board.channel_of(old)
+    if board.foreign_why(old):  # 转话命令不碰别的频道派的活（#836）；--follow 明写了续这件才放行，不改写 CC_SESSION_KEY（#2010）
+        if not follow:
+            sys.exit(f"ws-handoff: #{old['id']} 是 {board.channel_of(old) or '别的频道'} 的活、正在做；要把这次的内容并进它就加 --follow {old['id']}，"
+                     "不是续它就把任务句里的编号去掉")
+        env["BOARD_FOLLOW"] = str(old["id"])
     pick = (["--model", model] + (["--effort", effort] if effort else [])) if model else []  # 重新指定的模型一并转过去（#2075）
     r = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "ws-forward"), *pick, "--id", str(old["id"]), what],
                        capture_output=True, text=True, env=env)
@@ -216,42 +223,6 @@ def _ws_state() -> dict:
         return {}
 
 
-def lead_chat(chat: str) -> str:
-    """工作区会话 key → 交活的聊天频道（现在占着它的 owner，否则它最近一件交接的 chat）；不是工作区原样返回。
-    工作区里跑 ws-handoff 时 CC_SESSION_KEY 是工作区自己，桥拒绝从工作区 claim（errTeamIsWorkspace「channel is a
-    workspace」），这件活只能进队列，而 drain 每次在它身上 claim 失败退出，后面的活全卡住（本机 11-08：排队的活
-    卡了 5 天，6 个工作区空着）。池子操作一律以聊天频道的身份做。"""
-    state = _ws_state()
-    wid = chat.split(":", 1)[-1]
-    for owner, rows in (state.get("parents") or {}).items():
-        if any(isinstance(w, dict) and str(w.get("id")) == wid for w in rows or []):
-            return owner
-    for h in reversed((state.get("handoffs") or {}).get(chat) or []):
-        if h.get("chat") and h.get("chat") != chat:
-            return str(h["chat"])
-    return chat
-
-
-def notes_chat(notes: str, chat: str) -> str:
-    """交接文件「原话出处」节已写「聊天频道：<平台>:<id>」、和跑命令的频道不同，就按交接写的记这件活的聊天频道：
-    claim、任务板 chat、汇报、[ask]、兜底定时器都回那里。跑命令的是工作区（lead_chat 会换成 owner）、没写、写的就是
-    本频道时原样返回。来源：11-10 #1342 笨蛋英文 X 版的活从 1562131004234276945 交出，📬 贴进了那里（#1346，
-    用户「这个不是这个频道工作，但怎么往这个频道塞」）。"""
-    source = notes.split(f"## {SOURCE}\n", 1)
-    section = source[1].split("\n## ", 1)[0] if len(source) == 2 else ""
-    m = re.search(r"^- 聊天频道：(\S+:\S+)\s*$", section, re.M)
-    if not m or not chat or ":" not in chat:
-        return chat
-    want = m.group(1)
-    if want == chat or want.split(":", 1)[0] != chat.split(":", 1)[0] or lead_chat(chat) != chat:
-        return chat
-    if lead_chat(want) != want:  # 交接里写的是个工作区：不改投
-        return chat
-    print(f"ws-handoff: 交接文件写的聊天频道是 {want}，不是跑命令的 {chat}；这件活记到 {want}，汇报、[ask]、兜底定时器都回那里",
-          file=sys.stderr)
-    return want
-
-
 COOLING = "cooling down after quota exhaustion"  # 桥 ErrTeamWorkspaceCooling 的报错原文
 BUSY_ERRS = ("is still running there", "belongs to another chat channel")  # 桥报这两种 = 工作区真占着，可以新建
 NEW_GAP = 30 * 60  # 同一件活 30 分钟内只新建一次工作区（#1786）
@@ -278,7 +249,6 @@ def pick_pool(chat: str, task: str, nid: int, preferred: str = ""):
     没有空位时新建工作区。
     claim 不带 --owner：交接的 owner 为空时，桥的十分钟看门按本 bot 自己在工作区的发言（IsSelf）
     算进展（core/team_watch.go ownerSpoke）；接手的就是本 bot 的主角色，不用另传 id。"""
-    chat = lead_chat(chat)
     plat = chat.split(":", 1)[0]
     r = ws_cmd(chat, "list")
     parent = str(r.get("parent") or chat)
@@ -553,7 +523,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"结果没达到用户的目的时，接着查原因、试下一步再交回，不停在「没提升」「不行」。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
-              f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<多久后，如 2h>」，"
+              f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<卡的那件事最早能好的时候，如 2h、11-23 18:00；知道它几点才好就写那个点或更晚，不写更早的例行时刻>」（同 core/team/wait_external.go WaitAgainHint），"
               f"到点会另交工作区接着做。"
               + (f"\n\n【交接全文 {path}】\n{note.rstrip()}" if inline else ""))
     key = ws if ":" in ws else f"discord:{ws}"
@@ -756,6 +726,13 @@ def main(argv):
     force = "--force" in argv
     probe = "--probe" in argv
     argv = [a for a in argv if a not in ("--confirmed", "--force", "--probe")]  # --confirmed 已不用，带了照收
+    follow_id = 0  # --follow：这件接着哪件旧活做，归属跟着它（#2010）
+    if "--follow" in argv:
+        k = argv.index("--follow")
+        v = argv[k + 1].lstrip("#") if k + 1 < len(argv) else ""
+        if not v.isdigit():
+            sys.exit("ws-handoff: --follow 后面要跟任务板编号，如 --follow 1148")
+        follow_id, argv = int(v), argv[:k] + argv[k + 2:]
     short_name = None
     argv, model, effort = _model.parse(argv)
     if "--short" in argv:
@@ -787,14 +764,35 @@ def main(argv):
         sys.exit(f"ws-handoff: {e}")
     if err:
         sys.exit(f"ws-handoff: {err}")
+    err = _narrow_gate.check(notes)  # #1999：缩范围的话要有用户原话撑着
+    if err:
+        sys.exit(f"ws-handoff: {err}")
     if effort and not model:  # 分流前统一拦：并进已有任务的分支只转 --model，单写的 --effort 会被丢掉（审稿 #2076 第三轮）
         sys.exit(f"ws-handoff: {_model.check(None, effort)}")
     # 读文件的检查过了才说「在交」：交接没过时这句让模型以为每次重交都要等一两分钟（#1514，实际退回不到 1 秒）
     print("ws-handoff: 交活中（查交接、搜旧定案、挑工作区、上任务板，通常半分钟到两分钟）；命令没退出就是还在交，"
           "等它退出再看最后几行，不要先跟用户说没成功或工作区不确定", file=sys.stderr, flush=True)
-    ref = resume_ref(task, notes)
+    # 这件活归哪个聊天频道，建活时定一次（#2010）：--follow 的旧活归哪就归哪；否则就是跑命令的这个聊天频道。
+    # 不读交接正文的「聊天频道：」行、不看成品文件名、不看工作区眼下归谁。
+    here = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    here_chat = ":".join(here.split(":", 2)[:2]) if ":" in here else ""
+    in_ws = bool(here_chat) and here_chat in board._workspace_keys()
+    follow = board.item_by_id(follow_id) if follow_id else None
+    if follow_id and not follow:
+        sys.exit(f"ws-handoff: --follow {follow_id}：任务板和已完成记录里都没有 #{follow_id}")
+    if follow:
+        chat = board.owner_or_exit(follow_id, "ws-handoff")
+    elif in_ws:
+        sys.exit("ws-handoff: 在工作区里交活要写 --follow <这件活接着的任务编号>：工作区不是谁的归属频道，归属跟着那件活走")
+    else:
+        chat = here
+    said = chat if in_ws else here  # 用户说话的频道：原话从这导
+    ref = follow or resume_ref(task, notes)
+    if ref is not follow and ref and board.owner_chat(ref) and board.owner_chat(ref) != ":".join(chat.split(":", 2)[:2]):
+        sys.exit(f"ws-handoff: 任务句写的是 #{ref['id']}，它归 {board.owner_chat(ref)}，不是这里。是续它就加 --follow {ref['id']}"
+                 "（归属跟着它）；不是就把编号从任务句和标题里去掉")
     if in_progress(ref):
-        return join(ref, path, task, model, effort)
+        return join(ref, path, task, model, effort, follow=bool(follow))
     dup = None if force else live_dup(path)
     if in_progress(dup):
         return join(dup, path, task, model, effort)
@@ -811,11 +809,10 @@ def main(argv):
     # 交活前按原话和总目标搜旧定案，追加成交接的「旧定案（程序搜出）」节；搜不到写「没搜到」，小模型没调成写「没搜成（原因）」
     # 并照实打印（接回时重搜），都不拦交活
     recall = _recall.start(path)  # 和下面挑工作区、上任务板同时跑，叫醒工作区前收（#1732）
-    chat = notes_chat(notes, os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", ""))
-    if append_source(path, chat):
+    if append_source(path, said):
         print(f"ws-handoff: 已附「{SOURCE}」", file=sys.stderr)
     else:  # 这份交接交过（原话文件已在）：只把上次导出之后聊天频道里新说的补进去
-        _source.append_new(path, chat)
+        _source.append_new(path, said)
     if fold_lead_notes(path):
         print(f"ws-handoff: 主角色写的节已归到「{_source.LEAD_SAYS}」", file=sys.stderr)
     parent = ""  # 走共享池时交接记在桥里的聊天频道；叫醒失败按它撤掉刚 claim 的那件

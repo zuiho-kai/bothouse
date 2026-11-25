@@ -16,8 +16,16 @@ import (
 // heldMediaPlatform: a task-forum platform that records where images and files go.
 type heldMediaPlatform struct {
 	*forumRoutingPlatform
-	mu    sync.Mutex
-	media []string // "<reply ctx> <file name>"
+	mu     sync.Mutex
+	media  []string // "<reply ctx> <file name>"
+	events []string // ordered "text:<rc> <content>" / "file:<rc> <name>"
+}
+
+func (p *heldMediaPlatform) Send(ctx context.Context, rc any, content string) error {
+	p.mu.Lock()
+	p.events = append(p.events, "text:"+fmt.Sprint(rc)+" "+content)
+	p.mu.Unlock()
+	return p.forumRoutingPlatform.Send(ctx, rc, content)
 }
 
 func (p *heldMediaPlatform) SendImage(_ context.Context, rc any, img ImageAttachment) error {
@@ -31,7 +39,14 @@ func (p *heldMediaPlatform) SendFile(_ context.Context, rc any, f FileAttachment
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.media = append(p.media, fmt.Sprint(rc)+" "+f.FileName)
+	p.events = append(p.events, "file:"+fmt.Sprint(rc)+" "+f.FileName)
 	return nil
+}
+
+func (p *heldMediaPlatform) sentEvents() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.events...)
 }
 
 func (p *heldMediaPlatform) sentMedia() []string {
@@ -234,7 +249,7 @@ func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T
 	got := p.sentMedia()
 	want := []string{
 		"discord:111 黎曼猜想xClaude-v10-抽帧拼图.jpg",
-		"discord:111 黎曼猜想xClaude-v10-成片-720p.mp4",
+		"discord:111 1061_1_xClaude_v10_720p.mp4",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("sent media = %q, want %q", got, want)
@@ -246,5 +261,71 @@ func TestHeldReportPassPostsSingleFinalVideoAndClearsStaleHeldMedia(t *testing.T
 	}
 	if entries, err := os.ReadDir(heldDir); err == nil && len(entries) != 0 {
 		t.Fatalf("held-media/1061 not cleared on empty re-handback: %d entries left", len(entries))
+	}
+}
+
+// #2200: when a held report carries multiple videos (e.g. same visuals, different BGM versions with
+// Chinese filenames), releasing it posts a version label line before each video and converts each
+// uploaded video's filename to ASCII letters/digits so Discord does not strip Chinese into "--A--Discord.mp4".
+func TestHeldReportPassMultiVideoLabelsAndASCIIFilenames(t *testing.T) {
+	p := &heldMediaPlatform{forumRoutingPlatform: &forumRoutingPlatform{stubForumPlatform: newStubForumPlatform()}}
+	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.dataDir = t.TempDir()
+	e.platformReady = map[Platform]bool{p: true}
+	dir := t.TempDir()
+	e.SetTeam(dir, "lead", true)
+	e.workspaceChatForTest = func(string) bool { return true }
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.timerScheduler = NewTimerScheduler(store)
+	t.Cleanup(e.timerScheduler.Stop)
+	writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":1148,"what":"代码艺术隐喻短片","status":"在做","chat":"discord:111","ws":"discord:222"}`+"\n")
+	item := e.boardItemByID(1148)
+
+	e.noteWorkspaceFiles("discord:222", []FileAttachment{
+		{FileName: "词舟破晦-李清照三韵-A版纯古琴-低清-Discord.mp4", MimeType: "video/mp4", Data: []byte("video-a")},
+		{FileName: "词舟破晦-李清照三韵-B版箫弦乐-低清-Discord.mp4", MimeType: "video/mp4", Data: []byte("video-b")},
+	})
+	body := "[report] #1148 背景：代码艺术隐喻短片。\n两版配乐做好了。\n要你做的：请试听两版。\n给你的：无\n我加的：无\n细节：无"
+	if !e.holdReportForLead(e.ctx, p, "111", "222", "大豆包", body, "discord:222", 1148, "背景：代码艺术隐喻短片。\n两版配乐做好了。", "", "", item) {
+		t.Fatal("report was not held")
+	}
+	rec := e.heldReportFor(1148)
+	if rec == nil {
+		t.Fatal("missing held report")
+	}
+	if err := e.deliverHeldReport(rec.Key, "逐条：两版配乐不同，放行", false); err != nil {
+		t.Fatalf("deliverHeldReport: %v", err)
+	}
+
+	// Verify each video is preceded by a version label line in the chat channel.
+	events := p.sentEvents()
+	var fileIdxs []int
+	for i, ev := range events {
+		if strings.HasPrefix(ev, "file:discord:111 ") {
+			fileIdxs = append(fileIdxs, i)
+		}
+	}
+	if len(fileIdxs) != 2 {
+		t.Fatalf("expected 2 video file events, got events=%v", events)
+	}
+	if fileIdxs[0] == 0 || !strings.HasPrefix(events[fileIdxs[0]-1], "text:discord:111 ") || !strings.Contains(events[fileIdxs[0]-1], "纯古琴") {
+		t.Fatalf("video 1 missing preceding label line; events=%v", events)
+	}
+	if fileIdxs[1] == 0 || !strings.HasPrefix(events[fileIdxs[1]-1], "text:discord:111 ") || !strings.Contains(events[fileIdxs[1]-1], "箫弦乐") {
+		t.Fatalf("video 2 missing preceding label line; events=%v", events)
+	}
+
+	// Verify uploaded video filenames are pure ASCII "<boardID>_<seq>_<alnum>.mp4" and distinct.
+	got := p.sentMedia()
+	wantMedia := []string{
+		"discord:111 1148_1_A_Discord.mp4",
+		"discord:111 1148_2_B_Discord.mp4",
+	}
+	if strings.Join(got, "|") != strings.Join(wantMedia, "|") {
+		t.Fatalf("sentMedia = %v, want %v", got, wantMedia)
 	}
 }

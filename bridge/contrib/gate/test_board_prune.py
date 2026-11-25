@@ -316,7 +316,8 @@ class Timers(unittest.TestCase):
         self.assertNotEqual(run("prune", "--idle", "0").returncode, 0)
 
     def test_no_sk_no_timer(self):
-        board.add("顺手", "-", "s", "橘")
+        # 建活现在必带归属（#2010）；这里造一条没记频道的旧条目
+        board._write([{"id": 1, "what": "顺手", "where": "-", "status": "s", "who": "橘", "at": "11-25 10:00"}])
         board.main(["pause", "1"])
         self.assertEqual(self.calls(), [])
 

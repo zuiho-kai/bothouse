@@ -396,3 +396,40 @@ func TestParseSendArgs_AskUser(t *testing.T) {
 		t.Fatalf("payload lacks ask_user flag: %s", payload)
 	}
 }
+
+func TestCrossBotSendNote(t *testing.T) {
+	if n := crossBotSendNote("caihongmao", "jingyu"); !strings.Contains(n, "caihongmao") || !strings.Contains(n, "不会因此被叫醒") {
+		t.Fatalf("cross-bot send must warn, got %q", n)
+	}
+	for _, c := range [][2]string{{"jingyu", "jingyu"}, {"jingyu", ""}, {"", "jingyu"}} {
+		if n := crossBotSendNote(c[0], c[1]); n != "" {
+			t.Fatalf("no note for %v, got %q", c, n)
+		}
+	}
+}
+
+func TestParseSendArgs_BoardIDAndVideoLabels(t *testing.T) {
+	dir := t.TempDir()
+	vid := filepath.Join(dir, "词舟破晦-A版纯古琴.mp4")
+	if err := os.WriteFile(vid, []byte("mp4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req, _, err := parseSendArgs([]string{
+		"--board-id", "#1148",
+		"--label", "A 版·纯古琴",
+		"--file", vid,
+		"--message", "请试听",
+	})
+	if err != nil {
+		t.Fatalf("parseSendArgs: %v", err)
+	}
+	if req.BoardID != 1148 {
+		t.Fatalf("BoardID = %d, want 1148", req.BoardID)
+	}
+	if len(req.VideoLabels) != 1 || req.VideoLabels[0] != "A 版·纯古琴" {
+		t.Fatalf("VideoLabels = %v", req.VideoLabels)
+	}
+	if len(req.Files) != 1 || req.Files[0].FileName != "词舟破晦-A版纯古琴.mp4" {
+		t.Fatalf("Files = %#v", req.Files)
+	}
+}

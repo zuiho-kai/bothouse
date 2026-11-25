@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
-import { defaultBridgeConfig, managementSettings, panelRoute, rewritePanelHTML } from './panel.mjs';
+import { bridgeDataDir, defaultBridgeConfig, managementSettings, panelRoute, rewritePanelHTML } from './panel.mjs';
 import { resolveConfig } from './plugin.mjs';
 
 function fakeRes() {
@@ -56,6 +56,15 @@ test('default bridge config follows BOTHOUSE_CONFIG, then the data dir', () => {
   assert.equal(defaultBridgeConfig({ HOME: '/h' }), join('/h', '.bothouse', 'config.toml'));
   assert.equal(resolveConfig({ dataDir: '/x', workspacePath: '/w', bridgeConfig: '/c/config.toml' }, { HOME: '/h' }).bridgeConfig, '/c/config.toml');
   assert.throws(() => resolveConfig({ dataDir: '/x', workspacePath: '/w', bridgeConfig: 'rel.toml' }, { HOME: '/h' }), /absolute/);
+});
+
+test('data dir resolves like the bridge: legacy ~/.cc-connect only while ~/.bothouse is missing (#1997)', () => {
+  const legacy = join('/h', '.cc-connect');
+  assert.equal(bridgeDataDir({ HOME: '/h' }, () => false, p => p === legacy), legacy);
+  assert.equal(defaultBridgeConfig({ HOME: '/h' }, () => false, p => p === legacy), join(legacy, 'config.toml'));
+  assert.equal(bridgeDataDir({ HOME: '/h' }, () => true, () => true), join('/h', '.bothouse'));
+  assert.equal(bridgeDataDir({ HOME: '/h', BOTHOUSE_DATA_DIR: '~/x' }), join('/h', 'x'));
+  assert.equal(bridgeDataDir({ USERPROFILE: 'C:/u' }, () => false, () => false), join('C:/u', '.bothouse'));
 });
 
 test('rewrites <base href> to the mount path and marks the page proxy-signed', () => {

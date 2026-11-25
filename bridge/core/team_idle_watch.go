@@ -684,10 +684,12 @@ func (e *Engine) escalateIdle(key string, h TeamHandoff, msg MsgKey) {
 		}
 	}
 	text := sender.i18n.Tf(msg, who, h.Title)
-	if err := newHandoffWatch(sender).send(p, h.Chat, text); err != nil {
+	if err := newHandoffWatch(sender).sendOwner(p, h, text); err != nil {
 		slog.Warn("idle watch: escalation failed", "error", err)
 	}
-	sender.wakeWatchRole(h.Chat, text, h.Title)
+	if owner, err := e.handoffOwnerChat(h); err == nil {
+		sender.wakeWatchRole(owner, text, h.Title) // the task's owner chat's lead, not the handoff's copy
+	}
 }
 
 func (e *Engine) wakeWatchRole(key, text, title string) {
