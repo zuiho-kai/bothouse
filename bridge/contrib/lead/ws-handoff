@@ -553,7 +553,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
               f"结果没达到用户的目的时，接着查原因、试下一步再交回，不停在「没提升」「不行」。\n"
               f"做完交回：{skel}，一次交：ws-up --notes {path} --report - <<'EOF'，下面写草稿，最后一行 EOF。"
               f"它先检查再交；被退回就改 {draft}，把命令里的 - 换成它重交。回复里写的 [report] 桥不认。"
-              f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<多久后，如 2h>」，"
+              f"被外部条件卡住做不下去：做完不依赖它的部分照常交回，细节里写「等外部：卡在什么」和「再看：<卡的那件事最早能好的时候，如 2h、11-23 18:00；知道它几点才好就写那个点或更晚，不写更早的例行时刻>」（同 core/team/wait_external.go WaitAgainHint），"
               f"到点会另交工作区接着做。"
               + (f"\n\n【交接全文 {path}】\n{note.rstrip()}" if inline else ""))
     key = ws if ":" in ws else f"discord:{ws}"

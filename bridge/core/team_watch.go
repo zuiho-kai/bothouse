@@ -649,6 +649,11 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 	switch {
 	case err == nil:
 		slog.Info("team watch: no progress at the check time; task parked", "workspace", key, "chat", h.Chat, "freed", freed)
+		// #1993: a chat that shows the board as a summary gets its ②停了 line for this pause
+		// (team_chat_state.go chatStopOf); a second, watch-worded notice there is noise.
+		if w.e.teamBoardKindOf(h.Chat) == teamBoardSummary {
+			return time.Time{}
+		}
 		if serr := w.send(p, h.Chat, w.e.i18n.Tf(MsgWatchParkedNotice, channelLabel(plat, teamChannelID(key)), h.Title)); serr != nil {
 			slog.Warn("team watch: park notice failed", "chat", h.Chat, "error", serr)
 		}
