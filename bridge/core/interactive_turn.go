@@ -105,3 +105,9 @@ type interactiveTurn struct {
 	hasSubReporter bool
 	handlingSince  atomic.Int64 // maomao fork: when the current event's handling began; 0 = waiting
 }
+
+// streamCardContent builds the streaming card markdown with standalone and
+// trailing NO_REPLY markers stripped from the accumulated answer text.
+func (t *interactiveTurn) streamCardContent() string {
+	return buildCardContent(t.cardThinkingText, t.cardToolCalls, stripSilentReply(t.cardAnswerText.String()))
+}

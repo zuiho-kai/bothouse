@@ -7545,7 +7545,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if turn.streamCard != nil && !turn.streamCard.Failed() {
 					turn.cardThinkingText = truncateIf(event.Content, e.display.ThinkingMaxLen)
 					_ = authorizedOutput(turn.outputCtx, func() error {
-						return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+						return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 					})
 					continue // skip original independent message sending
 				}
@@ -7700,7 +7700,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						Input: formattedInput,
 					})
 					_ = authorizedOutput(turn.outputCtx, func() error {
-						return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+						return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 					})
 					continue // skip original independent message sending
 				}
@@ -7859,12 +7859,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					turn.textParts = append(turn.textParts, content) // always accumulate for history
 					if !turn.silentHold {
 						if releasedNow {
-							turn.cardAnswerText.WriteString(stripSilentReply(peekSegment))
+							// Write the full held segment so stripSilentReply preserves line boundaries
+							// across chunks and doesn't merge subsequent NO_REPLY lines into prior text.
+							turn.cardAnswerText.WriteString(peekSegment)
 						} else {
 							turn.cardAnswerText.WriteString(content)
 						}
 						_ = authorizedOutput(turn.outputCtx, func() error {
-							return turn.streamCard.Update(turn.outputCtx, buildCardContent(turn.cardThinkingText, turn.cardToolCalls, turn.cardAnswerText.String()))
+							return turn.streamCard.Update(turn.outputCtx, turn.streamCardContent())
 						})
 					}
 					handledByStreamCard = true

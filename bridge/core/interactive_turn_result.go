@@ -410,15 +410,14 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 	if turn.streamCard != nil && !turn.streamCard.Failed() {
 		turn.sp.finish("", "") // cleanup preview (should be no-op if card was active)
 		// Silent reply: never render the NO_REPLY marker into the card.
-		// cardAnswerText holds only the text streamed BEFORE the marker
-		// (empty for a bare NO_REPLY, since silentHold suppresses card
-		// writes while the segment is still a NO_REPLY prefix). Finalize
+		// cardAnswerText accumulates raw post-release chunks, so strip any
+		// standalone or trailing NO_REPLY markers before finalizing. Finalize
 		// with that instead of fullResponse so the card resolves to Done
 		// without leaking the marker, and skip the fallback send that
 		// would otherwise post the suppressed marker verbatim.
 		cardBody := fullResponse
 		if isSilent {
-			cardBody = strings.TrimRight(turn.cardAnswerText.String(), " \t\r\n")
+			cardBody = strings.TrimRight(stripSilentReply(turn.cardAnswerText.String()), " \t\r\n")
 		}
 		finalContent := buildCardContent(turn.cardThinkingText, turn.cardToolCalls, cardBody)
 		if err := authorizedOutput(turn.outputCtx, func() error { return turn.streamCard.Finalize(turn.outputCtx, finalContent) }); err != nil {

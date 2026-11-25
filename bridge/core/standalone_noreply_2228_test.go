@@ -236,3 +236,123 @@ func TestPostToolRemainderAndIsSilentReply2228(t *testing.T) {
 		t.Fatalf("expected post-tool text, got %q", got)
 	}
 }
+
+func TestStreamingCardStripsMidStreamAndSilentFinalizeNoReply2228(t *testing.T) {
+	t.Run("mid-turn standalone NO_REPLY after card released", func(t *testing.T) {
+		card := &recordingStreamCard{}
+		p := &recordingStreamCardPlatform{
+			stubPlatformEngine: stubPlatformEngine{n: "feishu"},
+			card:               card,
+		}
+		e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+		e.SetDisplayConfig(DisplayCfg{Mode: "compact", ToolMessages: true})
+		key := "feishu:2228-streamcard-mid"
+		session := e.sessions.GetOrCreateActive(key)
+		agent := newControllableSession("2228-streamcard-mid")
+		state := &interactiveState{agentSession: agent, platform: p, replyCtx: "ctx"}
+		e.interactiveStates[key] = state
+
+		agent.events <- Event{Type: EventText, Content: "第一段\n"}
+		agent.events <- Event{Type: EventText, Content: "NO_REPLY\n"}
+		agent.events <- Event{Type: EventToolUse, ToolName: "Bash", ToolInput: "true"}
+		agent.events <- Event{Type: EventText, Content: "第二段"}
+		agent.events <- Event{Type: EventResult, Done: true}
+
+		e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, state.replyCtx)
+
+		for i, u := range card.updateContents() {
+			if strings.Contains(u, "NO_REPLY") {
+				t.Fatalf("streaming card Update #%d leaked NO_REPLY: %q", i, u)
+			}
+		}
+		if !card.finalized() {
+			t.Fatal("expected streaming card to be finalized")
+		}
+		if strings.Contains(card.finalContent(), "NO_REPLY") {
+			t.Fatalf("streaming card Finalize leaked NO_REPLY: %q", card.finalContent())
+		}
+		if !strings.Contains(card.finalContent(), "第一段") || !strings.Contains(card.finalContent(), "第二段") {
+			t.Fatalf("finalized card missing expected content: %q", card.finalContent())
+		}
+	})
+
+	t.Run("leading and mid-turn standalone NO_REPLY after release", func(t *testing.T) {
+		card := &recordingStreamCard{}
+		p := &recordingStreamCardPlatform{
+			stubPlatformEngine: stubPlatformEngine{n: "feishu"},
+			card:               card,
+		}
+		e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+		e.SetDisplayConfig(DisplayCfg{Mode: "quiet"})
+		key := "feishu:2228-streamcard-lead-mid"
+		session := e.sessions.GetOrCreateActive(key)
+		agent := newControllableSession("2228-streamcard-lead-mid")
+		state := &interactiveState{agentSession: agent, platform: p, replyCtx: "ctx"}
+		e.interactiveStates[key] = state
+
+		agent.events <- Event{Type: EventText, Content: "NO_REPLY\n"}
+		agent.events <- Event{Type: EventText, Content: "第一行\n"}
+		agent.events <- Event{Type: EventText, Content: "NO_REPLY\n"}
+		agent.events <- Event{Type: EventText, Content: "第二行"}
+		agent.events <- Event{Type: EventResult, Done: true}
+
+		e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, state.replyCtx)
+
+		for i, u := range card.updateContents() {
+			if strings.Contains(u, "NO_REPLY") {
+				t.Fatalf("streaming card Update #%d leaked NO_REPLY: %q", i, u)
+			}
+		}
+		if !card.finalized() {
+			t.Fatal("expected streaming card to be finalized")
+		}
+		if strings.Contains(card.finalContent(), "NO_REPLY") {
+			t.Fatalf("streaming card Finalize leaked NO_REPLY: %q", card.finalContent())
+		}
+		if !strings.Contains(card.finalContent(), "第一行\n第二行") {
+			t.Fatalf("finalized card missing expected content: %q", card.finalContent())
+		}
+	})
+
+	t.Run("silent scheduled turn finalizes card without trailing NO_REPLY", func(t *testing.T) {
+		card := &recordingStreamCard{}
+		p := &recordingStreamCardPlatform{
+			stubPlatformEngine: stubPlatformEngine{n: "feishu"},
+			card:               card,
+		}
+		e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+		e.SetDisplayConfig(DisplayCfg{Mode: "quiet"})
+		e.workspaceChatForTest = func(string) bool { return true }
+		key := "feishu:2228-streamcard-silent-finalize"
+		session := e.sessions.GetOrCreateActive(key)
+		agent := newControllableSession("2228-streamcard-silent-finalize")
+		state := &interactiveState{
+			agentSession:  agent,
+			platform:      p,
+			replyCtx:      "ctx",
+			turnScheduled: true,
+		}
+		e.interactiveStates[key] = state
+
+		agent.events <- Event{Type: EventText, Content: "我会先核对。\n"}
+		agent.events <- Event{Type: EventText, Content: "NO_REPLY"}
+		agent.events <- Event{Type: EventResult, Done: true}
+
+		e.processInteractiveEvents(state, session, e.sessions, key, "m", time.Now(), nil, nil, state.replyCtx)
+
+		for i, u := range card.updateContents() {
+			if strings.Contains(u, "NO_REPLY") {
+				t.Fatalf("streaming card Update #%d leaked NO_REPLY: %q", i, u)
+			}
+		}
+		if !card.finalized() {
+			t.Fatal("expected streaming card to be finalized")
+		}
+		if strings.Contains(card.finalContent(), "NO_REPLY") {
+			t.Fatalf("silent finalized streaming card leaked NO_REPLY: %q", card.finalContent())
+		}
+		if card.finalContent() != "我会先核对。" {
+			t.Fatalf("silent finalized card = %q, want %q", card.finalContent(), "我会先核对。")
+		}
+	})
+}
