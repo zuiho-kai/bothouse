@@ -143,7 +143,7 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	// answer's source (#703: quiet mode discarded terminal-only text).
 	terminalReply := fullResponse != ""
 	if !terminalReply && len(turn.textParts) > 0 {
-		fullResponse = strings.Join(turn.textParts, "")
+		fullResponse = joinReplyParts(turn.textParts)
 	}
 	// The adapter marked an exhausted quota; say which bot/model ran out so
 	// other bots in the channel are not blamed.
@@ -530,7 +530,7 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		// halves glued together). A terminal reply uses the normal flow
 		// instead: it can contain text absent from textParts (#703).
 		if turn.segmentStart < len(turn.textParts) {
-			unsent := strings.Join(turn.textParts[turn.segmentStart:], "")
+			unsent := joinReplyParts(turn.textParts[turn.segmentStart:])
 			unsent = finalReplyText(unsent)
 			// The text before the tool call already went out, so the whole-reply
 			// NO_REPLY check above does not cover this remainder after a tool call.
