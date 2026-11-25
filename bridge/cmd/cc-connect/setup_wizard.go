@@ -174,6 +174,12 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv := core.NewManagementServer(port, token, cfg.Management.CORSOrigins)
 	srv.SetHost(host)
 	srv.SetConfigFilePath(configPath)
+	srv.SetAddPlatformToProject(func(projectName, platType string, opts map[string]any, workDir, agentType string) error {
+		if opts == nil {
+			opts = map[string]any{}
+		}
+		return config.AddPlatformToProject(projectName, config.PlatformConfig{Type: platType, Options: opts}, workDir, agentType)
+	})
 	// A DSH-only install stays in setup mode; the tray's 今日用量 and the usage page still query
 	// /api/v1/usage here, which answered 503 without a ledger (PR #1011).
 	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))

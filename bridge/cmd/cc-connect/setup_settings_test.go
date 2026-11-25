@@ -190,3 +190,42 @@ func TestSetupModeGlobalSettings_Unauthorized(t *testing.T) {
 		t.Fatalf("GET /settings without a token = %d, want 401", res.StatusCode)
 	}
 }
+
+func TestSetupModeSavesFirstManualProject(t *testing.T) {
+	port, token, stop := setupModeServer(t)
+	defer stop()
+
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/api/v1/projects/first-role/add-platform", port)
+	body, err := json.Marshal(map[string]any{
+		"type": "cloud_web", "agent_type": "codex", "work_dir": t.TempDir(),
+		"options": map[string]any{"transport": "long_poll", "base_url": "http://127.0.0.1:1", "token": "test-only"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		var reply map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&reply)
+		t.Fatalf("save first project: HTTP %d, response %v", res.StatusCode, reply)
+	}
+	saved, err := config.LoadForSetup(config.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Projects) != 1 || saved.Projects[0].Name != "first-role" ||
+		saved.Projects[0].Agent.Type != "codex" || len(saved.Projects[0].Platforms) != 1 ||
+		saved.Projects[0].Platforms[0].Type != "cloud_web" {
+		t.Fatalf("first project did not round-trip through config: %+v", saved.Projects)
+	}
+}
