@@ -259,3 +259,12 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - feishu: 不支持：飞书没有类似 Discord `allowed_mentions` 的「正文留 `<@id>` 但不响提醒」发送字段，这次只接 Discord（#2091）
 - cloud-web: 不支持：网页频道没有类似 Discord `allowed_mentions` 的静音 @ 发送字段，这次只接 Discord（#2091）
 - dsh: 不支持：走 cloud-web 帧，同 cloud-web
+
+## ChatNotePoster
+
+聊天频道里的任务状态消息（①等你定一条原地更新、②停了，core/team_chat_state.go）：发一条不置顶、不 @ 人的普通消息，之后原地改或删了挪到最底下。
+
+- discord: 已接
+- feishu: 不支持：用户 11-24 定这次只做 Discord（「我现在说的只限于discord」）
+- cloud-web: 不支持：同上，只做 Discord
+- dsh: 不支持：经 cloud-web 接入，同上

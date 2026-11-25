@@ -2002,7 +2002,7 @@ class GaveUp(Fake):
     def test_resume_runs_with_the_same_sandbox(self):
         self.replies = {"m1": DONE_REPLY}
         from unittest import mock
-        with mock.patch.object(I.subprocess, "run", self.fake_codex):
+        with mock.patch.object(I, "engine_run", self.fake_codex):
             ok, _, _, tid = I.codex("do", "", "t", "ctx", model="m1")
             self.assertTrue(ok and tid == "t1")
             I.codex("", I.RESUME_PROMPT, "t", model="m1", resume=tid)
@@ -2018,22 +2018,21 @@ class GaveUp(Fake):
         self.assertEqual(resumed.count("-c"), fresh.count("-c"))
 
     def test_gave_up_reply_moves_to_the_next_model(self):
-        """luna 503 → resume on sol, which only says it could not work → sol failed, astra fresh (the old code took
-        sol's reply as a success: no retry, no next engine)."""
+        """Capacity and a reply giving up both get three fresh retries before changing model."""
         self.replies = {"m1": None, "m2": GAVE_UP_REPLY, "m3": DONE_REPLY}
         from unittest import mock
-        with mock.patch.object(I.subprocess, "run", self.fake_codex), \
+        with mock.patch.object(I, "engine_run", self.fake_codex), \
                 mock.patch.multiple(I, CODEX_CHAIN=["m1", "m2", "m3"], AFTER_CODEX=[]):
             ok = I.model_pass("dream 1 sessions", "DREAM", context="t", engine="codex:high",
                               kind="dream", max_delete=40)
         self.assertEqual(ok, True)  # m3's pass changed nothing: a success
         self.assertEqual(I.LAST_ENGINE, "codex:m3")
-        self.assertEqual([c[2] for c in self.cmds], ["-m", "resume", "-m"])  # m1 fresh, m2 resumed, m3 fresh
-        self.assertEqual([c[c.index("-m") + 1] for c in self.cmds], ["m1", "m2", "m3"])
+        self.assertEqual([c[2] for c in self.cmds], ["-m"] * 9)
+        self.assertEqual([c[c.index("-m") + 1] for c in self.cmds], ["m1"] * 4 + ["m2"] * 4 + ["m3"])
         log = I.LOG.read_text()
-        self.assertIn("resuming thread t1", log)
+        self.assertNotIn("resuming thread", log)
         self.assertIn("reply says the work was not done (「没有完成原任务」)", log)
-        self.assertIn("m2 failed; starting m3 fresh", log)
+        self.assertIn("codex:m2 failed after 3 retries; starting codex:m3 fresh", log)
         self.assertNotIn("REVERTED", log)
 
     def test_gave_up_reply_is_a_failed_call_on_any_engine(self):
@@ -2047,10 +2046,10 @@ class GaveUp(Fake):
         ok = I.model_pass("dream 1 sessions", "DREAM", context="t", engine="fake", kind="dream", max_delete=40)
         self.assertFalse(ok)
         self.assertFalse(I.LAST_REJECTED)  # a failed call, not a rejected result: retried next run
-        self.assertEqual(calls, ["dream 1 sessions"])  # no fix round on a reply that did nothing
+        self.assertEqual(calls, ["dream 1 sessions"] * 4)  # retry a failed call, not an acceptance correction
         log = I.LOG.read_text()
         self.assertIn("treated as a failed call", log)
-        self.assertIn("REVERTED: model failed", log)
+        self.assertIn("RETAINED: model failed", log)
 
     def test_a_line_fail_is_accepted_as_on_main(self):
         """A reply that did the work but reports an A-line fail (~/wiki/.ingest.log line 2750, a page at its budget) is
@@ -2142,7 +2141,7 @@ class PersonaDefaults(unittest.TestCase):
                                             "I.DREAM_NOTIFY, str(I.ROOT), str(I.HOSTS), I.ENGINE, I.AFTER_CODEX, I.CODEX_CHAIN]))"))
         self.assertEqual(out, [["assistant"], [], "tooling/rule-candidates.md",
                                "", "None", "/nonexistent-wiki-hosts", "haiku", ["agy", "haiku"],
-                               ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"]])
+                               ["gpt-6-luna", "gpt-6.1-sol"]])
 
     def test_prompts_render_without_personal_identity(self):
         for name in ("SOP_INGEST", "SOP_REVIEW", "SOP_LINT", "SOP_DREAM"):

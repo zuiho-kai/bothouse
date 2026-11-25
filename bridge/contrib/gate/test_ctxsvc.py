@@ -370,12 +370,15 @@ class T(unittest.TestCase):
             (p / "README.md").write_text("x", encoding="utf-8")
             (p / "page.md").write_text(
                 "---\ndescription: 发版\n---\n# T\n## 现状\n"
+                + "- 曾选 发版 release 流水线 每次重装 → 因 太慢 改为 增量\n"
                 + "".join(f"- 发版 release 流水线 做法{i}，写得长一点\n" for i in range(2))
-                + "## 历史\n- 曾选 发版 release 流水线 全量重跑 → 因 太慢 改为 只跑改动\n",
+                + "## 历史\n- 发版 release 流水线 全量重跑，旧做法原样挪来\n",
                 encoding="utf-8")
             texts = [r["text"] for w in ctxsvc.match_wiki("发版 release 流水线", prepared=True) for r in w["rows"]]
             self.assertIn("【旧】", texts[-1], texts)
             self.assertFalse(any("【旧】" in t for t in texts[:-1]), texts)
+            # 历史节的行（被新说法取代挪进来的）不推（#1978 用户「踩一脚，它就滚下去了…再也不存在了」）
+            self.assertFalse(any("全量重跑" in t for t in texts), texts)
 
     def test_old_rows_dropped_when_turn_is_full(self):
         # 前五条被别的行占满时旧说法不推（旧说法沉底的意义就在这）；不足五条时才补上
@@ -439,6 +442,51 @@ class T(unittest.TestCase):
             self.assertIn("【推论】", texts[0])
             self.assertNotIn("【旧】", texts[0])
             self.assertIn("【旧】", texts[1])
+
+    def test_selected_rows_need_current_topic_without_backfill(self):
+        # 历史词可参与找页，但选定页里的旧话题行不应继续推；主库、角色库用同一选择规则。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            texts = {
+                "history": "- deployment pipeline history release workflow",
+                "current": "- astronomy telescope guidance",
+                "spare": "- astronomy observation guidance with additional context for a longer entry",
+            }
+            for name, text in texts.items():
+                (notes / (name + ".md")).write_text(text, encoding="utf-8")
+            with patch.object(ctxsvc, "FORUM", None):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                expanded = "deployment pipeline history release workflow astronomy telescope"
+                unfiltered = ctxsvc.match_wiki(expanded, k=2, prepared=True)
+                self.assertEqual([Path(p["path"]).stem for p in unfiltered], ["history", "current"])
+                for own in (False, True):
+                    with self.subTest(role_wiki=own):
+                        if own:
+                            ctxsvc.WIKI = root / "absent-main"
+                        # rare_toks uses the shared vocabulary, as in context() on both roots.
+                        with patch.object(ctxsvc, "rare_toks", return_value="astronomy telescope"):
+                            got = ctxsvc.match_wiki(expanded, k=2, root=root, prepared=True,
+                                                    focus="astronomy telescope")
+                        self.assertEqual([Path(p["path"]).stem for p in got], ["current"])
+                        self.assertNotIn("deployment", got[0]["desc"])
+                        self.assertEqual(got[0]["rows"], unfiltered[1]["rows"])
+
+    def test_short_focus_without_content_keeps_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            (notes / "topic.md").write_text("- astronomy telescope guidance", encoding="utf-8")
+            with patch.object(ctxsvc, "FORUM", None):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                expected = ctxsvc.match_wiki("继续 astronomy telescope", prepared=True)
+                self.assertTrue(expected)
+                self.assertEqual(ctxsvc.match_wiki("继续 astronomy telescope", prepared=True,
+                                                  focus="继续"), expected)
 
     def test_channel_projects_before_generic_rules(self):
         # 这个频道主要在做 proj/：项目页排在通用规矩页前；频道→项目只从推送日志算

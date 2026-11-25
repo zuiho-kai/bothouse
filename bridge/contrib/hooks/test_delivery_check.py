@@ -21,7 +21,13 @@ class DeliveryCheckTest(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("CC_", "BOTHOUSE_", "CONEST_", "CLAUDE_", "DSH_", "GATE_"))}
         self.board = self.role / "team"  # 任务板目录放进临时目录：对照件那项读 <任务板目录>/deliver/*.json
-        self.env.update(HOME=str(self.role), GATE_WIKI="off", BOARD_DIR=str(self.board))
+        self.env.update(HOME=str(self.role), GATE_WIKI="off", BOARD_DIR=str(self.board),
+                        GATE_TRIALS_LOG=str(self.role / "gate-trials.tsv"),
+                        GATE_TRIALS_REGISTRY=str(self.role / "reg.json"))
+        # 文案检查（copy-gate）按回放已达标来测拦法；没达标只记录见 test_copy_draft_needs_three_verbatim_refs_and_tags
+        reg = json.loads((HERE / "gate-trials.json").read_text(encoding="utf-8"))
+        reg["checks"]["copy-gate"] = {"replays": [{"replayed": 30, "wrong": 0}]}
+        (self.role / "reg.json").write_text(json.dumps(reg), encoding="utf-8")
         self.sheet("add", "cover", "use the required color")
 
     def sheet(self, *args):
@@ -89,6 +95,11 @@ class DeliveryCheckTest(unittest.TestCase):
         cmd = f"bothouse send --file '{draft}'"
         draft.write_text("# GitHub 简介\n\n住在你群聊里的 AI 团队，自己分活。\n", encoding="utf-8")
         self.sheet("skip", draft, "copy gate test")
+        # #1924：文案检查是新检查，回放没达标前只记录不拦
+        self.env["GATE_TRIALS_REGISTRY"] = str(HERE / "gate-trials.json")
+        self.assertNotEqual(self.call(command=cmd), "deny")
+        self.assertIn("copy-gate\tobserve", (self.role / "gate-trials.tsv").read_text(encoding="utf-8"))
+        self.env["GATE_TRIALS_REGISTRY"] = str(self.role / "reg.json")
         self.assertEqual(self.call(command=cmd), "deny")
         draft.write_text(
             "# GitHub 简介\n\n## 对标原文\n"
@@ -155,74 +166,19 @@ class DeliveryCheckTest(unittest.TestCase):
         out = json.loads(result.stdout or "{}")
         return out.get("decision"), out.get("reason") or ""
 
-    def test_chat_reply_with_copy_needs_reference_section(self):
-        # #1907 打回①：聊天里直接打出来的简介也要过这道检查（Stop），拦下时告诉它补什么
-        decision, reason = self.stop("仓库简介改成这样：\n\nAn AI team that lives in your group chat.\n")
-        self.assertEqual(decision, "block")
-        self.assertIn("## 对标原文", reason)
-        ok = ("## 对标原文\n"
-              "1. 原句：An on-device AI agent for Android. 出处：https://github.com/wangzan101/Mika\n"
-              "2. 原句：Every agent's model. One place. 出处：https://github.com/yetone/magpie\n"
-              "3. 原句：Agent harness for learning difficult things. 出处：https://github.com/amosblomqvist/learnharness\n"
-              "\n仓库简介：An AI team in your group chat. 照：第 1 条\n")
-        self.assertNotEqual(self.stop(ok)[0], "block")
-        self.assertNotEqual(self.stop("测试跑完了，退出码 0。")[0], "block")
-
-    def test_second_unfixed_copy_reply_is_replaced_not_sent(self):
-        # #1907 打回①（16:31）：拦过一次又原样发，不能放行原文：不再拦，告诉桥撤掉、换成一句话
-        import socket, threading
-        data = Path(tempfile.mkdtemp(prefix="dc-", dir="/tmp"))
-        self.addCleanup(lambda: __import__("shutil").rmtree(data, ignore_errors=True))
-        (data / "run").mkdir()
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(str(data / "run" / "api.sock"))
-        srv.listen(4)
-        got = []
-
-        def serve():
-            while True:
-                try:
-                    c, _ = srv.accept()
-                except OSError:
-                    return
-                buf = b""
-                while b"\r\n\r\n" not in buf:
-                    buf += c.recv(65536)
-                head, body = buf.split(b"\r\n\r\n", 1)
-                n = int([l for l in head.split(b"\r\n") if l.lower().startswith(b"content-length")][0].split(b":")[1])
-                while len(body) < n:
-                    body += c.recv(65536)
-                got.append(json.loads(body))
-                c.sendall(b"HTTP/1.0 200 OK\r\n\r\n{}")
-                c.close()
-        threading.Thread(target=serve, daemon=True).start()
-        self.addCleanup(srv.close)
-        env = dict(self.env, CC_SESSION_KEY="discord:1", CC_DATA_DIR=str(data), CC_PROJECT="p")
-        draft = "仓库简介改成这样：住在你群聊里的 AI 团队。"
-        # 别的钩子拦过（active）但这轮还没被文案检查拦过：照常拦，给它补的机会
-        self.assertEqual(self.stop(draft, active=True, env=env)[0], "block")
-        self.assertTrue(got and got[-1]["withhold"] and not got[-1]["replace"], got)
-        decision, _ = self.stop(draft, active=True, env=env)
-        self.assertNotEqual(decision, "block")
-        self.assertEqual(got[-1]["replace"], "文案检查没过，草稿没发出。")
-        self.assertIn("群聊里的 AI 团队", got[-1]["draft"])
-        # 换了以后状态清掉：下一轮新回复又是先拦
-        self.assertEqual(self.stop(draft, env=env)[0], "block")
-
-    def test_copy_words_in_plain_prose_paragraph(self):
-        # #1907 打回③：没有标题、加粗、标签的整段文字里写了简介/README/宣传稿/宣传语/标题/帖子也进检查
-        for para in ("我把仓库简介改成住在你群聊里的 AI 团队，自己分活自己验收。",
-                     "README 第一句换成一群住在聊天里的 AI 同事。", "宣传稿开头写一个人带一支 AI 团队。",
-                     "宣传语就用一个群，一支团队。", "新的标题是 AI 团队住进你的群。", "这条帖子写我们怎么分活。"):
-            self.assertEqual(self.stop("前面说点别的。\n\n" + para)[0], "block", para)
-        # 只在路径、文件名、代码里出现不算
-        self.assertNotEqual(self.stop("日志在 /tmp/x/README.md，`标题` 字段没变。")[0], "block")
+    def test_chat_reply_never_blocked_by_copy_gate(self):
+        # 用户 11-23「这个什么傻逼东西能把他干掉」：聊天回复不再过文案检查，提到帖子、标题、简介都照常发
+        for reply in ("仓库简介改成这样：住在你群聊里的 AI 团队。", "2. 帖子：点开那张任务帖，上面写着负责人。",
+                      "这条帖子写我们怎么分活。"):
+            self.assertNotEqual(self.stop(reply)[0], "block", reply)
+        self.assertNotEqual(self.stop("前面说点别的。", active=True)[0], "block")
 
     def test_copy_words_cover_entries(self):
         # #1907 打回③：简介/README/宣传语/标题/帖子这类入口的写法都认得
         for line in ("**README 首屏**", "## Tagline", "- 宣传语：", "新标题：", "X 推文（英文）：", "小红书帖子：",
                      "GitHub About:", "口号：", "一句话介绍：", "## 发帖正文"):
-            self.assertEqual(self.stop(line + "\n住在你群聊里的 AI 团队。")[0], "block", line)
+            msg = (line + "\n住在你群聊里的 AI 团队。").replace("'", "")
+            self.assertEqual(self.call(command="bothouse send -m '%s'" % msg), "deny", line)
 
     def test_send_command_quoted_in_heredoc_is_data(self):
         # 交回里会原样引用一条 send 命令当例子；按正文解析会把它当成真在发（#1907 交回被自己拦住）

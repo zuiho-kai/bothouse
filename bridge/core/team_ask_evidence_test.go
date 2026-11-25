@@ -33,7 +33,7 @@ func TestWorkspaceAskWithEvidenceForwards(t *testing.T) {
 func TestWorkspaceReportNeedsNoEvidence(t *testing.T) {
 	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
 	exitBoardItem(t, e, 7, "第一阶段")
-	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	e.forwardWorkspaceExit(p, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无")
 	if got := p.sentTo("discord:chat1"); len(got) != 1 || !strings.Contains(got[0], "第一阶段做完") {
 		t.Fatalf("report forward = %q", got)
 	}
@@ -77,7 +77,7 @@ func TestAskBounceWakeLimit(t *testing.T) {
 // for another route, a report too (user 11-10 「你自己搞，你忘了我跟你说的事情了么」).
 func TestWorkspaceExitSelfRouteGoesBack(t *testing.T) {
 	for _, reply := range []string{
-		"[report] #7 背景：你让我做这件事。\n代码写完了\n要你做的：在本机终端跑一次 sudo zsh setup.sh，输一次密码。\n我加的：无",
+		"[report] #7 背景：你让我做这件事。\n代码写完了\n要你做的：在本机终端跑一次 sudo zsh setup.sh，输一次密码。\n给你的：无\n我加的：无",
 	} {
 		e, a, p := exitFixture(t, mapParent{"ws1": "chat1"})
 		exitBoardItem(t, e, 7, "成员隔离")

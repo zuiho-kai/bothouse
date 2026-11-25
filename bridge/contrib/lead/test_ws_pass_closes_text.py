@@ -64,7 +64,7 @@ class PassClosesTextTest(unittest.TestCase):
         r = self.run_pass("--notes", str(self.notes), "--verdict", VERDICT, str(self.shot), "样片给你看")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.kinds(), ["report pass", "send"])  # 文字先放行，再发附件
-        self.assertEqual(self.sent()[0][2:], ["--id", "1398", "--verdict", VERDICT])  # 同一句 verdict 记给文字汇报
+        self.assertEqual(self.sent()[0][2:], ["--id", "1398", "--verdict", VERDICT, "--with-files"])  # 同一句 verdict 记给文字汇报；自带附件，桥不拦「要审却没东西」（#1097）
         self.assertEqual(json.loads(self.held.read_text())["1398"], "posted")  # 挂起了结，桥不会再超时贴出
         self.assertIn("一并放行", r.stderr)
 

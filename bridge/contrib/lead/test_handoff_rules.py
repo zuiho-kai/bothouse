@@ -102,7 +102,10 @@ def node(copy, rules_path="", texts=(), dispatch=()):
     return json.loads(r.stdout)
 
 
-@unittest.skipUnless(NODE, "node not on PATH")
+HAVE_NODE_IMPL = all((c / "handoff-rules.mjs").is_file() for c in COPIES)
+
+
+@unittest.skipUnless(NODE and HAVE_NODE_IMPL, "node implementation not in the tree since #1662")
 class SameResultsTest(unittest.TestCase):
     def test_python_and_node_agree_on_fixtures(self):
         py = [R.check(t, S) for t in FIXTURES]
@@ -145,6 +148,21 @@ class SameResultsTest(unittest.TestCase):
         self.assertIn("照抄对象", got[0])
         self.assertEqual(node(COPIES[0], SP, texts=EX)["texts"], got)
 
+    def test_user_view_walk_is_default_and_narrow(self):
+        # #1893：界面活默认要写「用户视角走查」（从本机叠加拿回默认），但讲走查这件事本身、不含界面词的交接不再被自己触发
+        ui = GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 把记忆论坛页面改新\n")
+        walk = "- 用户视角走查：按第一次打开的用户逐页截图，交回附修前修后截图和还有哪三处不满意\n"
+        cases = [ui, ui.replace("- 改：x\n", "- 改：x\n" + walk),
+                 "## 用户总目标\n「用户视角走查的检查放宽」\n".replace("用户总目标", "用户原话") + GOOD[GOOD.index("## 总目标"):],
+                 GOOD.replace("- 改：x\n", "- 改：x\n" + walk)]
+        py = [R.check(t, S) for t in cases]
+        self.assertIn("用户视角走查", py[0] or "")
+        self.assertIsNone(py[1])
+        self.assertIsNone(py[2], "只提走查二字的规则活不该被触发")
+        self.assertIsNone(py[3], "没界面词的活带着走查行也照样过")
+        for copy in COPIES:
+            self.assertEqual(node(copy, SP, texts=cases)["texts"], py)
+
     def test_dispatch_uses_the_same_rules(self):
         got = node(COPIES[0], SP, dispatch=DISPATCH)["dispatch"]
         ok = [e is None for e in got]
@@ -177,7 +195,8 @@ class SameResultsTest(unittest.TestCase):
             self.assertIn("新加小节X", r.stdout)
 
 
-@unittest.skipUnless(NODE, "node not on PATH")
+
+@unittest.skipUnless(NODE and HAVE_NODE_IMPL, "node implementation not in the tree since #1662")
 class LightDefaultTest(unittest.TestCase):
     """产品默认只查通用必填项：三节 + 一行「改」+ 参照实现就能过；严格档的私人规矩不在默认规则和发布文件里。"""
     MIN = "## 用户原话\n「把卡片改短」\n## 总目标\n- 卡片一屏看完\n## 范围\n- 改：卡片\n## 参照实现\n- 无（新建）\n"
@@ -200,7 +219,7 @@ class LightDefaultTest(unittest.TestCase):
                 self.assertNotIn(bad, text, f"{f} 带了私人旧事「{bad}」")
 
 
-@unittest.skipUnless(NODE, "node not on PATH")
+@unittest.skipUnless(NODE and HAVE_NODE_IMPL, "node implementation not in the tree since #1662")
 class MissingRulesTest(unittest.TestCase):
     def test_both_refuse_without_rules(self):
         with tempfile.TemporaryDirectory() as d:
@@ -224,8 +243,8 @@ class NoHardcodedRulesTest(unittest.TestCase):
         for c in rules["checks"]:
             names |= set(c.get("names", [])) | set(c.get("headings", [])) | ({c["section"]} if "section" in c else set())
         files = [HERE / "ws-handoff", HERE / "_handoff_rules.py"]
-        for copy in COPIES:
-            files += [copy / "tasks.mjs", copy / "plugin.mjs", copy / "handoff-rules.mjs"]
+        for copy in COPIES:  # #1662 起 DSH 侧不再带这份实现和 tasks.mjs，有一份就查一份
+            files += [copy / n for n in ("tasks.mjs", "plugin.mjs", "handoff-rules.mjs") if (copy / n).is_file()]
         for f in files:
             text = f.read_text(encoding="utf-8")
             for n in sorted(names):  # 当作节名/判据用的写法：「名」、"名"、'名'、/名|…/；散文里提到这个词不算

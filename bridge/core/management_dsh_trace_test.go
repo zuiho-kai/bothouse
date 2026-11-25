@@ -35,7 +35,7 @@ func captureDSHTrace(t *testing.T) *dshTraceLog {
 	t.Helper()
 	logs := &dshTraceLog{}
 	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	return logs
 }

@@ -62,7 +62,8 @@ def _title(line):
     """一行 wiki 原文 → 短标题：去掉「- 」「经验：」等前缀，不截断。"""
     t = re.sub(r"^[-*\s]+", "", _bare(line))
     t = re.sub(r"^(?:经验|用户定|助手定)[：:]\s*", "", t).replace("**", "").replace("`", "")
-    return t  # 不截断：截 24 字时定案正文会被截没（11-03 实测：立绘那条只剩日期和前半句）
+    return t  # 不截断：推送标题整行照原文（用户 11-03「标题不要截断」；截了定案正文会被截没）
+
 
 _bots_env = os.environ.get("GATE_WIKI_BOTS", "").strip()
 BOTS = Path(_bots_env).expanduser() if _bots_env else None  # bots.json（core/rolewiki.go addRole 写）；没有 = 只查主 wiki
@@ -290,6 +291,17 @@ def _sections(rel, root=None):
     return out
 
 
+def in_history(rel, ln, root=None):
+    """这行在「## 历史」节里：已被新说法取代、原样挪进历史的旧行。不推送，原文留在页里、手动搜得到
+    （用户 11-24「旧的直接把它给它踩一脚，它就滚下去了…再也不存在了」；照 Discourse 的 Unlisted：列表不出、原文还在）。"""
+    sec = ""
+    for n, s in _sections(rel, root):
+        if n > int(ln):
+            break
+        sec = s
+    return sec in OLD_HEADS
+
+
 def cred(rel, ln, line, root=None):
     """这行的可信度标记：【旧】= 历史节里的、或写着「曾以为…→」/「过时」的旧说法；【未核】= 自己标了推测没核的；
     【推论】= 写着推论/推断/判断的。旧说法推的时候排到最后（别的不够五条时才轮得到），未核、推论只加标记、排序不动。"""
@@ -437,6 +449,8 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     shown_th = set()
     weak_of = weak_lines(need, [line for _, _, line in hits])
     for (rel, ln, line), weak in zip(hits, weak_of):  # 按首次出现排页
+        if in_history(rel, ln, root) or (FORUM and FORUM.collapsed(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))):
+            continue  # 被取代挪进历史的、被踩到折叠的不推（#1978）；论坛页和手动搜照样看得到
         th = _thread(rel, line, root)
         if th and th["tid"] in shown_th:
             continue  # 同一帖的别的楼已经推过标题和最高分楼
@@ -448,13 +462,12 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
         if th:
             shown_th.add(th["tid"])
             rows = [dict(r, weak=True) if weak else r for r in _thread_rows(th, rel, root, line, mark)]
-            if rows:
-                for r in rows:  # 旧楼逐条排到最后，新的照常
-                    if "【旧】" in r["text"]:
-                        defer.append((rel, r))
-                    else:
-                        pages[rel]["rows"].append(r)
-                continue
+            for r in rows:  # 旧楼逐条排到最后，新的照常
+                if "【旧】" in r["text"]:
+                    defer.append((rel, r))
+                else:
+                    pages[rel]["rows"].append(r)
+            continue  # 帖里的楼全在历史节或已折叠：整帖不推（#1978）
         fold = FORUM.label(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root)) if FORUM else ""
         row = _row(rel, line, f"{ln}: {fold}{mark}{_title(line)}{exp_tag(rel, line)}", root=root, ln=ln)  # 只给标题+编号，细节自己按行号读；角色 wiki 的条也能投（编号只看这行内容）
         if weak:
@@ -476,6 +489,13 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     items = list(pages.items())
     if len(items) > k and not defer:  # 没有旧说法要沉底：多留的那页不推
         items = items[:k]
+    # 历史词只用于找候选；明确的本句话题不能靠旧话题行占推送额度。
+    # 来源：沿用 rare_toks 的索引实词、FRAG_CH/COMMON 和 PREV_TOKS；无实词的短回复仍用历史。
+    terms = set(search.toks(rare_toks(focus))) if focus else set()
+    if terms:
+        items = [(rel, dict(it, rows=[r for r in it["rows"] if terms & set(search.toks(r["text"]))]))
+                 for rel, it in items]
+        items = [(rel, it) for rel, it in items if it["rows"]]  # 只收紧选定行，不用别页补满
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in items]
 
 
@@ -484,7 +504,10 @@ def _thread(rel, line, root):
     if not FORUM or not hasattr(FORUM, "thread_of"):
         return None
     th = FORUM.thread_of(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))
-    return th if th and len(th.get("floors", [])) > 1 else None
+    if not th:
+        return None
+    # 按模块起的帖（标题「[版块] 对象」，#1978）只有一楼也推帖标题；旧问句标题的单楼帖照旧推这一行
+    return th if len(th.get("floors", [])) > 1 or (th.get("title") or "").startswith("[") else None
 
 
 def _floor_line(cid):
@@ -501,20 +524,13 @@ def _floor_line(cid):
     return None
 
 
-LATEST_SHARE = 2  # 最新楼和推出的那楼至少共用这么多个实词才附带（11-11 重放：共用 0–1 个的附带最新楼几乎都不相干）
-
-
-def _content_toks(line):
-    """一行标题里的实词（去掉带虚字的二字词和常用词，同 rare_toks）。"""
-    return {t for t in search.toks(_title(line)) if not FRAG_CH.search(t) and t not in COMMON}
-
-
 def _thread_rows(th, rel, root, hit=None, mark=""):
-    """楼层帖推「标题 + 最高分楼」；最新一楼不是最高分那楼、说法也不一样时两楼都推（用户 11-07 定的方案）。
-    别的页上的楼写出页路径，编号照旧是那楼自己的 [#编号]，投票记到那一楼。"""
+    """楼层帖推一行「帖标题 [#编号]」，编号是最高分楼（同票取命中那楼）的，投票记到那一楼；楼原文不推（11-23）。
+    别的页上的楼写出页路径。"""
     floors = {f["id"]: f for f in th["floors"]}
     found = [(f, _floor_line(f["id"])) for f in FORUM.floors_ranked(th)]
-    found = [(f, x) for f, x in found if x and is_item(x[2])]
+    found = [(f, x) for f, x in found if x and is_item(x[2]) and not FORUM.collapsed(f["id"])
+             and not in_history(x[0].as_posix(), x[1], Path("/"))]  # 历史节、折叠的楼不推（#1978）
     if not found:
         return []
     top = found[0]
@@ -524,23 +540,16 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
         mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
         if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
             top = mine[0]
-    latest = max(found, key=lambda t: t[0].get("floor", 0))
+    f, (file, n, line) = top
     here = ((root or WIKI) / rel).resolve()
-    out = []
-    # 最新楼只在和推出的那楼讲同一件事时附带：大帖里最新楼常是别的小问题，和本轮无关
-    with_latest = latest[0] is not top[0] and _title(latest[1][2]) != _title(top[1][2]) \
-        and len(_content_toks(latest[1][2]) & _content_toks(top[1][2])) >= LATEST_SHARE
-    for tag, (f, (file, n, line)) in [("最高分楼", top)] + ([("最新楼", latest)] if with_latest else []):
-        where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
-        u, d = FORUM.counts(f["id"])
-        head = f"【帖·{len(floors)}楼】{th.get('title') or ''} " if tag == "最高分楼" else ""
-        fold = FORUM.label(f["id"])
-        fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
-        if "【旧】" in mark and "【旧】" not in fm:
-            fm = "【旧】" + fm
-        out.append(_row(file.as_posix(), line, f"{where}: {fm}{head}{tag}（{f.get('floor', 0)}楼 赞{u} 踩{d}）：{fold}{_title(line)}{exp_tag(rel, line)}",
-                        root=Path("/"), ln=n))
-    return out
+    where = f"{n}" if file.resolve() == here else f"{_shown(file.as_posix(), Path('/'))}:{n}"
+    fm = cred(file, n, line, root)  # 逐楼判：楼本身在历史节或写着「曾以为…→」也算旧
+    if "【旧】" in mark and "【旧】" not in fm:
+        fm = "【旧】" + fm
+    title = th.get("title") or _title(line)  # 帖标题整行，不截（11-07 括号内断开的坏标题清过 619 个）
+    # 只推帖标题 + 那楼的 [#编号]（用户 11-23「我不是说只推标题吗？什么时候改原文了」）；楼的原文按编号存进正文库
+    return [_row(file.as_posix(), line, f"{where}: {fm}{FORUM.label(f['id'])}【帖·{len(floors)}楼】{title}{exp_tag(rel, line)}",
+                 root=Path("/"), ln=n)]
 
 
 def context(req):

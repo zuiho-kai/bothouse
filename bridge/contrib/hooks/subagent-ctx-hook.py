@@ -27,6 +27,12 @@ Any error passes (exit 0): a broken hook must not block the subagent.
 Why 150k (author's measurement over 72 hours, 459 subagents): the most expensive 10% took about 63% of the cost,
 averaging 178 tool calls with contexts above 300k; past ~150k every further step re-reads the whole context and
 cache rewrites dominate, so a fresh subagent with a short handoff is cheaper.
+
+This line is the backstop, not the normal path (#1960): a subagent whose definition sets autoCompactWindow
+(e.g. 153000, which compacts at about 120k: window - 20000 for output - 13000 buffer, Claude Code 2.1.331)
+compacts its own conversation first and carries on, so it does not hand off to a new subagent that re-reads
+everything. The context counted here is the latest message's, so it drops after a compaction. A subagent
+reaches this line only when it has no such window, compaction is off, or it is still too large afterwards.
 """
 import glob
 import json
@@ -36,11 +42,12 @@ import time
 from datetime import datetime
 
 THRESHOLD = 150000  # 来源：作者本机实测（72h 内 459 个子 agent，最贵 10% 占约 63% 花费、上下文 30 万以上），见上方 docstring
+# 这条线是兜底（#1960）：定义里设了 autoCompactWindow 的子 agent 正常先在约 12 万自动压缩、接着干；改这条线要同时看 agent 定义里的窗口，压缩点必须低于它。
 
-TIP = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万）。继续干每一步都要重读整段上下文，很贵。"
+TIP = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万）。正常应先在约 12 万自动压缩，到这里说明没压缩或压完仍超线。继续干每一步都要重读整段上下文，很贵。"
        "现在停下：写一份简短交接，固定三节：做到哪（停点、产出文件在哪）、下一步要动的「文件:行」、「## 地图要补的条目（地图完整路径）」每条「- 符号 文件:行」（#1639：下一棒照这三节直接定位，不重摸代码），作为最终回复立即交付收工，"
        "之后的工具调用会被一律拒绝。剩下的活由主会话开新的子 agent 接着做。")
-DENY = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万），之后的工具调用一律拒绝。"
+DENY = ("【上下文到线】你这个子 agent 的上下文已约 {n} token（≥15 万）。正常应先在约 12 万自动压缩，到这里说明没压缩或压完仍超线，之后的工具调用一律拒绝。"
         "现在停手，不再调工具：写一份简短交接，固定三节：做到哪（停点、产出文件在哪）、下一步要动的「文件:行」、「## 地图要补的条目（地图完整路径）」每条「- 符号 文件:行」（#1639：下一棒照这三节直接定位，不重摸代码），作为最终回复立即交付收工。"
         "剩下的活由主会话开新的子 agent 接着做。")
 

@@ -9,10 +9,12 @@
   python3 forum_threads.py merge <帖A> <帖B…>  # 帖B… 的楼并进帖A，楼层按日期重排
   python3 forum_threads.py move <页#哈希> <帖|new>  # 一楼挪到别的帖，或单独开新帖（错归时用）
   python3 forum_threads.py import <旧 threads.json>  # 把旧版归帖表一次写进 wiki 行尾
+  python3 forum_threads.py regroup <计划.json> [--limit N] [--page 页…]  # 按页把同一对象的帖并成一帖、起「[版块] 对象」标题，只出计划
+  python3 forum_threads.py regroup-apply <计划.json>  # 照计划并帖、换标题，写回 wiki
 
 用户原话（11-07）：「我可以不断的在上面加新回答，就可以减少我们的那个条目跟就是我们的那个帖子的数量」。
 """
-import collections, hashlib, json, os, re, subprocess, sys, tempfile
+import collections, hashlib, json, os, re, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -21,13 +23,31 @@ import forum_scores as fs  # noqa: E402
 import wiki_search  # noqa: E402
 
 MODEL = os.environ.get("FORUM_THREADS_MODEL", "sonnet")  # 沿用第一次归帖（notes/forum-threads-1177/cluster.py MODEL）
+BASE = os.environ.get("FORUM_THREADS_BASE", "")  # 设了就走这个 OpenAI 兼容口（本机 magpie 号池跑 DS，不花钱：用户 11-25「用ds去做，不要钱」）
+ASK_TIMEOUT = 600  # 一批最多等 10 分钟：接口挂住时不让夜间任务一直不退（#1891 agentm 上旧网关挂住实测）
 CANDS = wiki_search.TOP  # 每条给模型看的候选帖数：沿用 wiki_search 前 TOP 行
 
-PROMPT = """记忆论坛里一个帖子问一件事，下面多楼是对这件事的不同回答（新说法、更正、补充都跟在同一帖）。
-下面每条新记忆后面列了几个候选帖。新记忆问的是候选帖里同一件事的，就跟那帖（thread 填它的序号）；
-只是话题相近、问的不是同一件事的，不要硬跟：thread 填 null，并给新帖一个简短的问题式标题（以「？」结尾）和一句描述（讨论什么，不写结论）。
-同一批里几条新记忆问的是同一件事、又没有候选帖可跟的，给它们填同一个新标题。
+# 归帖照 NGA 集中贴（用户 11-24「标题应该是一个功能，一个项目，一个模块」「标题应该类似知乎nga论坛的样子」）：
+# NGA 标题「[集中贴,另开锁删]12.0 至暗之夜 ROLL职业专用」「[心得] 12.1.5…攻略」——方括号版块 + 对象，同一对象只一帖、另开的并回。
+STYLE = """标题写成「[版块] 对象」：版块是它属于的项目或大功能，对象是具体的功能、模块、版本或角色名。
+只写名词，不写问句，不带结论，不写「现在/是否/怎么/每轮有啥」这类话（结论在楼里，会变；标题不变）。
+例：「[bothouse 发版] v0.1.43」「[注入] 小日子页」「[记忆论坛] 票和评分」「[外出定时] 龙娘「想想瑞凤」」。"""
+
+PROMPT = """记忆论坛照 NGA 集中贴：一个帖讲一个功能 / 项目 / 模块，下面每楼是关于它的一条说法（新说法、更正、补充都跟在同一帖，
+新的会把旧的顶下去）。一个对象只开一帖。
+下面每条新记忆后面列了几个候选帖（同页的帖排在前面）。新记忆讲的对象候选帖里已经有了，就跟那帖（thread 填它的序号），
+哪怕问的角度不同；候选帖里没有这个对象，才开新帖：thread 填 null，并给新帖起标题和一句描述（这帖管什么，不写结论）。
+""" + STYLE + """
+同一批里几条新记忆讲同一个对象、又没有候选帖可跟的，给它们填同一个新标题。
 只输出 JSON：{{"assign":[{{"item":<新记忆序号>,"thread":<候选帖序号或 null>,"title":"<thread 为 null 时填>","desc":"<同上>"}}]}}
+
+{items}"""
+
+REGROUP = """记忆论坛要照 NGA 集中贴重新归帖：一个帖讲一个功能 / 项目 / 模块，同一对象的说法都在同一帖的楼里。
+下面是 wiki 页「{page}」上现有的帖（一题一问的旧标题，后面是几楼）。把讲同一个对象的帖分成一组并成一帖，给每组起新标题和一句描述。
+""" + STYLE + """
+每个帖都要出现在且只出现在一组里；讲的对象确实不同的各自一组。
+只输出 JSON：{{"groups":[{{"threads":[<帖序号>…],"title":"<新标题>","desc":"<这帖管什么>"}}]}}
 
 {items}"""
 
@@ -177,9 +197,30 @@ def grams(s):
 
 
 def ask(prompt):
+    if BASE:
+        import urllib.error
+        import urllib.request
+        body = {"model": MODEL, "response_format": {"type": "json_object"},
+                "messages": [{"role": "system", "content": "你只输出 JSON。"}, {"role": "user", "content": prompt}]}
+        if os.environ.get("FORUM_THREADS_EFFORT"):  # DS 默认想很久（一页 4–5 分钟），批量归帖压低
+            body["reasoning_effort"] = os.environ["FORUM_THREADS_EFFORT"]
+        req = urllib.request.Request(BASE.rstrip("/") + "/chat/completions", headers={"Content-Type": "application/json"},
+                                     data=json.dumps(body).encode())
+        for n in range(6):  # 号池 key 按分钟限次数（429，约 1 分钟恢复）：等一分钟再试，不当失败（#1978 全量 8 并发撞满 125 页）
+            try:
+                with urllib.request.urlopen(req, timeout=ASK_TIMEOUT) as r:
+                    txt = json.load(r)["choices"][0]["message"]["content"]
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429 or n == 5:
+                    raise
+                time.sleep(65)
+            except TimeoutError as e:
+                raise subprocess.TimeoutExpired("ask", ASK_TIMEOUT) from e
+        return json.loads(re.search(r"\{.*\}", txt, re.S).group(0)), 0.0
     r = subprocess.run([os.environ.get("CLAUDE_BIN", "claude"), "-p", "--model", MODEL, "--output-format", "json", "--tools", "",
                         "--system-prompt", "你只输出 JSON。", "--setting-sources", ""],
-                       input=prompt, capture_output=True, text=True, cwd=tempfile.gettempdir())
+                       input=prompt, capture_output=True, text=True, cwd=tempfile.gettempdir(), timeout=ASK_TIMEOUT)
     j = json.loads(r.stdout)
     m = re.search(r"\{.*\}", j.get("result", ""), re.S)
     return json.loads(m.group(0)), j.get("total_cost_usd", 0)
@@ -204,12 +245,17 @@ def assign(dry=False):
         menu, blocks = [], []
         for i, cid in enumerate(chunk, 1):
             g = grams(text[cid])
-            best = sorted(range(len(cands)), key=lambda j: -len(g & sig[j]) / (len(sig[j]) ** .5 or 1))[:CANDS]
+            pg = cid.partition("#")[0]  # 同页的帖排前面（页 = 版块，同一对象多半在同页，#1978）
+            best = sorted(range(len(cands)), key=lambda j: (pg not in cands[j].get("pages", ()),
+                                                            -len(g & sig[j]) / (len(sig[j]) ** .5 or 1)))[:CANDS]
             menu.append(best)
             lines = "\n".join(f"  {n}. {cands[j]['title']} —— {cands[j].get('desc', '')}" for n, j in enumerate(best, 1))
             blocks.append(f"新记忆 {i}：{text[cid]}\n候选帖：\n{lines}")
         try:
             res, c = ask(PROMPT.format(items="\n\n".join(blocks)))
+        except subprocess.TimeoutExpired:  # 接口挂住：后面各批也会挂，停下，已归的照写，剩下的下次再来
+            print("TIMEOUT", chunk[0], file=sys.stderr)
+            break
         except Exception as e:  # noqa: BLE001  这批失败就留到下次，不写半份
             print("FAIL", chunk[0], e, file=sys.stderr)
             continue
@@ -242,12 +288,94 @@ def assign(dry=False):
     print(json.dumps({"new": len(new), "joined": joined, "opened": opened, "cost": round(cost, 3), "dry": dry}, ensure_ascii=False))
 
 
+def regroup(out, limit=0, only=None):
+    """一次性重新归帖（#1978）：每页一批，把同页讲同一对象的帖并成一帖、换成「[版块] 对象」标题。
+    只写计划到 out（不改 wiki）；看过再 regroup-apply。limit = 只跑前几页（试跑），only = 只跑这些页。
+    每跑完一页就落盘，out 里已有的页跳过（中断后重跑接着来）；FORUM_THREADS_JOBS 页并发。"""
+    import forum_page
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    posts = {f"{p['page']}#{p['id']}": p for p in forum_page.data()["posts"]}
+    t = load()
+    by_page = collections.defaultdict(list)
+    for th in t["threads"]:
+        if th["floors"]:
+            by_page[th["floors"][0]["id"].partition("#")[0]].append(th)  # 帖归一楼所在的页
+    pages = sorted(by_page, key=lambda pg: -len(by_page[pg]))
+    if only:
+        pages = [pg for pg in pages if pg in only]
+    if limit:
+        pages = pages[:limit]
+    plan = json.loads(Path(out).read_text(encoding="utf-8")) if Path(out).exists() else []
+    done = {g["page"] for g in plan}
+    todo = [pg for pg in pages if pg not in done]
+
+    def one(pg):
+        ths = by_page[pg]
+        items = "\n".join(f"{i}. {th.get('title') or ''} —— {th.get('desc') or ''}（{len(th['floors'])} 楼："
+                          + "；".join((posts.get(f["id"]) or {}).get("title", "")[:40] for f in th["floors"][:3]) + "）"
+                          for i, th in enumerate(ths, 1))
+        res, c = ask(REGROUP.format(page=pg, items=items))
+        got, seen = [], set()
+        for g in res.get("groups", []):
+            nums = [i for i in g.get("threads", []) if isinstance(i, int) and 1 <= i <= len(ths) and i not in seen]
+            seen.update(nums)
+            if nums and g.get("title"):
+                got.append({"page": pg, "tids": [ths[i - 1]["tid"] for i in nums], "title": g["title"],
+                            "desc": g.get("desc") or "", "old": [ths[i - 1].get("title", "") for i in nums]})
+        return got, c
+
+    cost, fail = 0.0, 0
+    with ThreadPoolExecutor(int(os.environ.get("FORUM_THREADS_JOBS") or 1)) as ex:
+        futs = {ex.submit(one, pg): pg for pg in todo}
+        for fu in as_completed(futs):
+            try:
+                got, c = fu.result()
+            except Exception as e:  # noqa: BLE001  这页失败就跳过，重跑时补
+                fail += 1
+                print("FAIL", futs[fu], type(e).__name__, e, file=sys.stderr)
+                continue
+            cost += c
+            plan += got
+            tmp = Path(str(out) + ".tmp")
+            tmp.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, out)
+            print("page", len({g["page"] for g in plan}), futs[fu], len(by_page[futs[fu]]), "->", len(got), flush=True)
+    print(json.dumps({"pages": len(pages), "done": len({g["page"] for g in plan} & set(pages)), "fail": fail,
+                      "groups": len(plan), "cost": round(cost, 3)}, ensure_ascii=False))
+
+
+def regroup_apply(src):
+    """照 regroup 的计划并帖、换标题，写回 wiki（save 只改有变化的页，主 wiki 提交，原行一字不动，只换行尾标注）。"""
+    plan = json.loads(Path(src).read_text(encoding="utf-8"))
+    t = load()
+    by = {th["tid"]: th for th in t["threads"]}
+    n = 0
+    for g in plan:
+        ids = [x for x in g["tids"] if x in by]
+        if not ids:
+            continue
+        if len(ids) > 1:
+            merge(t, ids[0], ids[1:])
+            for x in ids[1:]:
+                by.pop(x, None)
+        by[ids[0]]["title"], by[ids[0]]["desc"] = g["title"], g["desc"]
+        n += 1
+    save(t)
+    print(json.dumps({"groups_applied": n, "threads_after": len(t["threads"])}, ensure_ascii=False))
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if not a:
         sys.exit(__doc__)
     if a[0] == "assign":
         assign(dry="--dry" in a)
+    elif a[0] == "regroup":  # regroup <计划.json> [--limit N] [--page 页…]
+        lim = int(a[a.index("--limit") + 1]) if "--limit" in a else 0
+        only = a[a.index("--page") + 1:] if "--page" in a else None
+        regroup(a[1], lim, only)
+    elif a[0] == "regroup-apply":
+        regroup_apply(a[1])
     elif a[0] == "import":
         old = json.loads(Path(a[1]).read_text(encoding="utf-8"))
         save({"threads": old["threads"]})

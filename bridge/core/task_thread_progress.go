@@ -70,10 +70,12 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 	}
 	return func() *compactProgressWriter {
 		t := e.outputThreadTask(ctx, session)
-		if t == nil || t.ForumPost {
-			// 方案甲 (user 11-16): a forum post keeps conclusions; the steps stay in the workspace.
+		if t == nil {
 			return nil
 		}
+		// A forum post shows its card on top and the work below it, step by step (user 11-25
+		// 「置顶是这些东西嘛，然后下面的话就是类似于claude code 过程中输出了什么东西」);
+		// this replaces 方案甲 (11-16), which kept the steps in the workspace.
 		rc, ok := target.TaskThreadReplyCtx(t)
 		if !ok {
 			return nil
@@ -100,12 +102,8 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 // time order (user 10-30 「我点开这个任务子频道可以看到他具体在干什么东西」). Best effort: a
 // failure is only logged.
 func (e *Engine) postToTaskThread(p Platform, session, text string) {
-	// A forum post is the task's record: its questions and results arrive through
-	// taskForumExitText. A workspace's own notices (「进度已记在任务板」「已报回聊天频道」)
-	// stay in the workspace (#1732, user 11-17 「帖子那边也是一坨屎」).
-	if t := e.outputThreadTask(e.ctx, session); t != nil && t.ForumPost {
-		return
-	}
+	// A forum post gets them too: it is the task's course under its card (user 11-25),
+	// replacing #1732's workspace-only notices.
 	e.postToTaskThreadContext(e.ctx, p, session, text)
 }
 

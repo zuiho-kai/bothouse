@@ -17,7 +17,7 @@ func TestBouncedReportKeepsTheTaskInWork(t *testing.T) {
 	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "#9 装新包", 9); err != nil {
 		t.Fatal(err)
 	}
-	bad := "[report] #9 背景：你让我装新包。\n做了什么：编好了\n要你做的：把新包拷到 /Applications 里替换一下\n我加的：无\n入口自验：\n```\nbuilt ok\n```"
+	bad := "[report] #9 背景：你让我装新包。\n做了什么：编好了\n要你做的：把新包拷到 /Applications 里替换一下\n给你的：无\n我加的：无\n入口自验：\n```\nbuilt ok\n```"
 	res, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, bad)
 	if err != nil {
 		t.Fatalf("bounced exit: %v", err)
@@ -25,7 +25,7 @@ func TestBouncedReportKeepsTheTaskInWork(t *testing.T) {
 	if task, _, _ := e.TeamTask(9); !teamTaskInWork(task.State) {
 		t.Fatalf("#9 after a bounced report = %+v (exit %+v), want still in work", task, res)
 	}
-	good := "[report] #9 背景：你让我装新包。\n做了什么：编好并装上了\n要你做的：没有。\n我加的：无\n入口自验：\n```\ninstalled ok\n```"
+	good := "[report] #9 背景：你让我装新包。\n做了什么：编好并装上了\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：\n```\ninstalled ok\n```"
 	res, err = e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, good)
 	if err != nil {
 		t.Fatalf("the repaired report was refused: %v", err)

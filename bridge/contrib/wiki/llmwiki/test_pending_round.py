@@ -20,6 +20,23 @@ import ingest as I
 
 
 class PendingRound(unittest.TestCase):
+    def test_nightly_offers_oldest_backlog_before_newest_despite_daytime_flag(self):
+        paths = [ROOT / name for name in ('newest.jsonl', 'oldest.jsonl')]
+        for p, at in zip(paths, (2000, 1000)):
+            p.write_text('fixture')
+            os.utime(p, (at, at))
+        db = sqlite3.connect(':memory:')
+        db.executescript('CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);'
+                         'CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);')
+        args = argparse.Namespace(lint=False, nightly=True, pending=False, session=None)
+        with patch.dict(os.environ, WIKI_NEWEST_FIRST='1'), \
+                patch.multiple(I, WIKI=ROOT, WORK=ROOT, QUEUE=ROOT / 'oldest-queue'), \
+                patch.object(I, 'state', return_value=db), patch.object(I, 'ready', return_value=paths), \
+                patch.object(I, 'extract', side_effect=lambda p, start: dict(text='USER: fixture', end=7)), \
+                patch.object(I, 'split_pass'), patch.object(I, 'ingest_batches') as offered:
+            I.run(args, engines=['fake'])
+        self.assertEqual([item['id'] for item in offered.call_args.args[1]], ['oldest', 'newest'])
+
     def test_mixed_record_tail_is_accepted_before_offset_advances(self):
         path = ROOT / "mixed001.jsonl"
         records = [
@@ -31,7 +48,7 @@ class PendingRound(unittest.TestCase):
         path.write_text("".join(json.dumps(r) + "\n" for r in records))
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)
@@ -67,7 +84,7 @@ class PendingRound(unittest.TestCase):
             with self.subTest(pending=pending):
                 db = sqlite3.connect(":memory:")
                 db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                                 "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                                 "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                                  "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                                  "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
                 item = dict(id="retry001", end=1, path=ROOT / "retry.jsonl", title="t",
@@ -119,7 +136,7 @@ class PendingRound(unittest.TestCase):
     def test_pending_yields_and_resumes_without_repeating_accepted_sessions(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         paths = [ROOT / f"sess{n:04d}-tail.jsonl" for n in range(3)]
@@ -183,7 +200,7 @@ class PendingRound(unittest.TestCase):
         end = path.stat().st_size
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         args = argparse.Namespace(lint=False, nightly=False, pending=True, session=None)

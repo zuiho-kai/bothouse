@@ -140,6 +140,52 @@ class BgrunTest(unittest.TestCase):
         self.assertEqual(self.wait_file(self.run_dir() / "exit").strip(), "0")
         self.wait_file(self.calls)
 
+    def wait_calls(self, n):
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            if self.calls.exists() and len(self.calls.read_text().splitlines()) >= n:
+                return [json.loads(l) for l in self.calls.read_text().splitlines()]
+            time.sleep(0.05)
+        self.fail(f"expected {n} wake calls")
+
+    def test_two_successes_in_one_session_wake_once(self):
+        # #1972: the first success waits for the other run of the same session; the last one wakes for both.
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 0.3").returncode, 0)
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 1.5").returncode, 0)
+        calls = self.wait_calls(1)
+        time.sleep(1.0)
+        calls = [json.loads(l) for l in self.calls.read_text().splitlines()]
+        self.assertEqual(len(calls), 1)
+        prompt = calls[0][calls[0].index("--prompt") + 1]
+        self.assertIn("先结束的", prompt)
+        self.assertFalse(list((self.home / ".bothouse/runs").glob("*/wake-held")))
+
+    def test_failure_wakes_at_once(self):
+        # A non-zero exit is not held even while another run of the session is still going.
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 2").returncode, 0)
+        self.assertEqual(self.run_cli("/bin/sh", "-c", "sleep 0.3; exit 4").returncode, 0)
+        calls = self.wait_calls(1)
+        self.assertIn("退出码 4", calls[0][calls[0].index("--prompt") + 1])
+        self.assertEqual(len(self.wait_calls(2)), 2)
+
+    def test_wake_entry_for_other_launchers(self):
+        # #1972：本机 zsh 版 bgrun 结束时调 bgrun --wake <运行目录> <退出码>，同样按会话攒着
+        root = self.home / ".bothouse/runs"
+        live, done = root / "a", root / "b"
+        for d in (live, done):
+            d.mkdir(parents=True)
+            (d / "session").write_text("test:workspace\n")
+            (d / "log").write_text("")
+        (live / "pid").write_text(f"{os.getpid()}\n")
+        (done / "exit").write_text("0\n")
+        env = dict(self.env, CC_SESSION_KEY="test:workspace")
+        subprocess.run([str(HERE / "bgrun"), "--wake", str(done), "0"], env=env, check=True, timeout=10)
+        self.assertTrue((done / "wake-held").exists())
+        self.assertFalse(self.calls.exists())
+        (live / "exit").write_text("0\n")
+        subprocess.run([str(HERE / "bgrun"), "--wake", str(live), "0"], env=env, check=True, timeout=10)
+        calls = self.wait_calls(1)
+        self.assertIn("先结束的：运行号 b", calls[0][calls[0].index("--prompt") + 1])
 
 if __name__ == "__main__":
     unittest.main()

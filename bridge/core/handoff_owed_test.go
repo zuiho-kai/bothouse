@@ -73,7 +73,7 @@ func TestHandoffBlockListsOwedFromRecords(t *testing.T) {
 			t.Fatalf("handoff lacks %q:\n%s", want, b)
 		}
 	}
-	for _, bad := range []string{"已经跑过的", "别的角色的", "别的频道的", "#22", "#23"} {
+	for _, bad := range []string{"已经跑过的", "别的角色的", "别的频道的", "#22 ", "#23 "} { // trailing space: a random [#22…] hash id must not match
 		if strings.Contains(b, bad) {
 			t.Fatalf("handoff has %q:\n%s", bad, b)
 		}

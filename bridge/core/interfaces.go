@@ -446,6 +446,13 @@ type BoardPoster interface {
 	UpsertBoard(ctx context.Context, sessionKey, messageID, content string, live bool) (string, error)
 }
 
+// ChatNotePoster keeps one plain notice message in the chat of sessionKey (the team states ①等你定
+// and ②停了, team_chat_state.go): messageID "" posts a new one, move deletes messageID and posts at the
+// bottom, otherwise messageID is edited in place. Returns where the notice now lives. Never pins or pings.
+type ChatNotePoster interface {
+	PostChatNote(ctx context.Context, sessionKey, messageID, content string, move bool) (string, error)
+}
+
 // BoardRemover deletes a board message this bot posted earlier, so a bot that
 // is no longer the lead does not leave a stale board behind. A message that is
 // already gone counts as removed. A board that can never be deleted (e.g. it

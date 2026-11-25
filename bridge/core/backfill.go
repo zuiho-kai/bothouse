@@ -371,13 +371,34 @@ var backfillDownload = func(u string) ([]byte, error) {
 // saved in the background where the agent saves live attachments (SaveFilesToDisk), so a big
 // file never holds up the turn; the note names the directory. Failures go into the note and
 // never stop the turn.
+//
+// #1097 (11-24): this bot's own posts are skipped. The lead sent a draft with `bothouse send
+// --file`, its next turn read 「附件 … 正在后台下载到 …」 for that post, and it took the draft for
+// one not yet in the channel. Its own attachments are named as already posted, not downloaded.
 func (e *Engine) backfillAttachments(ms []ChannelHistoryMessage, budget int) ([]string, []ImageAttachment) {
-	picked := downloadImages(ms, budget)
+	others := make([]ChannelHistoryMessage, len(ms))
+	for i, m := range ms {
+		others[i] = m
+		if m.IsSelf {
+			others[i].Attachments = nil
+		}
+	}
+	picked := downloadImages(others, budget)
 	workDir := e.attachmentWorkDir()
 	notes := make([]string, len(ms))
 	var images []ImageAttachment
 	for i, m := range ms {
 		var parts []string
+		if m.IsSelf {
+			if len(m.Attachments) > 0 {
+				names := make([]string, len(m.Attachments))
+				for j, a := range m.Attachments {
+					names[j] = a.FileName
+				}
+				notes[i] = "（你自己发的附件 " + strings.Join(names, "、") + "，已在频道里，没有再下载）"
+			}
+			continue
+		}
 		pk := picked[i]
 		if len(pk.images) > 0 {
 			parts = append(parts, fmt.Sprintf("附图 %d 张（已随本条附上）", len(pk.images)))

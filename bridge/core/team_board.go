@@ -137,6 +137,8 @@ func (e *Engine) runTeamBoard(gen uint64) {
 		}
 		// The task forum shows the same board, in the same pass (team_task_forum.go).
 		e.syncTaskForum()
+		// ①等你定 / ②停了 in the chat itself (team_chat_state.go).
+		e.updateTeamChatStates(time.Now())
 	}
 }
 

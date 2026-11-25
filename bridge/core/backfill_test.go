@@ -311,3 +311,41 @@ func TestChannelBackfill_MarksAgeOfOldMessages(t *testing.T) {
 		t.Fatalf("head must say these came before the current message:\n%s", got)
 	}
 }
+
+// #1097 (11-24): a file this bot posted (bothouse send --file) is not downloaded again as if it had
+// come in; the note says it is already in the channel. Another member's file still is.
+func TestChannelBackfill_SkipsOwnAttachments(t *testing.T) {
+	var hits sync.Map
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Store(r.URL.Path, true)
+		_, _ = w.Write([]byte("doc"))
+	}))
+	defer srv.Close()
+	now := time.Now()
+	att := func(name string) []ChannelHistoryAttachment {
+		return []ChannelHistoryAttachment{{URL: srv.URL + "/" + name, FileName: name, ContentType: "text/markdown"}}
+	}
+	p := &historyPlatform{history: []ChannelHistoryMessage{
+		{ID: "100", Author: "zuiho", Content: "旧的", Time: now},
+		{ID: "101", Author: "C酱", IsBot: true, IsSelf: true, Content: "定稿", Time: now, Attachments: att("final.md")},
+		{ID: "102", Author: "zuiho", Content: "我的稿子", Time: now, Attachments: att("mine.md")},
+	}}
+	e := NewEngine("test", &workDirAgent{dir: t.TempDir()}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	session := e.sessions.GetOrCreateActive("discord:c1")
+	session.SetLastSeenMsgID("100")
+	got, _, ok := e.channelBackfill(p, &Message{ChannelID: "c1", MessageID: "103", Content: "看看"}, session)
+	if !ok {
+		t.Fatal("backfill should succeed")
+	}
+	if !strings.Contains(got, "你自己发的附件 final.md，已在频道里") || strings.Contains(got, "附件 final.md 正在后台下载") {
+		t.Fatalf("own attachment must be named as posted, not downloaded:\n%s", got)
+	}
+	if !strings.Contains(got, "附件 mine.md 正在后台下载") {
+		t.Fatalf("another member's file must still be saved:\n%s", got)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, hit := hits.Load("/final.md"); hit {
+		t.Fatal("own attachment was downloaded")
+	}
+}

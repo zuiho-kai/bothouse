@@ -67,13 +67,14 @@ func TestBackgroundRunWatchEntries(t *testing.T) {
 	previous := watchCheckAfter()
 	SetTeamWatchCheckAfter(time.Second)
 	defer SetTeamWatchCheckAfter(previous)
+	// #1972: a live run is running work however quiet; only the run its timeout ended lets the watch nudge.
 	for _, tc := range []struct {
 		name, timeout string
-		output        bool
+		output, idle  bool
 	}{
-		{"silent-unlimited", "0", false},
-		{"output-long", "5", true},
-		{"silent-timeout", "1", false},
+		{"silent-unlimited", "0", false, false},
+		{"output-long", "5", true, false},
+		{"silent-timeout", "1", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, _, p := exitFixture(t, nil)
@@ -123,11 +124,11 @@ func TestBackgroundRunWatchEntries(t *testing.T) {
 			w := newHandoffWatch(e)
 			w.tick(time.Now())
 			got := handoffsOf(e, "discord:ws1")[0]
-			if got.Nudged == tc.output {
-				t.Fatalf("output=%v: nudged=%v", tc.output, got.Nudged)
+			if got.Nudged != tc.idle {
+				t.Fatalf("%s: nudged=%v", tc.name, got.Nudged)
 			}
 			wantNudges := 0
-			if !tc.output {
+			if tc.idle {
 				wantNudges = 1
 			}
 			if sent := p.sentTo("discord:ws1"); len(sent) != wantNudges {
@@ -137,8 +138,8 @@ func TestBackgroundRunWatchEntries(t *testing.T) {
 			e.updateIdle(idleAssignment{"discord:ws1", got, false}, func(row *TeamHandoff) { row.Idle = got.Idle })
 			e.fireIdleWake(idleAssignment{"discord:ws1", got, false})
 			idle := handoffsOf(e, "discord:ws1")[0].Idle
-			if (idle.Wakes == 0) != tc.output {
-				t.Fatalf("output=%v: idle=%+v", tc.output, idle)
+			if (idle.Wakes == 0) == tc.idle {
+				t.Fatalf("%s: idle=%+v", tc.name, idle)
 			}
 			if tc.name == "silent-timeout" {
 				if raw, err := os.ReadFile(filepath.Join(dir, "exit")); err != nil || strings.TrimSpace(string(raw)) != "142" {

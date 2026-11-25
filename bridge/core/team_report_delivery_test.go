@@ -776,7 +776,7 @@ func TestReportRecoveryPreservesSourceAuthorization(t *testing.T) {
 			}, failSends: 2}
 			e.platforms = []Platform{p}
 			item := &teamTaskBoardItem{ID: 46, What: "报告恢复"}
-			body := "[report] #46 背景：报告恢复\n做了什么：完成比较\n要你做的：没有\n我加的：无"
+			body := "[report] #46 背景：报告恢复\n做了什么：完成比较\n要你做的：没有\n给你的：无\n我加的：无"
 			e.postExitHeadline(ctx, p, "discord:chat1", "chat1", "ws1", "橘", team.ExitKindReport, body, exitWSKey, item.ID, "报告恢复", item)
 			if got := p.sentTo("discord:chat1"); len(got) != 0 {
 				t.Fatalf("rejected output unexpectedly sent: %v", got)

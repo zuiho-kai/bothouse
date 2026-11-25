@@ -92,7 +92,7 @@ func TestTeamModeRulesInEveryPrompt(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	exitSay(e, p, exitWSKey, "ws1", "开始")
 	prompt := inputPrompt(t, a)
-	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "预计超过 10 分钟", "谁接活谁这一轮写交接", "问话小活直接答，不表态", "跑 `ws-handoff <交接文件> \"<任务>\"`", "不算开子 agent", "叫你派活给队友：最终回复里 @ 她，首行不写【接】", "只做一件活，没空的就新开", "多步骤自己做的活先开公开任务卡", "同团队同平台成员", "在新频道默认可派", "团队外成员才请用户发", "`/bind <队友项目名>`", "机器人自己发的 /bind 不生效", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "ws-up --ask", "[report]", "参照实现、底分支写在交活的地方", "「无（新建）」", "填 ref、base", "改公共接口的那份先合", "每 10 分钟前推一次半成品分支", "「自验：」", "「选项与推荐：」", "提问先到主角色", "ws-forward --ask-user <类别>", "方向、花钱、需要用户看的成品、权限确认", "在发布包上验", "不派代码审查和方案审稿", "先跑 core 测试，过了再合", "在用户实际入口走一遍", "整点只做发版、重启和真实入口验证", "真实配置的副本（去掉密钥）", "回到改前配置"} {
+	for _, want := range []string{"[团队模式规矩", "聊天频道要保持畅通", "预计超过 10 分钟", "谁接活谁这一轮写交接", "问话小活直接答，不表态", "跑 `ws-handoff <交接文件> \"<任务>\"`", "不算开子 agent", "叫你派活给队友：最终回复里 @ 她，首行不写【接】", "只做一件活，没空的就新开", "多步骤自己做的活先开公开任务卡", "同团队同平台成员", "在新频道默认可派", "团队外成员才请用户发", "`/bind <队友项目名>`", "机器人自己发的 /bind 不生效", "拿不准的设定", "主角色拿不准也一样", "写的人不验收自己的活", "派活方式：混合", "ws-up --ask", "[report]", "参照实现、底分支写在交活的地方", "「无（新建）」", "填 ref、base", "改公共接口的那份先合", "每 10 分钟前推一次半成品分支", "「自验：」", "「选项与推荐：」", "提问先到主角色", "ws-forward --ask-user <类别>", "方向、花钱、需要用户看的成品、权限确认", "在发布包上验", "审稿分大小", "小修自动检查过就合", "留一名非作者只读审再合", "先跑 core 测试", "在用户实际入口走一遍", "整点只做发版、重启和真实入口验证", "真实配置的副本（去掉密钥）", "回到改前配置"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("team rules missing %q in %q", want, prompt)
 		}
@@ -113,8 +113,8 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
-	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无\n入口自验：在聊天频道发了一条\n```\nsent ok\n```")
 	inputWait(t, func() bool { return e.heldReportFor(7) != nil })
 	if got := p.sentTo("discord:chat1"); len(got) != 0 {
 		t.Fatalf("held report reached the chat before the lead passed it: %q", got)
@@ -124,7 +124,7 @@ func TestWorkspaceReportForwardsOnly(t *testing.T) {
 	}
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
 	fwd := p.sentTo("discord:chat1")[0]
-	if fwd != "📬「第一阶段」\n\n【背景】你让我做这件事。\n\n【做了什么】第一阶段做完\n\n【要你做的】没有。\n\n【我加的】无" || askRef.MatchString(fwd) {
+	if fwd != "③做完【第一阶段】第一阶段做完" || askRef.MatchString(fwd) { // #1965: result only, background in the post
 		t.Fatalf("report forward = %q", fwd)
 	}
 	if n := len(e.teamExit.asks); n != 0 {
@@ -158,10 +158,10 @@ func TestWorkspaceExitDefaultResolverUsesRecordedWorkspaces(t *testing.T) {
 	exitBoardItem(t, e, 7, "第一阶段")
 	exitSay(e, p, exitWSKey, "ws1", "开工")
 	inputPrompt(t, a)
-	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
-	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n我加的：无")
+	inputDone(a, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无")
+	exitByCommand(t, e, exitWSKey, "[report] #7 背景：你让我做这件事。\n第一阶段做完\n要你做的：没有。\n给你的：无\n我加的：无")
 	inputWait(t, func() bool { return len(p.sentTo("discord:chat1")) == 1 })
-	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "📬") || !strings.Contains(fwd, "第一阶段做完") {
+	if fwd := p.sentTo("discord:chat1")[0]; !strings.HasPrefix(fwd, "③做完") || !strings.Contains(fwd, "第一阶段做完") {
 		t.Fatalf("forward = %q", fwd)
 	}
 }

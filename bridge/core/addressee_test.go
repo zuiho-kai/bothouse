@@ -23,6 +23,9 @@ func TestAddresseeTable(t *testing.T) {
 		{"回复别人", Message{Content: "可以", AddressedOther: true}, AddrOther},
 		{"行首点名本角色", Message{Content: "橘，看看", Mentioned: true}, AddrSelf},
 		{"行首点名队友", Message{Content: "龙娘，看看", AddressedOther: true}, AddrOther},
+		{"私密频道呼叫别人", Message{Content: "<@sub> 看看", PrivateRoom: true, AddressedOther: true}, AddrOther},
+		{"私密频道呼叫本角色", Message{Content: "<@me> 看看", PrivateRoom: true, Mentioned: true}, AddrSelf},
+		{"私密频道未指明", Message{Content: "在吗", PrivateRoom: true}, AddrSelf},
 		{"谁都没叫", Message{Content: "大家好"}, AddrNone},
 	}
 	type outcome struct{ starts, gate bool }

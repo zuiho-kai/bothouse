@@ -282,7 +282,7 @@ func (e *Engine) composeTurnResult(turn *interactiveTurn, r *interactiveResult) 
 
 	// #699 C: a reply is not a handback (WorkspaceExit is), nothing is forwarded from it.
 	if !isSilent && turn.input == nil {
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventMessageSent,
 			SessionKey: turn.sessionKey,
 			Platform:   p.Name(),
@@ -867,7 +867,7 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 			}
 			err := e.recordTurnAgent(queued.authorization, turn.replyAgent)
 			if err == nil {
-				err = as.Send(queuedPrompt, queued.messageID, queued.images, queued.files)
+				err = as.Send(queuedPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 			}
 			turn.session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 			nextSend <- err

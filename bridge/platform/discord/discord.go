@@ -1019,6 +1019,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 
 	// Capture the human's addressee before adding quoted content (core addresseeOf decides).
 	otherCalled := !fromBot && callsOther(m, p.selfID(), botRoleID)
+	selfCalledByName := !fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.selfID())...)
 
 	// Prepend the replied-to message's content and images so the agent has context.
 	if m.ReferencedMessage != nil {
@@ -1032,7 +1033,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		MessageID: m.ID,
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
-		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.selfID())...)), FromBot: fromBot, Direct: direct,
+		Mentioned: mentioned || selfCalledByName, FromBot: fromBot, Direct: direct,
 	}
 	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
 	msg.AddressedOther = !msg.Mentioned && otherCalled
@@ -2411,7 +2412,7 @@ func asTestPerson(m *discordgo.MessageCreate, hooks map[string]bool) {
 func isBotNotice(content string) bool {
 	c := strings.TrimSpace(content)
 	// ❌ and ⚠️ are not filtered (maomao fork): a teammate's error must reach the lead.
-	for _, prefix := range []string{"📬", "✅", "↪", "⏳", "🔄", "⏹", "⏸"} {
+	for _, prefix := range []string{"📬", "✅", "↪", "⏳", "🔄", "⏹", "⏸", "①", "②", "③"} {
 		if strings.HasPrefix(c, prefix) {
 			return true
 		}

@@ -21,10 +21,10 @@ func TestReportMentionsAssigner(t *testing.T) {
 		assigner *teamTaskAssigner
 		want     string
 	}{
-		{"person", &teamTaskAssigner{ID: "1498", Name: "zz", Kind: CallerHuman}, "<@1498> 📬「验证报告」"},
-		{"timer", &teamTaskAssigner{ID: "timer", Name: "timer", Kind: CallerScheduled}, "<@777> 📬「验证报告」"},
-		{"bot", &teamTaskAssigner{ID: "555", Name: "G哥", Kind: CallerBot}, "<@777> 📬「验证报告」"},
-		{"old row", nil, "📬「验证报告」"},
+		{"person", &teamTaskAssigner{ID: "1498", Name: "zz", Kind: CallerHuman}, "<@1498> ③做完【验证报告】"},
+		{"timer", &teamTaskAssigner{ID: "timer", Name: "timer", Kind: CallerScheduled}, "<@777> ③做完【验证报告】"},
+		{"bot", &teamTaskAssigner{ID: "555", Name: "G哥", Kind: CallerBot}, "<@777> ③做完【验证报告】"},
+		{"old row", nil, "③做完【验证报告】"},
 	} {
 		for _, timeout := range []bool{false, true} {
 			t.Run(tc.name+map[bool]string{false: "/pass", true: "/timeout"}[timeout], func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestMentionAssignerSwitchOff(t *testing.T) {
 			t.Fatalf("pass = %d %s", w.Code, w.Body)
 		}
 		got := p.sentTo("discord:chat1")
-		if len(got) != 1 || !strings.HasPrefix(got[0], "📬") || strings.Contains(got[0], "<@") {
+		if len(got) != 1 || !strings.HasPrefix(got[0], "③") || strings.Contains(got[0], "<@") {
 			t.Fatalf("post = %q, want the report without any mention", got)
 		}
 	})

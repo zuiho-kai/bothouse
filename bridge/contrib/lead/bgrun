@@ -14,15 +14,64 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gate"))
 from datadir import data_dir
 
 
+def _alive(run):
+    """同目录另一条运行还没结束：没写 exit、监督进程还在。"""
+    if (run / "exit").exists():
+        return False
+    try:
+        os.kill(int((run / "pid").read_text().strip()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _hold_or_collect(run, rc, session):
+    """同会话多条后台命令只叫醒一次（#1972：每条结束都叫醒一轮，大多只回 NO_REPLY）。
+    成功退出、同会话还有别的在跑（或刚结束、正要叫醒）的就攒着，返回 None；
+    否则返回要一起报的、先前攒着的运行。失败的不攒，当场叫醒。在锁里判，两条同时结束也只叫一次。"""
+    held = []
+    for other in run.parent.iterdir():
+        if other == run or not other.is_dir():
+            continue
+        try:
+            if (other / "session").read_text().strip() != session:
+                continue
+        except OSError:
+            continue
+        if (other / "wake-held").exists():
+            held.append(other)
+            continue
+        if rc == 0 and (_alive(other) or (
+                (other / "exit").exists() and not (other / "wake").exists()
+                and time.time() - (other / "exit").stat().st_mtime < 60)):
+            return None
+    return held
+
+
 def wake_session(run, rc):
     session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION")
     if not (os.environ.get("CC_PROJECT") and session) or os.environ.get("BGRUN_NO_WAKE") == "1":
         return
     bridge = os.environ.get("CC_BIN") or shutil.which("bothouse") or "/Applications/Bothouse.app/Contents/MacOS/bothouse"
+    import fcntl
+    lock = os.open(run.parent, os.O_RDONLY)  # 锁运行目录本身，不在里面另放锁文件
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        held = _hold_or_collect(run, rc, session.strip())
+        if held is None:
+            (run / "wake-held").write_text(f"{rc}\n")
+            with (run / "wake").open("a") as output:
+                output.write("攒着：同会话还有后台命令在跑，最后一条结束时一起叫醒\n")
+            return
+        for other in held:
+            other.joinpath("wake-held").unlink(missing_ok=True)
+    finally:
+        os.close(lock)
     # 来源：原 bgrun 叫醒接口保留末尾 15 行。
     tail = subprocess.check_output(["tail", "-n", "15", str(run / "log")], text=True, errors="replace")
+    earlier = "".join(f"先结束的：运行号 {o.name}，退出码 {(o / 'exit').read_text().strip()}，日志 {o}/log\n" for o in held)
     message = (f"后台命令结束：运行号 {run.name}，退出码 {rc}（142 是超时）。日志 {run}/log 末尾：\n"
-               f"{tail}\n接着做依赖它的下一步；没有要做的就不用回复。")
+               f"{tail}\n{earlier}接着做依赖它的下一步；没有要做的就不用回复。")
     with (run / "wake").open("a") as output:
         for attempt in range(1, 4):  # 来源：原 bgrun 叫醒最多 3 次。
             try:
@@ -85,6 +134,10 @@ def main():
     args = sys.argv[1:]
     if args and args[0] == "--supervise":
         supervise(Path(args[1]), int(args[2]), int(args[3]), args[4:])
+        return 0
+    if args[:1] == ["--wake"] and len(args) == 3:
+        # 别的启动器（本机 zsh 版 bgrun）结束时只借这里的叫醒：同会话攒着、最后一条叫一次（#1972）
+        wake_session(Path(args[1]), int(args[2]))
         return 0
     # The bridge resolves this once for both the runner and the idle watcher.
     # Outside a bridge session, use the collaboration tools' existing resolver.

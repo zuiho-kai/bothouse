@@ -175,7 +175,7 @@ def copy_like(text):
         if _copy_word(m.group(1)):
             return m.group(1).strip()
     m = COPY_LABEL.search(text)
-    return m.group(0).strip() if m else copy_prose(text)
+    return m.group(0).strip() if m else None  # 散文段不再算文案稿（误拦太多，用户 11-23 要干掉）
 
 
 def ref_section(text):
@@ -692,7 +692,7 @@ def compare_problems(files, msg):
 def main():
     payload = json.loads(sys.stdin.read() or "{}")
     if payload.get("hook_event_name") == "Stop":
-        reply_gate(payload)
+        # 聊天回复不再过文案检查（用户 11-23「这个什么傻逼东西能把他干掉」）：只要提到「帖子」「标题」就被当成文案稿拦下换掉。
         return
     if payload.get("tool_name") != "Bash":
         return
@@ -724,6 +724,14 @@ def main():
         why = copy_gate_why(text, "要发的这段文字", cwd)
         if why:
             problems.append(why)
+    if problems:
+        # #1924：文案检查（#1907）是新检查，回放没达标前只记录不拦（gate_trials.py，记录 gate-trials.json）
+        spec = importlib.util.spec_from_file_location("gate_trials", os.path.join(HERE, "gate_trials.py"))
+        gt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gt)
+        if not gt.may_block("copy-gate"):
+            gt.log("copy-gate", "observe", payload.get("session_id"), " ".join(problems), cmd)
+            problems = []
     cli = payload.get("hook_cli") or ""
     known, reads = (False, [])
     if cli not in ("gemini", "grok"):

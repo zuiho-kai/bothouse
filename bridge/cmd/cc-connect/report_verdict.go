@@ -19,6 +19,7 @@ func reportVerdictCommand(action string, args []string, stdout, stderr io.Writer
 	id := fs.Int("id", 0, "task-board item id of the held [report]")
 	verdict := fs.String("verdict", "", "pass: item by item, which expectation is met and the evidence")
 	reason := fs.String("reason", "", "reject: why it goes back")
+	carried := fs.Bool("with-files", false, "pass: the caller sends the deliverables with this pass itself")
 	dataDir := fs.String("data-dir", "", "data directory (default: $CC_DATA_DIR or ~/.bothouse)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -31,7 +32,7 @@ func reportVerdictCommand(action string, args []string, stdout, stderr io.Writer
 	if action == "reject" {
 		text = *reason
 	}
-	body, _ := json.Marshal(map[string]any{"board": *id, "action": action, "verdict": text})
+	body, _ := json.Marshal(map[string]any{"board": *id, "action": action, "verdict": text, "carried": *carried})
 	resp, err := apiPost(resolveSocketPath(*dataDir), "/team/report/verdict", body)
 	if err != nil {
 		fmt.Fprintf(stderr, "report %s: %v\n", action, err)

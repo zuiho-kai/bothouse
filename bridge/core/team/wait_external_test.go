@@ -61,3 +61,19 @@ func TestWaitExternalUnreadLogged(t *testing.T) {
 		t.Fatalf("read line logged: %q", buf.String())
 	}
 }
+
+// #1976: a 「等外部：」 that waits on the user's word goes back to the workspace; real outside waits pass.
+func TestWaitUserProblems(t *testing.T) {
+	user := "[report] #1929 背景：x\n等外部：用户 12:34 原话「太久了直接截止」，主角色转达“别重跑，等用户下一步”；他说继续就分开跑。\n再看：11-25 10:00"
+	if p := WaitUserProblems(user); len(p) != 1 || !strings.Contains(p[0], "ws-up --ask") {
+		t.Fatalf("user wait = %q", p)
+	}
+	if v := JudgeExit(ExitKindReport, user, false, func(int) bool { return true }, 99); len(v.Problems) == 0 || v.Legacy {
+		t.Fatalf("judge must bounce it even after the bounce limit: %+v", v)
+	}
+	for _, ok := range []string{"[report] #1 背景：x\n等外部：八张卡都被占了\n再看：2h", "[report] #1 背景：x\n做完了"} {
+		if p := WaitUserProblems(ok); p != nil {
+			t.Fatalf("%q bounced: %q", ok, p)
+		}
+	}
+}

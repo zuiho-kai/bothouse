@@ -725,7 +725,7 @@ func TestApplyWizardCloudWebWikiCron(t *testing.T) {
 	if s := steps["wiki hook"]; !s.OK || !strings.Contains(s.Detail, "agent.closed") {
 		t.Fatalf("wiki hook = %+v (all %+v)", s, res.Steps)
 	}
-	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) != len(wikiCronJobs)+2 {
+	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) != len(wikiCronJobs)+3 {
 		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
 	}
 	if s := steps["forum cron"]; !s.OK || !strings.Contains(s.Detail, "added") {
@@ -734,7 +734,17 @@ func TestApplyWizardCloudWebWikiCron(t *testing.T) {
 	if s := steps["forum reflector cron"]; !s.OK || !strings.Contains(s.Detail, "added") {
 		t.Fatalf("forum reflector cron = %+v", s)
 	}
+	if s := steps["forum threads cron"]; !s.OK || !strings.Contains(s.Detail, "added") {
+		t.Fatalf("forum threads cron = %+v", s)
+	}
 	for _, j := range cron.jobs {
+		if j.Description == threadsCronDesc {
+			if j.SessionKey != cloudWebWikiSession || !j.Mute || !strings.Contains(j.Exec, "forum_threads.py") ||
+				!strings.HasSuffix(j.Exec, "assign") || !strings.Contains(j.Exec, "GATE_WIKI="+cmdQuote(mainWiki)) || j.CronExpr != "0 6 * * *" {
+				t.Fatalf("threads job = %+v", j)
+			}
+			continue
+		}
 		if j.Description == reflectorCronDesc {
 			if j.SessionKey != cloudWebWikiSession || !j.Mute || !strings.Contains(j.Exec, "reflector.py") ||
 				!strings.Contains(j.Exec, mainWiki) || !strings.Contains(j.Exec, "CODEMAP_DIR=") || j.CronExpr != "* * * * *" {

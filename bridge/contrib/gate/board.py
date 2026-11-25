@@ -766,6 +766,7 @@ def pause(nid, why=None):
         for k in ("backlog", "backlog_why", "backlog_at", "backlog_by"):
             hit.pop(k, None)  # 暂停比待办更急：从待办挪出来，进团队板的「暂停」块
         hit.pop("unpruned", None)  # 重新暂停：自动收起按新的暂停重新判（见 prune_why）
+        hit.pop("wait_until", None)  # 新的暂停盖掉旧的到点重试（#1976：改成等用户后还挂着 09:59 重跑）；wait_external 随后重设
         ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
         if ws:
             hit["ws_was"] = ws
@@ -877,6 +878,23 @@ def wait_external(nid, why, minutes, prs=()):
                                      f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
     return hit
 
+
+def wait_stop(nid, why):
+    """到点重试按配置错停下（桥调，core/team_wait_external.go，#1972）：撤 wait_until，原因换成「重试停了：<why>」。
+    条目照旧暂停、不再是「等外部」，桥不再到点重派；聊天频道照「②停了」说一次，等人说接着做再派。没有这条返回 False。"""
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return False
+        hit.pop("wait_until", None)
+        hit["pause_why"] = f"重试停了：{why}"[:200]
+        hit["paused"] = hit["at"] = _now()
+        hit["paused_at"] = _bound_now()
+        hit["status"] = f"重试停了：{why}"[:120]
+        _write(cur)
+        event(nid, "paused", hit, hit["pause_why"])
+    return True
 
 # ---- 等外部时盯合并请求（#1855）----
 # 用户 11-21「你到底有没有搞事件触发」：#1850 交回「等外部，再看 1h」后，审核人两次新意见、检查 20 秒变红都没人知道。
@@ -2459,6 +2477,11 @@ def main(argv):
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
+        elif cmd == "wait-stop" and len(argv) == 3:
+            # 等外部到点重试是配置错（ws-handoff 退出码 3），再试也一样：停重试，条目留暂停（#1972）
+            if not wait_stop(int(argv[1].lstrip("#")), argv[2].strip()):
+                sys.exit(f"没有 #{argv[1]}，先跑 board 看编号")
+            print("已停到点重试，等人说接着做")
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
             restored = take_back(nid)  # 自动收起或已完成的：先拿回暂停态，再照常恢复

@@ -394,6 +394,7 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 	}
 	teamWorkspaceStore.mu.Unlock()
 	delegated := e.watchDelegatedWork(key)
+	bgStarted := e.backgroundRunStartedSince(key, since)
 	for _, a := range assignments {
 		if !returned && e.boardReleaseHeld(a.key, a.h) {
 			// Saved for a central release: an interrupted or failed turn is not a failure, and the
@@ -427,11 +428,15 @@ func (e *Engine) watchTurnEnded(p Platform, key, text string, worked, failed, sc
 				return
 			}
 			h.Idle.Fails = 0
-			if worked && !h.Idle.Reported {
+			if worked && !h.Idle.Reported && (h.Idle.Wakes == 0 || bgStarted) {
 				// Work in progress clears the wake count. A watch that already reported (two
 				// unanswered wakes, or the failure limit above) is not restarted by a later turn
 				// that happened to run tools: it stays reported, and only its handback closes it
 				// (11-05 #96: clearing it let the same assignment wake and escalate forever).
+				// A turn the watch woke clears it only by starting background work: tools alone
+				// are not progress there (#1972: every woken turn ran tools, the count went back
+				// to 0, and 176 of 184 wakes were first wakes; #1807 was woken 35 times in 15
+				// minutes and never escalated).
 				h.Idle.Wakes = 0
 			}
 		})
@@ -466,9 +471,10 @@ func (e *Engine) backgroundRunsDir() string {
 	return filepath.Join(e.dataDir, "runs")
 }
 
-// watchBackgroundRun returns a live, self-waking run with recent output. The log
-// is created at launch, giving a silent command one existing watch window to
-// start producing output. A live supervisor alone is never progress.
+// watchBackgroundRun returns a live, self-waking run of session key. A live run is running work
+// however quiet its log (#1972: a long build or test that prints nothing for ten minutes was taken
+// for idle and the workspace was told to carry on; 11-20 #1807 got 35 such wakes in 15 minutes).
+// bgrun's own timeout ends a hung command, and its exit wakes the session.
 func (e *Engine) watchBackgroundRun(key string) string {
 	dir := e.backgroundRunsDir()
 	runs, err := os.ReadDir(dir)
@@ -484,17 +490,34 @@ func (e *Engine) watchBackgroundRun(key string) string {
 		if _, err := os.Stat(filepath.Join(d, "exit")); err == nil {
 			continue
 		}
-		// Source: use the configured handoff progress window, not a separate timeout.
-		log, err := os.Stat(filepath.Join(d, "log"))
-		if err != nil || time.Since(log.ModTime()) >= watchCheckAfter() {
-			continue
-		}
 		raw, _ := os.ReadFile(filepath.Join(d, "pid"))
 		if pid, _ := strconv.Atoi(strings.TrimSpace(string(raw))); pid > 0 && processAlive(pid) {
 			return r.Name()
 		}
 	}
 	return ""
+}
+
+// backgroundRunStartedSince: session key started a bgrun run at or after since (the turn's start).
+func (e *Engine) backgroundRunStartedSince(key string, since time.Time) bool {
+	if since.IsZero() {
+		return false
+	}
+	runs, err := os.ReadDir(e.backgroundRunsDir())
+	if err != nil {
+		return false
+	}
+	for _, r := range runs {
+		d := filepath.Join(e.backgroundRunsDir(), r.Name())
+		session, err := os.ReadFile(filepath.Join(d, "session"))
+		if err != nil || teamChatKey(strings.TrimSpace(string(session))) != key {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(d, "cmd")); err == nil && !fi.ModTime().Before(since) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) armIdleWake(a idleAssignment) {

@@ -180,9 +180,10 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 		}
 		seen[k] = true
 		out = append(out, f)
-		if len(out) == exitFileMax {
-			break
-		}
+	}
+	out = filterExitVideos(out)
+	if len(out) > exitFileMax {
+		out = out[:exitFileMax]
 	}
 	return out
 }
@@ -191,11 +192,111 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 // at screenshots and samples); documents (text, pdf, office, html…) do not. User 11-10: 「附件除非是没有
 // 对应的链接才给我，否则不用给我」 — a report with a release page, PR or web link carries no documents.
 func isMediaFile(f FileAttachment) bool {
+	if isVideoFile(f) {
+		return true
+	}
 	mt := strings.ToLower(f.MimeType)
 	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.FileName))); ext != "" {
 		mt = strings.ToLower(ext)
 	}
-	return strings.HasPrefix(mt, "image/") || strings.HasPrefix(mt, "audio/") || strings.HasPrefix(mt, "video/")
+	return strings.HasPrefix(mt, "image/") || strings.HasPrefix(mt, "audio/")
+}
+
+func isVideoFile(f FileAttachment) bool {
+	mt := strings.ToLower(f.MimeType)
+	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.FileName))); ext != "" {
+		mt = strings.ToLower(ext)
+	}
+	if strings.HasPrefix(mt, "video/") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(f.FileName)) {
+	case ".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi":
+		return true
+	}
+	return false
+}
+
+var (
+	exitVideoRoleRe = regexp.MustCompile(`(?:样片带段号|带段号样片|带段号|段号版|段号|审片版|审片|成片|正片|成品|样片)`)
+	exitVideoSepRe  = regexp.MustCompile(`[-_\s.]+`)
+)
+
+func isReviewSampleVideo(name string) bool {
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	return strings.Contains(base, "带段号") || strings.Contains(base, "段号") || strings.Contains(base, "审片")
+}
+
+func isFinalVideo(name string) bool {
+	if isReviewSampleVideo(name) {
+		return false
+	}
+	base := strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))
+	return strings.Contains(base, "成片") || strings.Contains(base, "正片") || strings.Contains(base, "成品")
+}
+
+func exitVideoPriority(name string) int {
+	switch {
+	case isReviewSampleVideo(name):
+		return 0
+	case isFinalVideo(name):
+		return 3
+	case strings.Contains(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)), "样片"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+func exitVideoEditionKey(name string) string {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(name), filepath.Ext(name)))
+	base = exitVideoRoleRe.ReplaceAllString(base, "-")
+	var parts []string
+	for _, tok := range exitVideoSepRe.Split(base, -1) {
+		switch tok {
+		case "", "2160p", "1440p", "1080p", "720p", "480p", "4k", "send":
+			continue
+		}
+		parts = append(parts, tok)
+	}
+	return strings.Join(parts, "-")
+}
+
+// filterExitVideos keeps at most one video per edition when posting to the chat channel (#2130):
+// when a final cut (成片) is present, numbered review samples (样片带段号) stay local in held-media
+// for review instead of being posted alongside the final cut.
+func filterExitVideos(files []FileAttachment) []FileAttachment {
+	best := map[string]int{}
+	hasFinal := false
+	for i, f := range files {
+		if !isVideoFile(f) {
+			continue
+		}
+		if isFinalVideo(f.FileName) {
+			hasFinal = true
+		}
+		k := exitVideoEditionKey(f.FileName)
+		prev, ok := best[k]
+		if !ok || exitVideoPriority(f.FileName) > exitVideoPriority(files[prev].FileName) {
+			best[k] = i
+		}
+	}
+	if len(best) == 0 {
+		return files
+	}
+	out := make([]FileAttachment, 0, len(files))
+	for i, f := range files {
+		if isVideoFile(f) {
+			if best[exitVideoEditionKey(f.FileName)] != i {
+				continue
+			}
+			if hasFinal && isReviewSampleVideo(f.FileName) {
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // postExitFiles posts files in the chat channel after the exit's text. Best effort.
@@ -223,8 +324,11 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, files []
 	slog.Info("team exit: documents posted with the exit", "files", sent, "of", len(files))
 }
 
-// reportDocClaimRe: the user-facing part says a document was produced.
-var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|report|document)|(报告|文档|文稿|纪要|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
+// reportDocClaimRe: the user-facing part says a document was produced. #1097 (11-24): #1095
+// said 「两份英文定稿和中文对照已写好」 and named the file in its details; 定稿 was not a document
+// word here, so the lead's `ws-pass --verdict` released the text alone and the user asked
+// 「你没发我定稿啊 为什么会这样」. Drafts (定稿, 初稿, 终稿, 稿子, 稿件) count as documents.
+var reportDocClaimRe = regexp.MustCompile(`(?i)(产出|写了|写好|写成|写完|整理了|整理好|生成了?|出了|完成了?|交付|附上)[^。\n]{0,16}(报告|文档|文稿|报文|纪要|手册|说明书|方案稿|草稿|定稿|初稿|终稿|稿子|稿件|report|document)|(报告|文档|文稿|纪要|定稿|初稿|终稿|稿子|稿件|report)[^。\n]{0,6}(已产出|已生成|已写好|已完成|写好了|已出)`)
 
 // reportDeliverableProblems: a report that says it produced a document must carry it — a local
 // file (named, sent, or found through its handoff) or a link. Only when the bridge finds none
@@ -240,4 +344,33 @@ func reportDeliverableProblems(sessionKey, body string, item *teamTaskBoardItem)
 		return nil
 	}
 	return []string{"汇报说「" + m + "」，但没带上成品：本机文件写出完整路径（桥会作为附件一起发到聊天频道），已发到 PR 或网页的写出链接"}
+}
+
+// reportReviewAskRe: the 「要你做的」 part asks the user to look at something (a draft to review, a
+// cut to watch, a sample to pick).
+var reportReviewAskRe = regexp.MustCompile(`审|看|过目|挑|试听|试玩|读一?下|核对`)
+
+// heldReportReviewProblem: why the lead may not pass held report key as text alone, "" when it may.
+// #1097 (11-24): #1095's 「要你做的：审两份定稿」 went out as text, the drafts stayed with the lead
+// (「你没发我定稿啊 为什么会这样」). When 「要你做的」 asks the user to review or look at something, the
+// post must carry it: a file or image that goes out with the text, or a link. The lead attaching
+// files on the same pass (ws-pass <files> --verdict) carries it itself.
+func (e *Engine) heldReportReviewProblem(rec *pendingReport) string {
+	head, _ := team.ExitSplit(rec.Body)
+	todo := team.UserTodo(head)
+	m := reportReviewAskRe.FindString(todo)
+	// #1982 (11-25): #1981 said 「新网页已上线」「要你做的：打开网页看一眼」 with the address only in its
+	// details; the chat gets the four parts (and the 「材料逐条」 block), the details go to the forum
+	// post, so the user asked 「为什么没给我网页？」. A link counts only where the user reads it.
+	if m == "" || exitURLRe.MatchString(head+"\n"+rec.Headline+"\n"+strings.Join(chatItems(rec.Body), "\n")) {
+		return ""
+	}
+	heldReportImages.mu.Lock()
+	n := len(heldReportImages.m[rec.Key]) + len(heldReportImages.files[rec.Key])
+	heldReportImages.mu.Unlock()
+	if n+len(reportNamedImages(rec.Body))+len(exitFilesFor(rec.Session, rec.Body, e.boardItemByID(rec.Board), nil, false)) > 0 {
+		return ""
+	}
+	return "汇报「要你做的」要用户" + m + "（" + truncateStr(todo, 80) + "），但这份汇报没有随交回的文件、图片，贴给用户的那几段里也没有链接（只写在细节里的用户看不到），只放行文字用户收不到要" + m +
+		"的东西：成品在手就带上放行（ws-pass <成品> \"<给用户的话>\" --verdict ...），否则 ws-forward 打回让工作区用 --file 交回成品或把链接写进「要你做的」那几段"
 }

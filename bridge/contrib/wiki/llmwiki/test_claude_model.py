@@ -19,6 +19,12 @@ with patch.dict(os.environ, {"WIKI_DIR": str(ROOT), "WIKI_BRIDGE_CONFIG": str(RO
 class ClaudeModel(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(dir=ROOT))
+        # The block contract freezes against REPO (#1852): a real Git repo with a committed page.
+        (self.root / "log.md").write_text("# log\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "log.md"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=test", "-c", "user.email=test@localhost",
+                        "commit", "-qm", "baseline"], check=True)
         self.usage = self.root / "usage.tsv"
         self.model = "claude-haiku-5-5"
         self.result = {"result": "done", "num_turns": 1, "total_cost_usd": 0.25,

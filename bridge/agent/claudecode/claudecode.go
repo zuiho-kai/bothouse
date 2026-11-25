@@ -1351,14 +1351,36 @@ func (a *Agent) foldSessionProviderEnvLocked(env []string) []string {
 	return env
 }
 
+// compactionEnv keeps the main session from compacting in place while leaving the
+// CLI's auto compaction on, so a subagent whose definition sets autoCompactWindow
+// compacts its own conversation and carries on (maomao #1960; before that
+// DISABLE_AUTO_COMPACT=1 switched compaction off for the whole process, subagents
+// included, and a subagent that filled its context had to hand off to a new one
+// that re-read everything). Checked against Claude Code 2.1.331:
+//   - CLAUDE_CODE_AUTO_COMPACT_WINDOW: the main session's auto-compact window. The CLI
+//     caps it at the model's own window, so this value means "the whole window": the
+//     threshold is window - min(max output, 20000) - 13000, i.e. about 967k of 1M and
+//     167k of 200k. The bridge starts a fresh context with a handoff well before that
+//     (core.contextFreshLimit: max_context_tokens, at most 70% of the window), so the
+//     main session only reaches the threshold where the bridge does not replace it by
+//     size (a workspace channel, or one turn that grows past it): there the CLI now
+//     compacts once instead of failing with "Prompt is too long".
+//   - CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: idle and sleep compaction only run on a
+//     context at least this large, so they never run.
+//
+// A subagent's autoCompactWindow only lowers the window it inherits, so it still
+// applies under these values. config.toml [env] comes later and can override both.
+// Manual /compact stays.
+var compactionEnv = []string{
+	"CLAUDE_CODE_AUTO_COMPACT_WINDOW=10000000",
+	"CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS=1000000000",
+}
+
 func (a *Agent) runtimeEnvLocked() []string {
 	// configEnv (from config.toml [env]) is lower priority than provider keys or
 	// session-injected vars, but must survive SetSessionEnv calls (which only
 	// overwrite sessionEnv). Prepend it so later entries win on conflict.
-	// DISABLE_AUTO_COMPACT=1: the CLI never compacts in place (auto or idle
-	// compaction); a session that grows large gets a fresh context with a handoff
-	// from the bridge instead (core.freshOnContextSize). Manual /compact stays.
-	env := []string{"DISABLE_AUTO_COMPACT=1"}
+	env := append([]string{}, compactionEnv...)
 	env = append(env, a.configEnv...)
 	env = append(env, a.providerEnvLocked()...)
 	env = append(env, a.sessionEnv...)

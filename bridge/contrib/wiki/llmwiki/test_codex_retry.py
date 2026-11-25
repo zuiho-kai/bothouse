@@ -1,4 +1,4 @@
-"""#848: production connection diagnostics through role wiki main/split/correction calls.
+"""#848 diagnostics under the user's #853 retry policy, through main/split/correction calls.
 Retains isolated fixtures; never invokes a model or changes an installed wiki."""
 from contextlib import ExitStack
 import importlib.util
@@ -29,14 +29,19 @@ class RoleCodexRetry(unittest.TestCase):
         self.m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.m)
         m = self.m
-        m.REPO = m.WORK = m.WIKI = self.root
+        m.REPO = m.WIKI = self.root
+        m.WORK = self.root / '.ingest-work'
         m.LOG, m.USAGE = self.root / 'log', self.root / 'usage.tsv'
+        # Frozen candidates need a real accepted baseline, including the correction-round snapshot.
+        (self.root / '.gitignore').write_text('.ingest*\nlog\nusage.tsv\n')
+        (self.root / 'log.md').write_text('# Log\n')
+        for args in [('init', '-q'), ('config', 'user.name', 'Synthetic Fixture'),
+                     ('config', 'user.email', 'fixture@example.invalid'), ('add', '-A'),
+                     ('commit', '-qm', 'synthetic baseline')]:
+            subprocess.run(['git', *args], cwd=self.root, check=True, capture_output=True)
         m.CODEX_CHAIN, m.AFTER_CODEX = ['fixture-model'], ['forbidden-fallback']
         self.stack.enter_context(patch.object(m.budget, 'remaining', return_value=1500))
-        for name in ('sync_work', 'discard'):
-            self.stack.enter_context(patch.object(m, name))
         self.stack.enter_context(patch.object(m, 'home_state', return_value='unchanged'))
-        self.stack.enter_context(patch.object(m, 'git', return_value=''))
         self.stack.enter_context(patch.object(m.invalidate, 'run'))
         self.acceptance = self.stack.enter_context(patch.object(m, 'acceptance', return_value=''))
         self.stack.enter_context(patch.object(m, 'runner', side_effect=AssertionError('must not fall back')))
@@ -64,7 +69,7 @@ class RoleCodexRetry(unittest.TestCase):
     def production_fixtures(self):
         return sorted((Path(__file__).parent / 'fixtures/codex-connect-429').glob('*.json'))
 
-    def test_three_production_stderr_resume(self):
+    def test_three_production_stderr_retry_fresh(self):
         fixtures = self.production_fixtures()
         self.assertEqual(len(fixtures), 3)
         for fixture in fixtures:
@@ -74,7 +79,9 @@ class RoleCodexRetry(unittest.TestCase):
                 self.calls.clear()
                 self.assertTrue(self.run_pass())
                 self.assertEqual(len(self.calls), 2)
-                self.assertIn('resume', self.calls[1])
+                self.assertNotIn('resume', self.calls[1])
+                self.assertEqual(self.calls[0][self.calls[0].index('-m') + 1],
+                                 self.calls[1][self.calls[1].index('-m') + 1])
 
     def test_no_thread_execs_again(self):
         self.stderr = json.loads(self.production_fixtures()[0].read_text())['stderr']
@@ -83,14 +90,14 @@ class RoleCodexRetry(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertNotIn('resume', self.calls[1])
 
-    def test_quota_and_unfinished_tool_stop(self):
+    def test_quota_and_unfinished_tool_retry_after_discard(self):
         self.stderr = json.loads(self.production_fixtures()[0].read_text())['stderr']
         for error, tool in [('usage limit: quota exhausted', False), (self.error, True)]:
             with self.subTest(error=error, tool=tool):
                 self.error, self.open_tool = error, tool
                 self.calls.clear()
-                self.assertFalse(self.run_pass())
-                self.assertEqual(len(self.calls), 1)
+                self.assertTrue(self.run_pass())
+                self.assertEqual(len(self.calls), 2)
 
     def test_split_and_correction_continue(self):
         self.stderr = json.loads(self.production_fixtures()[0].read_text())['stderr']
@@ -101,7 +108,7 @@ class RoleCodexRetry(unittest.TestCase):
         self.acceptance.side_effect = ['requires a correction', '']
         self.assertTrue(self.run_pass())
         self.assertEqual(len(self.calls), 3)
-        self.assertIn('resume', self.calls[-1])
+        self.assertNotIn('resume', self.calls[-1])
 
     def test_capacity_without_terminal_event_and_gave_up_keep_model_chain(self):
         self.m.CODEX_CHAIN = ['m1', 'm2', 'm3']
@@ -120,9 +127,8 @@ class RoleCodexRetry(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, '\n'.join(map(json.dumps, events)), '')
         with patch.object(self.m, 'engine_run', side_effect=invoke):
             self.assertTrue(self.run_pass())
-        self.assertEqual(len(self.calls), 3)
-        self.assertIn('resume', self.calls[1])
-        self.assertNotIn('resume', self.calls[2])
+        self.assertEqual([c[c.index('-m') + 1] for c in self.calls], ['m1'] * 4 + ['m2'] * 4 + ['m3'])
+        self.assertTrue(all('resume' not in c for c in self.calls))
 
     def test_budget_slots_and_short_remainder(self):
         self.stderr = json.loads(self.production_fixtures()[0].read_text())['stderr']
@@ -133,7 +139,9 @@ class RoleCodexRetry(unittest.TestCase):
         def fail(cmd, **kwargs):
             self.fail_at = len(self.calls) + 1
             return original(cmd, **kwargs)
-        with patch.object(self.m, 'engine_run', side_effect=fail):
+        # A real deadline decreases; retries spend elapsed time rather than fictitious full slots.
+        with patch.object(self.m, 'engine_run', side_effect=fail), \
+                patch.object(self.m, 'round_remaining', side_effect=lambda: 1500 - len(self.calls) * 511):
             self.assertFalse(self.run_pass())
         self.assertEqual(len(self.calls), 1500 // 511)
 

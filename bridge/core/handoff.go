@@ -169,10 +169,10 @@ const defaultFreshWindow = 200000
 
 // contextFreshLimit is the prompt size at which freshOnContextSize starts a new context:
 // max_context_tokens (default 300000), capped at 70% of the window the CLI reported. The
-// bridge turns the CLIs' own auto compaction off where it can (Claude Code
-// DISABLE_AUTO_COMPACT, DSH compaction-basic auto: false); Codex cannot turn it off and
-// compacts at 90% of its window. Either way the fresh context must come before the
-// window is full. No window reported: 85% of the prompt size at which the CLI last
+// bridge keeps the CLIs' own auto compaction away from the main session where it can
+// (Claude Code: window set to the model's whole window, see claudecode.compactionEnv;
+// DSH compaction-basic auto: false); Codex cannot turn it off and compacts at 90% of
+// its window. Either way the fresh context must come before the window is full. No window reported: 85% of the prompt size at which the CLI last
 // compacted this session on its own (older CLI / bridge versions still did), else 70%
 // of a 200k window. Large windows (1M) keep the configured limit.
 func (e *Engine) contextFreshLimit(id string, h *SessionHandoff) int {
@@ -255,9 +255,8 @@ func (e *Engine) imageBloat(agent Agent, session *Session) (string, int) {
 
 // isPromptTooLongError matches the provider's context-overflow turn failure, e.g.
 // new-api/DeepSeek's 400 {"code":11115,"msg":"prompt is too long: 1227574 tokens > 1048576 maximum"}
-// (jingyu, 2026-10-19), or Claude Code's "Prompt is too long", which it now reports
-// instead of compacting (DISABLE_AUTO_COMPACT). Resuming that session can only fail
-// the same way.
+// (jingyu, 2026-10-19), or Claude Code's "Prompt is too long" (what it reports when it
+// cannot or may not compact). Resuming that session can only fail the same way.
 func isPromptTooLongError(msg string) bool {
 	return strings.Contains(strings.ToLower(msg), "prompt is too long")
 }

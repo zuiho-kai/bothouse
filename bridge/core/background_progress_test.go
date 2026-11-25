@@ -25,17 +25,19 @@ func trackedRunFixture(t *testing.T, e *Engine, updated time.Time) string {
 	return dir
 }
 
-func TestTrackedBackgroundProgressRequiresRecentOutput(t *testing.T) {
+// #1972: a live command is progress however quiet its log, beyond the native-task renewal cap;
+// one that has ended is not.
+func TestTrackedBackgroundProgressWhileLive(t *testing.T) {
 	for _, renewed := range []int{0, watchMaxBackgroundRenew} {
 		for _, active := range []bool{false, true} {
 			t.Run(strconv.Itoa(renewed)+"/"+strconv.FormatBool(active), func(t *testing.T) {
 				e, p, w, h := watchFixture(t, "", "tracked command")
-				updated := time.Now().Add(-2 * watchCheckAfter())
-				if active {
-					updated = time.Now()
+				dir := trackedRunFixture(t, e, time.Now().Add(-2*watchCheckAfter()))
+				if !active {
+					if err := os.WriteFile(filepath.Join(dir, "exit"), []byte("0\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
 				}
-				trackedRunFixture(t, e, updated)
-				// Fresh output must remain progress beyond the native-task renewal cap.
 				h.Renewed = renewed
 				w.updateHandoff("discord:ws1", h, func(row *TeamHandoff) { row.Renewed = h.Renewed })
 				w.tick(h.Due)
@@ -48,21 +50,22 @@ func TestTrackedBackgroundProgressRequiresRecentOutput(t *testing.T) {
 	}
 }
 
-func TestTrackedBackgroundIdleWakeRequiresRecentOutput(t *testing.T) {
+// #1972: a live command is running work however quiet its log; only its end lets the idle watch wake.
+func TestTrackedBackgroundIdleWakeWaitsForLiveCommand(t *testing.T) {
 	e, _, _, h := watchFixture(t, "", "tracked command")
 	dir := trackedRunFixture(t, e, time.Now().Add(-2*watchCheckAfter()))
 	h.Idle.Ended = time.Now()
 	e.updateIdle(idleAssignment{"discord:ws1", h, false}, func(row *TeamHandoff) { row.Idle = h.Idle })
 	e.fireIdleWake(idleAssignment{"discord:ws1", h, false})
 	got := handoffsOf(e, "discord:ws1")[0]
-	if got.Idle.Wakes != 1 {
-		t.Fatalf("silent live command prevented idle wake: %+v", got.Idle)
+	if got.Idle.Wakes != 0 {
+		t.Fatalf("silent live command was woken as idle: %+v", got.Idle)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "log"), []byte("progress\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "exit"), []byte("0\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	e.fireIdleWake(idleAssignment{"discord:ws1", got, false})
-	if after := handoffsOf(e, "discord:ws1")[0]; after.Idle.Wakes != got.Idle.Wakes {
-		t.Fatalf("new output did not suppress idle wake: %+v", after.Idle)
+	if after := handoffsOf(e, "discord:ws1")[0]; after.Idle.Wakes != 1 {
+		t.Fatalf("ended command still suppressed idle wake: %+v", after.Idle)
 	}
 }

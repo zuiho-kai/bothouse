@@ -101,7 +101,8 @@ class RoleWiki(unittest.TestCase):
         self.assertIs(json.loads((self.home / "roles" / "whale" / "wiki" / "config.json").read_text())["dream"], False)
 
     def test_setup_from_template(self):
-        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "haiku", "night_engine": "sonnet", "bogus": 1})
+        self.env["WIKI_ENGINES"] = json.dumps({"ingest_engine": "haiku", "night_engine": "agy",
+                                             "agy_model": "gemini-4-hydrogen-medium", "bogus": 1})
         self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管")
         self.assertTrue((self.home / "wiki" / "bin" / "ingest.py").exists())
         self.assertIn("exists", self.run_py("setup_wiki.py", "--main", str(self.home / "wiki"), "主管"))
@@ -109,7 +110,9 @@ class RoleWiki(unittest.TestCase):
         self.run_py("setup_wiki.py", "whale")
         w = self.home / "roles" / "whale" / "wiki"
         cfg = json.loads((w / "config.json").read_text())
-        self.assertEqual((cfg["ingest_engine"], cfg["night_engine"]), ("haiku", "sonnet"))
+        self.assertEqual(cfg["codex_models"], ["gpt-6-luna", "gpt-6.1-sol"])
+        self.assertEqual((cfg["ingest_engine"], cfg["night_engine"]), ("haiku", "agy"))
+        self.assertEqual(cfg['agy_model'], 'gemini-4-hydrogen-medium')
         self.assertNotIn("bogus", cfg)
         self.assertTrue((w / ".gitignore").exists() and (w / "experiences" / "README.md").exists())
         self.assertIn("exists", self.run_py("setup_wiki.py", "whale"))
@@ -235,7 +238,7 @@ class SubWikiPy(unittest.TestCase):
         return self.got()
 
     def test_nightly_runs_each_bot(self):
-        self.assertEqual(self.run_py("nightly"), [
+        self.assertCountEqual(self.run_py("nightly"), [
             "juzi --nightly", "whale --nightly",
         ])
 
@@ -254,7 +257,7 @@ class SubWikiPy(unittest.TestCase):
             p = self.tmp / "wikis" / b / "bin/ingest.py"
             p.write_text(f"import os\nopen({str(self.calls)!r}, 'a').write("
                          "os.environ['MANUALS_ROLE'] + ' ' + os.environ['BOTHOUSE_DATA_DIR'] + '\\n')\n")
-        self.assertEqual(self.run_py("nightly"), [f"proj-juzi {self.dir.parent.resolve()}", f"proj-whale {self.dir.parent.resolve()}"])
+        self.assertCountEqual(self.run_py("nightly"), [f"proj-juzi {self.dir.parent.resolve()}", f"proj-whale {self.dir.parent.resolve()}"])
 
     def test_hook_detaches(self):
         env = dict(self.env, CC_HOOK_PROJECT="proj-whale", CC_HOOK_AGENT_SESSION_ID="nope")
@@ -289,7 +292,7 @@ class SubWikiPy(unittest.TestCase):
         lines = "\n".join(f"{b} proj-{b} {self.tmp / 'wikis' / b}" for b in ("juzi", "whale"))
         (self.dir / "export.py").write_text(
             "import sys\nif '--list' in sys.argv: print(" + repr(lines) + ")\nelse: sys.exit(1)\n")
-        self.assertEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
+        self.assertCountEqual(self.run_py("nightly"), ["juzi --nightly", "whale --nightly"])
         self.assertIn("export failed (ingest still runs on what is there)", (self.dir / "sub-wiki.log").read_text())
 
 

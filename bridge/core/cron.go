@@ -20,24 +20,31 @@ import (
 
 // CronJob represents a persisted scheduled task.
 type CronJob struct {
-	ID          string    `json:"id"`
-	Project     string    `json:"project"`
-	SessionKey  string    `json:"session_key"`
-	CronExpr    string    `json:"cron_expr"`
-	Prompt      string    `json:"prompt"`
-	Exec        string    `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt unless Poll
-	Poll        bool      `json:"poll,omitempty"`     // Exec is a check script: empty stdout = no change, otherwise wake the agent with Prompt + output (cron_poll.go)
-	WorkDir     string    `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
-	Description string    `json:"description"`
-	Enabled     bool      `json:"enabled"`
-	Silent      *bool     `json:"silent,omitempty"`       // suppress start and ⏳ progress notifications; nil = use global default
-	Mute        bool      `json:"mute,omitempty"`         // suppress ALL messages (start + result); job runs silently
-	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
-	Mode        string    `json:"mode,omitempty"`         // permission mode override for this job; "" = use project default
-	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m wait; 0 = no limit; >0 = minutes
-	CreatedAt   time.Time `json:"created_at"`
-	LastRun     time.Time `json:"last_run,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
+	ID         string `json:"id"`
+	Project    string `json:"project"`
+	SessionKey string `json:"session_key"`
+	CronExpr   string `json:"cron_expr"`
+	// Event: an event trigger (cron_event.go). The job runs when an event of this name fires
+	// ("workspace.report", "member.*", "*"), not on CronExpr, which stays empty. Match narrows it:
+	// every key must equal the event's field of that name.
+	Event       string            `json:"event,omitempty"`
+	Match       map[string]string `json:"match,omitempty"`
+	Prompt      string            `json:"prompt"`
+	Exec        string            `json:"exec,omitempty"`     // shell command; mutually exclusive with Prompt unless Poll
+	Poll        bool              `json:"poll,omitempty"`     // Exec is a check script: empty stdout = no change, otherwise wake the agent with Prompt + output (cron_poll.go)
+	WorkDir     string            `json:"work_dir,omitempty"` // working directory for exec; empty = agent work_dir
+	Description string            `json:"description"`
+	Enabled     bool              `json:"enabled"`
+	Silent      *bool             `json:"silent,omitempty"`       // suppress start and ⏳ progress notifications; nil = use global default
+	Mute        bool              `json:"mute,omitempty"`         // suppress ALL messages (start + result); job runs silently
+	SessionMode string            `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	Mode        string            `json:"mode,omitempty"`         // permission mode override for this job; "" = use project default
+	TimeoutMins *int              `json:"timeout_mins,omitempty"` // nil = default 30m wait; 0 = no limit; >0 = minutes
+	CreatedAt   time.Time         `json:"created_at"`
+	LastRun     time.Time         `json:"last_run,omitempty"`
+	LastError   string            `json:"last_error,omitempty"`
+
+	eventEnv []string // the firing event as CC_EVENT* variables, for an exec run (cron_event.go)
 }
 
 // IsShellJob returns true if the job runs a shell command directly.
@@ -328,8 +335,8 @@ func EditedCronJob(job *CronJob, field string, value any) (*CronJob, error) {
 	if err := validateCronJob(&edited); err != nil {
 		return nil, err
 	}
-	if _, err := cron.ParseStandard(edited.CronExpr); err != nil {
-		return nil, fmt.Errorf("invalid cron expression %q: %w", edited.CronExpr, err)
+	if err := checkCronSchedule(&edited); err != nil {
+		return nil, err
 	}
 	return &edited, nil
 }
@@ -350,6 +357,16 @@ func updateJobField(job *CronJob, field string, value any) error {
 	case "cron_expr":
 		if v, ok := value.(string); ok {
 			job.CronExpr = v
+			return nil
+		}
+	case "event":
+		if v, ok := value.(string); ok {
+			job.Event = strings.TrimSpace(v)
+			return nil
+		}
+	case "match":
+		if m, ok := parseEventMatch(value); ok {
+			job.Match = m
 			return nil
 		}
 	case "prompt":
@@ -428,6 +445,9 @@ type CronScheduler struct {
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	runs     sync.WaitGroup
+
+	eventMu      sync.Mutex
+	eventRunning map[string]bool // event job ID → a run it started is still going (cron_event.go)
 }
 
 func NewCronScheduler(store *CronStore) *CronScheduler {
@@ -437,6 +457,8 @@ func NewCronScheduler(store *CronStore) *CronScheduler {
 		engines: make(map[string]*Engine),
 		entries: make(map[string]cron.EntryID),
 		stopCh:  make(chan struct{}),
+
+		eventRunning: make(map[string]bool),
 	}
 }
 
@@ -474,7 +496,7 @@ func (cs *CronScheduler) UsesNewSession(job *CronJob) bool {
 func (cs *CronScheduler) Start() error {
 	jobs := cs.store.List()
 	for _, job := range jobs {
-		if job.Enabled {
+		if job.Enabled && !job.IsEventJob() {
 			if err := cs.scheduleJob(job); err != nil {
 				slog.Warn("cron: failed to schedule job", "id", job.ID, "error", err)
 			}
@@ -505,8 +527,8 @@ func (cs *CronScheduler) AddJob(job *CronJob) error {
 		return err
 	}
 	job.SessionMode = NormalizeCronSessionMode(job.SessionMode)
-	if _, err := cron.ParseStandard(job.CronExpr); err != nil {
-		return fmt.Errorf("invalid cron expression %q: %w", job.CronExpr, err)
+	if err := checkCronSchedule(job); err != nil {
+		return err
 	}
 	if err := cs.store.Add(job); err != nil {
 		return err
@@ -582,7 +604,7 @@ func (cs *CronScheduler) UpdateJob(id string, field string, value any) error {
 	}
 
 	// Check if reschedule is needed
-	needsReschedule := field == "cron_expr" || field == "enabled"
+	needsReschedule := field == "cron_expr" || field == "enabled" || field == "event"
 
 	if needsReschedule {
 		// Remove current schedule
@@ -639,6 +661,10 @@ func (cs *CronScheduler) scheduleJob(job *CronJob) error {
 	// Remove existing schedule if any
 	if old, ok := cs.entries[job.ID]; ok {
 		cs.cron.Remove(old)
+		delete(cs.entries, job.ID)
+	}
+	if job.IsEventJob() {
+		return nil // runs when its event fires (FireEvent), not on a clock
 	}
 
 	jobID := job.ID
@@ -714,7 +740,13 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		}
 	}
 
-	slog.Info("cron: executing job", "id", job.ID, "project", job.Project, "manual", manual, "prompt", truncateStr(job.Prompt, 60))
+	// Shell jobs run every minute or so; their routine start/finish lines
+	// filled a quarter of the log. Failures stay at Error below.
+	runLog := slog.Info
+	if job.IsShellJob() {
+		runLog = slog.Debug
+	}
+	runLog("cron: executing job", "id", job.ID, "project", job.Project, "manual", manual, "prompt", truncateStr(job.Prompt, 60))
 
 	done := make(chan error, 1)
 	go func() {
@@ -746,7 +778,7 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		slog.Error("cron: job failed", "id", job.ID, "manual", manual, "error", err)
 		cs.notifyFailure(job, err)
 	} else {
-		slog.Info("cron: job completed", "id", job.ID, "manual", manual)
+		runLog("cron: job completed", "id", job.ID, "manual", manual)
 	}
 }
 

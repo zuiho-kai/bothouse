@@ -20,6 +20,62 @@ import ingest as I
 
 
 class Deadline(unittest.TestCase):
+    def test_nightly_shares_its_budget_with_ingest_and_later_stages(self):
+        import argparse
+        import manuals
+        from contextlib import ExitStack
+        clock = [1000.0]
+        seen = []
+
+        def ingest(*args, **kwargs):
+            self.assertEqual(float(os.environ["WIKI_STOP_AT"]), 1060.0)
+            clock[0] = 1061.0
+            seen.append("ingest")
+
+        def stage(name):
+            def check(*args, **kwargs):
+                seen.append(name)
+                self.assertTrue(I.budget.stopped(), name)
+                with patch.object(I, "_model_pass", side_effect=AssertionError("no new model after soft stop")):
+                    self.assertFalse(I.model_pass(name, "no work"))
+            return check
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, CC_JOB_DEADLINE="", WIKI_STOP_AT=""))
+            stack.enter_context(patch.object(I, "log"))
+            stack.enter_context(patch.object(I.time, "time", side_effect=lambda: clock[0]))
+            stack.enter_context(patch.object(I, "NIGHT_BUDGET", 60))
+            stack.enter_context(patch.object(I, "WIKI", I.WIKI))
+            stack.enter_context(patch.object(I, "state"))
+            stack.enter_context(patch.object(I, "run", side_effect=ingest))
+            for name in ("split_pass", "dream", "review", "restate_pass"):
+                stack.enter_context(patch.object(I, name, side_effect=stage(name)))
+            stack.enter_context(patch.object(manuals, "role_project", return_value=""))
+            stack.enter_context(patch.object(manuals, "WIKI", manuals.WIKI))
+            stack.enter_context(patch.object(manuals, "run", side_effect=stage("manuals")))
+            I.nightly(argparse.Namespace())
+        self.assertEqual(seen, ["ingest", "split_pass", "dream", "manuals", "review", "restate_pass"])
+
+    def test_nightly_preserves_earlier_soft_and_scheduler_deadlines(self):
+        import argparse
+        import manuals
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, CC_JOB_DEADLINE="1030", WIKI_STOP_AT="1020"))
+            stack.enter_context(patch.object(I, "log"))
+            stack.enter_context(patch.object(I.time, "time", return_value=1000))
+            stack.enter_context(patch.object(I, "NIGHT_BUDGET", 60))
+            stack.enter_context(patch.object(I, "WIKI", I.WIKI))
+            for name in ("state", "run", "split_pass", "dream", "review", "restate_pass"):
+                stack.enter_context(patch.object(I, name))
+            stack.enter_context(patch.object(manuals, "role_project", return_value=""))
+            stack.enter_context(patch.object(manuals, "WIKI", manuals.WIKI))
+            call = stack.enter_context(patch.object(manuals, "run"))
+            I.nightly(argparse.Namespace())
+            self.assertEqual(os.environ["WIKI_STOP_AT"], "1020")
+            self.assertEqual(os.environ["CC_JOB_DEADLINE"], "1030")
+            self.assertEqual(call.call_args.kwargs["deadline"], 1020)
+
     def test_real_sub_wiki_entry_yields_then_resumes_other_roles(self):
         root = Path(tempfile.mkdtemp(prefix="entry-", dir=ROOT))
         (root / "llmwiki").mkdir()
@@ -121,13 +177,16 @@ else:
         Its model child and that child's own child must both stop when the deadline cuts the call."""
         root = Path(tempfile.mkdtemp(prefix="dsh-", dir=ROOT))
         beat = root / "beat"
+        grandchild_src = repr("import time\nend = time.monotonic() + 15\nwhile time.monotonic() < end: open("
+                              + repr(str(root / "grandchild")) + ", 'a').write('x'); time.sleep(0.05)")
+        beat_path = repr(str(beat))
         child = f"""import subprocess, sys, time
 # the grandchild keeps no pipe of its own (a shared stdout would hide the EOF) and stops by itself at 15s, so a
 # run that fails to reap it cannot hang the suite
-p = subprocess.Popen([sys.executable, "-c", {repr("import time\nend = time.monotonic() + 15\nwhile time.monotonic() < end: open(" + repr(str(root / "grandchild")) + ", 'a').write('x'); time.sleep(0.05)")}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+p = subprocess.Popen([sys.executable, "-c", {grandchild_src}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 end = time.monotonic() + 15
 while time.monotonic() < end:
-    open({repr(str(beat))}, 'a').write('x')
+    open({beat_path}, 'a').write('x')
     time.sleep(0.05)
 """
         started = time.monotonic()
@@ -149,12 +208,21 @@ while time.monotonic() < end:
 
     @unittest.skipIf(os.name == "nt", "the dsh stream uses a POSIX process group")
     def test_dsh_finishes_tree_cleanup_before_return_and_rollback(self):
-        """#648: EOF/parent exit must not let rollback race the timeout thread's SIGKILL."""
+        """#648: EOF/parent exit must not let candidate saving race timeout cleanup."""
         import json
         import signal
         import threading
 
         root = Path(tempfile.mkdtemp(prefix="dsh-rollback-", dir=ROOT))
+        # The product now freezes a real Git baseline before it invokes a model.
+        (root / "README.md").write_text("# Synthetic deadline fixture\n")
+        (root / ".gitignore").write_text("*\n!README.md\n")
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=Synthetic Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "synthetic deadline baseline"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Synthetic Fixture"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=root, check=True)
         helper = root / "model.py"
         helper.write_text('''import os, signal, subprocess, sys, time
 from pathlib import Path
@@ -164,6 +232,7 @@ root = Path(sys.argv[2])
 signal.alarm(15)  # bounded fake model even if the test fails
 if sys.argv[3:4] != ['child']:
     sys.stdin.read()
+    (root / 'README.md').write_text('# Interrupted synthetic output\\n')
     (root / 'parent.pid').write_text(str(os.getpid()))
     subprocess.Popen([sys.executable, __file__, sys.argv[1], sys.argv[2], 'child'],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -182,6 +251,7 @@ else:
             time.sleep(0.01)
 ''')
         real_stream, real_killpg, real_timer = I._dsh_stream, os.killpg, threading.Timer
+        real_save = I.save_block_candidate
         release_cleanup = threading.Event()
         timers, snapshots, thread_errors = [], {}, []
 
@@ -212,8 +282,9 @@ else:
             snapshot("stream_return")  # no wait after return before checking the lock
             return result
 
-        def rollback():
-            snapshot("rollback_start")  # actual _one_pass failure/rollback boundary
+        def retain(*args):
+            snapshot("candidate_save")  # actual _one_pass interrupted-output boundary
+            return real_save(*args)
 
         def run(args):
             self.assertFalse(I._model_pass("timeout-reap", "task", engine="dsh"))
@@ -222,23 +293,24 @@ else:
             with patch.multiple(I, WIKI=root, WORK=root, REPO=root, HOME=root, LOG=root / "ingest.log",
                                 USAGE=root / "usage.tsv", LOCK=root / ".ingest.lock", QUEUE=root / "queue",
                                 MIRROR_TO=None, pull=lambda: None, prepare=lambda: None, push=lambda: None,
-                                sync_work=lambda: None, discard=rollback, run=run, _dsh_stream=stream), \
+                                sync_work=lambda: None, save_block_candidate=retain, run=run, _dsh_stream=stream), \
                     patch.dict(I.CFG, dsh_cmd=[sys.executable, str(helper), str(Path(I.__file__).parent), str(root)],
                                dsh_patch=""), \
                     patch.object(I, "dsh_env", return_value={"PATH": os.defpath}), \
                     patch.object(threading, "Timer", side_effect=timer), patch.object(os, "killpg", side_effect=killpg), \
                     patch.object(threading, "excepthook", side_effect=lambda args: thread_errors.append(str(args.exc_value))), \
                     patch.object(sys, "argv", [str(Path(I.__file__)), "--pending"]), \
-                    patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 3), WIKI_STOP_AT="", WIKI_INGEST=""):
+                    patch.object(I, "ROUND_SECONDS", 2), \
+                    patch.dict(os.environ, CC_JOB_DEADLINE=str(time.time() + 6), WIKI_STOP_AT="", WIKI_INGEST=""):
                 I.main()  # real ingest entry, dsh runner, stream and failed-pass path; no live data/model
                 snapshot("ingest_return")
                 with (root / ".ingest.lock").open("a") as lock:
                     I.filelock.lock(lock, False)
                 snapshots["ingest_lock_free"] = True
-            print("DSH return/rollback boundary: " + json.dumps(snapshots, sort_keys=True), flush=True)
+            print("DSH return/candidate boundary: " + json.dumps(snapshots, sort_keys=True), flush=True)
             self.assertEqual(thread_errors, [], "timeout callback crashed instead of completing cleanup")
             self.assertEqual(snapshots["rc"], 124)
-            for where in ("stream_return", "rollback_start", "ingest_return"):
+            for where in ("stream_return", "candidate_save", "ingest_return"):
                 self.assertTrue(snapshots[where]["cleanup_done"], where + ": timeout callback still running")
                 self.assertTrue(snapshots[where]["lock_free"], where + ": TERM-ignoring grandchild still holds lock")
             self.assertEqual(snapshots["stream_return"]["writes"], snapshots["ingest_return"]["writes"])
@@ -366,7 +438,7 @@ else:
     def test_expired_batch_retains_checkpoint_and_does_not_count_failure(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         db.execute("INSERT INTO pending_parts VALUES ('resume', 100, 'accepted-prefix pending-tail', 1)")
@@ -386,11 +458,11 @@ else:
     def test_budget_expires_during_batch_without_advancing_or_counting_failure(self):
         db = sqlite3.connect(":memory:")
         db.executescript("CREATE TABLE ingested(id TEXT PRIMARY KEY, offset INT, at REAL);"
-                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT);"
+                         "CREATE TABLE fails(id TEXT PRIMARY KEY, n INT, offset INT);"
                          "CREATE TABLE reviewed(id TEXT PRIMARY KEY, offset INT, at REAL);"
                          "CREATE TABLE pending_parts(id TEXT PRIMARY KEY, end INT, chunk TEXT, part INT);")
         db.execute("INSERT INTO pending_parts VALUES ('resume', 100, 'accepted-prefix pending-tail', 1)")
-        db.execute("INSERT INTO fails VALUES ('resume', 1)")
+        db.execute("INSERT INTO fails (id, n) VALUES ('resume', 1)")
         item = dict(id="resume", end=100, _chunk="accepted-prefix pending-tail", _part=1,
                     path=ROOT / "resume.jsonl", title="t", cwd="/test", date="2026-11-10", text="pending-tail")
         def timeout(*args, **kwargs):

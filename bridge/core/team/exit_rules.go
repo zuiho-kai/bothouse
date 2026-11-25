@@ -43,6 +43,11 @@ type teamExitRulesDoc struct {
 		MissingTodo       string `json:"missing_todo"`
 		AddedRe           string `json:"added_re"`
 		MissingAdded      string `json:"missing_added"`
+		GiveRe            string `json:"give_re"`
+		GiveNoneRe        string `json:"give_none_re"`
+		GiveItemRe        string `json:"give_item_re"`
+		MissingGive       string `json:"missing_give"`
+		BadGive           string `json:"bad_give"`
 	} `json:"summary"`
 	Art struct {
 		NotesRe        string `json:"notes_re"`
@@ -102,7 +107,7 @@ type teamExitRulesDoc struct {
 type teamExitRules struct {
 	teamExitRulesDoc
 	headline, selfCheck, category, exempt, noCheck, jargonLine, jargonTable, jargonURL *regexp.Regexp
-	background, todo, detail, added                                                    *regexp.Regexp
+	background, todo, detail, added, give, giveNone, giveItem                          *regexp.Regexp
 	artNotes, artCompare, artImage                                                     *regexp.Regexp
 	scopeSection, scopeItem, scopeKeyStop                                              *regexp.Regexp
 	ccOnly, ccSource                                                                   *regexp.Regexp
@@ -133,7 +138,8 @@ func parseTeamExitRules(b []byte) (*teamExitRules, error) {
 		{&r.exempt, r.Ask.ExemptRe}, {&r.noCheck, r.Ask.NoCheckRe},
 		{&r.jargonURL, r.Jargon.URLRe}, {&r.jargonLine, r.Jargon.LineRe}, {&r.jargonTable, r.Jargon.TableRe},
 		{&r.background, r.Summary.BackgroundRe}, {&r.todo, r.Summary.TodoRe}, {&r.detail, r.Summary.DetailRe},
-		{&r.added, r.Summary.AddedRe},
+		{&r.added, r.Summary.AddedRe}, {&r.give, r.Summary.GiveRe}, {&r.giveNone, r.Summary.GiveNoneRe},
+		{&r.giveItem, r.Summary.GiveItemRe},
 		{&r.artNotes, r.Art.NotesRe}, {&r.artCompare, r.Art.CompareRe}, {&r.artImage, r.Art.ImageRe},
 		{&r.scopeSection, r.Scope.SectionRe}, {&r.scopeItem, r.Scope.ItemRe}, {&r.scopeKeyStop, r.Scope.KeyStopRe},
 		{&r.ccOnly, r.Generic.CCOnlyRe}, {&r.ccSource, r.Generic.SourceRe},
@@ -215,6 +221,16 @@ func ExitSplit(body string) (summary, detail string) {
 			break
 		}
 	}
+	// #1982: 「给你的：」 goes to the user with the four parts, also when written after 「我加的：」.
+	for i := end + 1; end >= 0 && i < len(lines) && i <= end+2; i++ {
+		if ExitRules.give.MatchString(lines[i]) {
+			end = i
+			break
+		}
+		if strings.TrimSpace(lines[i]) != "" {
+			break
+		}
+	}
 	if end < 0 {
 		end = len(lines) - 1
 		for i, l := range lines {
@@ -274,6 +290,41 @@ func summaryProblems(summary string) []string {
 		problems = append(problems, ExitRules.Summary.MissingAdded)
 	}
 	return problems
+}
+
+// GiveLine: the value of the part for the user's 「给你的：」 line (#1982) and whether it has one.
+func GiveLine(summary string) (string, bool) {
+	for _, l := range strings.Split(summary, "\n") {
+		if loc := ExitRules.give.FindStringIndex(l); loc != nil {
+			return strings.TrimSpace(l[loc[1]:]), true
+		}
+	}
+	return "", false
+}
+
+// withoutGive: the part for the user without its 「给你的：」 line, which may carry paths and links
+// and is not one of the parts the sentence limit counts.
+func withoutGive(summary string) string {
+	var keep []string
+	for _, l := range strings.Split(summary, "\n") {
+		if !ExitRules.give.MatchString(l) {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, "\n")
+}
+
+// GiveProblems: a report's part for the user has no 「给你的：」 line, or one that names neither a
+// link nor a file path nor 「无」 (#1982, user 11-25 「加一个栏目就是返回给用户的东西没有可以填无」).
+func GiveProblems(summary string) []string {
+	v, ok := GiveLine(summary)
+	if !ok {
+		return []string{ExitRules.Summary.MissingGive}
+	}
+	if ExitRules.giveNone.MatchString(v) || ExitRules.giveItem.MatchString(" "+v) {
+		return nil
+	}
+	return []string{strings.ReplaceAll(ExitRules.Summary.BadGive, "{v}", v)}
 }
 
 // LengthProblems: a part for the user over the sentence limit (user 11-10「为什么回复那么长」「把这个太长也
@@ -613,6 +664,8 @@ func JudgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	var v ExitVerdict
 	if kind == ExitKindAsk {
 		v.Problems = AskEvidenceProblems(body)
+	} else if kind == ExitKindReport {
+		v.Problems = WaitUserProblems(body) // always goes back, like a missing [ask] self-check
 	}
 	var hp []string
 	if auto {
@@ -620,7 +673,11 @@ func JudgeExit(kind, body string, auto bool, known func(int) bool, bounces int) 
 	} else if v.ID, v.Line, hp = ExitHeadline(body); hp == nil && !known(v.ID) {
 		hp = []string{strings.ReplaceAll(ExitRules.Headline.UnknownID, "{id}", strconv.Itoa(v.ID))}
 	} else if hp == nil {
-		hp = append(append(summaryProblems(v.Line), JargonProblems(v.Line)...), LengthProblems(v.Line)...)
+		plain := withoutGive(v.Line)
+		hp = append(append(summaryProblems(plain), JargonProblems(plain)...), LengthProblems(plain)...)
+		if kind == ExitKindReport {
+			hp = append(hp, GiveProblems(v.Line)...)
+		}
 	}
 	// Format goes back only while bounces still wake the bot; after that the chat lead rewrites it
 	// (user 10-30: not posted as written any more). A missing [ask] self-check always goes back.
@@ -662,4 +719,29 @@ func ExitTaskPick(named int, items []ExitTaskCand) int {
 // repair turn could follow the bounce): the user sees the answer and what it lacks.
 func ExitBounceNote(problems []string) string {
 	return "（系统核对：" + strings.Join(problems, ExitRules.Bounce.Sep) + "）"
+}
+
+// UserTodo is the 「要你做的」 part of a report, "" when it has none or says 没有 (same bounds as
+// selfRouteHit: up to the next 【…】/我加的/自验/细节 line or a blank line).
+func UserTodo(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	var parts []string
+	for {
+		loc := ExitRules.srTodo.FindStringIndex(body)
+		if loc == nil {
+			return strings.TrimSpace(strings.Join(parts, "\n"))
+		}
+		body = body[loc[1]:]
+		first, more, _ := strings.Cut(body, "\n")
+		if ExitRules.srNone.MatchString(first) {
+			continue
+		}
+		parts = append(parts, first)
+		for _, ln := range strings.Split(more, "\n") {
+			if ExitRules.srEnd.MatchString(ln) {
+				break
+			}
+			parts = append(parts, ln)
+		}
+	}
 }

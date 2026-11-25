@@ -59,6 +59,8 @@ var dshWebProbeTimeout = 5 * time.Second
 var (
 	dshWebHealMu       sync.Mutex
 	dshWebHealFailedAt time.Time
+	// dshWebHealLastReason is the last failure reason logged at Warn; a repeat is logged at Debug.
+	dshWebHealLastReason string
 	// dshWebHealLast is the last successful heal. Requests that were already queued on the mutex
 	// (a page load is dozens of them) find the file it wrote and reuse the result instead of
 	// rescanning, probing and writing another backup each.
@@ -401,7 +403,13 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 	}
 	fail := func(reason string, attrs ...any) (string, string, bool) {
 		dshWebHealFailedAt = time.Now()
-		slog.Warn("dsh web self-heal: keeping the state file as it is: "+reason,
+		// The same reason repeats every pass while DSH stays down: say it once.
+		logf := slog.Warn
+		if reason == dshWebHealLastReason {
+			logf = slog.Debug
+		}
+		dshWebHealLastReason = reason
+		logf("dsh web self-heal: keeping the state file as it is: "+reason,
 			append([]any{"recorded_pid", web.PID, "log", logPath}, attrs...)...)
 		return "", "", false
 	}
@@ -465,6 +473,7 @@ func healDSHWebState(web DSHWeb) (target, launchToken string, ok bool) {
 		return fail("the state file could not be replaced", "error", err)
 	}
 	dshWebHealFailedAt = time.Time{}
+	dshWebHealLastReason = ""
 	dshWebHealLast.at, dshWebHealLast.state = time.Now(), b
 	dshWebHealLast.target, dshWebHealLast.token = "127.0.0.1:"+port, token
 	dshWebSuspect.Store(false)

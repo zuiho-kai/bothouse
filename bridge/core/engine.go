@@ -126,15 +126,15 @@ type replyFooterUsageKey struct {
 }
 
 type replyFooterUsageEntry struct {
-	report      *UsageReport // immutable snapshot for the role card
-	reportScope string       // attribution captured when the existing footer fetched it
-	reportAt    time.Time
-	text        string    // last successful quota text
-	okAt        time.Time // when text was fetched; zero if never
-	failText    string    // set when the latest attempt failed
-	attemptAt   time.Time // when the latest attempt finished
-	done        chan struct{}
-	waited      bool // a footer already spent the first-probe wait
+	report       *UsageReport // immutable snapshot for the role card
+	reportScope  string       // attribution captured when the existing footer fetched it
+	reportAt     time.Time
+	footerReport *UsageReport // last successful footer measurement, rendered at read time
+	okAt         time.Time    // when the footer measurement was fetched; zero if never
+	failText     string       // set when the latest attempt failed
+	attemptAt    time.Time    // when the latest attempt finished
+	done         chan struct{}
+	waited       bool // a footer already spent the first-probe wait
 }
 
 // SaveRestartNotify persists restart info so the new process can send
@@ -1900,7 +1900,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	// #1857: scheduled prompt jobs go through the proactive outbox — jobs due together for the same
 	// chat merge into one run, frequent ones share a per-chat budget and back off when nobody answers.
 	var proactiveIDs []string
-	if ob := e.outbox(); !job.IsShellJob() && ob != nil {
+	if ob := e.outbox(); !job.IsShellJob() && !job.IsEventJob() && ob != nil {
 		if ok, why := ob.admit(job, proactiveChat(job.SessionKey)); !ok {
 			slog.Info("proactive: cron run skipped", "project", e.name, "job", job.ID, "desc", job.Description, "why", why)
 			return nil
@@ -1912,7 +1912,7 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		job, proactiveIDs = merged, ids
 	}
 	check := !job.Mute && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventCronTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2116,6 +2116,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		endProactive()
 		e.forgetScheduledTurn(job.ID, iKey)
 		e.cleanupSideRunState(iKey)
+		if msg.capacityHeld {
+			// deferForCapacity already told the channel this run is skipped.
+			slog.Warn("cron: model cooling down, run skipped", "id", job.ID, "session", runSessionKey)
+			return nil
+		}
 		if !job.Mute && turnDelivered(session, prevHistLen) {
 			e.proactiveDelivered(proactiveIDs, runSessionKey)
 		}
@@ -2160,6 +2165,11 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, sessionKey)
 	endProactive()
 	e.forgetScheduledTurn(job.ID, iKey)
+	if msg.capacityHeld {
+		// Held for re-delivery after the cooldown: the job counts as run from here, as a queued one does.
+		slog.Warn("cron: model cooling down, run held for re-delivery", "id", job.ID, "session", sessionKey)
+		return nil
+	}
 	if !job.Mute && turnDelivered(session, prevHistLen) {
 		e.proactiveDelivered(proactiveIDs, sessionKey)
 	}
@@ -2299,7 +2309,7 @@ func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 		slog.Info("timer: test job runs muted", "job", job.ID, "desc", job.Description)
 	}
 	check := !job.Mute && !job.Handoff && job.resume == nil && isCheckJob(job.Description, job.Prompt)
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventTimerTriggered,
 		SessionKey: job.SessionKey,
 		Content:    job.Prompt,
@@ -2913,6 +2923,9 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	if e.dataDir != "" {
 		// Shell jobs need the same authoritative storage root as interactive role sessions.
 		shellCmd.Env = append(shellCmd.Environ(), "BOTHOUSE_DATA_DIR="+e.dataDir)
+	}
+	if len(job.eventEnv) > 0 {
+		shellCmd.Env = append(shellCmd.Environ(), job.eventEnv...)
 	}
 
 	stdout, err := shellCmd.StdoutPipe()
@@ -3866,7 +3879,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 
 	if e.checkTurnAuthorization(msg.authorization, "tool.execute") == nil {
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventMessageReceived,
 			SessionKey: msg.SessionKey,
 			Platform:   msg.Platform,
@@ -5236,7 +5249,10 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 		endTurnFact()
 		// #699 design §4 row 12: the workspace goes back to the pool because its task's state
 		// says handed back, when the last turn there has ended — not on a timer after a reply.
-		e.releaseReturnedWorkspace(msg.SessionKey)
+		// In its own goroutine: the release talks to the platform under teamWorkspaceOpMu, and
+		// a turn's end (and the cron/timer run waiting on it) must not wait behind that
+		// (agentm 11-24: cron turns that had replied were recorded as 30-minute timeouts).
+		go e.releaseReturnedWorkspace(msg.SessionKey)
 	}()
 	stopRecallMonitor := e.startMessageRecallMonitor(interactiveKey)
 	defer stopRecallMonitor()
@@ -5355,6 +5371,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			e.send(p, msg.ReplyCtx, e.i18n.Tf(MsgQuotaCooling, when, wait))
 		}
 	} else if capWait > 0 && msg.inputTurn == nil && !probeCapacity {
+		msg.capacityHeld = true
 		e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, capWait, true)
 	} else {
 		// Local copy, not msg.Content: the caller may still read *msg (data race).
@@ -5429,12 +5446,12 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 				promptContent := attemptPrompt
 				if msg.inputTurn != nil {
 					if strict, ok := as.(StrictResumeSession); ok {
-						err = strict.SendResumed(promptContent, msg.MessageID, images, msg.Files, msg.inputTurn.expectedID)
+						err = strict.SendResumed(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files, msg.inputTurn.expectedID)
 					} else {
 						err = fmt.Errorf("live session does not support strict resume")
 					}
 				} else {
-					err = as.Send(promptContent, msg.MessageID, images, msg.Files)
+					err = as.Send(promptContent, msg.MessageID, sniffImageMimes(images), msg.Files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
 				if msg.externalInput != nil {
@@ -5446,6 +5463,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			func(wait time.Duration) {
 				// cooling: a probe failed while a cooldown was already running, so
 				// the honest notice is "still cooling", not "3 tries failed".
+				msg.capacityHeld = true
 				e.deferForCapacity(p, origMsg, agent, sessions, interactiveKey, workspaceDir, wait, probeCapacity)
 			})
 		// Failed local turns can leave queued ordinary messages for the outer
@@ -5957,7 +5975,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	if err != nil {
 		slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventError,
 			SessionKey: sessionKey,
 			Platform:   p.Name(),
@@ -6032,7 +6050,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionStarted,
 		SessionKey: sessionKey,
 		Platform:   p.Name(),
@@ -6495,7 +6513,7 @@ func (e *Engine) closeAgentSessionBy(sessionKey string, agentSession AgentSessio
 	agentID := agentSession.CurrentSessionID()
 	// maomao fork: tell hooks once the process is gone (sub bots export + ingest their wiki here, like 橘's
 	// SessionEnd hook; user 2026-10-20 「让他们和你一样的待遇，不要区分」)
-	defer e.hooks.Emit(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
+	defer e.emitEvent(HookEvent{Event: HookEventAgentClosed, SessionKey: sessionKey,
 		Extra: map[string]any{"agent_session_id": agentID}})
 
 	done := closed
@@ -8204,7 +8222,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if event.Error != nil {
 				errMsg := event.Error.Error()
 				slog.Error("agent error", "error", event.Error)
-				e.hooks.Emit(HookEvent{
+				e.emitEvent(HookEvent{
 					Event:      HookEventError,
 					SessionKey: turn.sessionKey,
 					Platform:   p.Name(),
@@ -8394,7 +8412,7 @@ channelClosed:
 		}
 
 		if turn.input == nil {
-			e.hooks.Emit(HookEvent{
+			e.emitEvent(HookEvent{
 				Event:      HookEventMessageSent,
 				SessionKey: turn.sessionKey,
 				Platform:   p.Name(),
@@ -8553,6 +8571,11 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 	for {
 		e.stopUnsolicitedReader(state)
 		state.mu.Lock()
+		// A time limit claimed for the turn that just ended finishes its stop
+		// first: it drops the queue itself, so a message dequeued meanwhile is
+		// never sent to the session it is closing (same boundary as
+		// chainQueuedTurn).
+		state.awaitScheduledCancelLocked()
 		if e.isStoppingForJournal() {
 			// #1368: do not dequeue, reset-handoff or rewrite the interrupted
 			// turn after Stop has begun; the journal already holds its queue.
@@ -8720,9 +8743,15 @@ func (e *Engine) drainPendingMessages(state *interactiveState, session *Session,
 				}
 				err := e.recordTurnAgent(queued.authorization, queuedAgent)
 				if err == nil {
-					err = as.Send(attemptPrompt, queued.messageID, queued.images, queued.files)
+					err = as.Send(attemptPrompt, queued.messageID, sniffImageMimes(queued.images), queued.files)
 				}
 				session.SettleHandoff(err == nil) // maomao fork: put an undelivered handoff back
+				if err != nil && (state.isStopped() || !as.Alive()) {
+					// #2132: already off the queue when the session went away — it
+					// ends like the dropped queued messages, not as a turn error
+					// on a dead process.
+					err = fmt.Errorf("agent session ended")
+				}
 				return err
 			},
 			false, // a message drained from the queue was already offered its probe
@@ -10066,7 +10095,11 @@ func (e *Engine) replyFooterQuota(session AgentSession, agent Agent) (string, bo
 	defer e.replyFooterMu.Unlock()
 	switch {
 	case !ent.okAt.IsZero() && time.Since(ent.okAt) < replyFooterUsageMaxAge:
-		return ent.text, true
+		// Render the retained measurement so its reset still expires between probes.
+		if text := formatReplyFooterUsage(ent.footerReport, e.i18n); text != "" {
+			return text, true
+		}
+		return e.i18n.T(MsgQuotaNoData), false
 	case ent.done != nil || (ent.attemptAt.IsZero() && e.replyFooterInflight[agentID]):
 		return e.i18n.T(MsgQuotaPending), false
 	case ent.failText != "":
@@ -10116,7 +10149,7 @@ func (e *Engine) refreshReplyFooterUsage(scope quotaScope, reporter UsageReporte
 	defer e.replyFooterMu.Unlock()
 	ent.attemptAt = time.Now()
 	if text != "" {
-		ent.text, ent.okAt, ent.failText = text, ent.attemptAt, ""
+		ent.footerReport, ent.okAt, ent.failText = report, ent.attemptAt, ""
 	} else {
 		ent.failText = failText
 	}
@@ -11519,9 +11552,14 @@ func formatUsageReport(report *UsageReport, lang Language) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(usageAccountLabel(lang))
-	sb.WriteString(accountDisplay(report))
+	if report.Email != "" || report.AccountID != "" || report.UserID != "" {
+		sb.WriteString(usageAccountLabel(lang))
+		sb.WriteString(accountDisplay(report))
+	}
 	sb.WriteString(formatUsageBlocks(report, lang))
+	if sb.Len() == 0 {
+		return usageUnavailableText(lang)
+	}
 
 	return strings.TrimSpace(sb.String())
 }
@@ -11531,6 +11569,9 @@ func formatUsageBlocks(report *UsageReport, lang Language) string {
 	for _, bucket := range report.Buckets {
 		var blocks []string
 		for i := range bucket.Windows {
+			if usageWindowExpired(&bucket.Windows[i]) {
+				continue
+			}
 			blocks = append(blocks, formatUsageBlock(lang, &bucket.Windows[i]))
 		}
 		if len(blocks) == 0 {
@@ -11571,8 +11612,17 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 			continue
 		}
 		var primary, secondary *UsageWindow
+		var first, second *UsageWindow
 		for i := range bucket.Windows {
 			window := &bucket.Windows[i]
+			if usageWindowExpired(window) {
+				continue
+			}
+			if first == nil {
+				first = window
+			} else if second == nil {
+				second = window
+			}
 			switch window.WindowSeconds {
 			case 18000:
 				primary = window
@@ -11582,23 +11632,27 @@ func selectUsageWindows(report *UsageReport) (*UsageWindow, *UsageWindow) {
 				}
 			}
 		}
-		if primary == nil && len(bucket.Windows) > 0 {
+		if primary == nil && first != nil {
 			// Fall back to the first window when no 5-hour quota is reported
 			// (e.g. Codex accounts whose first bucket only exposes a 7-day
 			// window). Skip it if the slot is already occupied by the 7-day
 			// window so the same block is not rendered twice.
-			if secondary != &bucket.Windows[0] {
-				primary = &bucket.Windows[0]
+			if secondary != first {
+				primary = first
 			}
 		}
-		if secondary == nil && len(bucket.Windows) > 1 && &bucket.Windows[1] != primary {
-			secondary = &bucket.Windows[1]
+		if secondary == nil && second != nil && second != primary {
+			secondary = second
 		}
 		if primary != nil || secondary != nil {
 			return primary, secondary
 		}
 	}
 	return nil, nil
+}
+
+func usageWindowExpired(window *UsageWindow) bool {
+	return window.ResetAtUnix > 0 && window.ResetAtUnix <= time.Now().Unix()
 }
 
 func formatUsageBlock(lang Language, window *UsageWindow) string {
@@ -13080,7 +13134,7 @@ func (e *Engine) stopInteractiveStateWithQueue(sessionKey string, want *interact
 		slog.Info("agent session turn cancelled, session kept alive",
 			"session_key", sessionKey)
 
-		e.hooks.Emit(HookEvent{
+		e.emitEvent(HookEvent{
 			Event:      HookEventSessionEnded,
 			SessionKey: sessionKey,
 		})
@@ -13125,7 +13179,7 @@ normalCleanup:
 		go e.closeAgentSessionAndSignal(sessionKey, agentSession, closed)
 	}
 
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:      HookEventSessionEnded,
 		SessionKey: sessionKey,
 	})
@@ -14533,7 +14587,7 @@ func (e *Engine) resolveOutboundSessionTarget(sessionKey string, hasAttachments 
 // sendPermissionPrompt sends a permission prompt with interactive buttons when
 // the platform supports them. Fallback chain: InlineButtonSender → CardSender → plain text.
 func (e *Engine) sendPermissionPrompt(p Platform, replyCtx any, prompt, toolName, toolInput string) {
-	e.hooks.Emit(HookEvent{
+	e.emitEvent(HookEvent{
 		Event:    HookEventPermissionRequested,
 		Platform: p.Name(),
 		Content:  prompt,

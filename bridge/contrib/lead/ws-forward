@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 import _ask  # noqa: E402
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
+import _source  # noqa: E402  聊天频道新原话补导、转话文本（_source.py）
 
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
 import board  # noqa: E402  转交结果节的插入和暂停状态都以任务板为准（../gate/board.py）
@@ -45,7 +46,8 @@ def wake_prompt(path: str, summary: str, interrupt: bool = False):
     if interrupt:
         return (f"打断：用户改了要求（已记进 {path}「转交结果」节）。先停下按旧要求做的部分，"
                 f"正在跑的旧命令该停就停，按这条新要求接着做，交回时说明按新要求改了什么：{text}")
-    return f"主频道转来一条话（已记进 {path}「转交结果」节），按这条做：{text}"
+    # 用户 11-24 批：后面再纠正时只把新原话追加给工作区，主角色的话照样只作参考（原先是「按这条做」）
+    return f"主频道转来一条话（已记进 {path}「转交结果」节），用户原话是准绳，主角色的话只作参考：\n{text}"
 
 
 def timer_cmd(ws: str, path: str, summary: str, interrupt: bool = False, project: str = ""):
@@ -390,8 +392,12 @@ def main(argv):
         if live:
             board.set_model(live["id"], model, effort)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
-    append_result(last["file"], argv[0], now)
-    r = subprocess.run(timer_cmd(last["channel"], last["file"], argv[0], interrupt, project), capture_output=True, text=True)
+    # 转过去的话：聊天频道里用户新说的原话（原样补进 <交接>.原话.md）排前面，主角色写的这句标「只作参考」；
+    # 桥原样转来的用户回复不标（_source.relay_text）。打回扣着的汇报仍用主角色的原句（下面 reject_held_report）。
+    chat = last.get("chat") or (live or {}).get("chat") or ""
+    said = _source.relay_text(_source.append_new(last["file"], chat, os.environ.get("CC_PROJECT", "")), argv[0]) or argv[0]
+    append_result(last["file"], said, now)
+    r = subprocess.run(timer_cmd(last["channel"], last["file"], said, interrupt, project), capture_output=True, text=True)
     if r.returncode != 0:
         # 没叫醒就不算送到（来源 #75 交接：失败必须留下未投递的事实，不能把写进交接当发送成功）
         why = (r.stderr.strip() or r.stdout.strip())[:200]

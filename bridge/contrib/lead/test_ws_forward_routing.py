@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 import sys  # noqa: E402
 sys.path.insert(0, str(HERE))
 import _model  # noqa: E402  没写 --model 时 parse/check 原样放行、不调桥（#2075）
+import _source  # noqa: E402  转话文本：用户新原话在前，主角色的话标「只作参考」（#1956）；这里的交接路径不存在，不读写文件
 
 
 def functions(file, names, ns):
@@ -52,7 +53,7 @@ class ForwardRecipientTest(unittest.TestCase):
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
             forward_forbid=lambda text: "",
-            _model=_model,
+            _model=_model, _source=_source,
         ))
 
     def forward(self, *args):
@@ -257,8 +258,8 @@ class ForwardRecipientTest(unittest.TestCase):
     def test_queued_handoff_wakes_recorded_project(self):
         ns = functions("ws-handoff", {"timer_cmd"}, dict(
             _team=self.team, cc_bin=lambda: "bothouse", KICKOFF="",
-            kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", kickoff_long=lambda: "", Path=Path, re=re, PLAN_FIRST="plan", SOURCE="source", _QUOTE_SEC="quote",
-            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton",
+            kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", kickoff_long=lambda: "", Path=Path, re=re, SOURCE="source", _QUOTE_SEC="quote",
+            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton", _source=_source,
         ))
         cmd = ns["timer_cmd"]("discord:ws3", self.notes, "task", 362, project="deep")
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")

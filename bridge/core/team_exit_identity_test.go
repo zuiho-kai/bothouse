@@ -167,7 +167,7 @@ func TestWorkspaceLateReportDeliveryAndReplayAcrossPlatforms(t *testing.T) {
 				teamTaskBoardItem{ID: 60, What: "新稳定性任务", WS: platform + ":ws1", Chat: chat, Bound: "2026-11-02T02:00:00Z"},
 			)
 			current := e.sessions.GetOrCreateActive(ws)
-			report := "[report] #65 背景：旧预算核验。\n做了什么：用量复算完成。\n要你做的：没有。\n我加的：无。"
+			report := "[report] #65 背景：旧预算核验。\n做了什么：用量复算完成。\n要你做的：没有。\n给你的：无\n我加的：无。"
 			e.forwardWorkspaceExit(p, ws, report)
 			sent := p.sentTo(chat)
 			if len(sent) != 1 || !strings.Contains(sent[0], "旧预算核验") || strings.Contains(sent[0], "新稳定性任务") {

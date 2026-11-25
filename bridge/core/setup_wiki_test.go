@@ -175,8 +175,8 @@ func TestApplyWizardAddsWikiCron(t *testing.T) {
 		}
 	}
 	st, _ := NewCronStore(dir)
-	if n := len(st.List()); n != 6 { // the three wiki runs + forum reflection and settlement + role's hourly 想不想说 (setup_defaults.go)
-		t.Fatalf("want 6 jobs after two runs, got %d", n)
+	if n := len(st.List()); n != 7 { // the three wiki runs + forum reflection, settlement and threading + role's hourly 想不想说 (setup_defaults.go)
+		t.Fatalf("want 7 jobs after two runs, got %d", n)
 	}
 	if j := st.List()[0]; j.SessionKey != "discord:1" || j.Project == "" {
 		t.Fatalf("job: %+v", j)
@@ -198,5 +198,37 @@ func TestApplyWizardAddsWikiCron(t *testing.T) {
 	bad.Wiki = &WizardWiki{Night: "nope"}
 	if r := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, bad); r.Saved || r.Error == "" {
 		t.Fatalf("bad model saved: %+v", r)
+	}
+}
+
+// An install that already had the wiki and reflector checks (agentm) gets the nightly threading job once on the next
+// start of the new build; a second start, or a user who deleted it, adds nothing.
+func TestEnsureWizardWikiCronAddsThreadsOnce(t *testing.T) {
+	wiki := fakeWiki(t, "")
+	if err := os.WriteFile(filepath.Join(wiki, mainWikiMark), []byte("juzi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for _, f := range []string{wikiCronEnsuredFile, reflectorCronEnsuredFile} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeJSONFile(filepath.Join(dir, setupStateFile), SetupState{Platform: "discord", ChannelID: "1", FallbackRole: "juzi"}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cron := &memCron{}
+	added, err := EnsureWizardWikiCron(dir, cron, "")
+	if err != nil || len(added) != 1 || added[0] != threadsCronDesc || len(cron.jobs) != 1 {
+		t.Fatalf("added %v err %v jobs %d", added, err, len(cron.jobs))
+	}
+	j := cron.jobs[0]
+	if j.Project != "juzi" || j.SessionKey != "discord:1" || !j.Mute || j.CronExpr != "0 6 * * *" ||
+		!strings.Contains(j.Exec, filepath.Join(dir, "gate", "forum_threads.py")) || !strings.Contains(j.Exec, wiki) {
+		t.Fatalf("job = %+v", j)
+	}
+	cron.jobs = nil // the user deleted it: the mark keeps it deleted
+	if added, err := EnsureWizardWikiCron(dir, cron, ""); err != nil || len(added) != 0 || len(cron.jobs) != 0 {
+		t.Fatalf("second start added %v err %v", added, err)
 	}
 }

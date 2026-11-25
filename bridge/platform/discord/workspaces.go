@@ -35,7 +35,7 @@ type workspaceAPI interface {
 // workspaceSession returns the connected session; nil-safe for tests that inject an API.
 func (p *Platform) workspaceSession() (workspaceAPI, error) {
 	if s := p.boardSession(); s != nil {
-		return s, nil
+		return rateGuardedSession{s}, nil
 	}
 	return nil, errors.New("discord: workspace: not connected")
 }

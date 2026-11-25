@@ -11,8 +11,8 @@ import (
 )
 
 // #1897: a held report on a task whose handoff has a 「原件」 section keeps its attachments off the
-// chat channel on a text-only release and on the unchecked post at timeout, and says so in the
-// text; the same report on a task without one still posts them (#1888).
+// chat channel on a text-only release and says so in the text; the same report on a task without
+// one still posts them (#1888). At timeout both post them; a reference task's says unjudged (#1951).
 func TestHeldReportRefTaskWithholdsAttachments(t *testing.T) {
 	for _, ref := range []bool{true, false} {
 		for _, route := range []string{"pass", "timeout", "direct"} {
@@ -39,16 +39,26 @@ func TestHeldReportRefTaskWithholdsAttachments(t *testing.T) {
 					e.workspaceChatForTest = func(string) bool { return true }
 					e.noteWorkspaceFiles("discord:222", []FileAttachment{{FileName: "demo-v4.mp4", MimeType: "video/mp4", Data: []byte("mp4")}})
 					e.postExitHeadline(e.ctx, p, "discord:111", "111", "222", "橘", team.ExitKindReport,
-						"[report] #1885 背景：样片。\n第四版做好了\n要你做的：看片。\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第四版做好了", e.boardItemByID(1885))
+						"[report] #1885 背景：样片。\n第四版做好了\n要你做的：看片。\n给你的：无\n我加的：无\n细节：无", "discord:222", 1885, "背景：样片。\n第四版做好了", e.boardItemByID(1885))
 				}
 				media := p.sentMedia()
+				said := strings.Join(p.getSent(), "\n")
+				if route == "timeout" {
+					// #1951: nobody judged in time; the user still sees every product, marked unjudged.
+					if len(media) == 0 {
+						t.Fatal("timeout post lost the attachments")
+					}
+					if ref && !strings.Contains(said, "验收人还没判") {
+						t.Fatalf("timeout post of a reference task does not say it is unjudged:\n%s", said)
+					}
+					return
+				}
 				if ref && len(media) != 0 {
 					t.Fatalf("reference task: attachments %q reached the chat channel without the judge", media)
 				}
 				if !ref && len(media) == 0 {
 					t.Fatal("task without a reference lost its attachments")
 				}
-				said := strings.Join(p.getSent(), "\n")
 				if ref && route != "direct" && !strings.Contains(said, "还没过原件对照") {
 					t.Fatalf("chat text does not say the attachments were withheld:\n%s", said)
 				}

@@ -1,7 +1,0 @@
-2026-11-21 15:53:40 fixture ingest tokens: {}
-2026-11-21 15:53:40 fixture ingest: fixture-model failed: ssage": "exceeded retry limit, last status: 429 Too Many Requests"}]
-2026-11-16T14:30:02.563711Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
-
-2026-11-21 15:53:40 fixture ingest: empty connection; starting exec again
-2026-11-21 15:53:40 fixture ingest tokens: {}
-2026-11-21 15:53:40 fixture ingest $0.000: Completed the requested work.
