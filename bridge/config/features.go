@@ -269,6 +269,7 @@ var featureNotSwitch = map[string]string{
 	"projects.quiet":             "legacy alias of [projects.display]",
 	"projects.skip_git":          "workspace init option, not a feature",
 	"projects.workspace_init_allow_local_paths": "permission: which paths workspace init may bind",
+	"projects.general":                          "room membership: connects the project to the native General room",
 	"projects.name_customized":                  "state the wizard records, not a feature",
 	"projects.team_status_inject":               "marks the primary role; changing it changes who leads",
 	"projects.heartbeat.only_when_idle":         "option of the heartbeat, not a feature of its own",
