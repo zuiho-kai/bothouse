@@ -386,12 +386,17 @@ def owner_or_exit(nid, tool="board"):
     return c
 
 
+def workspace_state():
+    """Read the bridge's workspace assignments and task lifecycle."""
+    try:
+        return json.loads((datadir.data_dir() / "team_workspaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, SystemExit):
+        return {}
+
+
 def _workspace_keys():
     """桥记过的工作区频道（team_workspaces.json 的 handoffs 键和各聊天频道 parents 里的工作区）。"""
-    try:
-        st = json.loads((datadir.data_dir() / "team_workspaces.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError, SystemExit):
-        return set()
+    st = workspace_state()
     out = set((st.get("handoffs") or {}).keys())
     for parent, rows in (st.get("parents") or {}).items():
         plat = str(parent).split(":", 1)[0]
