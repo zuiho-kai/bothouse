@@ -408,6 +408,13 @@ func (e *Engine) replyTaskText(t *replyTask, quote string) string {
 		default:
 			b.WriteString("这件活在工作区 " + channelLabel(plat, id) + " 进行中，追加要求用 ws-forward 转过去。")
 		}
+	} else if owner := taskOwnerOf(*it); owner != "" {
+		// 续改要明写是哪件（11-25 #2010）：新交接带 --follow，归属跟着旧活，不按用户在哪个频道说的
+		if quote != "" {
+			b.WriteString("\n")
+		}
+		plat, id, _ := strings.Cut(owner, ":")
+		b.WriteString("这件活归 " + channelLabel(plat, id) + "。用户要续改就 ws-handoff <交接> \"<任务>\" --follow " + strconv.Itoa(it.ID) + "，汇报和放行跟着回那里。")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

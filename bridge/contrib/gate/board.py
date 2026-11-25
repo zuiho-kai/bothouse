@@ -19,6 +19,8 @@
                                          #   活名（≤20 字）上团队板；不写就从事情去掉「用户点名：」「#N 续：」这类前缀再截
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
                                          #   状态只是展示文字，写什么都不结束这件；结束用 board done / accepted
+  board move <编号> --to <频道会话 key> [理由]   # 改这件活的归属频道（唯一改法，留痕）；交回、放行、看门都跟着走
+  board backfill-owner [--apply]                # 没记归属的旧条目一次性补（默认只预演）；补不出的标归属未知
   board next <编号> <几点> | --restore <JSON>  # 只改「下次看」（later 专用，要 BOARD_LATER=1）；打印改前记录和事情
   board done <编号> <返工次数> [原因]      # 结束：移出任务板，记进 board-done.jsonl；返工次数必填，大于 0 时原因必填
   board rework [天数]                    # 最近 14 天的返工次数和原因
@@ -348,21 +350,17 @@ def waits_user(it):
 
 
 def in_chat(it, key):
-    """条目属于会话 key（<平台>:<id>）所在频道：建在这里、绑在这里（工作区），或从这里交出（聊天频道）。"""
+    """条目属于会话 key（<平台>:<id>）所在频道：归属在这里（owner_chat），或绑在这里（工作区）。
+    不再按 sk、卡片频道 ch 认（11-25 #2010：归属只看 chat 一处）。"""
     chat = ":".join(str(key or "").split(":", 2)[:2])
     if ":" not in chat:
         return False
-    cid = chat.split(":", 1)[1]
-    c = it.get("chat") or ""
-    c = c if ":" in c else (f"discord:{c}" if c else "")
-    return chat in (it.get("ws"), it.get("sk"), c) or (chat.startswith("discord:") and it.get("ch") == cid)
+    return chat in (it.get("ws"), owner_chat(it))
 
 
 def channel_of(it):
-    """条目是哪个聊天频道派的（<平台>:<id>）：chat，没有用 sk、卡片频道 ch；都没记返回空串。"""
-    c = it.get("chat") or it.get("sk") or ""
-    c = c if ":" in c else (f"discord:{c}" if c else "")
-    return ":".join(c.split(":", 2)[:2]) or (f"discord:{it['ch']}" if it.get("ch") else "")
+    """条目归哪个聊天频道（<平台>:<id>）：同 owner_chat，没记返回空串（不退到 sk、ch）。"""
+    return owner_chat(it)
 
 
 def owner_chat(it):
@@ -386,6 +384,84 @@ def owner_or_exit(nid, tool="board"):
     if not c:
         sys.exit(f"{tool}: #{n} 没记归属频道，没发。到派它的频道跑 board move {n} --to <频道会话 key> 补上再来。")
     return c
+
+
+def _workspace_keys():
+    """桥记过的工作区频道（team_workspaces.json 的 handoffs 键和各聊天频道 parents 里的工作区）。"""
+    try:
+        st = json.loads((datadir.data_dir() / "team_workspaces.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, SystemExit):
+        return set()
+    out = set((st.get("handoffs") or {}).keys())
+    for parent, rows in (st.get("parents") or {}).items():
+        plat = str(parent).split(":", 1)[0]
+        out |= {f"{plat}:{w.get('id')}" for w in rows or [] if isinstance(w, dict) and w.get("id")}
+    return out
+
+
+def _norm_chat(c):
+    c = str(c or "").strip()
+    if not c:
+        return ""
+    c = c if ":" in c else f"discord:{c}"
+    return ":".join(c.split(":", 2)[:2])
+
+
+def move(nid, to, why=""):
+    """改这件活的归属频道（唯一的改法，留痕在 owner_moves）：交回、放行、看门、任务帖之后都回 to。
+    返回 (旧归属, 新归属)；没有这条返回 None。to 是工作区就拒绝。"""
+    to = _norm_chat(to)
+    if ":" not in to:
+        sys.exit(f"board move: --to 要写频道会话 key（<平台>:<id>），收到「{to}」")
+    if to in _workspace_keys():
+        sys.exit(f"board move: {to} 是工作区，不能当归属频道")
+    with _locked():
+        cur = _read_locked()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is None:
+            return None
+        old = owner_chat(hit)
+        hit["chat"] = to
+        hit.pop("owner_unknown", None)
+        hit.setdefault("owner_moves", []).append({"from": old, "to": to, "at": _now(), "why": why,
+                                                   "by": os.environ.get("CC_PROJECT", "")})
+        _write(cur)
+    event(nid, "owner_moved", {"from": old, "to": to, "why": why})
+    return old, to
+
+
+def backfill_owner(apply=False):
+    """板上没记归属的条目一次性补：交接记录（ws-handoff-last.json）里记这个编号的 chat，否则建活时的 sk、卡片频道 ch
+    （是工作区的不算）；都补不出标 owner_unknown，往外发的口子遇到就停。返回 [(编号, 补成什么或 None)]。"""
+    try:
+        last = json.loads((SETUP / "ws-handoff-last.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = {}
+    by_id = {}
+    for v in (last.get("tasks") or {}).values():
+        if isinstance(v, dict) and v.get("chat"):
+            for b in v.get("board") or []:
+                if str(b).isdigit():
+                    by_id[int(b)] = _norm_chat(v["chat"])
+    wss = _workspace_keys()
+    out = []
+    with _locked():
+        cur = _read_locked()
+        for it in cur:
+            if owner_chat(it):
+                continue
+            cands = [by_id.get(it["id"]), _norm_chat(it.get("sk")), _norm_chat(it.get("ch"))]
+            got = next((c for c in cands if c and c not in wss), None)
+            out.append((it["id"], got))
+            if apply:
+                if got:
+                    it["chat"] = got
+                    it.setdefault("owner_moves", []).append({"from": "", "to": got, "at": _now(), "why": "backfill"})
+                else:
+                    it["owner_unknown"] = True
+        if apply and out:
+            _write(cur)
+    return out
 
 
 def _channel_name(chat):
@@ -414,7 +490,10 @@ def foreign_why(it, key=None):
 def refuse_foreign(nids, tool="board"):
     """nids 里有别的频道派的条目就退出（板上和已完成记录都查）；ws-handoff --resume / ws-pass / ws-forward 和
     board 的写操作开头调（#836：在主频道续办、讨论了别的频道的 #834）。"""
+    follow = {x.strip().lstrip("#") for x in os.environ.get("BOARD_FOLLOW", "").split(",") if x.strip()}
     for n in nids or []:
+        if str(n).lstrip("#") in follow:  # ws-handoff --follow 明写了接着这件做（#2010），不是在别的频道顺手动它
+            continue
         why = foreign_why(item_by_id(int(str(n).lstrip("#")))) if str(n).lstrip("#").isdigit() else None
         if why:
             sys.exit(f"{tool}: {why}；本频道没动它")
@@ -520,11 +599,16 @@ def add(what, where, status, who, nxt=None, ws=None, chat=None, short_name=None,
         sk = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
         if ":" in sk:  # 完整会话 key（飞书、DSH、网页版也有），pause 时按它找工作区
             it["sk"] = ":".join(sk.split(":", 2)[:2])
+        # 归属频道建活时定一次、必填（11-25 #2010）：交活给的 chat，否则就是在这个聊天频道建的；在工作区里建、
+        # 又没给 chat 的不上板（工作区不是谁的归属，猜「它眼下归谁」就是传错频道的来路）
+        owner = _norm_chat(chat) if chat and ":" in str(chat) else (it.get("sk") or "")
+        if not owner or owner in _workspace_keys():
+            sys.exit("board add: 这件活归哪个聊天频道没定（" + ("在工作区里建" if owner else "不在聊天频道里跑") +
+                     "，也没给归属频道），没上板。到派它的聊天频道建，或交活时写明续哪件（ws-handoff --follow <编号>）")
+        it["chat"] = owner
         if ws:
             it["ws"] = it["sk"] = ws
             it["bound"] = _bound_now()
-            if chat and ":" in chat:
-                it["chat"] = ":".join(chat.split(":", 2)[:2])
             it.pop("ch", None)
             if ws.startswith("discord:"):
                 it["ch"] = ws.split(":", 1)[1]
@@ -1704,9 +1788,11 @@ def rebind(nid, ws, chat=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is not None:
             hit["ws"] = hit["sk"] = ws
-            if chat and ":" in chat:
-                hit["chat"] = ":".join(chat.split(":", 2)[:2])
-                hit.pop("ch", None)  # 同 add：频道记工作区的，不记交活的聊天频道
+            if chat and ":" in chat and not owner_chat(hit):  # 归属只补不改；改归属走 board move（#2010）
+                hit["chat"] = _norm_chat(chat)
+            elif chat and ":" in chat and _norm_chat(chat) != owner_chat(hit):
+                print(f"board: #{nid} 归 {owner_chat(hit)}，这次交活从 {_norm_chat(chat)} 来，归属没改（要改用 board move）", file=sys.stderr)
+            hit.pop("ch", None)  # 同 add：频道记工作区的，不记交活的聊天频道
             hit.pop("returned_at", None)
             hit.pop("reviewer", None)
             hit.pop("review_rejected", None)
@@ -2330,6 +2416,19 @@ def main(argv):
                 sys.exit(f"不加：{why}。用完成通知，或在原条目上 board update / later <编号>")
             nid = add(*argv[1:5], nxt=nxt, short_name=short_name)
             print(f"#{nid}")
+        elif cmd == "move" and len(argv) >= 4 and argv[2] == "--to":
+            nid = int(argv[1].lstrip("#"))
+            refuse_foreign([nid], "board move")  # 只在它现在的归属频道里改
+            r = move(nid, argv[3], " ".join(argv[4:]))
+            if r is None:
+                sys.exit(f"没有 #{nid}")
+            print(f"#{nid} 归属：{r[0] or '（没记）'} → {r[1]}")
+        elif cmd == "backfill-owner" and len(argv) in (1, 2):
+            apply = argv[1:] == ["--apply"]
+            rows = backfill_owner(apply)
+            for nid, got in rows:
+                print(f"#{nid} → {got or '归属未知'}")
+            print(f"{'已补' if apply else '预演（加 --apply 才写）'}：{len(rows)} 条没记归属")
         elif cmd == "next" and len(argv) in (3, 4):
             if os.environ.get("BOARD_LATER") != "1":
                 sys.exit("「下次看」只能由 later 写（它会同时挂定时）：later <编号> 10m \"<到点要做什么>\"")

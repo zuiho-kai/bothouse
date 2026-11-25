@@ -13947,6 +13947,9 @@ type SendOptions struct {
 	AllowHumanMentions []string
 	BoardID            int
 	VideoLabels        []string
+	// ReplyBoard: the board item the message is for; each posted message id is recorded with it
+	// (team_reply_tasks.json), so a user's reply to it is known to be about that task (#2010).
+	ReplyBoard int
 }
 
 func (e *Engine) SendToSessionWithAttachments(sessionKey, message string, images []ImageAttachment, files []FileAttachment, atUsers []string, atAll bool) error {
@@ -13975,6 +13978,7 @@ func (e *Engine) SendToSessionWithOptions(sessionKey, message string, images []I
 	if p == nil {
 		return fmt.Errorf("no active session found (key=%q)", sessionKey)
 	}
+	replyCtx = e.recordReplyTask(p, replyCtx, opts.ReplyBoard)
 
 	if message == "" && len(images) == 0 && len(files) == 0 {
 		return fmt.Errorf("message or attachment is required")
@@ -14480,6 +14484,7 @@ func (e *Engine) SendVideosToSessionWithOptions(sessionKey string, videos []File
 	if !e.attachmentSendEnabled {
 		return ErrAttachmentSendDisabled
 	}
+	replyCtx = e.recordReplyTask(p, replyCtx, opts.ReplyBoard)
 
 	videoSender, videoOK := p.(VideoSender)
 	fileSender, fileOK := p.(FileSender)

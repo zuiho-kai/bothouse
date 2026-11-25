@@ -433,11 +433,15 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 		}
 		req.SessionKey, explicitTarget = owner, true
 	}
+	replyBoard := 0 // the task this message is for, when it goes to a chat (not a workspace): its ids are recorded
 	if !req.DM && req.TaskText == nil {
 		id := engine.sendTaskOf(req.ForTask, req.BoardID, req.MentionAssigner, req.FromSession, req.SessionKey, req.Handoff)
 		if why := engine.sendTaskTargetProblem(id, req.SessionKey, req.CrossChannel); why != "" {
 			http.Error(w, why, http.StatusConflict)
 			return
+		}
+		if id > 0 && !engine.isWorkspaceKey(teamChatKey(req.SessionKey)) {
+			replyBoard = id
 		}
 	}
 	var allowHumans []string
@@ -501,6 +505,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 				AllowHumanMentions: allowHumans,
 				BoardID:            boardID,
 				VideoLabels:        req.VideoLabels,
+				ReplyBoard:         replyBoard,
 			})
 		}
 		if err != nil && req.DM && (err == errDMRefusedAtOpen || engine.isDMRefused(err)) {
@@ -541,7 +546,7 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Videos) > 0 {
-		if err := engine.SendVideosToSessionWithOptions(req.SessionKey, req.Videos, SendOptions{BoardID: boardID, VideoLabels: req.VideoLabels}); err != nil {
+		if err := engine.SendVideosToSessionWithOptions(req.SessionKey, req.Videos, SendOptions{BoardID: boardID, VideoLabels: req.VideoLabels, ReplyBoard: replyBoard}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
