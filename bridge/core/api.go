@@ -106,6 +106,14 @@ type SendRequest struct {
 	BoardID int `json:"board_id,omitempty"`
 	// VideoLabels: optional per-video version labels sent right before each video attachment (#2200).
 	VideoLabels []string `json:"video_labels,omitempty"`
+	// ForTask: the board item this message is for (`send --for N`). With no -s/--channel the bridge
+	// posts it to that task's owner chat; with one, a target that is not the owner chat, the task's
+	// forum thread or a workspace is refused (sendTaskTargetProblem). A workspace process's sends
+	// are held to the task of its CC_HANDOFF the same way, and --board-id / --mention-assigner name
+	// the task too.
+	ForTask int `json:"for_task,omitempty"`
+	// CrossChannel: the sender says this message for a task goes to another chat on purpose.
+	CrossChannel bool `json:"cross_channel,omitempty"`
 	// AskUser: explicit human decision/answer prompt from the lead in the chat channel (#2091).
 	// Allows human mentions in this message (auto-mentioning the owner if none is written).
 	AskUser bool `json:"ask_user,omitempty"`
@@ -415,6 +423,22 @@ func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	keptNote := "" // the attachments stayed in the workspace: tell the sender (SendTargetForAttachments)
 	if req.SessionFromEnv && !req.DM && workDir == "" && req.TaskText == nil && req.ReplyToMessageID == "" {
 		req.SessionKey, keptNote = engine.teamLayer().SendTargetForAttachments(req.SessionKey, req.Handoff, len(req.Images)+len(req.Files)+len(req.Audios)+len(req.Videos) > 0)
+	}
+	// Where a task's message goes is the bridge's call, from the task's owner chat (11-25 #2010).
+	if req.ForTask > 0 && req.SessionKey == "" && !req.DM && req.TaskText == nil {
+		owner, err := engine.taskOwnerChat(engine.boardItemByID(req.ForTask))
+		if err != nil {
+			http.Error(w, "not sent: "+err.Error(), http.StatusConflict)
+			return
+		}
+		req.SessionKey, explicitTarget = owner, true
+	}
+	if !req.DM && req.TaskText == nil {
+		id := engine.sendTaskOf(req.ForTask, req.BoardID, req.MentionAssigner, req.FromSession, req.SessionKey, req.Handoff)
+		if why := engine.sendTaskTargetProblem(id, req.SessionKey, req.CrossChannel); why != "" {
+			http.Error(w, why, http.StatusConflict)
+			return
+		}
 	}
 	var allowHumans []string
 	var recordMentionUsers []string
