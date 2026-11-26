@@ -118,7 +118,7 @@ def _read(name="board.jsonl"):
 def _read_locked(name="board.jsonl"):
     """Read a snapshot while the caller holds board.lock."""
     try:
-        lines = _path(name).read_text().splitlines()
+        lines = _path(name).read_text(encoding="utf-8").splitlines()  # 显式 UTF-8（#2261）：写侧可能是 -X utf8 的 board.cmd，读侧可能是只带 -I 的 ws-handoff 后台 worker
     except FileNotFoundError:
         return []
     out = []
@@ -185,9 +185,8 @@ def _write(items, name="board.jsonl"):
         mode = _default_file_mode()
     fd, tmp = tempfile.mkstemp(prefix=name + ".", suffix=".tmp", dir=str(DIR))
     try:
-        # 不写死 encoding：和原来 Path.write_text 一样按解释器默认编码（board.cmd 带 -X utf8），
-        # 别让「写 utf-8、读默认编码」在非 UTF-8 模式的 Windows 上变成乱码
-        with os.fdopen(fd, "w") as fh:
+        # 显式 UTF-8（#2261）：写侧（board.cmd 带 -X utf8）和读侧（ws-handoff 后台 worker 只带 -I）钉死同一个编码，不随 Windows 代码页漂
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
         if os.name == "posix" and mode is not None:
             with suppress(OSError):
