@@ -487,6 +487,18 @@ class T(unittest.TestCase):
             self.assertEqual(asked, ["alpha beta encoder"])
             self.assertEqual([Path(p["path"]).stem for p in got], ["topic"])
 
+    def test_rerank_floor_follows_model(self):
+        # #2031：重排服务答话带 model 时按表取线（4B 0.5），不带时用 RERANK_MIN。
+        class Resp:
+            def __init__(self, body): self.body = body
+            def read(self): return json.dumps(self.body).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        for body, want in (({"p": [0.3, 0.6], "model": "Qwen3-Reranker-4B"}, [True, False]), ({"p": [0.3, 0.1]}, [False, True])):
+            with patch.object(ctxsvc, "RERANK_URL", "http://x"), patch.object(ctxsvc, "RERANK_MIN", 0.2), \
+                    patch("urllib.request.urlopen", lambda *a, **k: Resp(body)):
+                self.assertEqual(ctxsvc.weak_lines("q", ["a", "b"]), want)
+
     def test_refs_record_cross_page_and_headless_rows(self):
         # #2031：别的页的楼写成「| 路径:行号: 」、页头为空时第一行前没有「| 」，推送记录原来漏记这两类。
         with tempfile.TemporaryDirectory() as d:
