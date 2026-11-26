@@ -30,7 +30,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lint, lossless  # noqa: E402
 
-WIKI = Path(__file__).resolve().parent.parent
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 SHARED_TOOL = 1  # marker: this consolidate.py takes --root; teammate/ shims refuse a tool without it
 LINK = lint.LINK
 MDLINK = re.compile(r"(\]\()([^)\s]+)(\))")

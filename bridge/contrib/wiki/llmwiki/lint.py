@@ -10,7 +10,9 @@
 import re, sys
 from pathlib import Path
 
-WIKI = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 SHARED_TOOL = 1  # marker: this lint.py takes --root; teammate/ shims refuse a tool without it
 MAX_DOMAINS, INDEX_LINE = 8, 80
 MAX_TOPICS, README_LINE = 15, 120

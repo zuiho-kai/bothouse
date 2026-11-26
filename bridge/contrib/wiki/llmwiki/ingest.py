@@ -29,6 +29,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
+import wikiroot  # noqa: E402
+os.environ.setdefault("WIKI_DIR", str(wikiroot.HOME_WIKI))  # the modules below take the wiki from here (wikiroot.py)
 import filelock  # exclusive file lock on Mac/Linux/Windows
 import codex_retry
 import budget  # the scheduler's deadline; WIKI_STOP_AT stays a between-batch stop
@@ -100,7 +102,7 @@ B. TRANSCRIPT：
 
 LINK = lint.LINK  # README entry → link target
 
-HOME_WIKI = Path.home() / "wiki"
+HOME_WIKI = wikiroot.HOME_WIKI
 SHARED_TOOL = 1  # marker: this ingest.py reads a wiki's config.json; teammate/ shims refuse a tool without it
 WIKI = Path(os.environ.get("WIKI_DIR", HOME_WIKI))  # WIKI_DIR: another wiki (a sub's, see config.json) or a trial clone
 REPO = WIKI  # the wiki everyone uses; during run() WIKI points at WORK instead

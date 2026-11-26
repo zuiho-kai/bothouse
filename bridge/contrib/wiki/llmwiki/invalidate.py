@@ -20,7 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lossless
 
-WIKI = Path(__file__).resolve().parent.parent
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 HISTORY = "历史"  # 同 ingest.HISTORY / lint.SECTIONS
 MAX_CHARS = 240_000  # 沿用 ingest.py MAX_CHARS：每次模型调用的输入上限
 BULLET = re.compile(r"^(\s*)[-*+] \S")

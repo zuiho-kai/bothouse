@@ -25,7 +25,8 @@ class DomainAcceptance(unittest.TestCase):
 
     def prepare(self):
         (self.repo / "bin").mkdir()
-        (self.repo / "bin/lint.py").write_text(Path(I.lint.__file__).read_text())
+        for f in ("lint.py", "wikiroot.py"):  # setup_wiki.py copies every llmwiki/*.py
+            (self.repo / "bin" / f).write_text((Path(I.__file__).parent / f).read_text())
         for name in ("source", "second", "third", "fourth"):
             (self.repo / f"misc/{name}.md").write_text(
                 fixture.PAGE.replace("name: fixture", f"name: {name}")

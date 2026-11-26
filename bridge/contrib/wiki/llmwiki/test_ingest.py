@@ -29,6 +29,12 @@ I.ROLES_TOML.write_text('[[roles]]\nname = "橘"\n[[roles]]\nname = "龙娘"\n[[
 I.LOG = Path(_LOG_DIR) / "ingest.log"
 
 
+def put_lint(bin_dir):
+    """A wiki's bin/ with the shared lint.py and the wikiroot.py it imports (setup_wiki.py copies every llmwiki/*.py)."""
+    for f in ("lint.py", "wikiroot.py"):
+        (Path(bin_dir) / f).write_text((Path(__file__).resolve().parent / f).read_text())
+
+
 def tearDownModule():
     subprocess.run(["rm", "-rf", _LOG_DIR])
 
@@ -981,7 +987,7 @@ class Split(Fake):
 
     def test_split_pass_merges_family_first(self):  # SOP v2: X-*.md folds into X.md before any split
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [a](a.md) — 甲\n- [a-b](a-b.md) — 甲的切片\n")
         self.page("tooling/a.md", "- 甲主页事实")
         self.page("tooling/a-b.md", "- 甲切片事实")
@@ -998,7 +1004,7 @@ class Split(Fake):
 
     def test_split_pass_skips_page_at_max_depth(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         d = "tooling/" + "/".join(f"s{i}" for i in range(I.MAX_DEPTH - 1))
         parent = "tooling"
         for part in d.split("/")[1:]:
@@ -1022,7 +1028,7 @@ class Split(Fake):
 
     def test_write_over_budget_is_accepted_then_split(self):  # 不遗忘: crossing the budget never rejects the write
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [big](big.md) — x\n")
         old = [f"- 旧事实 {i}" for i in range(120)]  # below the split line: split_pass leaves it
         self.page("tooling/big.md", "## 关键事实\n" + "\n".join(old))
@@ -1048,7 +1054,7 @@ class Split(Fake):
 
     def test_split_pass_takes_over_budget_page(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("- [big](big.md) — x\n")
         self.page("tooling/big.md", "\n".join(f"- fact {i}" for i in range(lint.PAGE_LINES + 10)))
         self.commit("base")
@@ -1069,7 +1075,7 @@ class Split(Fake):
 
     def test_split_pass_fingerprints_full_path(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("- [big](big:v2.md) — x\n")
         self.page("tooling/big:v2.md", "\n".join(f"- fact {i}" for i in range(lint.PAGE_LINES + 10)))
         self.commit("base")
@@ -1131,7 +1137,7 @@ class Tree(Fake):
     def test_split_pass_sees_subdomain_pages(self):
         self.build()
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         self.commit("base")
         I.STATE = self.tmp / "s.sqlite"
         seen = []
@@ -1193,7 +1199,7 @@ class DomainBase(Fake):
         I.WORK, I.STATE, I.SPLIT_ENGINE = self.w / ".ingest-work", self.tmp / "s.sqlite", "fake"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         names = [f"p{i}" for i in range(13)] + ["a.b", "c:d"]
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n规则见 CLAUDE.md。\n\n" +
                                                       "".join(f"- [{n}]({n}.md) — 页 {n}\n" for n in names))
@@ -1543,7 +1549,7 @@ class CrashedCheck(Fake):
         I.WORK = self.w / ".ingest-work"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`")
         self.base = self.commit("base")
@@ -1657,7 +1663,7 @@ class LintBaseline(Fake):
     def setUp(self):
         super().setUp()
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [a](a.md) — 甲\n- [b](b.md) — 乙\n")
         self.page("tooling/a.md", "- 旧事实，不声称已上线")
         self.page("tooling/b.md", "- 乙事实")
@@ -1698,7 +1704,7 @@ class Deliver(Fake):
         I.WORK = self.w / ".ingest-work"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`\n- 乙 `b1`")
         self.commit("base")
@@ -1965,7 +1971,7 @@ class GaveUp(Fake):
         I.WORK, I.USAGE = self.w / ".ingest-work", self.tmp / "usage.tsv"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`")
         self.base = self.commit("base")
