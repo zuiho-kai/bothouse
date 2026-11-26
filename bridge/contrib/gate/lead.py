@@ -12,6 +12,7 @@
   交给 gate，bot/板子 webhook 的消息 from_bot=true，所以这里只要求每一段都不是 bot 发的。
 """
 import json, os, re, threading, time
+from datetime import datetime
 from pathlib import Path
 
 import sys
@@ -202,7 +203,9 @@ def set_lead(key):
             return False
         LEAD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = LEAD_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"lead": key, "name": NAME[key], "at": time.strftime("%m-%d %H:%M:%S")}, ensure_ascii=False))
+        # 时间和桥（core/api_handoff.go RFC3339）、DSH（lead-state.mjs ISO）同一种格式：带年份和时区（#2051 第 5 件）
+        at = datetime.now().astimezone().isoformat(timespec="seconds")
+        tmp.write_text(json.dumps({"lead": key, "name": NAME[key], "at": at}, ensure_ascii=False))
         tmp.replace(LEAD_FILE)
         return True
 
