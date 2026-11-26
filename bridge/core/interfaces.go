@@ -143,7 +143,7 @@ This conversation supports native quoted text replies. To deliberately quote a p
 
   bothouse send --reply-to <message-id> --message "your reply"
 
-Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
+Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text. When answering an earlier buffered/backlogged question, quote that original message rather than the unrelated message that woke you; if native quoting is unavailable, mention the original asker with 'bothouse send --at-users <sender-id>'.`
 
 // aboutHint points every role at the built-in product notes (`bothouse about`); part of
 // bridgeInstructions.

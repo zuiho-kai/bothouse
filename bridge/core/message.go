@@ -431,9 +431,12 @@ type Message struct {
 	// with the structured UserName to label each speaker's own words, both in the prompt and in
 	// the gate's silent buffer, so attribution does not depend on AmbientChat being non-empty:
 	// the first message after start/reconnect and a quote-only message must keep their author too.
-	GroupChat  bool
-	StopAll    bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
-	SeenUpToID string // maomao fork: newest message folded into this one (gate burst), for channel backfill
+	GroupChat bool
+	// AutomatedNotice marks a machine-generated monitor/status notice (QQ speed-test reports,
+	// for example). It is context people may ask about later, but it must never wake the bot.
+	AutomatedNotice bool
+	StopAll         bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
+	SeenUpToID      string // maomao fork: newest message folded into this one (gate burst), for channel backfill
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
 	// ("" = the whole first window); freshContextImages adds the images from before it.
 	BackfillFrom string

@@ -1,15 +1,25 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type quoteStubPlatform struct {
+	*stubPlatformEngine
+}
+
+func (p *quoteStubPlatform) ReplyToMessage(_ context.Context, _ any, _ string, _ string, _ []string, _ bool) error {
+	return nil
+}
 
 type promptCaptureSession struct {
 	events  chan Event
@@ -56,9 +66,9 @@ func ambientGate(t *testing.T, action func(gateRequest) string) *httptest.Server
 	return srv
 }
 
-func ambientEngine(t *testing.T, srv *httptest.Server) (*Engine, *promptCaptureSession, *stubPlatformEngine) {
+func ambientEngine(t *testing.T, srv *httptest.Server) (*Engine, *promptCaptureSession, *quoteStubPlatform) {
 	t.Helper()
-	p := &stubPlatformEngine{n: "test"}
+	p := &quoteStubPlatform{stubPlatformEngine: &stubPlatformEngine{n: "test"}}
 	sess := newPromptCaptureSession()
 	e := NewEngine("test", &resultAgent{session: sess}, []Platform{p}, "", LangChinese)
 	t.Cleanup(func() { _ = e.Stop() })
@@ -435,5 +445,95 @@ func TestNoModelFallbackAnswersPrivateChat(t *testing.T) {
 	}
 	if got := (&gateState{fallback: "context", gateRuntime: newGateRuntime()}).fallbackFor(gateRequest{Private: true}); got != "reply" {
 		t.Errorf("fallbackFor(private) = %q, want reply", got)
+	}
+}
+
+func TestGateAutomatedNoticeDoesNotWake(t *testing.T) {
+	var gateCalls atomic.Int32
+	srv := ambientGate(t, func(gateRequest) string {
+		gateCalls.Add(1)
+		return "reply"
+	})
+	e, sess, p := ambientEngine(t, srv)
+
+	msg := &Message{
+		SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "m1",
+		UserID: "u-bot", UserName: "石英", Content: "[检测完成] gpt-s-unstable-backup\n\nCiallo：[正常]检测通过。",
+		GroupChat: true, AutomatedNotice: true, ReplyCtx: "ctx",
+	}
+	msg.burstDone = true
+	e.handleMessage(p, msg)
+
+	time.Sleep(150 * time.Millisecond)
+	if got := len(sess.sent()); got != 0 {
+		t.Fatalf("automated monitor notice started %d turns, want none", got)
+	}
+	if got := gateCalls.Load(); got != 0 {
+		t.Fatalf("automated monitor notice reached the gate %d times, want no wake decision", got)
+	}
+}
+
+func TestGateBufferedBacklogCarriesQuoteTarget(t *testing.T) {
+	srv := ambientGate(t, func(req gateRequest) string {
+		if req.Mentioned {
+			return "reply"
+		}
+		return "silent"
+	})
+	e, sess, p := ambientEngine(t, srv)
+
+	question := &Message{
+		SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "523344058",
+		UserID: "3048536893", UserName: "Eicy", Content: "我是直接从 main fork 吗",
+		GroupChat: true, ReplyCtx: "ctx",
+	}
+	question.burstDone = true
+	e.handleMessage(p, question)
+
+	trigger := &Message{
+		SessionKey: "test:c1", Platform: "test", ChannelKey: "c1", MessageID: "600",
+		UserID: "u2", UserName: "Bob", Content: "Assistant 在吗", Mentioned: true,
+		GroupChat: true, ReplyCtx: "ctx",
+	}
+	trigger.burstDone = true
+	e.handleMessage(p, trigger)
+
+	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
+	got := sess.sent()[0]
+	for _, want := range []string{"message_id=523344058", "sender_id=3048536893", "--reply-to", "--at-users"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("buffered backlog prompt missing %s:\n%s", want, got)
+		}
+	}
+	start := strings.Index(got, bufferedBacklogNote)
+	end := strings.Index(got, latestMark)
+	if start < 0 || end <= start {
+		t.Fatalf("backlog section missing or malformed:\n%s", got)
+	}
+	backlog := got[start:end]
+	if strings.Contains(backlog, "### Native quoted replies") || strings.Contains(backlog, "[Message IDs: current=523344058]") {
+		t.Fatalf("buffered backlog kept the old message's bridge control blocks:\n%s", backlog)
+	}
+}
+
+func TestGroupChatIdentityNamesRealChatNotProject(t *testing.T) {
+	srv := ambientGate(t, func(gateRequest) string { return "reply" })
+	e, sess, p := ambientEngine(t, srv)
+
+	msg := &Message{
+		SessionKey: "test:c1", Platform: "test", ChannelKey: "795722872", MessageID: "m1",
+		UserID: "u", UserName: "Eicy", Content: "我是直接从 main fork 吗", Mentioned: true,
+		GroupChat: true, ChatName: "Superintelligent 交流群", ReplyCtx: "ctx",
+	}
+	msg.burstDone = true
+	e.handleMessage(p, msg)
+
+	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
+	got := sess.sent()[0]
+	if !strings.Contains(got, `chat_name="Superintelligent 交流群"`) {
+		t.Fatalf("prompt does not name the real group:\n%s", got)
+	}
+	if !strings.Contains(got, "not by the project or repository name") {
+		t.Fatalf("prompt does not rule out project/repository as the group identity:\n%s", got)
 	}
 }
