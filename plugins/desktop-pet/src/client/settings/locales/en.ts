@@ -207,10 +207,10 @@ export const en: Record<Key, string> = {
   invalidPhysics: 'Check the physics values: gravity / ground friction ≥ 0, bounciness 0–1, throw power > 0.',
   fontTitle: 'Appearance & font',
   fontHint:
-    'The family applies to every place that currently uses the candy font: pet bubble, hover tooltip, chat popup, score popup. The size applies only to the pet bubble and the hover tooltip (chat and score popups keep their own size). Global default, shared by every pet (a pet pack may override it in its own kind file); written to the user config on "Save" — instant in the browser, and on the desktop it applies once Save reloads the pet windows.',
+    'The family applies to every place that currently uses the bundled serif font: pet bubble, hover tooltip, chat popup, score popup. The size applies only to the pet bubble and the hover tooltip (chat and score popups keep their own size). Global default, shared by every pet (a pet pack may override it in its own kind file); written to the user config on "Save" — instant in the browser, and on the desktop it applies once Save reloads the pet windows.',
   fontFamilyLabel: 'Font',
   fontFamilyHint:
-    '"Candy (bundled)" ships with the plugin; the others are system fonts. If a font is missing on this machine, it falls back to the next one in the stack (never blank, never an error).',
+    '"Noto Serif SC (bundled)" ships with the plugin; the others are system fonts. If a font is missing on this machine, it falls back to the next one in the stack (never blank, never an error).',
   fontSizeLabel: 'Font size (px)',
   fontSizeHint:
     'Bubble body text size; the tooltip and the smaller lines inside the bubble scale proportionally. Range 4–200.',

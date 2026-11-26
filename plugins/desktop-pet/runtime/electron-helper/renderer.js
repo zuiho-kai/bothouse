@@ -113,7 +113,7 @@ function injectAssets() {
     BASE +
     '/font/' +
     encodeURIComponent('NotoSerifSC-Regular') +
-    '.ttf") format("woff2");font-display:swap;font-weight:400}' +
+    '.woff2") format("woff2");font-display:swap;font-weight:400}' +
     '.pet-hit{cursor:url("' +
     BASE +
     '/pic/cursor-grab.png") 16 16, grab}' +
