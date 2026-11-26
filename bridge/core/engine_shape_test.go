@@ -19,7 +19,7 @@ import (
 const (
 	maxEngineGoLines  = 3000 // engine.go is a 2234-line core; topics live in engine_<topic>.go
 	wantEngineFields  = 198
-	wantEngineMethods = 1169
+	wantEngineMethods = 1168
 	wantEngineSetters = 98
 )
 
