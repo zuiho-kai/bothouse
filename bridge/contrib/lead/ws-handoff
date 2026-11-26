@@ -721,6 +721,9 @@ def auto_notes(task: str) -> str:
 
 
 def main(argv):
+    if "-h" in argv or "--help" in argv:  # #2257：帮助优先于一切参数位置，前台直接打印；不建任务单、不占工作区、不拉后台
+        print(USAGE, flush=True)
+        return 0
     if argv[:1] == ["--drain"]:  # 排队表 11-24 拿掉；桥放回工作区后还调（core/team_workspace_one.go），留成空操作
         return 0
     if "--resume" in argv:
@@ -962,6 +965,9 @@ def worker(argv):
 
 
 def run(argv):
+    if "-h" in argv or "--help" in argv:  # #2257：后台 worker 拉起之前就拦下帮助，不写运行目录、不占工作区
+        print(USAGE, flush=True)
+        return 0
     # --resume 也有模型直接调（续办暂停的活、ws-forward 转），同样会被回合结束杀掉，一起放后台；--drain 只由桥在后台调
     if os.environ.get(WORKER) or os.environ.get("WS_HANDOFF_INLINE") or argv[:1] == ["--drain"]:
         return worker(argv) if os.environ.get(WORKER) else main(argv)
