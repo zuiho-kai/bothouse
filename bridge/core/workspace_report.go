@@ -108,7 +108,7 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	}
 	// Nothing to hand back from here: the task went on in another workspace, or this workspace
 	// is back in the pool (a report would have no chat to go to).
-	if !valid && e.workspaceTaskMovedAway(key) {
+	if !valid && e != nil && workspaceTaskMovedAway(e.dataDir, key) {
 		valid = true
 	}
 	if !valid {

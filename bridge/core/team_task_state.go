@@ -246,14 +246,14 @@ func teamTaskInWorkOnLocked(dataDir string, id int, key string) (TeamTask, bool,
 // #2052 was sent back and claimed by 1575320258237956127; its old workspace 1575497425236271114
 // was still asked to hand it back, got released, and the stray wake opened a fresh session on
 // the long-closed #2048 (11-26 反思 a 类「已交回并验收的任务不再催」).
-func (e *Engine) workspaceTaskMovedAway(key string) bool {
-	if e == nil || e.dataDir == "" {
+func workspaceTaskMovedAway(dataDir, key string) bool {
+	if dataDir == "" {
 		return false
 	}
 	key = teamChatKey(key)
 	teamWorkspaceStore.mu.Lock()
 	defer teamWorkspaceStore.mu.Unlock()
-	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(e.dataDir))
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(dataDir))
 	if err != nil {
 		return false
 	}
