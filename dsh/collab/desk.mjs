@@ -6,7 +6,9 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, sta
 import { dirname, join } from 'node:path';
 import { CollabError, publicMessage } from './store.mjs';
 
-export const BOARD_EVENTS_FILE = 'board-events.jsonl';
+import { BOARD_EVENTS_FILE } from './bridge-files.mjs';
+
+export { BOARD_EVENTS_FILE };
 // 验收要求派活后「几秒内」光柱出现；每秒 stat 一次这个只追加的小文件足够便宜。
 export const TAIL_INTERVAL_MS = 1000;
 // 一次回放给一页历史，条数上限沿用消息分页的 200 条（store.mjs clampLimit）。

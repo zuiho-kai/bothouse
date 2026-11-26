@@ -236,12 +236,9 @@ def ds_lead(env=None):
     env = os.environ if env is None else env
     data = Path(env.get("CC_DATA_DIR") or env.get("BOTHOUSE_DATA_DIR") or Path.home() / ".bothouse")
     proj, agent = env.get("CC_PROJECT", ""), {}
-    try:
-        import tomllib
-        with open(data / "config.toml", "rb") as fh:
-            agent = next((p.get("agent") or {} for p in tomllib.load(fh).get("projects") or [] if p.get("name") == proj), {})
-    except Exception:  # noqa: BLE001  配置读不到就退到 CC_AGENT
-        agent = {}
+    import _team  # gate/datadir.py：config.toml 只在那里解析（读不了回空）
+    agent = next((p.get("agent") or {} for p in _team.datadir.projects(data / "config.toml") if p.get("name") == proj), {})
+    agent = agent if isinstance(agent, dict) else {}  # 配置读不到就退到 CC_AGENT
     kind = (agent.get("type") or env.get("CC_AGENT") or "").lower()
     if kind == "dsh" or "deepseek" in kind:
         return True

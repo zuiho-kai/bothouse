@@ -62,6 +62,31 @@ class DataDir(unittest.TestCase):
         (d / "config.toml").write_text(f'team_status_dir = "{tdir}"\n', encoding="utf-8")
         self.assertEqual(self.paths(GATE_SETUP_DIR=str(d))[3], str(tdir))
 
+    def test_board_follows_project_team_status_dir(self):
+        # 真配置里 team_status_dir 在 [[projects]] 里，可能在第二个 project、用单引号（旧正则只认双引号）
+        d = self.home / "data"
+        tdir = self.home / "shared-team"
+        d.mkdir()
+        (d / "config.toml").write_text(f"[[projects]]\nname = 'a'\n\n[[projects]]\nname = 'b'\nteam_status_dir = '{tdir}'\n",
+                                       encoding="utf-8")
+        self.assertEqual(self.paths(GATE_SETUP_DIR=str(d))[3], str(tdir))
+
+    def test_bad_config_falls_back(self):
+        d = self.home / "data"
+        d.mkdir()
+        (d / "config.toml").write_text("team_status_dir = \"unterminated\n", encoding="utf-8")
+        self.assertEqual(self.paths(GATE_SETUP_DIR=str(d))[3], str(d / "team"))
+        self.assertEqual(run(self.home, "import datadir; print(datadir.projects(), datadir.load_config())", GATE_SETUP_DIR=str(d)),
+                         "[] None")
+
+    def test_workspace_keys_and_lead(self):
+        d = self.home / "data"
+        d.mkdir()
+        (d / "team_workspaces.json").write_text('{"handoffs": {"discord:9": {}}, "parents": {"slack:1": [{"id": "7"}, {}]}}')
+        (d / "lead.json").write_text('{"lead": "maomao", "name": "橘"}')
+        out = run(self.home, "import datadir; print(sorted(datadir.workspace_keys()), datadir.lead()['lead'])", BOTHOUSE_DATA_DIR=str(d))
+        self.assertEqual(out, "['discord:9', 'slack:7'] maomao")
+
     def test_both_set(self):
         # lead.json 跟 BOTHOUSE_DATA_DIR，团队文件/任务板等跟 GATE_SETUP_DIR（datadir.py 文档写死的规则）
         p, s = str(self.home / "product"), str(self.home / "setup")
