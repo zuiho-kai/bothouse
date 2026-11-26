@@ -3987,6 +3987,9 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		// text so command parsing and DM routing do not change.
 		body = senderText(msg, body)
 		var head []string
+		if chatIdentity := chatIdentityBlock(msg); chatIdentity != "" {
+			head = append(head, chatIdentity)
+		}
 		if _, ok := p.(MessageReplySender); ok && msg.MessageID != "" {
 			ids := "[Message IDs: current=" + msg.MessageID
 			if msg.Reference != nil && msg.Reference.ID != "" {
@@ -19558,6 +19561,26 @@ func (e *Engine) cmdBindSetup(p Platform, msg *Message) {
 	case setupOK:
 		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgRelaySetupOK), baseName))
 	}
+}
+
+// chatIdentityBlock names the shared chat itself. Without it a group turn only carries
+// people and message text, so the model tends to infer the room from the topic under discussion
+// (2026-11-26: a fork question in "Superintelligent 交流群" was answered as "这边是 bothouse 群").
+// The line is turn context, not sender injection, so it is present even where sender injection is off.
+func chatIdentityBlock(msg *Message) string {
+	if !msg.GroupChat {
+		return ""
+	}
+	chatID := msg.ChannelKey
+	if chatID == "" {
+		chatID = extractChannelID(msg.SessionKey)
+	}
+	name := strings.TrimSpace(msg.ChatName)
+	if name == "" || name == chatID {
+		return fmt.Sprintf("[Chat identity: type=group platform=%s chat_id=%s; the group display name is unavailable, but this chat is not named after the project or repository]", msg.Platform, chatID)
+	}
+	safeName := strings.NewReplacer(`"`, `'`, "\n", " ", "\r", "").Replace(name)
+	return fmt.Sprintf("[Chat identity: type=group platform=%s chat_name=\"%s\" chat_id=%s; refer to this chat by this name, not by the project or repository name]", msg.Platform, safeName, chatID)
 }
 
 // senderText prefixes a multi-party message's own words with the sender's display name.
