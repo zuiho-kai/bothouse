@@ -49,7 +49,9 @@ def claude_ex(system, prompt):
     try:
         p = subprocess.run(
             ["claude", "-p", "--model", MODEL, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
-             "--no-session-persistence", "--system-prompt", system, "--output-format", "json"],
+             "--no-session-persistence", "--system-prompt", system, "--output-format", "json",
+             # 只挑行、抽词，不用深想：默认档挑定案要想 3–5 千词元、17–26 秒，常撞 MODEL_TIMEOUT；low 13 秒、挑出的一样（#2062 实测）
+             "--effort", "low"],
             input=prompt, capture_output=True, text=True, timeout=MODEL_TIMEOUT, cwd=tempfile.gettempdir())
     except subprocess.TimeoutExpired:
         return "", 0, f"小模型超过 {MODEL_TIMEOUT} 秒"
@@ -115,15 +117,33 @@ def wiki_hits(kw):
     return [(m.group(1), m.group(2)) for m in re.finditer(r"^(~?/\S+\.md:\d+)\s+(.*)$", out, re.M)]
 
 
+SESSION_CAP = 300  # 每个词只取最近 300 个命中会话：实测 11-27 不设上限 1.8 万个会话读片段要 10 秒，300 个约 3 秒
+
+
 def session_ids(kw):
-    """sessions.py search 命中的全部会话 id（它按最近排、默认只给前几个，旧定案多在更早的会话里，所以不设上限）。"""
-    try:
-        out = subprocess.run([sys.executable, "-I", str(SESSIONS), "search", "--limit", str(sys.maxsize >> 32), kw],
-                             capture_output=True,
-                             text=True, timeout=SEARCH_BUDGET).stdout
-    except (OSError, subprocess.SubprocessError):
+    """sessions.py 索引（index-v2.sqlite，只读）里命中 kw 的会话 id，按最近排，最多 SESSION_CAP 个。
+    不调 sessions.py search：它给每个命中会话读整份原文打印摘要，命中几千个要读上 GB，
+    11-27 实测每次都跑满 SEARCH_BUDGET 20 秒被掐、一条也没拿到（#2062）。查询和它的 cmd_search 同一写法。"""
+    import sqlite3
+    db_path = SESSIONS.with_name("index-v2.sqlite")
+    if not db_path.is_file():
         return []
-    return [(sid, kw) for sid in re.findall(r"^(\S{8,})\s+\d\d-\d\d \d\d:\d\d", out, re.M)]
+    try:
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+        try:
+            if len(kw) >= 3:  # trigram 索引
+                ids = {r[0] for r in db.execute("select id from docs where docs match ?", ('"' + kw.replace('"', '""') + '"',))}
+            else:  # 太短，trigram 用不上：LIKE 扫
+                ids = {r[0] for r in db.execute("select id from docs where text like ?", (f"%{kw}%",))}
+            if not ids:
+                return []
+            rows = db.execute(f"select id from sessions where id in ({','.join('?' * len(ids))}) order by mtime desc limit ?",
+                              (*ids, SESSION_CAP)).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return []
+    return [(r[0], kw) for r in rows]
 
 
 # 进来的消息里不是人说的行：任务板行（｜分列）、桥和定时任务的提示、角色转发、注入的系统块
