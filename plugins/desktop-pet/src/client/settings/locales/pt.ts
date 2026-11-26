@@ -221,7 +221,7 @@ export const pt: Record<Key, string> = {
     'Ligado (padrão): a fonte cresce com o pet — com 462 px de largura fica exatamente no tamanho definido acima. Desligado: o tamanho fica fixo, independente do pet.',
   invalidFont:
     'Revise as configurações de fonte: a família precisa estar na lista e o tamanho precisa ser um número entre 4 e 200.',
-  'font.candy': 'Candy (embutida)',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',

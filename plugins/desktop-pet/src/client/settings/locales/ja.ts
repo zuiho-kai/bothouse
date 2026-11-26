@@ -214,7 +214,7 @@ export const ja: Record<Key, string> = {
     'オン（デフォルト）：ペットを大きくすると文字サイズも比例して大きくなり、幅 462 のときに上の設定値と一致します。オフ：文字サイズは一定で、ペットの大きさに左右されません。',
   invalidFont:
     'フォント設定を確認してください：フォントはドロップダウンリスト内、文字サイズは 4～200 の数値である必要があります。',
-  'font.candy': 'キャンディフォント（内蔵）',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',

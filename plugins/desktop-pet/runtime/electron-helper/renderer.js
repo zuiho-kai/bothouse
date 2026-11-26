@@ -109,11 +109,11 @@ async function boot() {
 function injectAssets() {
   const style = document.createElement('style');
   style.textContent =
-    '@font-face{font-family:"ShangshouSoftCandy";src:url("' +
+    '@font-face{font-family:"Noto Serif SC";src:url("' +
     BASE +
     '/font/' +
-    encodeURIComponent('上首软糖体') +
-    '.ttf") format("truetype");font-display:swap;font-weight:400}' +
+    encodeURIComponent('NotoSerifSC-Regular') +
+    '.ttf") format("woff2");font-display:swap;font-weight:400}' +
     '.pet-hit{cursor:url("' +
     BASE +
     '/pic/cursor-grab.png") 16 16, grab}' +

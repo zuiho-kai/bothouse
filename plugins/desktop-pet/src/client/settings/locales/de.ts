@@ -219,7 +219,7 @@ export const de: Record<Key, string> = {
     'An (Standard): die Schrift wächst mit dem Pet – bei 462 px Breite entspricht sie genau der obigen Größe. Aus: die Größe bleibt unabhängig von der Pet-Größe konstant.',
   invalidFont:
     'Bitte Schrifteinstellungen prüfen: Die Schriftart muss in der Liste stehen, die Größe eine Zahl zwischen 4 und 200 sein.',
-  'font.candy': 'Candy (integriert)',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',

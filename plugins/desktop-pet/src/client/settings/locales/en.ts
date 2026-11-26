@@ -219,7 +219,7 @@ export const en: Record<Key, string> = {
     'On (default): the font grows with the pet — at 462 px width it is exactly the size above. Off: the size stays fixed regardless of pet size.',
   invalidFont:
     'Check the font settings: the family must be in the list and the size must be a number between 4 and 200.',
-  'font.candy': 'Candy (bundled)',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',

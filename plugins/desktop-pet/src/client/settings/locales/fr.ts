@@ -223,7 +223,7 @@ export const fr: Record<Key, string> = {
     'Activé (par défaut) : la police grandit avec le compagnon — à 462 px de largeur, elle correspond exactement à la taille ci-dessus. Désactivé : la taille reste fixe quelle que soit la taille du compagnon.',
   invalidFont:
     'Vérifiez les réglages de police : la famille doit figurer dans la liste et la taille doit être un nombre entre 4 et 200.',
-  'font.candy': 'Bonbon (intégrée)',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',
