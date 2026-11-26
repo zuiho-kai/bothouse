@@ -444,7 +444,7 @@ class T(unittest.TestCase):
             self.assertIn("【旧】", texts[1])
 
     def test_old_topic_rows_left_to_relevance_check(self):
-        # 历史词参与找页；旧话题行由 need 的相关度判定标 weak（占名额不推），不再按本句稀有词删行（#2031 回放：删行把命中砍到 28%）。
+        # 历史词参与找页；旧话题行由 need 的相关度判定去掉（#2031 二轮：先去不相关再排名额，不再占名额），不再按本句稀有词删行。
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             notes = root / "notes"
@@ -462,9 +462,30 @@ class T(unittest.TestCase):
                 got = ctxsvc.match_wiki(expanded, k=2, prepared=True, focus="astronomy telescope",
                                         need="astronomy telescope")
                 weak = {Path(p["path"]).stem: [r.get("weak", False) for r in p["rows"]] for p in got}
-                self.assertEqual(weak, {"history": [True], "current": [False]})
+                self.assertEqual(weak, {"current": [False]})
                 pushed = ctxsvc._cap_pages(got, ())
                 self.assertEqual([Path(p["path"]).stem for p in pushed], ["current"])
+
+    def test_rerank_judges_topic_and_frees_slots(self):
+        # #2031 二轮：口语追问自己不带话题，重排拿「这句+前两轮」去问；判不相关的先去掉，排在后面的对题行补上名额。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            for i in range(3):
+                (notes / f"noise{i}.md").write_text(f"- alpha beta noise{i}\n", encoding="utf-8")
+            (notes / "topic.md").write_text("- alpha encoder collision\n", encoding="utf-8")
+            asked = []
+
+            def fake(need, lines, topic=""):
+                asked.append(topic)
+                return ["noise" in l for l in lines]
+            with patch.object(ctxsvc, "FORUM", None), patch.object(ctxsvc, "weak_lines", fake):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                got = ctxsvc.match_wiki("alpha beta encoder", k=3, prepared=True, need="alpha beta")
+            self.assertEqual(asked, ["alpha beta encoder"])
+            self.assertEqual([Path(p["path"]).stem for p in got], ["topic"])
 
     def test_refs_record_cross_page_and_headless_rows(self):
         # #2031：别的页的楼写成「| 路径:行号: 」、页头为空时第一行前没有「| 」，推送记录原来漏记这两类。
