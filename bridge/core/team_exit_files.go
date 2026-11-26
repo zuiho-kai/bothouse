@@ -185,13 +185,13 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 	return filterExitVideos(out)
 }
 
-// capExitFiles keeps what one exit post can carry: files over exitFileMaxBytes and those past
+// capExitFiles keeps what one exit post can carry: documents over exitFileMaxBytes and files past
 // exitFileMax are left out, and leftOutNote names them in the chat (#2048: they used to be dropped
 // with no word, and the user thought every attachment had arrived).
 func capExitFiles(files []FileAttachment) (kept []FileAttachment, leftOut []string) {
 	for _, f := range files {
 		switch {
-		case len(f.Data) > exitFileMaxBytes:
+		case len(f.Data) > exitFileMaxBytes && !isMediaFile(f): // pictures and videos keep going whole, as before
 			leftOut = append(leftOut, fmt.Sprintf("%s（%d MiB，超过单个 %d MiB）", f.FileName, (len(f.Data)+(1<<20)-1)>>20, exitFileMaxBytes>>20))
 		case len(kept) >= exitFileMax:
 			leftOut = append(leftOut, fmt.Sprintf("%s（一次最多附 %d 个）", f.FileName, exitFileMax))

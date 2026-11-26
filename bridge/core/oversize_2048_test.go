@@ -14,13 +14,13 @@ func TestCapExitFilesNamesWhatIsLeftOut(t *testing.T) {
 	for _, n := range []string{"a.png", "b.png", "c.png", "d.png", "e.png", "f.png"} {
 		files = append(files, FileAttachment{FileName: n, Data: []byte("x")})
 	}
-	files = append(files, FileAttachment{FileName: "big.mp4", Data: make([]byte, exitFileMaxBytes+1)})
+	files = append(files, FileAttachment{FileName: "big.pdf", Data: make([]byte, exitFileMaxBytes+1)})
 	kept, left := capExitFiles(files)
 	if len(kept) != exitFileMax || len(left) != 2 {
 		t.Fatalf("kept %d, left %v", len(kept), left)
 	}
 	note := leftOutNote(left)
-	if !strings.Contains(note, "f.png") || !strings.Contains(note, "big.mp4") || !strings.Contains(note, "2 个") {
+	if !strings.Contains(note, "f.png") || !strings.Contains(note, "big.pdf") || !strings.Contains(note, "2 个") {
 		t.Fatalf("note does not name the left-out files: %s", note)
 	}
 }
