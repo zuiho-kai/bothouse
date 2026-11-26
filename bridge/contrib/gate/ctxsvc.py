@@ -412,6 +412,13 @@ RERANK_Q = 1500  # 问重排时这句+前两轮最多取这么多字
 # 门槛跟模型走：重排服务答话里带 model（rerank_svc.py），表里有的用表里的线，没有（旧服务不带 model）用 RERANK_MIN。
 # 4B 的 0.5 同样来自 241 题回放：前 5 命中 97.1%、推出行里无关的 6%（0.6B 在 0.2 是 15%），见 gen-memory/logs/rr-thresh-2031.txt
 RERANK_MIN_OF = {"Qwen3-Reranker-4B": 0.5}
+# 4B 一行约 35 毫秒、服务一次只判一批，整轮只给 2 秒：按排好的顺序一批 RERANK_CHUNK 行地判，够 RERANK_ENOUGH 行就停；
+# 同一句、同一行判过的分记住（几个角色回同一条消息、经验和推页撞同一行时不重算）
+RERANK_CHUNK = 8
+RERANK_ENOUGH = 8  # 推页最多 5 行，多留几行给帖去重、历史节、页名额挤掉的
+_rr_memo = collections.OrderedDict()
+RR_MEMO_KEEP = 4096
+_rr_lock = threading.Lock()  # gate 每个请求一个线程
 RERANK_WAIT = 2  # 秒；同推送判定的 2 秒限时，超了按词法判
 
 
@@ -422,18 +429,40 @@ def weak_lines(need, lines, topic=""):
         return [False] * len(lines)
     docs = [_bare(l) for l in lines]
     if RERANK_URL:
+        q = (topic or need)[:RERANK_Q]
+        with _rr_lock:
+            todo = [d for d in dict.fromkeys(docs) if (q, d) not in _rr_memo]
         try:
-            req = urllib.request.Request(RERANK_URL, json.dumps({"q": (topic or need)[:RERANK_Q], "docs": docs}).encode(),
-                                         {"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
-                got = json.loads(r.read())
-            ps, lo = got["p"], RERANK_MIN_OF.get(str(got.get("model") or ""), RERANK_MIN)
-            if len(ps) == len(docs):
-                return [p < lo for p in ps]
+            if todo:
+                req = urllib.request.Request(RERANK_URL, json.dumps({"q": q, "docs": todo}).encode(),
+                                             {"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
+                    got = json.loads(r.read())
+                if len(got["p"]) != len(todo):
+                    raise ValueError("条数不对")
+                lo = RERANK_MIN_OF.get(str(got.get("model") or ""), RERANK_MIN)
+                with _rr_lock:
+                    for d, p in zip(todo, got["p"]):
+                        _rr_memo[(q, d)] = p < lo
+                    while len(_rr_memo) > RR_MEMO_KEEP:
+                        _rr_memo.popitem(last=False)
+            with _rr_lock:
+                return [_rr_memo[(q, d)] for d in docs]
         except Exception:  # 服务没起是立刻连接被拒，不等；卡住的最多等 RERANK_WAIT
             pass
     nt = set(search.toks(need))
     return [bool(nt) and not (nt & set(search.toks(d))) for d in docs]
+
+
+def relevant(need, hits, topic, line_of, enough):
+    """按 hits 的顺序一批 RERANK_CHUNK 行地判相关，留下相关的；攒够 enough 行就不再往下判。"""
+    keep = []
+    for i in range(0, len(hits), RERANK_CHUNK):
+        part = hits[i:i + RERANK_CHUNK]
+        keep += [h for h, weak in zip(part, weak_lines(need, [line_of(h) for h in part], topic)) if not weak]
+        if len(keep) >= enough:
+            break
+    return keep
 
 
 def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", focus="", need=""):
@@ -453,11 +482,11 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
         hits = [h for h in idx.search(q, k=search.TOP * (2 if key else 1)) if is_item(h[2])]  # 有频道时多取一倍候选：旧说法沉底后要有新的补位
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
-    if need:  # 先判相关、不相关的直接去掉，再排名额（#2031：不相关的行占着前三页，对题的行排在后面挤不进来）
-        hits = [h for h, weak in zip(hits, weak_lines(need, [line for _, _, line in hits], q)) if not weak]
     if key and _same(root, WIKI):  # 按项目排序只对主 wiki（角色 wiki 是各角色自己的经验，不分项目）
-        # 判过相关就不再按「和这句有没有共同字」往前提：那正是字面撞词（「颗粒度」→ 壁纸行）的来路（#2031）
+        # 要判相关时就不再按「和这句有没有共同字」往前提：那正是字面撞词（「颗粒度」→ 壁纸行）的来路（#2031）
         hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), "" if need else focus)
+    if need:  # 先判相关、不相关的直接去掉，再排名额（#2031：不相关的行占着前三页，对题的行排在后面挤不进来）
+        hits = relevant(need, hits, q, lambda h: h[2], RERANK_ENOUGH)
     shown_th = set()
     weak_of = [False] * len(hits)
     for (rel, ln, line), weak in zip(hits, weak_of):  # 按首次出现排页
@@ -991,7 +1020,7 @@ def with_lessons(pages, text, skip=None, prepared=False, need=""):
     except Exception:  # 教训表读坏了不挡推页
         return pages
     if need:  # 同 match_wiki：先去掉不相关的，再取前 LESSON_TOP（#2031：共享两个字就进前三，对题的经验反被挤掉）
-        hits = [h for h, weak in zip(hits, weak_lines(need, [ln for _, _, ln, _, _ in hits], text if prepared else query(text))) if not weak][:LESSON_TOP]
+        hits = relevant(need, hits, text if prepared else query(text), lambda h: h[2], LESSON_TOP)[:LESSON_TOP]
     for (rel, n, ln, k, d) in hits:
         weak = False
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
