@@ -64,4 +64,4 @@
 
 ## 尚未列出
 
-- `companion/`、`role-household/`、`experiments/` 的 Python 依赖（见各自 `uv.lock`）还没有生成清单。`integrations/` 没有 package.json，没有第三方 Node 依赖。
+- `role-household/`、`experiments/` 的 Python 依赖（见各自 `uv.lock`）还没有生成清单。`integrations/` 没有 package.json，没有第三方 Node 依赖。

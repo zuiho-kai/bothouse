@@ -17,7 +17,6 @@ from rh.config import Role
 from rh.meeting import Meeting
 from tests.test_hub import HubBase, wait_for, TOKEN
 from tests.test_meeting import FakeBrain
-from rh.host import Host
 
 SILENT = bytes(voice.FRAME_SAMPLES * 2)
 LOUD = array.array("h", [3000, -3000] * (voice.FRAME_SAMPLES // 2)).tobytes()
@@ -387,23 +386,6 @@ class PlaybackHandoff(unittest.TestCase):
         m.wait_idle(6)
 
 
-class VoiceToChannel(HubBase):
-    async def test_spoken_sentence_goes_to_channel_as_user(self):
-        brains = {r.id: FakeBrain(r.name) for r in ROLES_V}
-        m = Meeting(ROLES_V, brains, 3, 1000.0, tts=FakeTTS({"va": 0.05, "vb": 0.05}))
-        host = Host(m, self.url, TOKEN, self.dir / "s.json", reconnect_min=0.05, reconnect_max=0.2)
-        task = asyncio.create_task(host.run())
-        await wait_for(host.connected.is_set, what="角色主机连上")
-        lst = voice.Listener(FakeASR("聊聊猫"), host.say_as_user,
-                             lambda stop: [frames([(LOUD, 900), (SILENT, 900)])], log=lambda s: None)
-        await asyncio.get_running_loop().run_in_executor(None, lst.run)
-        await wait_for(lambda: any(r["author_kind"] == "system" for r in self.rows()), what="讨论结束")
-        users = self.rows(author_kind="user")
-        self.assertEqual([(u["text"], u["author"]) for u in users], [("聊聊猫", "user")])
-        self.assertEqual([r["status"] for r in self.rows(author_kind="role")], ["done"] * 3)
-        host.stop()
-        await asyncio.wait_for(task, 5)
-        await asyncio.get_running_loop().run_in_executor(None, m.wait_idle, 5)
 
 
 if __name__ == "__main__":

@@ -2044,8 +2044,8 @@ app_secret = "your-feishu-app-secret"
 # 针对 Devin 建议直接使用上面的 type = "devin"；下面的 type = "acp" 主要给其他
 # 通用 ACP 工具使用。
 # DeepSeek DSH (dsh-acp): to let messages sent while DSH is busy join the running
-# turn (steer), patch dsh-acp with integrations/dsh-acp-steer/apply.sh.
-# DSH（dsh-acp）忙时插话：先用 integrations/dsh-acp-steer/apply.sh 给 dsh-acp 打补丁。
+# turn (steer), dsh/install.sh applies dsh/runtime-patches/dsh-acp-steer.patch and the bridge re-applies it on start.
+# DSH（dsh-acp）忙时插话：dsh/install.sh 打 dsh/runtime-patches/dsh-acp-steer.patch，桥启动时也会自动补上。
 
 # --- Example: Cursor Agent CLI (npm: @anthropic-ai/cursor-agent) ---
 # [[projects]]
