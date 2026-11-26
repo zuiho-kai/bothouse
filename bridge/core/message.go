@@ -432,8 +432,8 @@ type Message struct {
 	// the gate's silent buffer, so attribution does not depend on AmbientChat being non-empty:
 	// the first message after start/reconnect and a quote-only message must keep their author too.
 	GroupChat bool
-	// AutomatedNotice marks a machine-generated monitor/status notice (QQ speed-test reports,
-	// for example). It is context people may ask about later, but it must never wake the bot.
+	// AutomatedNotice marks a machine-generated monitor/status notice (service health or
+	// speed-test reports, for example). It is context people may ask about later, but it must never wake the bot.
 	AutomatedNotice bool
 	StopAll         bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
 	SeenUpToID      string // maomao fork: newest message folded into this one (gate burst), for channel backfill

@@ -844,7 +844,7 @@ func TestAutomatedMonitorNoticeMarked(t *testing.T) {
 		t.Run(strings.SplitN(body, "\n", 2)[0], func(t *testing.T) {
 			f := newFakeOneBot(t)
 			_, msgs := startTestPlatform(t, f)
-			f.push(groupMessage(111, 2931208399, 9101, textSegment(body)))
+			f.push(groupMessage(111, 2002, 9101, textSegment(body)))
 			m := awaitMessage(t, msgs)
 			if !m.AutomatedNotice {
 				t.Fatalf("AutomatedNotice = false for monitor message %q", body)

@@ -844,7 +844,7 @@ func bufferedText(msg *Message) string {
 // original speaker rather than appear to answer the message that happened to wake the bot.
 func backlogText(msg *Message) string {
 	text := bufferedText(msg)
-	if text == "" || !msg.GroupChat {
+	if text == "" {
 		return text
 	}
 	var attrs []string
