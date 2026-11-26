@@ -35,6 +35,7 @@ import _recall  # noqa: E402  交活时搜旧定案，追加进交接（_recall.
 import _existing  # noqa: E402  开工列出这件活手里现成的东西（_existing.py）
 import _narrow_gate  # noqa: E402  #1999 缩范围句要有原话撑腰
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
+import _local  # noqa: E402  本机自己加的关卡（<数据目录>/collaboration/local/hooks.py，没有就跳过）
 import _source  # noqa: E402  讨论原文导出、续派补导、转话文本（_source.py）
 _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sections")["names"][0]  # 原话节的节名，从规则读
 
@@ -512,7 +513,7 @@ def timer_cmd(ws: str, path: str, task: str, nid="<任务板编号>", answer=Non
     draft = str(Path(path).with_suffix(".report.md"))
     skel = (f"照交接「{SKELETON}」节填空" if f"## {SKELETON}" in note else
             f"先跑 {cc_bin()} report skeleton --id {nid} --notes {path} 出骨架再填空")
-    prompt = (head + talk + KICKOFF + kickoff_maps(path, task) + kickoff_long() + "\n" +
+    prompt = (head + talk + KICKOFF + (_local.call("kickoff_line", path) or "") + kickoff_maps(path, task) + kickoff_long() + "\n" +
               f"讨论原文里用户的话、交接里的「{_QUOTE_SEC}」和「{_recall.SECTION}」是准绳；交接「{_source.LEAD_SAYS}」那节是主角色"
               f"自己的理解，只作参考，和原话冲突时信原话。照用户原话做，范围你从原话和现场自己定，怎么做你定。" + say +
               f"原话里的词指什么（功能、文件、页面、编号、数字），对着现场核，核到的写进交回细节。"
@@ -838,6 +839,8 @@ def main(argv):
         sys.exit(f"ws-handoff: {overlap_error(hits)}")
     # 新开的活才按本项目核模型（#2075：模型 id 不在列表里不交，列出可选项）。并进已有任务的两条（上面 join）不在这核：
     # 接手的可能是别的项目，由 ws-forward 按接手方项目和工作区会话核（early_check），按发起方核会误拒（审稿 #2076 第二轮）
+    if not model:  # 没写 --model：本机口子按交接选（没写口子就不选，工作区照它现在的模型）
+        model = _local.call("pick_model", path, task) or None
     err = _model.check(model, effort)
     if err:
         sys.exit(f"ws-handoff: {err}")
