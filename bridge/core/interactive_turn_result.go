@@ -16,6 +16,7 @@ const (
 	turnFlowNext     turnFlow = iota // go on with the code after the call
 	turnFlowContinue                 // continue the event loop with the next event
 	turnFlowReturn                   // leave processInteractiveEvents
+	turnFlowClosed                   // the agent event channel closed: the process exited
 )
 
 // interactiveResult carries one terminal EventResult through the steps that
