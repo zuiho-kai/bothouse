@@ -1213,11 +1213,6 @@ func (e *Engine) SetReferenceConfig(cfg ReferenceRenderCfg) {
 	e.references = normalizeReferenceRenderCfg(cfg)
 }
 
-// estimateTokens provides a rough token estimate for a set of history entries.
-func estimateTokens(entries []HistoryEntry) int {
-	return estimateTokensWithPendingAssistant(entries, "")
-}
-
 // estimateTokensWithPendingAssistant is like estimateTokens but includes an assistant
 // message not yet written to history (used at EventResult before AddHistory).
 func estimateTokensWithPendingAssistant(entries []HistoryEntry, pendingAssistant string) int {
@@ -4303,14 +4298,6 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 
 	e.replyToAuthorizedMessage(p, msg, e.i18n.Tf(MsgSessionAutoResetIdle, int(e.resetOnIdle/time.Minute)))
 	return newSession
-}
-
-// queueMessageForBusySession queues a message for later delivery when the
-// session is busy. The message is NOT sent to agent stdin at queue time;
-// the event loop sends it after the current turn's EventResult is received.
-// Returns true if the message was successfully queued, false otherwise.
-func (e *Engine) queueMessageForBusySession(p Platform, msg *Message, interactiveKey string) bool {
-	return e.enqueueForBusySession(p, msg, interactiveKey, nil) != queueUnavailable
 }
 
 // queueOutcome is what enqueueForBusySession did with a message (maomao fork).
@@ -14850,10 +14837,6 @@ func (e *Engine) renderOutgoingContentForWorkspace(p Platform, content, workspac
 	return TransformLocalReferences(content, e.references, e.agent.Name(), p.Name(), workspaceDir)
 }
 
-func (e *Engine) sendWithErrorForWorkspace(p Platform, replyCtx any, content, workspaceDir string) error {
-	return e.sendWithContextForWorkspace(e.ctx, p, replyCtx, content, workspaceDir)
-}
-
 func (e *Engine) sendWithContextForWorkspace(ctx context.Context, p Platform, replyCtx any, content, workspaceDir string) error {
 	if orl := e.outgoingRL.Load(); orl != nil {
 		if err := orl.Wait(ctx, p.Name()); err != nil {
@@ -18766,47 +18749,6 @@ func truncateIf(s string, maxLen int) string {
 		return s
 	}
 	return string([]rune(s)[:maxLen]) + "..."
-}
-
-func splitMessage(text string, maxLen int) []string {
-	runes := []rune(text)
-	if len(runes) <= maxLen {
-		return []string{text}
-	}
-	var chunks []string
-
-	for len(runes) > 0 {
-		if len(runes) <= maxLen {
-			chunks = append(chunks, string(runes))
-			break
-		}
-
-		end := maxLen
-
-		// Try to split at newline boundary within the rune window.
-		// Convert the candidate chunk back to a string for newline search.
-		candidate := string(runes[:end])
-		if idx := strings.LastIndex(candidate, "\n"); idx > 0 {
-			// idx is a byte offset within candidate; convert to rune offset.
-			runeIdx := utf8.RuneCountInString(candidate[:idx])
-			if runeIdx >= end/2 {
-				end = runeIdx + 1
-			}
-		}
-
-		chunks = append(chunks, string(runes[:end]))
-		runes = runes[end:]
-	}
-	return chunks
-}
-
-// sendTTSReply synthesizes fullResponse text and sends audio to the platform.
-// Called asynchronously after EventResult; text reply is always sent first.
-func (e *Engine) sendTTSReply(p Platform, replyCtx any, text string) {
-	slog.Debug("tts: sendTTSReply called", "platform", p.Name(), "text_len", len(text))
-	if err := e.synthesizeAndSendTTS(p, replyCtx, text); err != nil {
-		slog.Error("tts: voice reply failed", "platform", p.Name(), "error", err)
-	}
 }
 
 func (e *Engine) synthesizeAndSendTTS(p Platform, replyCtx any, text string) error {

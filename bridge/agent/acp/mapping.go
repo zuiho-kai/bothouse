@@ -322,17 +322,6 @@ func mapPlan(sessionID string, update json.RawMessage) []core.Event {
 	}}
 }
 
-func truncateRunes(s string, maxRunes int) string {
-	if maxRunes <= 0 {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= maxRunes {
-		return s
-	}
-	return string(r[:maxRunes]) + "..."
-}
-
 // permissionOption matches ACP session/request_permission option entries.
 type permissionOption struct {
 	OptionID string `json:"optionId"`

@@ -772,12 +772,6 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 	}
 }
 
-// buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
-// same message as the user wrote it, which is what the gate sees in Buffered.
-func (g *gateRuntime) buffer(interactiveKey, text, gateText string) {
-	g.bufferVoice(interactiveKey, text, gateText, false)
-}
-
 // bufferVoice is buffer with the entry's origin: a transcript that arrives while the bot is
 // silent must still be marked as speech when it is finally handed to the next turn (#215).
 // The mark goes on this entry, not on the whole assembled prompt: the buffer mixes typed and
@@ -1205,16 +1199,6 @@ func turnEpoch(session *Session) string {
 		ep = t.Epoch
 	})
 	return ep
-}
-
-// withTurnBlocks puts the teammate status, wiki pages and handoff the
-// agent's context does not hold yet before content. Called right before every
-// send of a turn, so a message that never reaches the agent marks nothing as
-// sent. The handoff goes with whatever turn comes first after a fresh start
-// (user, cron, timer or queued); teammate status and wiki pages only with
-// turnCtx messages.
-func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
-	return e.withTurnBlocksRef(session, sessionKey, query, "", content, turnCtx, nil)
 }
 
 // withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)

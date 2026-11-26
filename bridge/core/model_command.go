@@ -67,22 +67,6 @@ func effortVariant(current, effort string, options []ModelOption) string {
 	return ""
 }
 
-func listModels(opts []ModelOption, max int) string {
-	var names []string
-	for i, o := range opts {
-		if i == max {
-			names = append(names, fmt.Sprintf("…（共 %d 个，发 /model 看全部）", len(opts)))
-			break
-		}
-		if strings.HasPrefix(o.Name, "[") && o.Alias != "" {
-			names = append(names, o.Alias) // dsh ids are JSON arrays; the label reads better
-			continue
-		}
-		names = append(names, "`"+o.Name+"`")
-	}
-	return strings.Join(names, "、")
-}
-
 func modelOf(agent Agent) string {
 	if s, ok := agent.(ModelSwitcher); ok {
 		if m := s.GetModel(); m != "" {

@@ -127,14 +127,6 @@ func (e *Engine) quotaCooling() time.Time {
 	return e.quotaCoolingFor(e.quotaScopeFor(e.agent, modelOf(e.agent)))
 }
 
-func (e *Engine) recordQuota(until time.Time, session string) {
-	e.recordQuotaFor(e.quotaScopeFor(e.agent, modelOf(e.agent)), until, session)
-}
-
-func (e *Engine) observeQuotaEvent(ev Event, session string, as AgentSession) {
-	e.observeQuotaEventFor(ev, session, as, e.quotaScopeFor(e.agent, modelOf(e.agent)))
-}
-
 func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession, scope quotaScope) {
 	if scope.Provider == "" {
 		scope = e.quotaScopeFor(e.agent, modelOf(e.agent))
@@ -198,10 +190,6 @@ func (e *Engine) observeQuotaEventFor(ev Event, session string, as AgentSession,
 	// Cached usage can predate this result. It may extend an exhausted
 	// window, but cannot contradict the provider's current quota error.
 	e.observeQuotaUsageAfterResult(report, session, scope, !quotaError)
-}
-
-func (e *Engine) observeQuotaUsage(report *UsageReport, session string) {
-	e.observeQuotaUsageFor(report, session, e.quotaScopeFor(e.agent, modelOf(e.agent)))
 }
 
 func (e *Engine) observeQuotaUsageFor(report *UsageReport, session string, scope quotaScope) {

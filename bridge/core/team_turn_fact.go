@@ -28,16 +28,6 @@ type teamTurnFact struct {
 	lastEvent *atomic.Int64
 }
 
-// LastEvent is when the turn last received an agent event (its start when none came yet).
-func (f teamTurnFact) LastEvent() time.Time {
-	if f.lastEvent != nil {
-		if at := f.lastEvent.Load(); at != 0 {
-			return time.Unix(0, at)
-		}
-	}
-	return f.Started
-}
-
 var teamTurns = struct {
 	mu   sync.Mutex
 	next uint64
@@ -132,16 +122,6 @@ func teamTurnEndedSince(chat string, since time.Time) bool {
 	defer teamTurns.mu.Unlock()
 	at, ok := teamTurns.lastEnd[chat]
 	return ok && !at.Before(since)
-}
-
-// teamTurnEventSince: a turn running in chat received an agent event (or started) at or after since.
-func teamTurnEventSince(chat string, since time.Time) bool {
-	for _, f := range teamTurnsOf(chat) {
-		if !f.LastEvent().Before(since) {
-			return true
-		}
-	}
-	return false
 }
 
 // teamTaskTurnStarted returns the board id of the task dispatched/working in workspace chat (0:

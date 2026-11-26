@@ -56,12 +56,6 @@ func cachedUpdateCheck(cur string) (*ReleaseInfo, error) {
 	return c.rel, c.err
 }
 
-func resetUpdateCheckCache() {
-	updateCheckCache.Lock()
-	updateCheckCache.at = time.Time{}
-	updateCheckCache.Unlock()
-}
-
 // GET /api/v1/update → current version, latest version, whether an update exists.
 // A self-built binary reports self_built + a reason and never has_update (#212).
 func (m *ManagementServer) handleUpdate(w http.ResponseWriter, r *http.Request) {

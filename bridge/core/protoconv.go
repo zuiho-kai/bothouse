@@ -105,12 +105,6 @@ func protoConvRoute(upstream, apiKey, model string) (string, error) {
 	return protoConv.baseURL + "/" + id, nil
 }
 
-// NewProtoConvHandler returns a handler for a single upstream (tests, reuse).
-func NewProtoConvHandler(upstream, apiKey, model string) http.Handler {
-	t := protoConvTarget{upstream: strings.TrimRight(upstream, "/"), apiKey: apiKey, model: model}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.serve(w, r, r.URL.Path) })
-}
-
 func serveProtoConv(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	id, rest, _ := strings.Cut(path, "/")
@@ -1177,4 +1171,10 @@ func (t protoConvTarget) handleGemini(w http.ResponseWriter, r *http.Request, st
 	parts = append(parts, callParts...)
 	pcWriteJSON(w, map[string]any{"candidates": []any{map[string]any{"index": 0, "finishReason": geminiFinish(finish),
 		"content": map[string]any{"role": "model", "parts": parts}}}, "usageMetadata": usage(), "modelVersion": model})
+}
+
+// NewProtoConvHandler returns a handler for a single upstream (tests, reuse).
+func NewProtoConvHandler(upstream, apiKey, model string) http.Handler {
+	t := protoConvTarget{upstream: strings.TrimRight(upstream, "/"), apiKey: apiKey, model: model}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.serve(w, r, r.URL.Path) })
 }

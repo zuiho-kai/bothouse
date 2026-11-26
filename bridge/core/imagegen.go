@@ -182,9 +182,6 @@ func (g *ImageGenerator) OutDir() string {
 	return g.cfg.OutDir
 }
 
-// OutDirError says why out_dir was refused, or nil when it was accepted.
-func (g *ImageGenerator) OutDirError() error { return g.outDirErr }
-
 // Ready reports whether a generate request can succeed.
 func (g *ImageGenerator) Ready() error {
 	if !g.cfg.Enabled {
@@ -679,3 +676,6 @@ func truncateForError(b []byte) string {
 	}
 	return s
 }
+
+// OutDirError says why out_dir was refused, or nil when it was accepted.
+func (g *ImageGenerator) OutDirError() error { return g.outDirErr }

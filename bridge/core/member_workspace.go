@@ -386,10 +386,6 @@ func (e *Engine) memberCaller(session string, claims *CallerClaims) (callerTurn,
 	return t, nil
 }
 
-func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberResponse, int) {
-	return e.memberOpAs(ctx, req, nil)
-}
-
 // memberOpAs runs one member operation for the caller the request was authenticated as: nil claims
 // mean the bridge's own account (the in-process turn record decides who this is), otherwise the
 // verified token's claims do.

@@ -41,10 +41,6 @@ func (p *Platform) IsLatestMessage(ctx context.Context, previewHandle any) (bool
 
 var _ core.LatestMessageChecker = (*progressPlatform)(nil)
 
-func buildDiscordSubTaskEmbed(payload *core.SubTaskTablePayload) *discordgo.MessageEmbed {
-	return buildDiscordSubTaskEmbedView(payload, cardViewDetail)
-}
-
 func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardView) *discordgo.MessageEmbed {
 	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
 	title := "Sub-agents"
