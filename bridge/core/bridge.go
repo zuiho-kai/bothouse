@@ -231,12 +231,19 @@ func (bs *BridgeServer) Start() {
 	mux.HandleFunc("/bridge/sessions/", bs.corsHTTP(bs.authHTTP(bs.handleSessionRoutes)))
 
 	addr := net.JoinHostPort(bs.host, strconv.Itoa(bs.port))
-	bs.server = &http.Server{Addr: addr, Handler: mux}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		slog.Error("bridge: listen failed", "addr", addr, "path", bs.path, "error", err,
+			"help", "check [bridge].host and [bridge].port in config.toml")
+		return
+	}
+	server := &http.Server{Addr: listener.Addr().String(), Handler: mux}
+	bs.server = server
+	slog.Info("bridge: server started", "addr", server.Addr, "path", bs.path)
 
 	go func() {
-		slog.Info("bridge: server started", "addr", addr, "path", bs.path)
-		if err := bs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("bridge: server error", "error", err)
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			slog.Error("bridge: server error", "addr", server.Addr, "error", err)
 		}
 	}()
 }
