@@ -216,6 +216,7 @@ type GitHubRuleConfig struct {
 // BridgeConfig controls the WebSocket bridge for external platform adapters.
 type BridgeConfig struct {
 	Enabled     *bool    `toml:"enabled"`                // default false
+	Host        string   `toml:"host,omitempty"`         // listen address; empty means all interfaces
 	Port        int      `toml:"port,omitempty"`         // listen port; default 9810
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required unless insecure=true
 	Path        string   `toml:"path,omitempty"`         // URL path; default "/bridge/ws"
