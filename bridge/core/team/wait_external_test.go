@@ -81,3 +81,22 @@ func TestWaitUserProblems(t *testing.T) {
 		}
 	}
 }
+
+// #2052: a 「等外部：」 line naming another board item or a pull request, with no 再看, waits for the event
+// (the week cap is only a last resort); a 再看 written still wins, and a plain reason keeps the hour.
+func TestWaitExternalOnEventNoBlindRetry(t *testing.T) {
+	now := time.Date(2026, 11, 27, 1, 0, 0, 0, time.Local)
+	for _, c := range []struct {
+		body string
+		want time.Duration
+	}{
+		{"等外部：等 #2050先合", WaitExternalMax},
+		{"等外部：等 https://github.com/a/b/pull/12 合并", WaitExternalMax},
+		{"等外部：等 #2050 先合\n再看：2h", 2 * time.Hour},
+		{"等外部：GPU 全被占用", WaitExternalDefault},
+	} {
+		if _, got, _, ok := waitExternal(c.body, now); !ok || got != c.want {
+			t.Errorf("%q: got %v ok=%v, want %v", c.body, got, ok, c.want)
+		}
+	}
+}

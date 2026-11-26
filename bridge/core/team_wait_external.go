@@ -135,6 +135,13 @@ func (e *Engine) resumeWaitingExternal(it teamTaskBoardItem) {
 	if len(it.PRNews) > 0 {
 		note = prNewsNote(it.PRNews)
 	}
+	if len(it.WaitNews) > 0 {
+		note = "等的活有结果了，没等到约好的时间就交回了：" + strings.Join(it.WaitNews, "；") + "。先看那件交回了什么（任务板、它的合并请求），" +
+			"接着做没做完的；还要等别的，照旧交 [report]，写一行「等外部：卡在什么」（等另一件活就写它的 #编号）。"
+		if len(it.PRNews) > 0 {
+			note += "\n" + prNewsNote(it.PRNews)
+		}
+	}
 	out, err := e.runLeadScript(it.Chat, "ws-handoff", "--resume", strconv.Itoa(it.ID), note)
 	if err != nil {
 		var ee *exec.ExitError

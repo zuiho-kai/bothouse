@@ -903,6 +903,26 @@ def pause(nid, why=None, ordered=False):
 
 WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀；wait_kind_of 按它记 external
 
+# ---- 等另一件任务板的活（#2052）----
+# 用户 11-27「为什么还要等外部你没搞事件触发」：#2051 等 #2050 先合，只能写「再看：2h」到点空叫，任务板没有
+# 「那件好了叫我」。等外部原因里写的 #编号 记进 wait_task；那件交回（returned）、收口（done）或被自动收起时，
+# 在同一把锁里把等它的条目 wait_until 改成现在、wait_news 记一句，桥主循环（≤1 分钟）照原路 ws-handoff --resume 交回。
+TASK_REF = re.compile(r"#(\d{3,6})(?!\d)")
+
+
+def _wake_dependents(cur, nid, how):
+    """cur 里等 #nid 的「等外部」条目当场到点（调用方持锁、随后 _write(cur)）。返回被叫醒的编号。"""
+    woke = []
+    for it in cur:
+        if nid in (it.get("wait_task") or []) and it.get("paused") and (it.get("pause_why") or "").startswith(WAIT_EXT):
+            it["wait_task"] = [t for t in it["wait_task"] if t != nid]
+            if not it["wait_task"]:
+                it.pop("wait_task")
+            it.setdefault("wait_news", []).append(f"#{nid} {how}（{_now()}）")
+            it["wait_until"] = int(time.time())
+            woke.append(it["id"])
+    return woke
+
 
 # ---- 工作区提问只存一份 ----
 # ws-up --ask 的整份原文存 <BOARD_DIR>/asks/<编号>.md，条目只留 ask = {title 短标题, to 去向 lead/user, at}；
@@ -979,6 +999,7 @@ def wait_external(nid, why, minutes, prs=()):
     if not hit:
         return hit
     until = int(time.time()) + minutes * 60
+    done_ids = {r.get("id") for r in _read("board-done.jsonl")}  # 锁外读：_read 自己拿锁
     with _locked():
         cur = _read_locked()
         it = next((i for i in cur if i["id"] == nid), None)
@@ -988,7 +1009,19 @@ def wait_external(nid, why, minutes, prs=()):
             for url in prs:
                 if PR_URL.fullmatch(url) and url not in it.setdefault("watch_pr", []):
                     it["watch_pr"].append(url)
-            it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
+            it.pop("wait_news", None)
+            on_board = {i["id"] for i in cur}
+            deps = [int(n) for n in dict.fromkeys(TASK_REF.findall(why or "")) if int(n) != nid]
+            it["wait_task"] = [d for d in deps if d in on_board]
+            for d in deps:  # 等的那件已经收口：不用等，当场到点
+                if d not in on_board and d in done_ids:
+                    it.setdefault("wait_news", []).append(f"#{d} 等外部时已收口")
+                    it["wait_until"] = until = int(time.time())
+            if not it["wait_task"]:
+                it.pop("wait_task")
+            on = "、".join(f"#{d}" for d in it.get("wait_task") or [])
+            it["status"] = (f"等外部（{on} 交回或收口就叫醒）：{why}" if on else
+                            f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}")[:120]
             _write(cur)
     hit["wait_until"] = until
     _pr_baseline(nid, hit.get("paused_at"))
@@ -1308,12 +1341,23 @@ def _timer_command():
 def schedule_stale_check(it, delay="60m"):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
+    # #2052：每次 ws-up 报进度都挂一个，#2051 同时挂了 4 个。同一件只留一个：先撤上一个再挂，id 记在 stale_timer。
     command = _timer_command()
+    _del_timer(it.get("stale_timer"))
     r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", delay,
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
     if r.returncode:
         print(f"board: #{it['id']} 自动停滞检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
+        return
+    m = TIMER_ID_RE.search(r.stdout)
+    if m:
+        with _locked():
+            cur = _read_locked()
+            hit = next((i for i in cur if i["id"] == it["id"]), None)
+            if hit is not None:
+                hit["stale_timer"] = m.group(1)
+                _write(cur)
 
 
 # 兜底定时器（用户 2026-10-29「他那边返回给你的时候，这个定时任务自动删了，你那边还是要有个定时任务，防止说他那边超时」）：
@@ -1668,6 +1712,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             hit.pop(k, None)  # 真交回了：从待办回到待验收
         _back_to_chat(hit)
         tid = hit.pop("guard", None)
+        _wake_dependents(cur, nid, "已交回")
         _write(cur)
         event(nid, "returned", hit)
         if archived is not None:
@@ -1938,7 +1983,9 @@ def done(nid, rework=None, why=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
-        _write([i for i in cur if i["id"] != nid])
+        rest = [i for i in cur if i["id"] != nid]
+        _wake_dependents(rest, nid, "已收口")
+        _write(rest)
         tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
@@ -2253,7 +2300,10 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
             for i in hits:
                 f.write(json.dumps({**i, "done_at": _now(), "auto_pruned": why[i["id"]]}, ensure_ascii=False) + "\n")
                 out.append((i, why[i["id"]]))
-        _write([i for i in cur if i not in hits])
+        rest = [i for i in cur if i not in hits]
+        for i in hits:
+            _wake_dependents(rest, i["id"], f"被自动收起（{why[i['id']]}）")
+        _write(rest)
     return out
 
 
