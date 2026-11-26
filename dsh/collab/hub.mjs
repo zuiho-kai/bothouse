@@ -161,9 +161,9 @@ export class Hub {
   }
 
   memberView() {
-    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, source, error, rooms, external, login }) => ({
+    return this.memberList().map(({ id, name, kind, online, model, cli, permissionPreset, persona, nameCustomized, avatar, avatarVersion, worldBody, source, error, rooms, external, login }) => ({
       id, name, kind, ...(external ? { external: true } : {}), ...(rooms ? { rooms } : {}), online: online !== false && !error && !login, ...(error ? { error } : {}), ...(login ? { login } : {}), ...(avatar ? { avatar, ...(avatarVersion ? { avatarVersion } : {}) } : {}),
-      ...(kind === 'dsh' ? { model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
+      ...(kind === 'dsh' ? { ...(worldBody ? { worldBody } : {}), model: model ?? null, ...(cli ? { cli, ...(permissionPreset ? { permissionPreset } : {}) } : {}), ...(nameCustomized === undefined ? {} : { nameCustomized }), persona: persona ?? '', editable: source === 'ui' } : {}),
       ...(this.presence.get(id) ?? {}),
     }));
   }

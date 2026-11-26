@@ -132,6 +132,7 @@ export interface ChannelMember {
   /** Built-in avatar slug or a bot's http(s) image URL; absent means the initial badge. */
   readonly avatarVersion?: string
   readonly avatar?: string
+  readonly worldBody?: string
 }
 
 /** Fields the UI can set on a DSH member. */
@@ -144,6 +145,7 @@ export interface DshMemberInput {
   readonly persona: string
   /** Built-in avatar slug, or '' for the initial badge. */
   readonly avatar?: string
+  readonly worldBody?: string
 }
 
 /** A member backed by a CLI agent installed on this machine (Claude Code, Codex, Gemini). */
@@ -161,6 +163,7 @@ export interface CliMemberInput {
   readonly permissionPreset?: PermissionPreset
   /** Built-in avatar slug, or '' for the initial badge. */
   readonly avatar?: string
+  readonly worldBody?: string
 }
 
 /** DSH's built-in permission presets (same ids as DSH's `/permission`; see collab/cli-member.mjs PERMISSION_PRESETS). */

@@ -962,7 +962,7 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="whale"] img')?.getAttribute('src')).toBe('collab/avatars/whale.png')
     expect(dialog.querySelector('optgroup[label="Broken（读取失败：no key）"]')).toBeTruthy()
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.updateMember).toHaveBeenCalledWith('ds', { name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
+    expect(p.updateMember).toHaveBeenCalledWith('ds', { name: 'Coder', nameCustomized: true, persona: '写代码', avatar: 'whale', worldBody: 'auto', model: { provider: 'relay', model: 'deepseek-v4.1-flash' } })
   })
 
   it('offers edit and remove only for members created in the UI', async () => {
@@ -1017,7 +1017,33 @@ describe('channels page', () => {
     expect(dialog.querySelector('[role="radio"][title="dragon"]')?.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(dialog.querySelector('[role="radio"][title="lanxi"]') as Element)
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', cli: 'claude', permissionPreset: 'workspace-write' })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '本地', avatar: 'lanxi', worldBody: 'dragon', cli: 'claude', permissionPreset: 'workspace-write' })
+  })
+
+  it.each(['whale', 'auto'] as const)('changes only the stored planet appearance to %s', async (worldBody) => {
+    const member = { id: 'ds', name: 'Coder', kind: 'dsh' as const, online: true, editable: true, avatar: 'dragon', worldBody: 'lanxi' }
+    const p = props({ ...ready, members: [member] })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(screen.getByText(zh.memberOptional))
+    const select = within(dialog).getByRole('combobox', { name: new RegExp(zh.memberWorldBody) }) as HTMLSelectElement
+    expect(select.value).toBe('lanxi')
+    fireEvent.change(select, { target: { value: worldBody } })
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(p.updateMember).toHaveBeenCalledExactlyOnceWith('ds', { name: 'Coder', persona: '', model: null, worldBody })
+  })
+
+  it('sends an empty portrait when explicitly cleared and preserves the stored planet appearance', async () => {
+    const member = { id: 'ds', name: 'Coder', kind: 'dsh' as const, online: true, editable: true, avatar: 'dragon', worldBody: 'lanxi' }
+    const p = props({ ...ready, members: [member] })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.editMember }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(screen.getByText(zh.memberOptional))
+    fireEvent.click(within(dialog).getByTitle(zh.memberAvatarNone))
+    await act(async () => { fireEvent.submit(dialog) })
+    expect(p.updateMember).toHaveBeenCalledExactlyOnceWith('ds', { name: 'Coder', persona: '', model: null, avatar: '' })
   })
 
   it('a CLI member shows its DSH permission preset and sends the picked one', async () => {
@@ -1037,7 +1063,7 @@ describe('channels page', () => {
     expect(screen.getByText(zh.permissionFullAccessHint)).toBeTruthy()
     fireEvent.change(select, { target: { value: 'read-only' } })
     await act(async () => { fireEvent.submit(dialog) })
-    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '', avatar: '', cli: 'claude', permissionPreset: 'read-only' })
+    expect(p.updateMember).toHaveBeenCalledWith('cc', { name: 'CC', persona: '', cli: 'claude', permissionPreset: 'read-only' })
   })
   it('guides to add a member when the channel has no role members', async () => {
     const p = props({ ...ready, members: [{ id: 'owner', name: '我', kind: 'human', online: true }], messages: [], thinking: {} })
