@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,19 +37,7 @@ func TestDispatchAvailabilityUnknownPublishedToTeam(t *testing.T) {
 	lead.team = &teamState{dir: dir, inject: true}
 	summary, _ := lead.teamSummary("discord:chat")
 	board, _ := teamBoardMembers([]teamFile{f}, "discord:chat", nil)
-	voice := renderVoiceDeskBrief([]teamFile{f}, time.Now())
-	lead.SetVoiceDesk(true)
-	api := &APIServer{engines: map[string]*Engine{"lead": lead}}
-	w := httptest.NewRecorder()
-	api.handleVoiceDesk(w, httptest.NewRequest(http.MethodGet, "/voice/desk?project=lead", nil))
-	if w.Code != http.StatusOK {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	var response map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatal(err)
-	}
-	for name, got := range map[string]string{"summary": summary, "board": board, "voice": voice, "voice API": response["brief"]} {
+	for name, got := range map[string]string{"summary": summary, "board": board} {
 		if !strings.Contains(got, "额度未知") || strings.Contains(got, "可以派活") {
 			t.Errorf("%s calls unmeasured quota available: %s", name, got)
 		}
@@ -69,8 +55,7 @@ func TestDispatchAvailabilityCoolingBusyElsewhere(t *testing.T) {
 	writeTeamFile(t, dir, f)
 	summary, _ := lead.teamSummary("discord:chat")
 	board, _ := teamBoardMembers([]teamFile{f}, "discord:chat", nil)
-	voice := renderVoiceDeskBrief([]teamFile{f}, time.Now())
-	for name, got := range map[string]string{"summary": summary, "board": board, "voice": voice} {
+	for name, got := range map[string]string{"summary": summary, "board": board} {
 		if strings.Contains(got, teamElsewhereNote) || !strings.Contains(got, "额度冷却到") || !strings.Contains(got, "工作") {
 			t.Errorf("%s must keep activity without advertising cooled role: %s", name, got)
 		}

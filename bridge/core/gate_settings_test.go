@@ -19,7 +19,7 @@ func strp(s string) *string { return &s }
 // listens there: the gate is never "running" in these tests).
 func gateTestServer(t *testing.T, seed func(*memStore)) (*ManagementServer, *memStore, func(method, path string, body any) (int, map[string]any)) {
 	t.Helper()
-	noHardware(t)
+	noLocalGate(t)
 	oldDiscover, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldDiscover, oldFind })
 	gateAddr = freeGateAddr(t)

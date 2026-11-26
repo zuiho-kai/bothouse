@@ -61,6 +61,10 @@ type teamTaskBoardItem struct {
 	// WaitUntil to now, and the hand-back carries these lines (team_pr_events.go).
 	WatchPR []string `json:"watch_pr,omitempty"`
 	PRNews  []string `json:"pr_news,omitempty"`
+	// WaitTask: other board items the 「等外部：」 line names (#2052); WaitNews: one line per one of them that
+	// was handed back, closed or pruned — board.py set wait_until to now then (no timer, no polling).
+	WaitTask []int    `json:"wait_task,omitempty"`
+	WaitNews []string `json:"wait_news,omitempty"`
 	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
 	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
 	PauseReq string `json:"pause_req"`

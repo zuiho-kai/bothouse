@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""bash-guard 规则 14：gh pr merge 先问 merge-gate guard。团队工具装在 collaboration/runtime/lead 时也要找得到
-（同 core/role_env.go；之前只找 collaboration/lead，这种安装下合并从没查过）。"""
+"""bash-guard 规则 14：gh pr merge 先问 merge-gate guard。团队工具只有 collaboration/runtime/lead 一份（同 core/role_env.go），
+旧的 collaboration/lead 副本不再认（#2051）。"""
 import json, os, subprocess, sys, tempfile
 GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bash-guard.py")
 
@@ -13,7 +13,7 @@ def run(cmd, data):
     return json.loads(out)["hookSpecificOutput"] if out.strip() else {}
 
 
-for sub in (("runtime", "lead"), ("lead",)):
+for sub in (("runtime", "lead"),):
     data = tempfile.mkdtemp(prefix="mg-hook.")
     d = os.path.join(data, "collaboration", *sub)
     os.makedirs(d)

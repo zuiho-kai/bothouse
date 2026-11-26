@@ -21,7 +21,7 @@ func TestResumeWaitingExternalStopsOnConfigError(t *testing.T) {
 		e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 		t.Cleanup(e.cancel)
 		e.SetDataDir(t.TempDir())
-		lead := filepath.Join(e.dataDir, "collaboration", "lead")
+		lead := filepath.Join(e.dataDir, "collaboration", "runtime", "lead")
 		if err := os.MkdirAll(lead, 0o700); err != nil {
 			t.Fatal(err)
 		}

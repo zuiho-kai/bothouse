@@ -9,7 +9,7 @@ import (
 )
 
 func TestApplyWizardRejectsSharedWorkDir(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	for _, tc := range []struct {
@@ -61,7 +61,7 @@ func TestApplyWizardRejectsSharedWorkDir(t *testing.T) {
 func TestApplyWizardSameCLIRolesAreIndependent(t *testing.T) {
 	useRepoHooks(t)
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	data := t.TempDir()

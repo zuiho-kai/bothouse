@@ -17,7 +17,7 @@ Issue #145。仅在需要阻止执行过程直接进入聊天正文的 ACP 部�
 
 ## 启用
 
-将本目录四个源码文件（output.mjs、plugin.mjs、stream.mjs、voice-history.mjs）放到一个固定发布目录，在该 ACP 启动器的最后一层 patch 追加：
+将本目录三个源码文件（output.mjs、plugin.mjs、stream.mjs）放到一个固定发布目录，在该 ACP 启动器的最后一层 patch 追加：
 
 ~~~yaml
 - insert:
@@ -48,7 +48,6 @@ plugin.mjs 从实际运行的 DSH 安装解析 dsh-llm，确保使用同一个 l
 
 ## 验证与代价
 
-语音专用启动器可启用 `voiceHistory: true`（混用启动器须按语音环境变量选择，普通频道保持关闭）。下一轮进入模型前，通过 DSH 原生 surface replacement 去掉历史语音输入中的已知 bridge 控制说明、过期进度令牌和旧版自动伙伴摘要；当前轮规则在所有工具步骤中保留。替换事件引用原事件，原始对话日志不改写，重新加载可复现同一模型输入。真实语音文字、播放反馈、回答和工具事实保留；未知格式、其他来源和附件输入保持原样。此机制不生成摘要、不重新执行工具、不引入额外模型调用。
 
 Bridge 语音会话正常结束时，对握手声明 `sessionCapabilities.close` 的后端先发送 `session/close`，最多等待2秒，再停止进程；关闭失败不报告成功保存。外部取消保持立即停止。语音 ID 仍按原频道和设备绑定，不能借此接续其他频道。旧版未落盘的回答不会凭空补写。
 

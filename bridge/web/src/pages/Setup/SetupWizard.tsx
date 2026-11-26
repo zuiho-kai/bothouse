@@ -497,7 +497,7 @@ export default function SetupWizard() {
   const save = async () => {
     setSaving(true);
     try { setResult(await applyWizard(buildRequest())); } catch (e: any) {
-      setResult({ ok: false, error: e?.message || String(e), steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: false, dry_run: false });
+      setResult({ ok: false, error: e?.message || String(e), steps: [], roles: [], jev_ok: false, jev_hint: '', restart_required: false, dry_run: false });
     }
     setSaving(false);
     setStep(6);

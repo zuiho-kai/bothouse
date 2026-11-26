@@ -118,7 +118,7 @@ def _read(name="board.jsonl"):
 def _read_locked(name="board.jsonl"):
     """Read a snapshot while the caller holds board.lock."""
     try:
-        lines = _path(name).read_text().splitlines()
+        lines = _path(name).read_text(encoding="utf-8").splitlines()  # 显式 UTF-8（#2261）：写侧可能是 -X utf8 的 board.cmd，读侧可能是只带 -I 的 ws-handoff 后台 worker
     except FileNotFoundError:
         return []
     out = []
@@ -185,9 +185,8 @@ def _write(items, name="board.jsonl"):
         mode = _default_file_mode()
     fd, tmp = tempfile.mkstemp(prefix=name + ".", suffix=".tmp", dir=str(DIR))
     try:
-        # 不写死 encoding：和原来 Path.write_text 一样按解释器默认编码（board.cmd 带 -X utf8），
-        # 别让「写 utf-8、读默认编码」在非 UTF-8 模式的 Windows 上变成乱码
-        with os.fdopen(fd, "w") as fh:
+        # 显式 UTF-8（#2261）：写侧（board.cmd 带 -X utf8）和读侧（ws-handoff 后台 worker 只带 -I）钉死同一个编码，不随 Windows 代码页漂
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
         if os.name == "posix" and mode is not None:
             with suppress(OSError):
@@ -908,6 +907,27 @@ def pause(nid, why=None, ordered=False):
 
 WAIT_EXT = "等外部："  # board wait 暂停时写的原因前缀；wait_kind_of 按它记 external
 
+# ---- 等另一件任务板的活（#2052）----
+# 用户 11-27「为什么还要等外部你没搞事件触发」：#2051 等 #2050 先合，只能写「再看：2h」到点空叫，任务板没有
+# 「那件好了叫我」。等外部原因里写的 #编号 记进 wait_task；那件交回（returned）、收口（done）或被自动收起时，
+# 在同一把锁里把等它的条目 wait_until 改成现在、wait_news 记一句，桥主循环（≤1 分钟）照原路 ws-handoff --resume 交回。
+TASK_REF = re.compile(r"#(\d{3,6})(?!\d)")
+
+
+def _wake_dependents(cur, nid, how):
+    """cur 里等 #nid 的「等外部」条目当场到点（调用方持锁、随后 _write(cur)）。返回被叫醒的编号。"""
+    woke = []
+    for it in cur:
+        if nid in (it.get("wait_task") or []) and it.get("paused") and (it.get("pause_why") or "").startswith(WAIT_EXT):
+            it["wait_task"] = [t for t in it["wait_task"] if t != nid]
+            if not it["wait_task"]:
+                it.pop("wait_task")
+            it.setdefault("wait_news", []).append(f"#{nid} {how}（{_now()}）")
+            it["wait_until"] = int(time.time())
+            it.pop("wait_event", None)  # 事件到了：从「只等事件」变回可到点重试一次
+            woke.append(it["id"])
+    return woke
+
 
 # ---- 工作区提问只存一份 ----
 # ws-up --ask 的整份原文存 <BOARD_DIR>/asks/<编号>.md，条目只留 ask = {title 短标题, to 去向 lead/user, at}；
@@ -977,13 +997,17 @@ def ask_to_user(nid, kind, plain=""):
     return hit
 
 
-def wait_external(nid, why, minutes, prs=()):
+def wait_external(nid, why, minutes, prs=(), event_only=False):
     """外部条件卡住：照 ask 暂停（放回工作区、撤兜底），原因写「等外部：<why>」，wait_until 记到点时刻（epoch）。
-    prs：交回正文里的合并请求链接，记进 watch_pr，暂停期间 pr_events 盯它们。"""
+    prs：交回正文里的合并请求链接，记进 watch_pr，暂停期间 pr_events 盯它们。
+    event_only（#2052）：写了 #编号/合并请求、没约时间的，只等事件叫醒——不排到点重试（wait_until=0、记 wait_event），
+    wait_task 那件交回/收口/被自动收起、或 watch_pr 的合并请求有动静，_wake_dependents / pr_events 当场把它改成到点。"""
     hit = pause(nid, WAIT_EXT + (why or "外部条件"))
     if not hit:
         return hit
     until = int(time.time()) + minutes * 60
+    is_event = False
+    done_ids = {r.get("id") for r in _read("board-done.jsonl")}  # 锁外读：_read 自己拿锁
     with _locked():
         cur = _read_locked()
         it = next((i for i in cur if i["id"] == nid), None)
@@ -993,13 +1017,42 @@ def wait_external(nid, why, minutes, prs=()):
             for url in prs:
                 if PR_URL.fullmatch(url) and url not in it.setdefault("watch_pr", []):
                     it["watch_pr"].append(url)
-            it["status"] = f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}"[:120]
+            it.pop("wait_news", None)
+            on_board = {i["id"] for i in cur}
+            deps = [int(n) for n in dict.fromkeys(TASK_REF.findall(why or "")) if int(n) != nid]
+            it["wait_task"] = [d for d in deps if d in on_board]
+            for d in deps:  # 等的那件已经收口：不用等，当场到点
+                if d not in on_board and d in done_ids:
+                    it.setdefault("wait_news", []).append(f"#{d} 等外部时已收口")
+                    it["wait_until"] = until = int(time.time())
+            if not it["wait_task"]:
+                it.pop("wait_task")
+            # 有事件源（等另一件活 / 盯合并请求 / 那件已收口）就只等事件；写了个板上没有也查不到的 #编号，退回 1 小时再看，免得空转。
+            has_event = bool(it.get("wait_task")) or bool(it.get("watch_pr")) or bool(it.get("wait_news"))
+            if event_only and has_event:
+                it["wait_event"] = True
+                until = 0
+                it["wait_until"] = 0
+                is_event = True
+            else:
+                it.pop("wait_event", None)
+                if event_only:  # 写了 #编号/链接却没有事件源：按 1 小时再看一次，不每分钟空转
+                    until = int(time.time()) + 3600
+                    it["wait_until"] = until
+            on = "、".join(f"#{d}" for d in it.get("wait_task") or [])
+            if on:
+                it["status"] = (f"等外部（{on} 交回或收口就叫醒）：{why}")[:120]
+            elif is_event:
+                it["status"] = (f"等外部（合并请求有动静就叫醒）：{why}")[:120]
+            else:
+                it["status"] = (f"等外部（{time.strftime('%H:%M', time.localtime(until))} 再看）：{why}")[:120]
             _write(cur)
     hit["wait_until"] = until
     _pr_baseline(nid, hit.get("paused_at"))
     if os.path.isfile(hit.get("where") or ""):
-        append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，"
-                                     f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
+        nxt = ("那件交回/收口或合并请求有动静会当场叫醒，不再排到点重试。" if is_event else
+               f"{time.strftime('%m-%d %H:%M', time.localtime(until))} 桥会另交一个空工作区接着做。")
+        append_forward(hit["where"], f"{_now()} 等外部（#{nid}）：{why}。工作区已放回，" + nxt)
     return hit
 
 
@@ -1189,6 +1242,7 @@ def pr_events():
             hit["pr_seen"] = (hit.get("pr_seen") or []) + [k for k, _ in new]
             hit["pr_news"] = (hit.get("pr_news") or []) + [t for _, t in new]
             hit["wait_until"] = int(time.time())
+            hit.pop("wait_event", None)  # 合并请求有动静：从「只等事件」变回可到点重试
             _write(cur)
         woke.append((item["id"], len(new)))
     return woke
@@ -1313,12 +1367,23 @@ def _timer_command():
 def schedule_stale_check(it, delay="60m"):
     if not it.get("ws") or not _cc_bin() or not it.get("sk"):
         return
+    # #2052：每次 ws-up 报进度都挂一个，#2051 同时挂了 4 个。同一件只留一个：先撤上一个再挂，id 记在 stale_timer。
     command = _timer_command()
+    _del_timer(it.get("stale_timer"))
     r = subprocess.run([_cc_bin(), "timer", "add", "--session-key", it["sk"], "--delay", delay,
                         "--exec", command, "--mute", "--desc", f"检查任务 #{it['id']} 是否停滞"],
                        capture_output=True, text=True)
     if r.returncode:
         print(f"board: #{it['id']} 自动停滞检查未安排：{r.stderr.strip()[:200]}", file=sys.stderr)
+        return
+    m = TIMER_ID_RE.search(r.stdout)
+    if m:
+        with _locked():
+            cur = _read_locked()
+            hit = next((i for i in cur if i["id"] == it["id"]), None)
+            if hit is not None:
+                hit["stale_timer"] = m.group(1)
+                _write(cur)
 
 
 # 兜底定时器（用户 2026-10-29「他那边返回给你的时候，这个定时任务自动删了，你那边还是要有个定时任务，防止说他那边超时」）：
@@ -1673,6 +1738,7 @@ def returned(nid, reviewer, at=None, bound=None, receipt=None):
             hit.pop(k, None)  # 真交回了：从待办回到待验收
         _back_to_chat(hit)
         tid = hit.pop("guard", None)
+        _wake_dependents(cur, nid, "已交回")
         _write(cur)
         event(nid, "returned", hit)
         if archived is not None:
@@ -1943,7 +2009,9 @@ def done(nid, rework=None, why=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
-        _write([i for i in cur if i["id"] != nid])
+        rest = [i for i in cur if i["id"] != nid]
+        _wake_dependents(rest, nid, "已收口")
+        _write(rest)
         tid = hit.pop("guard", None)  # 交回了：撤兜底
         with open(_path("board-done.jsonl"), "a") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
@@ -2213,6 +2281,8 @@ def prune_why(i, its, now, prs, idle_after=None):
         m = _MERGED_INTO.search(i.get(field) or "")
         if m and int(m.group(1)) in live and int(m.group(1)) != i.get("id"):
             return f"已并入 #{m.group(1)}"
+    if i.get("wait_event"):
+        return None  # 只等事件（#2052）：没排到点，等的那件交回/收口或合并请求有动静才叫醒；空闲也别自动收起
     if (i.get("wait_until") or 0) > now:
         return None  # 等外部、约好的时间还没到：不是闲着（#1993：等到 11-27 的被 24 小时截短重派）
     if _waiting_user(i) or "主线" in (i.get("what") or ""):
@@ -2258,7 +2328,10 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
             for i in hits:
                 f.write(json.dumps({**i, "done_at": _now(), "auto_pruned": why[i["id"]]}, ensure_ascii=False) + "\n")
                 out.append((i, why[i["id"]]))
-        _write([i for i in cur if i not in hits])
+        rest = [i for i in cur if i not in hits]
+        for i in hits:
+            _wake_dependents(rest, i["id"], f"被自动收起（{why[i['id']]}）")
+        _write(rest)
     return out
 
 
@@ -2650,13 +2723,15 @@ def main(argv):
             # 第 4 个参数起是交回正文里的合并请求链接，暂停期间盯它们（pr_events）。
             # 条目记「等外部」并带 wait_until，工作区放回池子、撤兜底；看门不再叫醒，到点桥 ws-handoff --resume 接着做
             # （用户 11-09「没卡导致不断重复跑」→「修」）。
-            nid, minutes = int(argv[1].lstrip("#")), max(1, int(argv[3]))
+            raw_min = int(argv[3])
+            event_only = raw_min <= 0  # 0 = 只等事件（#2052）：写了 #编号/合并请求、没约时间，桥不在到点重试，等事件叫醒
+            nid, minutes = int(argv[1].lstrip("#")), max(1, raw_min)
             if any(i["id"] == nid for i in _read()):
                 task_state(nid, "paused", WAIT_EXT + argv[2].strip()[:100], in_workspace_ok=True)
-            hit = wait_external(nid, argv[2].strip(), minutes, argv[4:])
+            hit = wait_external(nid, argv[2].strip(), minutes, argv[4:], event_only=event_only)
             if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
-            print(f"已记等外部，{minutes} 分钟后接着做")
+            print("已记等外部，只等事件叫醒（不排到点重试）" if event_only else f"已记等外部，{minutes} 分钟后接着做")
             freed = park_workspace(hit)
             if freed is not None:
                 print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")

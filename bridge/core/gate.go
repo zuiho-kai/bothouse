@@ -88,23 +88,15 @@ type gateState struct {
 
 // gateRuntime is what the gate has collected so far; it outlives configuration changes.
 type gateRuntime struct {
-	mu        sync.Mutex
-	buf       map[string][]string        // interactiveKey → silent messages not yet delivered
-	bufVoice  map[string][]bool          // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
-	bufTarget map[string][]backlogTarget // interactiveKey → delivery attribution for the same entries
-	held      map[string]*heldMsg        // holdKey → burst being collected (busy or idle)
-	gbuf      map[string][]string        // maomao fork: the same messages as the user wrote them (no media notes), for the gate
-}
-
-// backlogTarget is the structured delivery attribution of one buffered human message.
-// It stays outside the prompt text so the send path does not have to parse instructions back.
-type backlogTarget struct {
-	messageID string
-	senderID  string
+	mu       sync.Mutex
+	buf      map[string][]string // interactiveKey → silent messages not yet delivered
+	bufVoice map[string][]bool   // #215: whether the same buffered entry came from speech, so the next turn can mark each part at its own place
+	held     map[string]*heldMsg // holdKey → burst being collected (busy or idle)
+	gbuf     map[string][]string // maomao fork: the same messages as the user wrote them (no media notes), for the gate
 }
 
 func newGateRuntime() *gateRuntime {
-	return &gateRuntime{buf: map[string][]string{}, bufVoice: map[string][]bool{}, bufTarget: map[string][]backlogTarget{}, held: map[string]*heldMsg{}, gbuf: map[string][]string{}}
+	return &gateRuntime{buf: map[string][]string{}, bufVoice: map[string][]bool{}, held: map[string]*heldMsg{}, gbuf: map[string][]string{}}
 }
 
 // Discord (and most IM clients) split "image + caption" into two messages, in either order,
@@ -587,7 +579,6 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	bufferedVoice := append([]bool(nil), g.bufVoice[interactiveKey]...)
 	buffered := append([]string(nil), g.buf[interactiveKey]...)
-	bufferedTargets := append([]backlogTarget(nil), g.bufTarget[interactiveKey]...)
 	gateBuffered := append([]string(nil), g.gbuf[interactiveKey]...)
 	g.mu.Unlock()
 	switch e.addresseeOf(p, msg) {
@@ -643,11 +634,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	}
 	if dec.Action == "silent" {
 		if text := backlogTextFor(msg); text != "" {
-			target := backlogTarget{}
-			if !msg.FromBot && !msg.AutomatedNotice {
-				target.messageID, target.senderID = msg.MessageID, msg.UserID
-			}
-			g.bufferVoiceTarget(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked, target)
+			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked)
 		}
 		return true
 	}
@@ -702,7 +689,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if msg.FromVoice && !msg.voiceMarked {
 		content, msg.voiceMarked = withVoiceNoteBeforeUserText(content, msg), true
 	}
-	content = e.withCallContext(p, msg, session, content, buffered, bufferedTargets)
+	content = e.withCallContext(p, msg, session, content, buffered)
 
 	inject := content
 	if strings.TrimSpace(inject) == "" {
@@ -777,19 +764,14 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 // The mark goes on this entry, not on the whole assembled prompt: the buffer mixes typed and
 // spoken messages, so one mark for the turn would call the typed ones speech.
 func (g *gateRuntime) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
-	g.bufferVoiceTarget(interactiveKey, text, gateText, fromVoice, backlogTarget{})
-}
-
-func (g *gateRuntime) bufferVoiceTarget(interactiveKey, text, gateText string, fromVoice bool, target backlogTarget) {
 	g.mu.Lock()
 	b := append(g.buf[interactiveKey], text)
 	gb := append(g.gbuf[interactiveKey], gateText)
 	gv := append(g.bufVoice[interactiveKey], fromVoice)
-	bt := append(g.bufTarget[interactiveKey], target)
 	if len(b) > maxBuffered {
-		b, gb, gv, bt = b[len(b)-maxBuffered:], gb[len(gb)-maxBuffered:], gv[len(gv)-maxBuffered:], bt[len(bt)-maxBuffered:]
+		b, gb, gv = b[len(b)-maxBuffered:], gb[len(gb)-maxBuffered:], gv[len(gv)-maxBuffered:]
 	}
-	g.buf[interactiveKey], g.gbuf[interactiveKey], g.bufVoice[interactiveKey], g.bufTarget[interactiveKey] = b, gb, gv, bt
+	g.buf[interactiveKey], g.gbuf[interactiveKey], g.bufVoice[interactiveKey] = b, gb, gv
 	g.mu.Unlock()
 }
 
@@ -800,34 +782,6 @@ func (g *gateRuntime) dropBuffered(interactiveKey string, n int) {
 	if vs := g.bufVoice[interactiveKey]; len(vs) > 0 {
 		g.bufVoice[interactiveKey] = vs[min(n, len(vs)):]
 	}
-	if ts := g.bufTarget[interactiveKey]; len(ts) > 0 {
-		g.bufTarget[interactiveKey] = ts[min(n, len(ts)):]
-	}
-}
-
-// singleSenderBacklogTarget chooses a safe delivery fallback: every attributable
-// backlog entry belongs to one human sender other than the person who woke the bot.
-// Several people in the backlog give no safe target; the explicit instructions are
-// the only correct route there. Entries from bots/status notices carry an empty
-// sender and are ignored.
-func singleSenderBacklogTarget(targets []backlogTarget, trigger *Message) (backlogTarget, bool) {
-	var out backlogTarget
-	for _, target := range targets {
-		if target.senderID == "" || target.senderID == trigger.UserID {
-			continue
-		}
-		if out.senderID == "" {
-			out = target
-			continue
-		}
-		if target.senderID != out.senderID {
-			return backlogTarget{}, false
-		}
-		if out.messageID == "" {
-			out.messageID = target.messageID
-		}
-	}
-	return out, out.senderID != ""
 }
 
 // bufferedText is what the gate files for a later turn. It keeps the sender label,
