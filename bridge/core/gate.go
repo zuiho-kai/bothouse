@@ -303,7 +303,7 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 		next = &cp
 	}
 	if next.gateRuntime == nil {
-		next.gateRuntime = newGateRuntime()
+		next.gateRuntime = e.heard() // one listen buffer for both modes (call_context.go)
 	}
 	next.url, next.timeout, next.fallback = url, time.Duration(timeoutMs)*time.Millisecond, fallback
 	next.inject, next.injectDyn = inject, injectDyn
@@ -454,18 +454,14 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if msg.FromBot && !msg.Mentioned {
 		// A teammate talking to someone else: only listen. Never start a turn from it, gate or
 		// not, so bots can't chain each other into a loop.
-		if g != nil {
-			g.bufferContext(interactiveKey, msg)
-		}
+		e.heard().bufferContext(interactiveKey, msg)
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
 	if msg.AutomatedNotice {
 		// A monitor/status notice is worth remembering as context, but it is not a
 		// conversation turn: it must never consult the wake model or start a reply.
-		if g != nil {
-			g.bufferContext(interactiveKey, msg)
-		}
+		e.heard().bufferContext(interactiveKey, msg)
 		slog.Info("gate: automated notice context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
@@ -488,38 +484,27 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		msg.burstDone = false // held while busy, released after the turn ended: nothing left to judge
 		if !msg.IsPermissionResponse {
 			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
+				// Not called here: only listened to. It goes into the same buffer the gate uses,
+				// so the turn that calls this role later gets it (withCallContext).
+				e.heard().bufferContext(interactiveKey, msg)
 				return true
 			}
 			keepUserText(msg)
-			if g == nil && msg.BackfillOnCall {
-				session.backfillMu.Lock()
-				msg.Content = withLatestMark(msg.Content)
-				if back, images, ok := e.channelBackfill(p, msg, session); ok {
-					if back != "" {
-						msg.Content = back + "\n\n" + msg.Content
-					}
-					msg.Images = append(images, msg.Images...)
-				}
-				markSeen(p, session, msg)
-				session.backfillMu.Unlock()
+			if g == nil {
+				// No routing model: the turn still gets what this role only listened to (user
+				// 2026-11-26「关掉了就默认就不是全带入吗」). Same step as the gate path below.
+				e.withHeardContext(p, msg, session, interactiveKey)
 			}
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true
 			}
 			e.teamNoteTurn(msg, session)
-			// #1856: no gate still records what was seen, so restart catch-up knows where
-			// the posts made while the bridge was down begin (missed_catchup.go).
-			// #2254: with a gate installed this branch is only the owner-DM fast path
-			// (IsPermissionResponse is excluded above), which also hands the message to
-			// a turn — without the mark the DM watermark never moved and every restart
-			// catch-up re-answered the owner's newest private message. With a gate the
-			// mark is taken even for BackfillOnCall (a feishu bare @bot in a p2p chat):
-			// the g == nil BackfillOnCall case is already marked inside the backfill
-			// block above, and skipping it here left the same loop open there.
-			if (g != nil || !msg.BackfillOnCall) && msg.MessageID != "" {
-				markSeen(p, session, msg)
-			}
-			if g != nil || !msg.BackfillOnCall {
+			if g != nil {
+				// #1856/#2254: the owner-DM fast path with a gate installed also hands the message to
+				// a turn; mark it seen so restart catch-up does not answer it again.
+				if msg.MessageID != "" {
+					markSeen(p, session, msg)
+				}
 				msg.Content = withLatestMark(msg.Content)
 			}
 		}
@@ -717,34 +702,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if msg.FromVoice && !msg.voiceMarked {
 		content, msg.voiceMarked = withVoiceNoteBeforeUserText(content, msg), true
 	}
-	usedGateBacklog := false
-	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
-	if back, images, ok := e.channelBackfill(p, msg, session); ok {
-		// The channel itself is the record: it covers the gate buffer and also
-		// what the buffer never saw (downtime, restarts, dropped messages).
-		if back != "" {
-			content = back + "\n\n" + withLatestMark(content)
-		} else {
-			content = withLatestMark(content)
-		}
-		// maomao fork: the images of those posts go first, in channel order, before this
-		// message's own (for a new turn and for mid-turn injection alike).
-		msg.Images = append(images, msg.Images...)
-	} else if len(buffered) > 0 {
-		usedGateBacklog = true
-		content = bufferedBacklogNote + "\n" + strings.Join(buffered, "\n") + "\n\n" + withLatestMark(content)
-	} else {
-		content = withLatestMark(content)
-	}
-	markSeen(p, session, msg)
-	session.backfillMu.Unlock()
-	if usedGateBacklog {
-		if target, ok := singleSenderBacklogTarget(bufferedTargets, msg); ok {
-			if marker, ok := p.(BacklogReplyTargetMarker); ok {
-				msg.ReplyCtx = marker.MarkBacklogReplyTarget(msg.ReplyCtx, target.messageID, target.senderID)
-			}
-		}
-	}
+	content = e.withCallContext(p, msg, session, content, buffered, bufferedTargets)
 
 	inject := content
 	if strings.TrimSpace(inject) == "" {
@@ -816,7 +774,7 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 
 // buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
 // same message as the user wrote it, which is what the gate sees in Buffered.
-func (g *gateState) buffer(interactiveKey, text, gateText string) {
+func (g *gateRuntime) buffer(interactiveKey, text, gateText string) {
 	g.bufferVoice(interactiveKey, text, gateText, false)
 }
 
@@ -824,11 +782,11 @@ func (g *gateState) buffer(interactiveKey, text, gateText string) {
 // silent must still be marked as speech when it is finally handed to the next turn (#215).
 // The mark goes on this entry, not on the whole assembled prompt: the buffer mixes typed and
 // spoken messages, so one mark for the turn would call the typed ones speech.
-func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
+func (g *gateRuntime) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
 	g.bufferVoiceTarget(interactiveKey, text, gateText, fromVoice, backlogTarget{})
 }
 
-func (g *gateState) bufferVoiceTarget(interactiveKey, text, gateText string, fromVoice bool, target backlogTarget) {
+func (g *gateRuntime) bufferVoiceTarget(interactiveKey, text, gateText string, fromVoice bool, target backlogTarget) {
 	g.mu.Lock()
 	b := append(g.buf[interactiveKey], text)
 	gb := append(g.gbuf[interactiveKey], gateText)
@@ -842,7 +800,7 @@ func (g *gateState) bufferVoiceTarget(interactiveKey, text, gateText string, fro
 }
 
 // dropBuffered removes the first n buffered messages (delivered with this turn). Caller holds g.mu.
-func (g *gateState) dropBuffered(interactiveKey string, n int) {
+func (g *gateRuntime) dropBuffered(interactiveKey string, n int) {
 	g.buf[interactiveKey] = g.buf[interactiveKey][min(n, len(g.buf[interactiveKey])):]
 	g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
 	if vs := g.bufVoice[interactiveKey]; len(vs) > 0 {
@@ -976,7 +934,7 @@ func backlogTextFor(msg *Message) string {
 }
 
 // bufferContext buffers msg as listen-only context; attachments become a note.
-func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
+func (g *gateRuntime) bufferContext(interactiveKey string, msg *Message) {
 	text, gateText := backlogTextFor(msg), userTextOf(msg)
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
 		note := fmt.Sprintf("（附了 %d 个图片/文件）", n)
