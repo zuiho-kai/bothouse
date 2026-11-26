@@ -19,6 +19,7 @@ here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here))
 import _team  # noqa: E402
 import _ask  # noqa: E402
+import _ui_gate  # noqa: E402  #2042 界面活走查截图在交回时按改动文件查
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
@@ -301,6 +302,9 @@ def hand_back(draft, notes, failed: bool, text=None, files=(), batch=False):
     if c.returncode != 0:
         sys.exit(f"ws-up: 草稿没过检查，没有交回（草稿在 {draft}，改它后跑 ws-up --notes {path} --report {draft}）：\n"
                  f"{(c.stdout + c.stderr).strip()}")
+    stop = _ui_gate.report_block(draft, files, failed)  # #2042：界面活的走查截图按实际改动文件查（交活时不再按字眼拦）
+    if stop:
+        sys.exit(f"ws-up: 没有交回。{stop}（草稿在 {draft}）")
     if not failed:
         # #1855：写「等外部」又带合并请求链接的交回，当前提交的检查一项没出结论或有失败没提的不收（board.wait_report_pr_problem）
         why = board.wait_report_pr_problem(Path(draft).read_text(encoding="utf-8"))
