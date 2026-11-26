@@ -113,6 +113,7 @@ type Platform struct {
 	groupReplyAllChannels      []string // conest: when set, groupReplyAll only applies in these channels (and their threads)
 	shareSessionInChannel      bool
 	threadIsolation            bool
+	threadSessionPerUser       bool
 	threadOps                  discordThreadOps // tests only; nil = the live session
 	respondToAtEveryoneAndHere bool
 	proxyURL                   *url.URL
@@ -175,6 +176,10 @@ func New(opts map[string]any) (core.Platform, error) {
 		return nil, fmt.Errorf("discord: permission_approvers requires share_session_in_channel=true")
 	}
 	threadIsolation, _ := opts["thread_isolation"].(bool)
+	threadSessionPerUser, _ := opts["thread_session_per_user"].(bool)
+	if len(approvers) > 0 && threadIsolation && threadSessionPerUser {
+		return nil, fmt.Errorf("discord: permission_approvers requires shared thread sessions; disable thread_session_per_user")
+	}
 	// @everyone/@here (飞书 @所有人) counts as calling every bot unless explicitly turned off.
 	respondToAtEveryoneAndHere := true
 	if v, ok := opts["respond_to_at_everyone_and_here"].(bool); ok {
@@ -252,6 +257,7 @@ func New(opts map[string]any) (core.Platform, error) {
 		shareSessionInChannel:      shareSessionInChannel,
 		readyCh:                    make(chan struct{}),
 		threadIsolation:            threadIsolation,
+		threadSessionPerUser:       threadIsolation && threadSessionPerUser,
 		respondToAtEveryoneAndHere: respondToAtEveryoneAndHere,
 		proxyURL:                   proxyU,
 	}
@@ -391,9 +397,9 @@ func buildSessionKey(channelID string, userID string, shareSessionInChannel bool
 	return fmt.Sprintf("discord:%s:%s", channelID, userID)
 }
 
-// TODO: thread_isolation currently keys each Discord thread as one shared session, so share_session_in_channel=false does not further isolate users within the same thread.
-func buildThreadSessionKey(threadID string) string {
-	return fmt.Sprintf("discord:%s", threadID)
+func (p *Platform) threadSessionKey(threadID, userID string) string {
+	// Older shared sessions and scheduled jobs may have no member identity.
+	return buildSessionKey(threadID, userID, !p.threadSessionPerUser || userID == "")
 }
 
 func (rc replyContext) targetChannelID() string {
@@ -521,37 +527,33 @@ func inThread(channelID string, ops discordThreadOps) bool {
 	return err == nil && ch != nil && isThreadChannelType(ch.Type)
 }
 
-func resolveSessionKeyForChannel(channelID, userID string, shareSessionInChannel bool, threadIsolation bool, ops discordThreadOps) string {
-	if !threadIsolation {
-		return buildSessionKey(channelID, userID, shareSessionInChannel)
+// An interaction addresses an existing conversation. Its workspace binding stays
+// on the parent channel even when the member's history belongs to a thread.
+func (p *Platform) interactionKeys(channelID, userID string) (sessionKey, channelKey string) {
+	if !p.threadIsolation {
+		return p.makeSessionKey(channelID, userID), ""
 	}
-	ch, err := ops.ResolveChannel(channelID)
+	ch, err := p.threadOpsOrSession().ResolveChannel(channelID)
 	if err != nil {
-		slog.Warn("discord: resolve channel for session key failed, falling back", "channel", channelID, "error", err)
-		return buildSessionKey(channelID, userID, shareSessionInChannel)
+		slog.Warn("discord: resolve channel for interaction failed, falling back", "channel", channelID, "error", err)
+		return p.unresolvedSessionKey(channelID, userID), channelID
 	}
 	if isThreadChannelType(ch.Type) {
-		return buildThreadSessionKey(channelID)
+		parentID := ch.ParentID
+		if parentID == "" {
+			parentID = channelID
+		}
+		return p.threadSessionKey(channelID, userID), parentID
 	}
-	return buildSessionKey(channelID, userID, shareSessionInChannel)
+	return p.makeSessionKey(channelID, userID), channelID
 }
 
-// resolveParentChannelID returns the ID of the parent guild channel a message
-// or interaction belongs to, looking through threads. Returns channelID
-// unchanged when it isn't a thread or when ParentID is unavailable.
-//
-// This is the workspace-binding identity for thread-isolation mode: we want
-// `<base_dir>/<parent-channel-name>` to drive auto-bind, not `<thread-name>`.
-func resolveParentChannelID(channelID string, ops discordThreadOps) string {
-	ch, err := ops.ResolveChannel(channelID)
-	if err != nil {
-		slog.Debug("discord: resolve channel for parent lookup failed", "channel", channelID, "error", err)
-		return channelID
+// When Discord cannot identify the channel it may be a per-user thread.
+func (p *Platform) unresolvedSessionKey(channelID, userID string) string {
+	if p.threadSessionPerUser {
+		return p.threadSessionKey(channelID, userID)
 	}
-	if isThreadChannelType(ch.Type) && ch.ParentID != "" {
-		return ch.ParentID
-	}
-	return channelID
+	return p.makeSessionKey(channelID, userID)
 }
 
 // resolveThreadReplyContext routes a guild message into a Discord thread for
@@ -565,55 +567,41 @@ func resolveParentChannelID(channelID string, ops discordThreadOps) string {
 // rather than thread name. Without this distinction, threads break the
 // "channel name → workspace folder" convention because Discord threads
 // have their own names that rarely match a workspace directory.
-func resolveThreadReplyContext(m *discordgo.MessageCreate, botID string, ops discordThreadOps) (string, replyContext, string, error) {
+func (p *Platform) resolveThreadReplyContext(m *discordgo.MessageCreate) (string, replyContext, string, error) {
+	ops := p.threadOpsOrSession()
+	fallback := replyContext{channelID: m.ChannelID, messageID: m.ID}
 	ch, err := ops.ResolveChannel(m.ChannelID)
 	if err != nil {
-		return "", replyContext{}, "", fmt.Errorf("resolve channel %s: %w", m.ChannelID, err)
+		return p.unresolvedSessionKey(m.ChannelID, m.Author.ID), fallback, "", fmt.Errorf("resolve channel %s: %w", m.ChannelID, err)
 	}
-	if isThreadChannelType(ch.Type) {
-		// Message posted directly inside an existing thread. The parent
-		// channel comes from ch.ParentID; fall back to m.ChannelID only
-		// if Discord didn't populate it (defensive — discordgo always
-		// sets ParentID for thread channels).
-		parentChannelID := ch.ParentID
-		if parentChannelID == "" {
-			parentChannelID = m.ChannelID
+	parentID := m.ChannelID
+	var threadID string
+	switch {
+	case isThreadChannelType(ch.Type):
+		threadID = m.ChannelID
+		if ch.ParentID != "" {
+			parentID = ch.ParentID
 		}
-		if err := ops.JoinThread(m.ChannelID); err != nil {
-			slog.Debug("discord: join existing thread failed", "thread", m.ChannelID, "error", err)
+	case m.Thread != nil && m.Thread.ID != "":
+		threadID = m.Thread.ID
+	case m.Flags&discordgo.MessageFlagsHasThread != 0:
+		threadID = m.ID
+	default:
+		thread, err := ops.StartThread(m.ChannelID, m.ID, threadNameForMessage(m, p.selfID()), 1440)
+		if err != nil {
+			return p.makeSessionKey(m.ChannelID, m.Author.ID), fallback, "", fmt.Errorf("start thread for message %s: %w", m.ID, err)
 		}
-		rc := replyContext{channelID: m.ChannelID, messageID: m.ID, threadID: m.ChannelID}
-		return buildThreadSessionKey(m.ChannelID), rc, parentChannelID, nil
+		threadID = thread.ID
 	}
-	if m.Message != nil && m.Message.Thread != nil && m.Message.Thread.ID != "" {
-		threadID := m.Message.Thread.ID
-		if err := ops.JoinThread(threadID); err != nil {
-			slog.Debug("discord: join attached thread failed", "thread", threadID, "error", err)
-		}
-		rc := replyContext{channelID: threadID, messageID: m.ID, threadID: threadID}
-		return buildThreadSessionKey(threadID), rc, m.ChannelID, nil
+	if err := ops.JoinThread(threadID); err != nil {
+		slog.Debug("discord: join thread failed", "thread", threadID, "error", err)
 	}
-	if m.Flags&discordgo.MessageFlagsHasThread != 0 {
-		threadID := m.ID
-		if err := ops.JoinThread(threadID); err != nil {
-			slog.Debug("discord: join message thread failed", "thread", threadID, "error", err)
-		}
-		rc := replyContext{channelID: threadID, messageID: m.ID, threadID: threadID}
-		return buildThreadSessionKey(threadID), rc, m.ChannelID, nil
-	}
-
-	thread, err := ops.StartThread(m.ChannelID, m.ID, threadNameForMessage(m, botID), 1440)
-	if err != nil {
-		return "", replyContext{}, "", fmt.Errorf("start thread for message %s: %w", m.ID, err)
-	}
-	if err := ops.JoinThread(thread.ID); err != nil {
-		slog.Debug("discord: join new thread failed", "thread", thread.ID, "error", err)
-	}
-	rc := replyContext{channelID: thread.ID, messageID: m.ID, threadID: thread.ID}
-	return buildThreadSessionKey(thread.ID), rc, m.ChannelID, nil
+	rc := replyContext{channelID: threadID, messageID: m.ID, threadID: threadID}
+	return p.threadSessionKey(threadID, m.Author.ID), rc, parentID, nil
 }
 
-func resolveCronReplyTarget(sessionKey, title string, ops discordThreadOps) (string, replyContext, error) {
+func (p *Platform) resolveCronReplyTarget(sessionKey, title string) (string, replyContext, error) {
+	ops := p.threadOpsOrSession()
 	channelID, err := parseDiscordSessionKeyChannelID(sessionKey)
 	if err != nil {
 		return "", replyContext{}, err
@@ -651,7 +639,8 @@ func resolveCronReplyTarget(sessionKey, title string, ops discordThreadOps) (str
 	}
 
 	rc := replyContext{channelID: thread.ID, threadID: thread.ID}
-	return buildThreadSessionKey(thread.ID), rc, nil
+	_, userID, _ := strings.Cut(strings.TrimPrefix(sessionKey, "discord:"), ":")
+	return p.threadSessionKey(thread.ID, userID), rc, nil
 }
 
 // RegisterCommands registers bot commands with Discord for the slash command menu.
@@ -981,13 +970,10 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		// resolution would open a new thread titled after the stop word and stop nothing.
 		channelKey = m.ChannelID
 	} else if p.threadIsolation && m.GuildID != "" {
-		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.selfID(), p.threadOpsOrSession())
+		var err error
+		sessionKey, rctx, channelKey, err = p.resolveThreadReplyContext(m)
 		if err != nil {
 			slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
-		} else {
-			sessionKey = threadSessionKey
-			rctx = threadCtx
-			channelKey = parentChannelID
 		}
 	}
 
@@ -1231,12 +1217,7 @@ func (p *Platform) handleInteraction(s *discordgo.Session, i *discordgo.Interact
 
 	slog.Debug("discord: slash command", "user", userName, "command", cmdText, "channel", channelID)
 
-	ops := sessionThreadOps{session: p.session}
-	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareInChannel(), p.threadIsolation, ops)
-	channelKey := ""
-	if p.threadIsolation {
-		channelKey = resolveParentChannelID(channelID, ops)
-	}
+	sessionKey, channelKey := p.interactionKeys(channelID, userID)
 
 	msg := &core.Message{
 		SessionKey: sessionKey, ChannelKey: channelKey, Platform: "discord",
@@ -1313,12 +1294,7 @@ func (p *Platform) handleComponentInteraction(s *discordgo.Session, i *discordgo
 	}
 
 	channelID := i.ChannelID
-	ops := sessionThreadOps{session: p.session}
-	sessionKey := resolveSessionKeyForChannel(channelID, userID, p.shareInChannel(), p.threadIsolation, ops)
-	channelKey := ""
-	if p.threadIsolation {
-		channelKey = resolveParentChannelID(channelID, ops)
-	}
+	sessionKey, channelKey := p.interactionKeys(channelID, userID)
 	rc := replyContext{channelID: channelID}
 	if i.Message != nil {
 		rc.messageID = i.Message.ID
@@ -1682,7 +1658,7 @@ var _ core.ProgressCardPayloadSupport = (*progressPlatform)(nil)
 var _ core.ProgressUpdateThrottler = (*progressPlatform)(nil)
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
-	// discord:{channelID}:{userID} or discord:{threadID}
+	// Shared and per-user keys both carry the Discord destination in parts[1].
 	parts := strings.SplitN(sessionKey, ":", 3)
 	if len(parts) < 2 || parts[0] != "discord" {
 		return nil, fmt.Errorf("discord: invalid session key %q", sessionKey)
@@ -1690,6 +1666,8 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 	rc := replyContext{channelID: parts[1]}
 	if len(parts) == 2 {
 		rc.threadID = parts[1]
+	}
+	if len(parts) == 2 || p.threadSessionPerUser {
 		if host := p.threadGoneHost(parts[1]); host != "" {
 			// The thread a task came from was deleted or locked: its report goes to the thread's
 			// text channel instead of failing (an archived thread reopens when the bot posts).
@@ -1831,7 +1809,7 @@ func (p *Platform) OpenPrivateThread(fromSession, userID, name string) (string, 
 		_, _ = p.session.ChannelDelete(th.ID)
 		return "", fmt.Errorf("discord: add %s to private thread: %w", userID, err)
 	}
-	return "discord:" + th.ID, nil
+	return p.threadSessionKey(th.ID, userID), nil
 }
 
 var _ core.DMRefusalDetector = (*Platform)(nil)
@@ -1841,7 +1819,7 @@ func (p *Platform) ResolveCronReplyTarget(sessionKey string, title string) (stri
 	if !p.threadIsolation {
 		return "", nil, core.ErrNotSupported
 	}
-	resolvedSessionKey, rc, err := resolveCronReplyTarget(sessionKey, title, sessionThreadOps{session: p.session})
+	resolvedSessionKey, rc, err := p.resolveCronReplyTarget(sessionKey, title)
 	if err != nil {
 		return "", nil, err
 	}

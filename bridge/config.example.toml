@@ -1546,6 +1546,8 @@ app_secret = "your-feishu-app-secret"
 # share_session_in_channel = false  # If true, all users in a channel share one agent session / 频道共享会话
 # thread_isolation = false  # If true, bothouse creates/uses Discord threads as session boundaries when the channel supports threads
 #                           # 设为 true 时，bothouse 会在支持 thread 的 Discord 频道内按 thread 隔离会话
+# thread_session_per_user = false  # With thread_isolation, set true for a separate agent history per member in each thread. Restart to apply.
+#                                  # 开启线程隔离后，设为 true 并重启，同一线程内每位成员各自接续会话。回复仍发在该线程。
 # progress_style = "card"  # Progress rendering: legacy | compact | card (default card) / 进度展示方式：legacy | compact | card（默认 card）
 #                            # card = one editable Discord embed progress card / card = 单条可编辑的 Discord 嵌入式进度卡
 # aux_channels = { "123456789012345678" = "234567890123456789" }  # maomao fork: main channel ID → log channel ID / 主频道 ID → 日志频道 ID
