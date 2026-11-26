@@ -206,8 +206,10 @@ func readPackDir(dir string) packContent {
 			if !ok || e.IsDir() || !LibrarySlugOK(slug) {
 				continue
 			}
+			// An installed persona is listed whatever its size (#2048: one over libraryMaxPersona used
+			// to vanish from the list without a word); the limit is checked where a persona is uploaded.
 			b, err := os.ReadFile(filepath.Join(dir, "personas", e.Name()))
-			if err != nil || len(b) > libraryMaxPersona {
+			if err != nil {
 				continue
 			}
 			n, in, av, t := ParsePersonaFile(b)

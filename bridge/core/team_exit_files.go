@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -95,7 +96,7 @@ func namedDocPaths(text string) []string {
 		}
 		seen[path] = true
 		st, err := os.Stat(path)
-		if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > exitFileMaxBytes {
+		if err != nil || !st.Mode().IsRegular() || st.Size() == 0 {
 			continue
 		}
 		out = append(out, path)
@@ -181,11 +182,28 @@ func exitFilesFor(sessionKey, body string, item *teamTaskBoardItem, kept []FileA
 		seen[k] = true
 		out = append(out, f)
 	}
-	out = filterExitVideos(out)
-	if len(out) > exitFileMax {
-		out = out[:exitFileMax]
+	return filterExitVideos(out)
+}
+
+// capExitFiles keeps what one exit post can carry: files over exitFileMaxBytes and those past
+// exitFileMax are left out, and leftOutNote names them in the chat (#2048: they used to be dropped
+// with no word, and the user thought every attachment had arrived).
+func capExitFiles(files []FileAttachment) (kept []FileAttachment, leftOut []string) {
+	for _, f := range files {
+		switch {
+		case len(f.Data) > exitFileMaxBytes:
+			leftOut = append(leftOut, fmt.Sprintf("%s（%d MiB，超过单个 %d MiB）", f.FileName, (len(f.Data)+(1<<20)-1)>>20, exitFileMaxBytes>>20))
+		case len(kept) >= exitFileMax:
+			leftOut = append(leftOut, fmt.Sprintf("%s（一次最多附 %d 个）", f.FileName, exitFileMax))
+		default:
+			kept = append(kept, f)
+		}
 	}
-	return out
+	return kept, leftOut
+}
+
+func leftOutNote(leftOut []string) string {
+	return fmt.Sprintf("📎 另有 %d 个文件没附上：%s", len(leftOut), strings.Join(leftOut, "、"))
 }
 
 // isMediaFile: pictures, sound and video go to the user even when the report has links (they look
@@ -310,6 +328,14 @@ func (e *Engine) postExitFiles(ctx context.Context, p Platform, rc any, boardID 
 	if !ok {
 		slog.Warn("team exit: platform cannot send files; documents stay as paths", "platform", p.Name(), "files", len(files))
 		return
+	}
+	files, leftOut := capExitFiles(files)
+	if len(leftOut) > 0 {
+		defer func() {
+			if err := authorizedOutput(ctx, func() error { return p.Send(ctx, rc, leftOutNote(leftOut)) }); err != nil {
+				slog.Warn("team exit: left-out files note failed", "files", leftOut, "error", err)
+			}
+		}()
 	}
 	sent := 0
 	for _, item := range prepareFileSends(files, boardID, nil) {
