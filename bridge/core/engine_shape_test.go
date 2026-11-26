@@ -18,9 +18,9 @@ import (
 // message says where).
 const (
 	maxEngineGoLines  = 3000 // engine.go is a 2234-line core; topics live in engine_<topic>.go
-	wantEngineFields  = 199
-	wantEngineMethods = 1180
-	wantEngineSetters = 99
+	wantEngineFields  = 198
+	wantEngineMethods = 1169
+	wantEngineSetters = 98
 )
 
 func TestEngineShapeRatchet(t *testing.T) {
