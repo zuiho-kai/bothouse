@@ -131,6 +131,13 @@ type FormattingInstructionProvider interface {
 	FormattingInstructions() string
 }
 
+// ChannelReplyGuidanceProvider supplies formatting guidance for a channel's replies.
+// The bridge injects it into the turn once per agent context, including for agents
+// that cannot accept a custom system prompt.
+type ChannelReplyGuidanceProvider interface {
+	ChannelReplyGuidance() string
+}
+
 // PlatformPromptInjector is an optional interface for agents that can receive
 // platform-specific prompt fragments (e.g., formatting instructions).
 // The engine calls this before StartSession when the platform provides formatting.

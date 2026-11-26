@@ -649,6 +649,7 @@ var staleBlocks = []struct{ head, end string }{
 	// Per-turn notes of adapters without a system prompt (antigravity).
 	{modelControlHead, modelControlEnd},             // PrependModelSwitchInstructions
 	{bridgeInstructionsHead, bridgeInstructionsEnd}, // contextRules, CLIs without a system prompt
+	{channelReplyGuidanceHead, "\n\n"},              // formatting advice belongs to the current output channel
 	{"[Task lifecycle]", "\n\n"},                    // antigravity taskLifecycleInstructions
 }
 
