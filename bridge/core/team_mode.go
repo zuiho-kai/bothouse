@@ -2,13 +2,16 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -143,8 +146,9 @@ func (e *Engine) contextRules(rules string, session *Session, agent Agent) strin
 	return e.injectBlock(session, "rules", rules)
 }
 
-// houseRulesMaxBytes caps <data dir>/rules/house.md; a larger file is not sent at all (and logged),
-// so one runaway edit cannot flood every turn.
+// houseRulesMaxBytes caps the body read from <data dir>/rules/house.md; a larger file is
+// truncated at line boundaries and sent with a header notice (and logged once per content hash),
+// so one runaway edit cannot flood every turn or silently vanish.
 const houseRulesMaxBytes = 4000
 
 const houseRulesHead = "本机守则（和上面冲突时照这里）："
@@ -153,8 +157,62 @@ const houseRulesHead = "本机守则（和上面冲突时照这里）："
 // owner's single rule source.
 func houseRulesPath(dataDir string) string { return filepath.Join(dataDir, "rules", "house.md") }
 
-// readHouseRules returns the house rules with their heading, or "" when the data dir is unset or the
-// file is missing, empty or over houseRulesMaxBytes.
+var houseRulesOverWarn struct {
+	mu   sync.Mutex
+	hash [sha256.Size]byte
+	set  bool
+}
+
+func resetHouseRulesOverWarn() {
+	houseRulesOverWarn.mu.Lock()
+	houseRulesOverWarn.set = false
+	houseRulesOverWarn.hash = [sha256.Size]byte{}
+	houseRulesOverWarn.mu.Unlock()
+}
+
+func shouldWarnHouseRulesOver(b []byte) bool {
+	sum := sha256.Sum256(b)
+	houseRulesOverWarn.mu.Lock()
+	defer houseRulesOverWarn.mu.Unlock()
+	if houseRulesOverWarn.set && houseRulesOverWarn.hash == sum {
+		return false
+	}
+	houseRulesOverWarn.hash = sum
+	houseRulesOverWarn.set = true
+	return true
+}
+
+// truncateHouseRules keeps whole lines from raw whose joined UTF-8 byte length fits within
+// maxBytes, returning the trimmed kept body and the number of non-empty dropped lines.
+func truncateHouseRules(raw string, maxBytes int) (string, int) {
+	lines := strings.Split(raw, "\n")
+	keptBytes := 0
+	cut := len(lines)
+	for i, line := range lines {
+		add := len(line)
+		if i > 0 {
+			add++ // '\n' separator
+		}
+		if keptBytes+add > maxBytes {
+			cut = i
+			break
+		}
+		keptBytes += add
+	}
+	body := strings.TrimSpace(strings.Join(lines[:cut], "\n"))
+	dropped := 0
+	for _, line := range lines[cut:] {
+		if strings.TrimSpace(line) != "" {
+			dropped++
+		}
+	}
+	return body, dropped
+}
+
+// readHouseRules returns the house rules with their heading, or "" when the data dir is unset or
+// the file is missing or blank. Files larger than houseRulesMaxBytes are truncated at line
+// boundaries with a header notice pointing to path (the notice itself does not count toward the
+// cap), and warned once per over-cap content hash until the file returns within the cap.
 func readHouseRules(dataDir string) string {
 	if dataDir == "" {
 		return ""
@@ -162,15 +220,32 @@ func readHouseRules(dataDir string) string {
 	path := houseRulesPath(dataDir)
 	b, err := os.ReadFile(path)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) {
+			resetHouseRulesOverWarn()
+		} else {
 			slog.Warn("house rules: read failed", "path", path, "error", err)
 		}
 		return ""
 	}
 	if len(b) > houseRulesMaxBytes {
-		slog.Warn("house rules: file over the cap, not sent", "path", path, "bytes", len(b), "max", houseRulesMaxBytes)
-		return ""
+		body, dropped := truncateHouseRules(string(b), houseRulesMaxBytes)
+		if dropped == 0 {
+			resetHouseRulesOverWarn()
+			if body == "" {
+				return ""
+			}
+			return houseRulesHead + "\n" + body
+		}
+		if shouldWarnHouseRulesOver(b) {
+			slog.Warn("house rules: file over the cap, truncated", "path", path, "bytes", len(b), "max", houseRulesMaxBytes, "dropped_lines", dropped)
+		}
+		notice := fmt.Sprintf("（注意：守则当前 %d 字节，已超 %d 字节上限，后面 %d 条未发送，由主角色精简到上限内；完整内容在 %s，用到时自己读。）", len(b), houseRulesMaxBytes, dropped, path)
+		if body == "" {
+			return houseRulesHead + "\n" + notice
+		}
+		return houseRulesHead + "\n" + notice + "\n" + body
 	}
+	resetHouseRulesOverWarn()
 	text := strings.TrimSpace(string(b))
 	if text == "" {
 		return ""
