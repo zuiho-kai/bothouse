@@ -496,8 +496,31 @@ class T(unittest.TestCase):
             def __exit__(self, *a): return False
         for body, want in (({"p": [0.3, 0.6], "model": "Qwen3-Reranker-4B"}, [True, False]), ({"p": [0.3, 0.1]}, [False, True])):
             with patch.object(ctxsvc, "RERANK_URL", "http://x"), patch.object(ctxsvc, "RERANK_MIN", 0.2), \
+                    patch.object(ctxsvc, "_rr_memo", __import__("collections").OrderedDict()), \
                     patch("urllib.request.urlopen", lambda *a, **k: Resp(body)):
                 self.assertEqual(ctxsvc.weak_lines("q", ["a", "b"]), want)
+
+    def test_rerank_lazy_and_memo(self):
+        # #2031：按顺序一批批判，够数就停；判过的同一句同一行不再问服务
+        calls = []
+
+        class Resp:
+            def __init__(self, n): self.n = n
+            def read(self): return json.dumps({"p": [0.9] * self.n}).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake(req, timeout=0):
+            n = len(json.loads(req.data)["docs"])
+            calls.append(n)
+            return Resp(n)
+        hits = [("a.md", i, f"- line {i}") for i in range(20)]
+        with patch.object(ctxsvc, "RERANK_URL", "http://x"), patch.object(ctxsvc, "_rr_memo", __import__("collections").OrderedDict()), \
+                patch("urllib.request.urlopen", fake):
+            self.assertEqual(len(ctxsvc.relevant("q", hits, "q", lambda h: h[2], 8)), 8)
+            self.assertEqual(calls, [8])
+            ctxsvc.relevant("q", hits[:4], "q", lambda h: h[2], 8)
+            self.assertEqual(calls, [8])
 
     def test_refs_record_cross_page_and_headless_rows(self):
         # #2031：别的页的楼写成「| 路径:行号: 」、页头为空时第一行前没有「| 」，推送记录原来漏记这两类。
