@@ -515,9 +515,6 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		if m, ok := p.(InjectedReplyMerger); ok {
 			h.msg.ReplyCtx = m.MergeInjectedReply(h.msg.ReplyCtx, msg.ReplyCtx)
 		}
-		if h.msg.userTextSet || msg.userTextSet {
-			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
-		}
 		// Fold only the sender's own words: msg.Content already carries its own ambient chat,
 		// which would otherwise appear once per message of the burst. bufferedText drops it
 		// wherever a quote or note put it, the same rule the silent buffer uses.
@@ -526,9 +523,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// sits, and the held message's own words the first time a part joins it, so the
 		// voice note below never wraps typed text; voiceMarked stops that second mark.
 		if h.msg.FromVoice && !h.msg.voiceMarked {
-			h.msg.Content, h.msg.voiceMarked = withVoiceNote(h.msg.Content, true), true
+			h.msg.Content, h.msg.voiceMarked = withVoiceNoteBeforeUserText(h.msg.Content, h.msg), true
 		}
 		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + withVoiceNote(body, msg.FromVoice))
+		if h.msg.userTextSet || msg.userTextSet {
+			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
+		}
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
@@ -593,7 +593,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	// typed buffer as speech and a transcript in the buffer is not handed over as typing.
 	for i := range buffered {
 		if i < len(bufferedVoice) && bufferedVoice[i] {
-			buffered[i] = withVoiceNote(buffered[i], true)
+			buffered[i] = withBufferedVoiceNote(buffered[i])
 		}
 	}
 
@@ -629,7 +629,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	if dec.Action == "silent" {
-		if text := backlogText(msg); text != "" {
+		if text := backlogTextFor(msg); text != "" {
 			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked)
 		}
 		return true
@@ -683,7 +683,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	// prompt would call the typed history speech. voiceMarked tells the turn build and the
 	// mid-turn injection below not to mark it a second time.
 	if msg.FromVoice && !msg.voiceMarked {
-		content, msg.voiceMarked = withVoiceNote(content, true), true
+		content, msg.voiceMarked = withVoiceNoteBeforeUserText(content, msg), true
 	}
 	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
 	if back, images, ok := e.channelBackfill(p, msg, session); ok {
@@ -840,6 +840,34 @@ func bufferedText(msg *Message) string {
 	return text
 }
 
+// withBufferedVoiceNote marks the spoken part of one buffered backlog entry. The
+// backlog attribution header is metadata, so the note goes under it, immediately above
+// the speaker's words; otherwise the voice mark looks like it belongs to the header and
+// the transcript itself reads as typed text (#215).
+func withBufferedVoiceNote(entry string) string {
+	if head, rest, ok := strings.Cut(entry, "\n"); ok && strings.HasPrefix(head, "[backlog-message ") {
+		return head + "\n" + voiceNoteMark + "\n" + rest
+	}
+	return withVoiceNote(entry, true)
+}
+
+// withVoiceNoteBeforeUserText places the voice note immediately above this message's own
+// words. msg.Content already carries bridge control blocks by the time the gate marks it;
+// wrapping the whole decorated content would leave the note above those blocks instead of
+// above the transcript (#215).
+func withVoiceNoteBeforeUserText(content string, msg *Message) string {
+	body := strings.TrimSpace(senderText(msg, userTextOf(msg)))
+	if body == "" {
+		body = strings.TrimSpace(userTextOf(msg))
+	}
+	if body != "" {
+		if i := strings.LastIndex(content, body); i >= 0 {
+			return strings.TrimRight(content[:i], "\n") + "\n" + voiceNoteMark + "\n" + content[i:]
+		}
+	}
+	return withVoiceNote(content, true)
+}
+
 // backlogText is bufferedText plus the attribution a later turn needs to answer the
 // original speaker rather than appear to answer the message that happened to wake the bot.
 func backlogText(msg *Message) string {
@@ -864,9 +892,18 @@ func backlogText(msg *Message) string {
 	return "[backlog-message " + strings.Join(attrs, " ") + "]\n" + text
 }
 
+// backlogTextFor keeps teammate-bot context in its existing structured quote form;
+// human backlog gets the quote-target attribution header.
+func backlogTextFor(msg *Message) string {
+	if msg.FromBot {
+		return bufferedText(msg)
+	}
+	return backlogText(msg)
+}
+
 // bufferContext buffers msg as listen-only context; attachments become a note.
 func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
-	text, gateText := backlogText(msg), userTextOf(msg)
+	text, gateText := backlogTextFor(msg), userTextOf(msg)
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
 		note := fmt.Sprintf("（附了 %d 个图片/文件）", n)
 		text, gateText = strings.TrimSpace(text+note), strings.TrimSpace(gateText+note)
