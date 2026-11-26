@@ -31,7 +31,7 @@ export function supportsWorkspaces(store) { return typeof store?.createWorkspace
  * SendFile / SendAudio). Advertised only when the gateway has an attachment store; the
  * bytes are saved there and shown in the Channel page like an uploaded attachment.
  */
-export const MEDIA_CAPABILITIES = ['image', 'file', 'audio'];
+export const MEDIA_CAPABILITIES = ['image', 'file', 'audio', 'file_receipt'];
 // `format` of an audio frame (cc-connect audioFormatHint: file extension or mime subtype)
 // -> mime type the page's <audio> element can play.
 const AUDIO_MIME = { mp3: 'audio/mpeg', mpeg: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg',
@@ -613,14 +613,13 @@ export class CloudWebGateway {
         if (!text || text.length > MAX_TEXT) return;
         // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
         // A frame with ref_id asks for the posted row's id back (bridge SentMessageRecorder).
-        const ack = id => { if (typeof d.ref_id === 'string' && d.ref_id) send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: String(id) }); };
         const h = d.preview_handle;
         if (typeof h === 'string' && /^\d+$/.test(h)) {
           const row = this.hub.commit(Number(h), 'role', member.id, text, d.agent === true);
-          if (row !== undefined) { ack(row.id); return; }
+          if (row !== undefined) { sendPostedMessageAck(bot.ws, d.ref_id, row.id); return; }
         }
         const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
-        ack(message.id);
+        sendPostedMessageAck(bot.ws, d.ref_id, message.id);
         return;
       }
       case 'buttons': {
@@ -677,19 +676,24 @@ export class CloudWebGateway {
       case 'file':
       case 'audio': {
         const room = roomOf(d, this.hub.store);
-        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) return;
+        const refId = d.type === 'file' ? d.ref_id : undefined;
+        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) {
+          sendPostedMessageAck(bot.ws, refId);
+          return;
+        }
         const ext = String(d.format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '').replace(/[^a-z0-9]/g, '');
         const mime = d.type === 'audio' ? audioMime(d.format) : (typeof d.mime_type === 'string' && d.mime_type) || 'application/octet-stream';
         const name = typeof d.file_name === 'string' && d.file_name ? d.file_name
           : d.type === 'audio' ? `voice.${ext || 'mp3'}` : d.type === 'image' ? `image.${mime.split('/')[1] ?? 'png'}` : 'file';
-        let attachments;
+        let id;
         try {
-          attachments = this.files.save([{ name, mime, data: d.data }]);
+          const attachments = this.files.save([{ name, mime, data: d.data }]);
+          const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+          id = message.id;
         } catch (error) {
           this.logger.warn('collab: cloud-web %s frame from %s dropped: %s', d.type, member.id, error?.message ?? error);
-          return;
         }
-        this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+        sendPostedMessageAck(bot.ws, refId, id);
         return;
       }
       case 'queue': {
@@ -797,6 +801,12 @@ function newerSeq(row, seq) {
   if (row === undefined || seq === undefined) return false;
   const stored = parseCard(row.card)?.seq;
   return !Number.isSafeInteger(stored) || seq > stored;
+}
+
+function sendPostedMessageAck(ws, refId, id) {
+  if (typeof refId === 'string' && refId) {
+    send(ws, { type: 'preview_ack', ref_id: refId, preview_handle: id === undefined ? '' : String(id) });
+  }
 }
 
 function send(ws, frame) {

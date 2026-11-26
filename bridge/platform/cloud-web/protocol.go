@@ -24,6 +24,7 @@ const (
 	capText             = "text"
 	capImage            = "image"
 	capFile             = "file"
+	capFileReceipt      = "file_receipt" // opt-in: file frames with ref_id receive a posted-message acknowledgement
 	capAudio            = "audio"
 	capCard             = "card"
 	capButtons          = "buttons"
