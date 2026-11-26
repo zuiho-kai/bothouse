@@ -49,15 +49,25 @@ The `BridgePlatform` is a built-in platform inside bothouse that:
 ws://<host>:<port>/bridge/ws
 ```
 
-The port and path are configured in `config.toml`:
+The listen address, port, and path are configured in `config.toml`. For an
+adapter on the same machine, use a loopback address:
 
 ```toml
 [bridge]
 enabled = true
+host = "127.0.0.1"
 port = 9810
 path = "/bridge/ws"       # optional, default "/bridge/ws"
 token = "your-secret"     # required for authentication
 ```
+
+Omit `host` or leave it empty to listen on all interfaces. For IPv6 loopback,
+set `host = "::1"` and connect to `ws://[::1]:9810/bridge/ws`.
+
+Look for `bridge: server started` in the startup log. The `addr` and `path`
+fields report the bound address and WebSocket path. If you see
+`bridge: listen failed`, use its address and error details to check that the
+host address belongs to this machine and the port is available.
 
 ### Authentication
 
