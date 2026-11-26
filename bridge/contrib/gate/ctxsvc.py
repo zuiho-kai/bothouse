@@ -798,8 +798,10 @@ def decision_items(text, key=""):
 # 跨话题的固定做法（用什么工具、谁来做、怎么跑），按话题检索拉不到（离线对比漏的 5 条里 4 条是这类），
 # 所以写成一个短块，每个会话都带。块由 agent 自己维护；每轮校验，坏了当场让它修。
 STANDING = "STANDING.md"
-STANDING_LINES = 20  # 最多几条：短块要每会话常带，按约 1500 字封顶倒推（每条约 70 字）
-STANDING_CHARS = 1500
+# 最多几条、几字：短块要每会话常带，按约 1500 字封顶倒推（每条约 70 字）。数字只写在同目录 standing_limits.json，
+# 桥的读频报告（core/read_frequency.go）读同一份（#2051 第 5 件）。
+_LIMITS = json.loads(Path(__file__).with_name("standing_limits.json").read_text(encoding="utf-8"))
+STANDING_LINES, STANDING_CHARS = int(_LIMITS["lines"]), int(_LIMITS["chars"])
 STANDING_HOW = ("每个会话都带的跨话题固定做法（工具、谁来做、怎么跑），照做。这块由你维护：用户定了跨话题的做法就加一行，"
                 f"过时就删；改 {{path}}，每条一行、以「- 」开头，最多 {STANDING_LINES} 条、{STANDING_CHARS} 字；话题内的定案写进话题页，不写这里")
 
@@ -910,7 +912,7 @@ def corrected_items(bot, key):
     d = store_dir()
     try:
         raw = (d.parent / "session_memory" / "corrected.jsonl").read_text(encoding="utf-8")
-    except (AttributeError, OSError):  # 没装 datadir（终端 hook）或还没封存过
+    except OSError:  # 还没封存过
         return []
     mark = _ingest_mark()
     rows = []
@@ -1217,12 +1219,9 @@ HOWTO = {"path": "【取正文】", "desc": f"下面的材料只给标题和 [#�
 
 
 def store_dir():
-    """正文库目录：<数据目录>/ctx（同 core/ctxstore.go ctxStoreDir）；datadir 没装（终端 hook 只装了 ctxsvc）就 None。"""
-    try:
-        import datadir
-    except ImportError:
-        return None
-    return Path(getattr(datadir, "guard", lambda p: p)(datadir.data_dir())) / "ctx"  # 旧 datadir 没有 guard
+    """正文库目录：<数据目录>/ctx（同 core/ctxstore.go ctxStoreDir）。datadir 和 ctxsvc 一起装（gate 目录、终端 hook 目录都有）。"""
+    import datadir
+    return Path(datadir.data_dir()) / "ctx"
 
 
 _pruned = [0.0]
@@ -1231,8 +1230,6 @@ _pruned = [0.0]
 def stash(cid, body):
     """编号 cid 的正文写进正文库（body 可以是函数，库里已有就不调）。写坏了不挡推送。"""
     d = store_dir()
-    if d is None:
-        return
     f = d / f"{cid}.md"
     try:
         if f.exists():

@@ -30,6 +30,8 @@
 import ast, json, os, re, shlex, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(os.path.dirname(HERE), "gate"))  # 数据目录只认 datadir（#2051）：装好后和钩子平铺同目录，仓库里直跑在 ../gate
+import datadir  # noqa: E402
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 
 PROXY_URL = os.environ.get("HOOK_PROXY", "").strip()  # 例：http://127.0.0.1:7890；空 = 不查下载
@@ -601,18 +603,12 @@ MERGE_CMD = re.compile(r"\bgh\s+pr\s+merge\b|api\.gitcode\.com/api/v5/repos/")
 
 
 def _merge_gate():
-    """团队工具只有一份：<数据目录>/collaboration/runtime/lead（桥写的，同 core/role_env.go）；
-    钩子目录就在数据目录下，环境变量没给数据目录时按钩子目录找。"""
+    """团队工具只有一份：<数据目录>/collaboration/runtime/lead（桥写的，同 core/role_env.go）；数据目录照 datadir。"""
     if os.environ.get("HOOK_MERGE_GATE"):
         p = os.environ["HOOK_MERGE_GATE"]
         return p if os.path.exists(p) else ""
-    env = os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR")
-    for data in ([env] if env else []) + [os.path.dirname(HERE), "~/.bothouse"]:
-        for sub in (("runtime", "lead"),):
-            p = os.path.join(os.path.expanduser(data), "collaboration", *sub, "merge-gate")
-            if os.path.exists(p):
-                return p
-    return ""
+    p = os.path.join(str(datadir.data_dir()), "collaboration", "runtime", "lead", "merge-gate")
+    return p if os.path.exists(p) else ""
 
 
 def check_merge(cmd, cwd):

@@ -218,11 +218,7 @@ def claim_cmd(chat: str, wid: str, task: str, nid: int):
 
 
 def _ws_state() -> dict:
-    """桥的工作区状态 <数据目录>/team_workspaces.json（只读）；读不到 → {}。"""
-    try:
-        return json.loads((_team.datadir.data_dir() / "team_workspaces.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError, SystemExit):
-        return {}
+    return board.workspace_state()
 
 
 COOLING = "cooling down after quota exhaustion"  # 桥 ErrTeamWorkspaceCooling 的报错原文
