@@ -457,10 +457,6 @@ func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 		// Not a downloaded pack: it names one of the pet's own skins (built-in or installed recommended,
 		// e.g. dsh-pet-whale), set with `bothouse pet skin`. The pet wears it if it has it.
 		out["skin"] = pack
-	} else if pack != "" {
-		// Not a downloaded pack: the binding names one of the pet's own skins (橘, 龙娘, 彩虹猫, an installed
-		// recommended skin…), set with `bothouse pet skin`. The pet wears it instead of guessing by aliases.
-		out["skin"] = pack
 	}
 	petAPIJSON(w, out)
 }
