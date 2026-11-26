@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,14 +20,18 @@ var LeadToolFS fs.FS
 // An installed file whose content differs from the embedded one is left alone and returned in
 // skipped (relative to the collaboration dir) unless force is set, so local edits survive reinstall.
 func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result map[string]string, skipped []string, err error) {
-	if LeadToolFS == nil {
+	tools := LeadToolFS
+	if tools == nil {
 		return nil, nil, errors.New("collaboration tools are not built into this binary")
 	}
 	if dataDir == "" || workDir == "" {
 		return nil, nil, errors.New("data_dir and work_dir are required")
 	}
+	if _, err := syncLeadRuntime(dataDir, tools); err != nil {
+		return nil, nil, err
+	}
 	root := filepath.Join(dataDir, "collaboration")
-	err = fs.WalkDir(LeadToolFS, "contrib", func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(tools, "contrib", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -38,9 +43,12 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
-		b, err := fs.ReadFile(LeadToolFS, p)
+		b, err := fs.ReadFile(tools, p)
 		if err != nil {
 			return err
+		}
+		if rel == handoffTool {
+			b = []byte(managedHandoffLauncher)
 		}
 		mode := fs.FileMode(0644)
 		if strings.HasPrefix(rel, "lead/") && !strings.Contains(filepath.Base(rel), ".") {
@@ -78,17 +86,22 @@ func InstallLeadTools(dataDir, workDir, agentType string, force bool) (result ma
 }
 
 // Internal lifecycle commands must match the running binary, including upgrades with locally
-// customized collaboration tools. Keep a separate managed copy; never overwrite those tools.
+// customized collaboration tools. Keep a separate managed copy to preserve user edits.
 var leadRuntimeMu sync.Mutex
 
 func (e *Engine) leadRuntimeDir() (string, error) {
-	tools := LeadToolFS // read once: role sessions call this while tests swap the embedded tools
-	if tools == nil || e.dataDir == "" {
+	return syncLeadRuntime(e.dataDir, LeadToolFS)
+}
+
+func syncLeadRuntime(dataDir string, tools fs.FS) (string, error) {
+	if tools == nil || dataDir == "" {
 		return "", nil
 	}
 	leadRuntimeMu.Lock()
 	defer leadRuntimeMu.Unlock()
-	root := filepath.Join(e.dataDir, "collaboration", "runtime")
+	collaborationDir := filepath.Join(dataDir, "collaboration")
+	root := filepath.Join(collaborationDir, "runtime")
+	var handoff []byte
 	err := fs.WalkDir(tools, "contrib", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -98,6 +111,9 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 		b, err := fs.ReadFile(tools, p)
 		if err != nil {
 			return err
+		}
+		if rel == handoffTool {
+			handoff = b
 		}
 		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, b) {
 			return nil
@@ -116,6 +132,11 @@ func (e *Engine) leadRuntimeDir() (string, error) {
 	}
 	if runtime.GOOS == "windows" {
 		writeLeadShims(filepath.Join(root, "lead"))
+	}
+	if handoff != nil {
+		if err := migrateInstalledHandoff(collaborationDir, handoff); err != nil {
+			slog.Warn("could not update installed ws-handoff launcher", "error", err)
+		}
 	}
 	return root, nil
 }

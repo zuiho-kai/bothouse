@@ -58,7 +58,8 @@ func checkRoleEnv(t *testing.T, a *sessionEnvRecordingAgent, dataDir, pyBin, ses
 		}
 	}
 	sep := string(filepath.ListSeparator)
-	prefix := strings.Join([]string{pyBin, filepath.Join(dataDir, "collaboration", "lead"), filepath.Dir(exe)}, sep) + sep
+	prefix := strings.Join([]string{pyBin, filepath.Join(dataDir, "collaboration", "lead"),
+		filepath.Join(dataDir, "collaboration", "runtime", "lead"), filepath.Dir(exe)}, sep) + sep
 	if got := a.EnvValue("PATH"); !strings.HasPrefix(got, prefix) {
 		t.Errorf("PATH = %q, want prefix %q", got, prefix)
 	}

@@ -133,6 +133,11 @@ QQ 独立手写记忆可经 [qq-memory-quote](../integrations/qq-memory-quote/RE
 `core.InstallLeadTools` extracts their sibling layout under the configured data directory
 and adds role instructions. The setup wizard calls it for a newly created primary role;
 `setup lead install` remains the explicit CLI entry for existing roles.
+Setup installs a launcher for the current `ws-handoff` runtime script and its
+sibling modules. The bridge also converts known stock copies when it refreshes
+the runtime for an existing role. Edited copies keep precedence. The launcher
+keeps the existing path for local handoff rules and honors
+an explicit `HANDOFF_RULES_LOCAL`.
 The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
 credential filtering. Gate services and platform credentials are configured separately.
 
