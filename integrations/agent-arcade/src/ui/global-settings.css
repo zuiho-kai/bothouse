@@ -1,0 +1,66 @@
+#settings-view .page-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+#settings-view .settings-version { margin-left: auto; }
+.settings-back { display: inline-flex; align-items: center; gap: .4em; }
+.settings-back > span:first-child { font-size: 1.45em; line-height: 1; }
+#settings-view .settings-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(18px, 3vw, 40px);
+  max-width: 1120px;
+}
+.settings-index { min-width: 0; }
+.settings-nav-group { padding-bottom: var(--sp-3); }
+.settings-nav-group + .settings-nav-group, .settings-advanced {
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-3);
+}
+.settings-index h2 {
+  margin: 0 0 var(--sp-1);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.settings-task {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 42px;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: start;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+}
+.settings-task:hover, .settings-advanced > summary:hover { background: var(--surface-2); }
+.settings-task[aria-current] { background: var(--accent-soft); border-inline-start: 3px solid var(--accent); }
+.settings-task-text { display: grid; gap: 2px; min-width: 0; }
+.settings-task-name { font-weight: 550; }
+.settings-task-hint, .settings-task-arrow { color: var(--muted); }
+.settings-task-hint { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.settings-task-hint:empty { display: none; }
+.settings-advanced > summary { padding: 10px var(--sp-3); cursor: pointer; }
+.settings-advanced[open] > summary { margin-bottom: var(--sp-1); }
+#settings-view :is(button, summary, select, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-section > .settings-card + .settings-card { margin-top: var(--sp-4); }
+#settings-view .layout-choice-large .layout-option { padding: var(--sp-3); gap: var(--sp-2); }
+#settings-view .layout-choice-large .layout-option svg { width: 48px; max-width: 48px; height: 32px; padding: 0; }
+#settings-view .layout-option-note { line-height: 1.4; }
+#settings-view .settings-grid[data-index-only=true], #settings-view .settings-grid[data-detail-only=true] { grid-template-columns: minmax(0, 1fr); }
+.settings-grid[data-index-only=true] > .settings-content, .settings-grid[data-detail-only=true] > .settings-index { display: none; }
+.settings-grid[data-index-only=true] .settings-task { min-height: 40px; }
+.settings-grid[data-index-only=true] .settings-nav-group { padding-bottom: var(--sp-2); }
+@media (min-width: 1100px) {
+  body:not(.compact) #shell-bar .shell-tool[data-view=settings] { display: inline-flex; justify-content: center; align-items: center; gap: 5px; width: auto; padding-inline: 10px; }
+  body:not(.compact) #shell-bar .shell-tool[data-view=settings] > span { display: inline; }
+}

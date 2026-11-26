@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f3f8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Agent Arcade 好友</title>
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="manifest" href="./app.webmanifest">
+<link rel="stylesheet" href="./style.css">
+<script defer src="./vendor/bothouse/rh-md.js"></script>
+<script type="module" src="./app.js"></script>
+</head>
+<body>
+<main id="auth" class="auth">
+ <section class="auth-card">
+  <div class="auth-cover">
+   <div class="auth-art" aria-hidden="true"><i></i><i></i><img src="./art/ribbon.png" alt=""></div>
+   <p class="brand">Agent Arcade</p>
+   <p class="auth-product">好友与群聊</p>
+  </div>
+  <div class="auth-panel">
+  <h1 id="auth-title">登录</h1>
+  <p id="auth-loading" role="status">正在加载登录。若一直停在这里，请<a class="privacy-link" href="./">重新加载</a>。</p>
+  <form id="auth-form" method="post">
+   <label>用户号<input name="number" disabled required autocomplete="username" autocapitalize="none" pattern="[A-Za-z0-9_]{4,24}" maxlength="24" aria-describedby="number-hint"><small id="number-hint" hidden>4–24 位字母、数字或下划线，创建后用此号码登录。</small></label>
+   <label id="name-field" hidden>昵称<input name="displayName" disabled maxlength="48" autocomplete="nickname"></label>
+   <label>密码<input name="password" disabled type="password" required minlength="8" maxlength="128" autocomplete="current-password"></label>
+   <p id="password-hint" class="minor" hidden>至少 8 位，建议用密码管理器保存。暂不支持找回密码。</p>
+   <button id="auth-submit" class="primary" type="submit" formmethod="dialog" disabled>登录</button>
+  </form>
+  <p id="auth-error" class="feedback" role="alert"></p>
+  <button id="auth-switch" class="text-button" type="button" disabled>创建账号</button>
+  <nav class="auth-links" aria-label="产品说明"><a class="privacy-link" href="./privacy.html">隐私说明</a>
+  <a class="privacy-link" href="./conduct.html">内容准则</a>
+  <a class="privacy-link" href="./source.html">开源与版本</a></nav>
+  </div>
+ </section>
+</main>
+<main id="workspace" class="workspace" hidden>
+ <aside class="sidebar">
+  <p class="brand rail-brand"><img src="./art/ribbon.png" alt="Agent Arcade"></p>
+  <nav aria-label="主导航">
+   <button type="button" data-tab="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H4l1.4-3A8 8 0 1 1 20 11.5Z"/><path d="M8 11.5h8"/></svg><span>消息</span><small id="message-count" aria-hidden="true" hidden></small></button>
+   <button type="button" data-tab="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="3"/><circle cx="12" cy="9" r="2"/><path d="M8.7 16a3.3 3.3 0 0 1 6.6 0M3.5 8h3m-3 7h3"/></svg><span>通讯录</span><small id="contact-count" hidden></small></button>
+   <button type="button" data-tab="feed" aria-label="好友动态"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c2.9 4 5.2 6.4 5.2 9.1a5.2 5.2 0 0 1-10.4 0c0-2.7 2.3-5.1 5.2-9.1Z"/><path d="M12 17.8v3M3.5 13.5l2 1.5m15-1.5-2 1.5"/></svg><span>动态</span></button>
+   <button type="button" data-tab="profile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.5" r="3.4"/><path d="M4.5 20v-1.2a7.5 7.5 0 0 1 15 0V20"/></svg><span>我</span></button>
+  </nav>
+ </aside>
+ <section class="directory" aria-labelledby="directory-title">
+  <header><h1 id="directory-title">消息</h1><div id="directory-actions" class="actions"></div>
+   <details id="start-chat-menu" class="start-chat-menu" hidden><summary aria-label="新建会话或添加朋友" title="新建会话或添加朋友">＋</summary>
+    <div><button type="button" id="start-new-group">发起群聊</button><button type="button" id="start-add-friend">添加朋友</button></div>
+   </details></header>
+  <div id="directory-body" class="directory-body"></div>
+  <p id="sync-status" class="feedback sync" role="status"></p>
+ </section>
+ <section class="chat" aria-label="会话">
+  <div id="no-chat" class="empty chat-empty"><img src="./art/ribbon.png" alt=""><p>打开一个会话</p></div>
+  <header id="chat-head" hidden>
+   <button id="back" class="outline mobile-only" type="button">返回 <small id="back-message-count" class="row-unread" aria-hidden="true" hidden></small></button>
+   <div id="chat-avatar"></div>
+   <div class="chat-title"><h2 id="chat-title"></h2><p id="chat-detail"></p></div>
+   <button id="members" class="chat-tool" type="button" hidden>群成员</button>
+   <div id="chat-consent-action"></div>
+   <button id="chat-settings-toggle" class="chat-tool" type="button" popovertarget="chat-settings" hidden>会话设置</button>
+  </header>
+  <div id="history" class="history" aria-label="聊天记录" tabindex="-1" hidden></div>
+  <form id="composer" class="composer" hidden>
+   <p id="send-error" class="feedback" role="alert"></p>
+   <div id="reply-target" class="reply-target" hidden>
+    <span></span><button id="cancel-reply" type="button" class="outline">取消引用</button>
+   </div>
+   <div id="mention-target" class="actions" hidden></div>
+   <div id="mention-suggestions" role="listbox" aria-label="点名群成员" hidden></div>
+   <div class="compose-tools">
+   <div id="composer-media" class="composer-media" hidden>
+    <button id="chat-screenshot" type="button" hidden class="outline"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 8V4h5m8 0h5v4m0 8v4h-5m-8 0H3v-4"/><path d="M7 8h10v8H7z"/></svg>截图</button>
+    <button id="attach-file" type="button" hidden class="outline"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7V5h7l2 2h9v12H3z"/></svg>文件</button>
+    <button id="attach-image" type="button" class="outline"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="1.5"/><path d="m4 17 5-5 4 3 3-4 4 5"/></svg>图片</button>
+    <button id="record-voice" type="button" class="outline"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4m-4 0h8"/></svg>录音</button>
+    <button id="mention-member" type="button" class="outline" aria-label="点名群成员" hidden>@</button>
+   </div>
+    <details id="work-menu" hidden><summary aria-label="更多输入操作" title="更多输入操作">＋</summary><button id="compose-task" type="button">交办任务</button></details>
+   </div>
+   <label class="sr-only" for="message">消息内容</label>
+   <textarea id="message" rows="1" maxlength="4000" placeholder="写消息…" aria-controls="mention-suggestions" required></textarea>
+   <button type="submit" class="primary">发送</button>
+  </form>
+ </section>
+ <section id="friend-feed" class="friend-feed" aria-labelledby="feed-title" hidden>
+  <div class="feed-column">
+   <header class="feed-header">
+    <div>
+     <h1 id="feed-title">好友动态</h1>
+     <p class="minor">好友可查看彼此仍保留的历史动态。角色动态仅关注者可见。</p>
+    </div>
+    <button id="compose-post" class="primary" type="button">发动态</button>
+   </header>
+   <div class="feed-toolbar">
+    <div class="actions" role="group" aria-label="动态范围">
+     <button type="button" data-feed-scope="friends" aria-pressed="true">全部动态</button>
+     <button type="button" data-feed-scope="mine" aria-pressed="false">我的动态</button>
+    </div>
+    <div class="actions">
+     <details id="feed-role" hidden>
+      <summary>关注角色</summary>
+      <div id="feed-role-list"></div>
+     </details>
+     <button id="refresh-feed" class="text-button" type="button">刷新</button>
+    </div>
+   </div>
+   <p id="feed-status" class="minor" role="status"></p>
+   <div id="feed-posts"></div>
+   <button id="older-posts" class="outline" type="button" hidden>加载更早动态</button>
+  </div>
+ </section>
+</main>
+<div id="chat-settings" class="action-popover" popover aria-label="会话设置">
+ <button type="button" id="visit-friend-planet" hidden>拜访好友星球</button>
+ <button id="history-search" type="button" hidden>搜索消息</button>
+ <button id="remove-human-friend" type="button" hidden>删除好友</button>
+ <button id="ai-cloud" type="button" hidden>关闭云聊天</button>
+ <button id="personal-ai-direct-profile" type="button" hidden>私聊角色设定</button>
+ <button id="ai-web-search" type="button" hidden>公开网页搜索</button>
+ <button id="ai-voice" type="button" hidden>AI 音色</button>
+ <button id="ai-proactive" type="button" hidden>主动联系</button>
+ <button id="ai-appointments" type="button" hidden>约定提醒</button>
+</div>
+<div id="message-actions" class="action-popover" popover aria-label="消息操作">
+ <div id="message-reaction-choices" class="message-reactions" role="group" aria-label="添加或撤掉表情回应"></div>
+ <button id="reply-message" type="button" hidden>回复</button>
+ <button id="copy-message" type="button">复制文字</button>
+ <button id="save-message-sticker" type="button" hidden>收藏为表情</button>
+ <button id="report-message" type="button">举报消息</button>
+ <p id="message-action-status" role="status"></p>
+</div>
+<dialog id="dialog" aria-labelledby="dialog-title">
+ <header><h2 id="dialog-title"></h2><button id="dialog-close" type="button" class="outline">关闭</button></header>
+ <div id="dialog-body"></div><p id="dialog-error" class="feedback" role="alert"></p>
+</dialog>
+<noscript>请启用 JavaScript 后打开 Agent Arcade 好友。</noscript>
+</body>
+</html>

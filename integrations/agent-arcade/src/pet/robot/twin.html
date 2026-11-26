@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Agent Arcade desk robot preview</title>
+  <link rel="stylesheet" href="twin.css">
+</head>
+<body>
+  <canvas id="stage" role="img" aria-label="Preview of the desk robot"></canvas>
+  <div id="preview-controls">
+    <div id="feedback" role="status"></div>
+    <div id="view-controls" role="group" hidden>
+      <button id="front-view" type="button" aria-pressed="true">Front</button><button id="side-view" type="button" aria-pressed="false">Side</button>
+    </div>
+  </div>
+  <script type="module" src="twin-page.js"></script>
+</body>
+</html>

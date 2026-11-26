@@ -283,3 +283,5 @@ Questions, ideas and the teams you build are all welcome.
 </a>
 
 The administrator [usage page](docs/api/usage.md) includes local member token rankings and per-member daily, role and model breakdowns.
+
+[Agent Arcade Friends](integrations/agent-arcade/README.md) provides a browser client and Windows host for friend messages, groups and Bothouse role conversations.

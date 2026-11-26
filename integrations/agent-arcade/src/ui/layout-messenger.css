@@ -1,0 +1,270 @@
+/* Messenger layout: conversation list | conversation | details, on flat surfaces with hairline
+   dividers. Everything here is scoped to html[data-layout="messenger"]. The bar is attached to
+   the top edge and compact; pages are plain left-aligned columns; nothing is translucent. */
+html[data-layout="messenger"]{--bar-h:44px;--msg-list-w:280px;--msg-details-w:320px;--msg-gutter:16px;--msg-head-h:52px}
+html[data-layout="messenger"] body{background:var(--bg)}
+
+/* ---------- bar: flush, compact, square-ish ---------- */
+html[data-layout="messenger"] .shell-bar{gap:var(--sp-2);padding:0 var(--sp-2) 0 var(--sp-3);background:var(--surface);border-bottom:1px solid var(--line)}
+html[data-layout="messenger"] .shell-brand .brand-mark-image{width:26px;height:26px}
+html[data-layout="messenger"] .shell-ws{padding:2px;border-radius:var(--r-sm);margin-right:var(--sp-2)}
+html[data-layout="messenger"] .shell-ws-button{min-height:26px;padding:2px 12px;border-radius:6px}
+html[data-layout="messenger"] .shell-ws-button[aria-pressed=true]{box-shadow:none;outline:1px solid var(--line-strong);outline-offset:-1px}
+html[data-layout="messenger"] .shell-ws-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Navigation reads as tabs on the bar's bottom edge. */
+html[data-layout="messenger"] .shell-nav{align-self:stretch;align-items:stretch;gap:0}
+html[data-layout="messenger"] .shell-nav .nav{min-height:0;padding:0 12px;border-radius:0;box-shadow:inset 0 -2px 0 transparent;transition:background var(--ease),color var(--ease),box-shadow var(--ease)}
+html[data-layout="messenger"] .shell-nav .nav.active,html[data-layout="messenger"] .shell-nav .nav.active:hover{background:transparent;box-shadow:inset 0 -2px 0 var(--accent)}
+html[data-layout="messenger"] .shell-nav .nav:focus-visible{outline-offset:-2px}
+html[data-layout="messenger"] .shell-tool,html[data-layout="messenger"] .shell-tools .quiet{width:32px;height:32px;border-radius:var(--r-sm)}
+html[data-layout="messenger"] .shell-tool-text{width:auto;min-width:32px}
+html[data-layout="messenger"] .shell-observer{border-radius:var(--r-sm)}
+html[data-layout="messenger"] .shell-pop-panel{top:calc(100% + 6px);border-radius:var(--r-sm)}
+html[data-layout="messenger"] .layout-option{border-radius:6px}
+
+/* ---------- pages: a left-aligned column of bordered panels ---------- */
+html[data-layout="messenger"] .view:not(#bot-view),html[data-layout="messenger"] .view:not(#bot-view,#qq-runtime-view),html[data-layout="messenger"] .relationship-view{max-width:1040px;margin:0;padding:var(--sp-6) var(--sp-8) var(--sp-12)}
+html[data-layout="messenger"] :is(.settings-card,.work-section,.task-card,.relationship-body,.desktop-connection-entry,.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra,.qq-runtime-panel,.qq-runtime-card,.qq-overview-card,.companion-manage-row,.characters-card){border-radius:var(--r-md);box-shadow:none}
+html[data-layout="messenger"] .characters-card:hover{transform:none}
+html[data-layout="messenger"] .shell-subnav{max-width:1040px;margin:0;padding:var(--sp-4) var(--sp-8) 0;gap:var(--sp-1)}
+html[data-layout="messenger"] .shell-subnav:not([hidden])~.view{padding-top:var(--sp-4)}
+html[data-layout="messenger"] :is(.shell-subnav-button,.filter,.relationship-tabs button,.accent-auto){border-radius:var(--r-sm)}
+html[data-layout="messenger"] :is(.page-heading,.relationship-heading){margin-bottom:var(--sp-5)}
+html[data-layout="messenger"] .layout-choice-large .layout-option{border-radius:var(--r-md)}
+html[data-layout="messenger"] .relationship-heading>img{border-radius:var(--r-md)}
+html[data-layout="messenger"] :is(#st-settings-card,#groups-section,.characters-section-title,.characters-detail){scroll-margin-top:calc(var(--bar-h) + var(--sp-4))}
+html[data-layout="messenger"] body:not([data-view=bot]) .companion-switcher{display:none}
+
+/* ---------- chat: three columns ---------- */
+html[data-layout="messenger"] #bot-view,html[data-layout="messenger"] .compact #bot-view{position:relative;display:grid;grid-template-columns:var(--msg-list-w) minmax(0,1fr);grid-template-rows:auto auto auto auto minmax(0,1fr);height:calc(100vh - var(--bar-h));min-height:0;max-width:none;margin:0;padding:0;background:var(--surface);border:0;border-radius:0;overflow:hidden}
+html[data-layout="messenger"] #bot-view[data-msg-details=open]:not(:has(.bot-setup[open])){grid-template-columns:var(--msg-list-w) minmax(0,1fr) var(--msg-details-w)}
+html[data-layout="messenger"] #bot-view>*{grid-column:2;min-width:0}
+html[data-layout="messenger"] #bot-view>.chat-heading{grid-row:1}
+html[data-layout="messenger"] #bot-view>#bot-problem{grid-row:2;margin:var(--sp-2) var(--msg-gutter) 0}
+html[data-layout="messenger"] #bot-view>#bot-problem-qq-runtime{grid-row:3;justify-self:start;margin:var(--sp-1) var(--msg-gutter) 0}
+html[data-layout="messenger"] #bot-view>#bot-saved-connection-host{grid-row:4;margin:var(--sp-2) var(--msg-gutter) 0}
+html[data-layout="messenger"] #bot-view>#bot-saved-connection-host:empty{margin:0}
+html[data-layout="messenger"] #bot-view>.bot-layout{grid-row:5;min-height:0;overflow:hidden}
+html[data-layout="messenger"] #bot-view>.msg-list{grid-column:1;grid-row:1/-1}
+html[data-layout="messenger"] #bot-view>.msg-details{grid-column:3;grid-row:1/-1}
+html[data-layout="messenger"] #bot-view>.msg-scrim{display:none;grid-column:1/-1;grid-row:1/-1;position:absolute;inset:0;z-index:15;background:var(--veil)}
+
+/* ---------- left: conversation list ---------- */
+html[data-layout="messenger"] .msg-list{display:flex;flex-direction:column;min-height:0;background:var(--bg);border-right:1px solid var(--line)}
+html[data-layout="messenger"] .msg-list-head{display:flex;align-items:center;flex:none;box-sizing:border-box;min-height:var(--msg-head-h);padding:0 var(--sp-3);border-bottom:1px solid var(--line)}
+html[data-layout="messenger"] .msg-filter{box-sizing:border-box;width:100%;height:32px;margin:0;padding:0 var(--sp-3);border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-sm);line-height:1.5}
+html[data-layout="messenger"] .msg-filter:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+html[data-layout="messenger"] .msg-list-scroll{flex:1 1 0;min-height:0;overflow-y:auto;padding:0 0 var(--sp-3)}
+html[data-layout="messenger"] .msg-section-title{margin:var(--sp-4) var(--sp-4) var(--sp-1);font-size:var(--fs-xs);line-height:1.5;font-weight:600;color:var(--muted)}
+html[data-layout="messenger"] .msg-rows{list-style:none;margin:0;padding:0 var(--sp-2);display:grid;gap:1px}
+html[data-layout="messenger"] .msg-row{position:relative;display:flex;align-items:center;gap:var(--sp-3);box-sizing:border-box;width:100%;min-height:52px;padding:6px var(--sp-2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;text-align:left;transition:background var(--ease)}
+html[data-layout="messenger"] .msg-row:hover{background:var(--surface-2)}
+html[data-layout="messenger"] .msg-row[aria-current]{background:var(--accent-soft)}
+html[data-layout="messenger"] .msg-row[aria-current]::before{content:"";position:absolute;left:calc(var(--sp-2)*-1);top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+html[data-layout="messenger"] .msg-row[aria-disabled=true]{cursor:default}
+html[data-layout="messenger"] .msg-row[aria-disabled=true]:hover{background:transparent}
+html[data-layout="messenger"] .msg-row[aria-disabled=true] .msg-avatar{opacity:.5}
+html[data-layout="messenger"] .msg-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+html[data-layout="messenger"] .msg-row-text{display:grid;flex:1 1 0;min-width:0}
+html[data-layout="messenger"] .msg-row-name{font-size:var(--fs-sm);line-height:1.45;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-layout="messenger"] .msg-row-sub{font-size:var(--fs-xs);line-height:1.45;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-layout="messenger"] .msg-avatar{position:relative;flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;overflow:hidden;background:var(--surface-2)}
+html[data-layout="messenger"] :is(.msg-avatar,.msg-avatar-face) img{display:block;width:100%;height:100%;object-fit:cover;object-position:center top}
+html[data-layout="messenger"] .msg-avatar-contain img{object-fit:contain;object-position:center;padding:2px;box-sizing:border-box}
+html[data-layout="messenger"] .msg-avatar-initial{background:oklch(50% .11 var(--av-h,0));color:#fff;font-size:var(--fs-md);line-height:1;font-weight:600}
+html[data-layout="messenger"] .msg-avatar-duo{overflow:visible;border-radius:0;background:transparent}
+html[data-layout="messenger"] .msg-avatar-face{position:absolute;display:grid;place-items:center;box-sizing:border-box;width:26px;height:26px;border-radius:50%;overflow:hidden;border:2px solid var(--bg);font-size:var(--fs-xs)}
+html[data-layout="messenger"] .msg-avatar-face:not(.msg-avatar-initial){background:var(--surface-2)}
+html[data-layout="messenger"] .msg-avatar-face:first-child{left:0;top:0}
+html[data-layout="messenger"] .msg-avatar-face:last-child{right:0;bottom:0}
+html[data-layout="messenger"] .msg-row[aria-current] .msg-avatar-face{border-color:var(--accent-soft)}
+html[data-layout="messenger"] :is(.msg-section-note,.msg-list-empty){margin:var(--sp-1) var(--sp-4) 0;font-size:var(--fs-xs);line-height:1.6;color:var(--muted)}
+html[data-layout="messenger"] .msg-list-empty{margin-top:var(--sp-4)}
+html[data-layout="messenger"] .msg-status{flex:none;margin:0;padding:var(--sp-2) var(--sp-4);border-top:1px solid var(--line);font-size:var(--fs-xs);line-height:1.6;color:var(--muted);overflow-wrap:anywhere}
+html[data-layout="messenger"] .msg-status[data-error=true]{color:var(--error,var(--text))}
+html[data-layout="messenger"] .msg-list-foot{flex:none;padding:var(--sp-2);border-top:1px solid var(--line)}
+html[data-layout="messenger"] .msg-foot-row{display:flex;flex-wrap:wrap;gap:2px}
+html[data-layout="messenger"] .msg-foot-button{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-height:32px;padding:4px var(--sp-2);border-radius:var(--r-sm);background:transparent;color:var(--accent-ink);font:inherit;font-size:var(--fs-sm);line-height:1.5;white-space:nowrap;text-align:left}
+html[data-layout="messenger"] .msg-foot-button:hover{background:var(--surface-2)}
+html[data-layout="messenger"] .msg-foot-button svg{flex:none}
+/* The profile switcher (one row per companion profile) lives at the foot of the list. */
+html[data-layout="messenger"] .msg-profiles:empty,html[data-layout="messenger"] .msg-profiles:has(>.companion-switcher[hidden]){display:none}
+html[data-layout="messenger"] .msg-profiles .companion-switcher{display:flex;flex-direction:column;align-items:stretch;gap:2px;height:auto;min-height:0;margin:var(--sp-2) 0 0;padding:var(--sp-2) 0 0;border:0;border-top:1px solid var(--line);background:transparent}
+html[data-layout="messenger"] .msg-profiles .companion-tabs{flex:none;flex-direction:column;align-items:stretch;gap:1px;max-height:132px;overflow:auto}
+html[data-layout="messenger"] .msg-profiles .companion-tab{min-height:40px;padding:3px var(--sp-2);gap:var(--sp-2);border-radius:var(--r-sm)}
+html[data-layout="messenger"] .msg-profiles .companion-tab img{width:28px;height:28px}
+html[data-layout="messenger"] .msg-profiles .companion-tab small{margin-top:0}
+html[data-layout="messenger"] .msg-profiles .companion-switcher>.plain{align-self:flex-start;min-height:28px;padding:2px var(--sp-2);font-size:var(--fs-xs);color:var(--accent-ink);text-align:left}
+
+/* ---------- centre: header ---------- */
+html[data-layout="messenger"] #bot-view>.chat-heading,html[data-layout="messenger"] .view .page-heading.chat-heading{box-sizing:border-box;min-height:var(--msg-head-h);margin:0;padding:6px var(--sp-3) 6px var(--msg-gutter);gap:var(--sp-3);align-items:center;flex-wrap:nowrap;border-bottom:1px solid var(--line);background:var(--surface)}
+html[data-layout="messenger"] .chat-identity{gap:var(--sp-3);min-width:0;flex:1 1 0;align-items:center}
+html[data-layout="messenger"] .chat-identity>div:last-child{min-width:0}
+html[data-layout="messenger"] .chat-identity h1,html[data-layout="messenger"] .compact .chat-identity h1{margin:0;font-size:var(--fs-md);line-height:1.4;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-layout="messenger"] .chat-identity p,html[data-layout="messenger"] .compact .chat-identity p{margin:0;font-size:var(--fs-xs);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-layout="messenger"] #bot-mascot,html[data-layout="messenger"] body[data-portrait=anime] #bot-mascot{width:36px;height:36px;flex:none}
+html[data-layout="messenger"] .desktop-group-face{width:28px;height:28px}
+html[data-layout="messenger"] .bot-heading-actions,html[data-layout="messenger"] .compact .bot-heading-actions{flex:none;width:auto;gap:var(--sp-1);flex-wrap:nowrap;align-items:center}
+html[data-layout="messenger"] .bot-heading-actions .secondary{min-height:30px;padding:3px 12px;border-radius:var(--r-sm)}
+html[data-layout="messenger"] .bot-heading-actions .state-pill{border-radius:var(--r-sm);white-space:nowrap}
+html[data-layout="messenger"] .inspector-toggle span{display:none}
+html[data-layout="messenger"] .bot-heading-actions .inspector-toggle{width:32px;height:32px;min-height:0;padding:0;justify-content:center;border-color:transparent;background:transparent;color:var(--muted)}
+html[data-layout="messenger"] .bot-heading-actions .inspector-toggle:hover{background:var(--surface-2);color:var(--text)}
+html[data-layout="messenger"] .bot-heading-actions .inspector-toggle[aria-expanded=true]{background:var(--accent-soft);color:var(--accent-ink)}
+html[data-layout="messenger"] .inspector-toggle svg{width:18px;height:18px}
+html[data-layout="messenger"] .msg-toggle{display:grid;place-items:center;flex:none;width:32px;height:32px;padding:0;border-radius:var(--r-sm);background:transparent;color:var(--muted);transition:background var(--ease),color var(--ease)}
+html[data-layout="messenger"] .msg-toggle:hover{background:var(--surface-2);color:var(--text)}
+html[data-layout="messenger"] .msg-toggle[aria-expanded=true]{background:var(--accent-soft);color:var(--accent-ink)}
+html[data-layout="messenger"] .msg-list-toggle{display:none}
+
+/* ---------- centre: thread ---------- */
+html[data-layout="messenger"] .bot-inbox,html[data-layout="messenger"] .compact .bot-inbox{padding:0 var(--msg-gutter);background:var(--surface);overflow:hidden}
+html[data-layout="messenger"] .bot-thread-scroll{flex:1 1 120px;min-height:120px;padding:var(--sp-2) var(--sp-1) var(--sp-8) 0}
+html[data-layout="messenger"] #bot-messages,html[data-layout="messenger"] #bot-task-state,html[data-layout="messenger"] .local-history-control{max-width:880px}
+html[data-layout="messenger"] .bot-message{margin-top:var(--sp-3);margin-bottom:0;font-size:var(--fs-md);line-height:1.65}
+html[data-layout="messenger"] .bot-message[data-msg-cont]{margin-top:2px}
+html[data-layout="messenger"] .bot-message.from-user,html[data-layout="messenger"] .bot-message[data-role=user]{max-width:88%;margin-bottom:0}
+html[data-layout="messenger"] .bot-message pre,html[data-layout="messenger"] .message-body{font-size:var(--fs-md);line-height:1.65}
+/* One avatar per run of messages, in a gutter of its own. */
+html[data-layout="messenger"] .bot-message.from-agent:has(>.message-meta>.message-avatar){padding-left:46px}
+html[data-layout="messenger"] .bot-message.from-agent:has(.message-avatar)>:is(.message-body,.message-actions,.message-delivery-error,.desktop-message-edit,.desktop-branch-new,p.desktop-stream-marker),html[data-layout="messenger"] .compact .bot-message.from-agent:has(.message-avatar)>:is(.message-body,.message-actions,.message-delivery-error,.desktop-message-edit,.desktop-branch-new,p.desktop-stream-marker){margin-left:0}
+html[data-layout="messenger"] .bot-message>.message-meta{margin:0 0 2px;gap:var(--sp-2);min-height:20px;line-height:1.4}
+html[data-layout="messenger"] .bot-message.from-agent>.message-meta>.message-avatar{position:absolute;left:0;top:1px;width:36px;height:36px;border-radius:50%}
+html[data-layout="messenger"] .bot-message.from-user>.message-meta{justify-content:flex-end;min-height:0}
+html[data-layout="messenger"] .bot-message.from-user>.message-meta>.message-author,html[data-layout="messenger"] .bot-message[data-msg-cont]>.message-meta{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+/* A continued line still shows what only its own meta can say (edited, typing). */
+html[data-layout="messenger"] .bot-message[data-msg-cont]>.message-meta:has(.message-edited,.desktop-stream-marker){position:static;width:auto;height:auto;margin:0 0 2px;overflow:visible;clip:auto;min-height:0}
+html[data-layout="messenger"] .bot-message[data-msg-cont]>.message-meta:has(.message-edited,.desktop-stream-marker)>:is(.message-avatar,.message-author,time,.message-local){display:none}
+html[data-layout="messenger"] .bot-message.from-agent>.message-body{padding:7px 12px;max-width:min(62ch,100%);border-radius:4px 14px 14px 14px;background:var(--surface-2)}
+html[data-layout="messenger"] .bot-message.from-agent:has(+.bot-message.from-agent[data-msg-cont])>.message-body{border-bottom-left-radius:4px}
+html[data-layout="messenger"] .bot-message.from-user>.message-body{padding:7px 12px;max-width:min(62ch,100%);border-radius:14px 4px 14px 14px}
+html[data-layout="messenger"] .bot-message.from-user[data-msg-cont]>.message-body{border-top-right-radius:14px}
+html[data-layout="messenger"] .bot-message.from-user:has(+.bot-message.from-user[data-msg-cont])>.message-body{border-bottom-right-radius:4px}
+/* Message tools float under the hovered or focused message; the latest reply keeps its swipe row in the flow. */
+html[data-layout="messenger"] .bot-message>.message-actions{position:absolute;z-index:4;top:calc(100% - 3px);left:46px;right:auto;width:max-content;max-width:calc(100% - 46px);margin:0;padding:2px;gap:2px;flex-wrap:wrap;white-space:normal;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-sm);box-shadow:var(--elev-1);opacity:0;pointer-events:none;transition:opacity var(--ease)}
+html[data-layout="messenger"] .bot-message.from-agent:not(:has(.message-avatar))>.message-actions{left:0;max-width:100%}
+html[data-layout="messenger"] .bot-message.from-user>.message-actions{left:auto;right:0;max-width:100%}
+html[data-layout="messenger"] .bot-message:is(:hover,:focus-within)>.message-actions{opacity:1;pointer-events:auto}
+html[data-layout="messenger"] .bot-message>.message-actions:not(:has(.desktop-message-swipes)) .desktop-message-tools{opacity:1;gap:2px}
+html[data-layout="messenger"] .bot-message>.message-actions:has(.desktop-message-swipes){position:static;width:auto;max-width:100%;margin:4px 0 0;padding:0;gap:var(--sp-1);background:transparent;border:0;box-shadow:none;opacity:1;pointer-events:auto}
+html[data-layout="messenger"] .message-copy{min-height:26px;padding:3px 8px;border-radius:6px}
+html[data-layout="messenger"] .chat-empty h2{font-size:var(--fs-lg)}
+html[data-layout="messenger"] .latest-message{border-radius:var(--r-sm)}
+/* Strips above and below the thread run edge to edge. */
+html[data-layout="messenger"] .desktop-conversation-choice{display:flex;align-items:center;flex-wrap:wrap;gap:2px var(--sp-3);margin:0 calc(var(--msg-gutter)*-1);padding:6px var(--msg-gutter);border-bottom:1px solid var(--line);background:var(--surface)}
+html[data-layout="messenger"] .desktop-conversation-row{flex:1 1 auto;gap:var(--sp-2)}
+html[data-layout="messenger"] .desktop-conversation-options{padding:2px;border-radius:var(--r-sm)}
+html[data-layout="messenger"] .desktop-conversation-options button,html[data-layout="messenger"] .desktop-conversation-choice .desktop-conversation-options button{min-height:26px;padding:2px 12px;border-radius:6px}
+html[data-layout="messenger"] .desktop-conversation-options button[aria-pressed=true]{box-shadow:none;outline:1px solid var(--line-strong);outline-offset:-1px}
+html[data-layout="messenger"] .desktop-conversation-options button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+html[data-layout="messenger"] .desktop-conversation-choice button{min-height:28px}
+html[data-layout="messenger"] .desktop-conversation-note{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+html[data-layout="messenger"] .desktop-conversation-status{flex:1 1 100%;margin:0;font-size:var(--fs-xs);line-height:1.6}
+html[data-layout="messenger"] .desktop-branch-bar{margin:0 calc(var(--msg-gutter)*-1);padding:2px var(--msg-gutter);min-height:32px;border-bottom:1px solid var(--line)}
+html[data-layout="messenger"] .desktop-branch-bar button{min-height:26px}
+html[data-layout="messenger"] .desktop-branch-panel{left:var(--msg-gutter);width:min(480px,calc(100% - var(--msg-gutter)*2));border-radius:var(--r-sm)}
+html[data-layout="messenger"] .desktop-group-speak{margin:0 calc(var(--msg-gutter)*-1);padding:6px var(--msg-gutter);border-top:1px solid var(--line)}
+html[data-layout="messenger"] .desktop-group-speak .desktop-group-speak-button{min-height:28px;border-radius:var(--r-sm)}
+/* Composer: docked to the bottom edge of the column. */
+html[data-layout="messenger"] .desktop-chat,html[data-layout="messenger"] .desktop-group-speak+.desktop-chat{margin:0 calc(var(--msg-gutter)*-1);padding:var(--sp-2) var(--msg-gutter);border:0;border-top:1px solid var(--line);border-radius:0;background:var(--surface);box-shadow:none}
+html[data-layout="messenger"] .desktop-chat:focus-within{border-color:var(--accent);box-shadow:inset 0 1px 0 var(--accent)}
+html[data-layout="messenger"] .desktop-chat textarea{min-height:44px;padding:var(--sp-1) 0;line-height:1.6}
+html[data-layout="messenger"] .desktop-chat-image-tools{padding:0}
+html[data-layout="messenger"] .desktop-chat .desktop-chat-image-choose{padding:2px 0;min-height:24px}
+html[data-layout="messenger"] .desktop-chat button.primary,html[data-layout="messenger"] .desktop-chat button.secondary{min-height:30px;padding:3px 16px;border-radius:var(--r-sm)}
+html[data-layout="messenger"] .bot-input-note,html[data-layout="messenger"] .bot-preview{margin:0;padding:2px 0 6px;text-align:left}
+html[data-layout="messenger"] .bot-inbox:has(>.desktop-chat)>.latest-message{margin-bottom:var(--sp-1)}
+/* Connection settings share the right edge with the details panel (one at a time). */
+html[data-layout="messenger"] .bot-layout:has(.bot-setup[open]){grid-template-columns:minmax(0,1fr) min(344px,50%)}
+html[data-layout="messenger"] .bot-setup{background:var(--bg);border-left:1px solid var(--line)}
+html[data-layout="messenger"] .bot-setup>summary{min-height:var(--msg-head-h);box-sizing:border-box;padding:var(--sp-2) 52px var(--sp-2) var(--sp-4)}
+html[data-layout="messenger"] .bot-setup-content{padding:var(--sp-4)}
+
+/* ---------- right: details ---------- */
+html[data-layout="messenger"] .msg-details{display:flex;flex-direction:column;min-height:0;background:var(--bg);border-left:1px solid var(--line)}
+html[data-layout="messenger"] .msg-details[hidden],html[data-layout="messenger"] #bot-view:has(.bot-setup[open])>.msg-details{display:none}
+html[data-layout="messenger"] .msg-details-head{display:flex;align-items:center;justify-content:space-between;flex:none;box-sizing:border-box;min-height:var(--msg-head-h);padding:0 var(--sp-2) 0 var(--sp-4);border-bottom:1px solid var(--line)}
+html[data-layout="messenger"] .msg-details-title{margin:0;font-size:var(--fs-sm);line-height:1.5;font-weight:600}
+html[data-layout="messenger"] .msg-details-body{flex:1 1 0;min-height:0;overflow-y:auto;padding:var(--sp-4)}
+html[data-layout="messenger"] .msg-figure{display:grid;place-items:center;box-sizing:border-box;width:100%;height:min(300px,38vh);margin:0 0 var(--sp-3);overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+html[data-layout="messenger"] .msg-figure[data-kind=persona]{height:min(220px,30vh)}
+html[data-layout="messenger"] .msg-figure:has(>.msg-figure-initial){height:120px}
+html[data-layout="messenger"] .msg-figure img{display:block;width:100%;height:100%;object-fit:cover;object-position:center top}
+html[data-layout="messenger"] .msg-figure[data-kind=persona] img{object-fit:contain;object-position:center bottom}
+html[data-layout="messenger"] .msg-figure-initial{display:grid;place-items:center;width:100%;height:100%;background:oklch(50% .11 var(--av-h,0));color:#fff;font-size:64px;line-height:1;font-weight:650}
+html[data-layout="messenger"] .msg-details-name{margin:0;font-size:var(--fs-lg);line-height:1.4;font-weight:600;overflow-wrap:anywhere}
+html[data-layout="messenger"] .msg-details-kicker{margin:2px 0 0;font-size:var(--fs-xs);line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+html[data-layout="messenger"] .msg-details-desc{margin:var(--sp-3) 0 0;font-size:var(--fs-sm);line-height:1.7;color:var(--text);overflow-wrap:anywhere;white-space:pre-line}
+html[data-layout="messenger"] .msg-facts{margin:var(--sp-4) 0 0;padding:0;border-top:1px solid var(--line)}
+html[data-layout="messenger"] .msg-facts-card{margin-top:0;border-top:0}
+html[data-layout="messenger"] .msg-facts:empty{display:none}
+html[data-layout="messenger"] .msg-fact{display:flex;justify-content:space-between;gap:var(--sp-4);padding:var(--sp-2) 0;border-bottom:1px solid var(--line);font-size:var(--fs-sm);line-height:1.55}
+html[data-layout="messenger"] .msg-fact dt{flex:none;color:var(--muted)}
+html[data-layout="messenger"] .msg-fact dd{margin:0;min-width:0;text-align:right;overflow-wrap:anywhere}
+html[data-layout="messenger"] .msg-details-sub{margin:var(--sp-5) 0 var(--sp-1);font-size:var(--fs-xs);line-height:1.5;font-weight:600;color:var(--muted)}
+html[data-layout="messenger"] .msg-shortcuts{display:grid;gap:1px;margin:0 calc(var(--sp-2)*-1)}
+html[data-layout="messenger"] .msg-shortcut{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);min-height:36px;padding:6px var(--sp-2);border-radius:var(--r-sm);background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);line-height:1.5;text-align:left}
+html[data-layout="messenger"] .msg-shortcut:hover{background:var(--surface-2)}
+html[data-layout="messenger"] .msg-shortcut svg{flex:none;color:var(--muted)}
+html[data-layout="messenger"] .msg-members{list-style:none;margin:var(--sp-3) 0 0;padding:0;display:grid;gap:2px}
+html[data-layout="messenger"] .msg-member{display:flex;align-items:center;gap:var(--sp-3);min-height:46px}
+
+/* ---------- narrower windows ---------- */
+@media(max-width:1199px){
+  /* Details open over the conversation instead of taking a column. */
+  html[data-layout="messenger"] #bot-view[data-msg-details=open]:not(:has(.bot-setup[open])){grid-template-columns:var(--msg-list-w) minmax(0,1fr)}
+  html[data-layout="messenger"] #bot-view>.msg-details{grid-column:2;position:absolute;inset:0 0 0 auto;z-index:20;width:min(var(--msg-details-w),calc(100% - 48px));box-shadow:var(--elev-2)}
+  html[data-layout="messenger"] #bot-view[data-msg-details=open]:not(:has(.bot-setup[open]))>.msg-scrim{display:block}
+}
+@media(max-width:1099px){
+  html[data-layout="messenger"]{--msg-list-w:248px}
+  /* Connection settings take the conversation's place until they are closed. */
+  html[data-layout="messenger"] .bot-layout:has(.bot-setup[open]){display:grid;grid-template-columns:minmax(0,1fr);overflow:hidden}
+  html[data-layout="messenger"] .bot-layout:has(.bot-setup[open]) .bot-inbox{display:none}
+  html[data-layout="messenger"] .bot-setup{border-left:0;border-top:0;overflow-y:auto}
+  html[data-layout="messenger"] .view:not(#bot-view),html[data-layout="messenger"] .view:not(#bot-view,#qq-runtime-view),html[data-layout="messenger"] .relationship-view{padding:var(--sp-5) var(--sp-5) var(--sp-10)}
+  html[data-layout="messenger"] .shell-subnav{padding:var(--sp-3) var(--sp-5) 0}
+}
+@media(max-width:719px){
+  /* One column; the list is a drawer behind the header toggle. */
+  html[data-layout="messenger"] #bot-view,html[data-layout="messenger"] #bot-view[data-msg-details=open]:not(:has(.bot-setup[open])){grid-template-columns:minmax(0,1fr)}
+  html[data-layout="messenger"] #bot-view>*{grid-column:1}
+  html[data-layout="messenger"] #bot-view>.msg-list{display:none;grid-column:1;position:absolute;inset:0 auto 0 0;z-index:20;width:min(300px,calc(100% - 48px));box-shadow:var(--elev-2)}
+  html[data-layout="messenger"] #bot-view[data-msg-list=open]>.msg-list{display:flex}
+  html[data-layout="messenger"] #bot-view[data-msg-list=open]>.msg-scrim{display:block}
+  html[data-layout="messenger"] #bot-view>.msg-details{grid-column:1}
+  html[data-layout="messenger"] .msg-list-toggle{display:grid}
+  html[data-layout="messenger"] #bot-view>.chat-heading{flex-wrap:wrap;padding:6px var(--sp-2)}
+  html[data-layout="messenger"] .bot-heading-actions{margin-left:auto}
+  html[data-layout="messenger"]{--msg-gutter:12px}
+}
+html[data-layout="messenger"]:has(body.compact){--msg-gutter:12px}
+html[data-layout="messenger"] .compact #bot-view,html[data-layout="messenger"] .compact #bot-view[data-msg-details=open]:not(:has(.bot-setup[open])){grid-template-columns:minmax(0,1fr)}
+html[data-layout="messenger"] .compact #bot-view>*{grid-column:1}
+html[data-layout="messenger"] .compact #bot-view>.msg-list{display:none;grid-column:1;position:absolute;inset:0 auto 0 0;z-index:20;width:min(300px,calc(100% - 48px));box-shadow:var(--elev-2)}
+html[data-layout="messenger"] .compact #bot-view[data-msg-list=open]>.msg-list{display:flex}
+html[data-layout="messenger"] .compact #bot-view[data-msg-list=open]>.msg-scrim{display:block}
+html[data-layout="messenger"] .compact #bot-view>.msg-details{grid-column:1;position:absolute;inset:0 0 0 auto;z-index:20;width:min(var(--msg-details-w),calc(100% - 48px));box-shadow:var(--elev-2)}
+html[data-layout="messenger"] .compact #bot-view[data-msg-details=open]:not(:has(.bot-setup[open]))>.msg-scrim{display:block}
+html[data-layout="messenger"] .compact .msg-list-toggle{display:grid}
+html[data-layout="messenger"] .compact #bot-view>.chat-heading{flex-wrap:wrap;padding:6px var(--sp-2)}
+html[data-layout="messenger"] .compact .bot-heading-actions{margin-left:auto}
+html[data-layout="messenger"] .compact .bot-layout:has(.bot-setup[open]){display:grid;grid-template-columns:minmax(0,1fr);overflow:hidden}
+html[data-layout="messenger"] .compact .bot-layout:has(.bot-setup[open]) .bot-inbox{display:none}
+html[data-layout="messenger"] .compact .bot-setup{border-left:0;border-top:0;overflow-y:auto}
+html[data-layout="messenger"] .compact .view:not(#bot-view),html[data-layout="messenger"] .compact .view:not(#bot-view,#qq-runtime-view),html[data-layout="messenger"] .compact .relationship-view{padding:var(--sp-4) var(--sp-4) var(--sp-8)}
+html[data-layout="messenger"] .compact .shell-subnav{padding:var(--sp-3) var(--sp-4) 0}
+html[data-layout="messenger"] .compact .shell-bar{padding:0 var(--sp-2)}
+html[data-layout="messenger"] .compact .shell-ws{margin-right:0}
+
+@media(hover:none){
+  html[data-layout="messenger"] .bot-message>.message-actions{position:static;width:auto;max-width:100%;margin:4px 0 0;padding:0;background:transparent;border:0;box-shadow:none;opacity:1;pointer-events:auto}
+}
+@media(prefers-reduced-motion:reduce){html[data-layout="messenger"] :is(.msg-row,.msg-toggle,.shell-nav .nav,.bot-message>.message-actions){transition:none}}
+@media(forced-colors:active){
+  html[data-layout="messenger"] .msg-row[aria-current],html[data-layout="messenger"] .shell-nav .nav.active{outline:2px solid Highlight;outline-offset:-2px}
+  html[data-layout="messenger"] .msg-avatar-initial,html[data-layout="messenger"] .msg-figure-initial{border:1px solid CanvasText}
+}
+/* Notes and Tasks: the board may use the full width beside nothing else */
+html[data-layout="messenger"] #tasks-view.view:not(#bot-view,#qq-runtime-view){max-width:1280px}
+html[data-layout="messenger"] :is(.kn-topic,.tb-column){border-radius:var(--r-sm)}

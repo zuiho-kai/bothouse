@@ -1,0 +1,79 @@
+package core
+
+import (
+ "context"
+ "strings"
+ "fmt"
+ "net/http"
+ "net/http/httptest"
+ "net/url"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+)
+
+type namedAgent struct{ stubAgent; project string }
+type namedSession struct{ stubAgentSession; result chan Event; project string }
+func (a *namedAgent) StartSession(context.Context,string)(AgentSession,error){return &namedSession{result:make(chan Event,2),project:a.project},nil}
+func (s *namedSession) Events() <-chan Event{return s.result}
+func (s *namedSession) Send(text, _ string, _ []ImageAttachment, _ []FileAttachment)error{
+ label:="other"; for _,candidate:=range []string{"你好","同名甲","同名乙","hold"}{if strings.Contains(text,candidate){label=candidate}}
+ go func(){if label=="hold"{time.Sleep(2*time.Second)};s.result<-Event{Type:EventResult,Content:s.project+" "+label,Done:true}}()
+ return nil
+}
+func TestArcadeScopedDirectory(t *testing.T) {
+ d := os.Getenv("ARCADE_TEST_DIR")
+ if d == "" { t.Skip() }
+ t.Setenv("DSH_HOME",d)
+ t.Setenv("HOME",d)
+ t.Setenv("USERPROFILE",d)
+ _,err:=LoadOrCreateIdentityKey(d); if err!=nil{t.Fatal(err)}
+ bs, wsURL:=startTestBridge(t,"test-bridge-only")
+ m:=NewManagementServer(0,"test-directory-only",nil)
+ for i,name:=range []string{"tide-east","tide-west","private-north","owner-lamp","owner-bell","unselected"}{
+  bp:=bs.NewPlatform(name)
+  e:=NewEngine(name,&namedAgent{project:name},[]Platform{bp},"",LangEnglish)
+  e.SetTeam("","岸灯",false);e.SetReplyFooterEnabled(false)
+  if i<3 {
+    id:="upstream-user-12"
+    if i==2 {id="upstream-other-34"}
+    roles:=NewUserRoleManager()
+    roles.Configure("",[]RoleInput{{Name:"member",UserIDs:[]string{id}}})
+    e.SetUserRoles(roles)
+  }
+  bs.RegisterEngine(name,e,bp);m.RegisterEngine(name,e)
+  previous:=bp.handler
+  bp.handler=func(p Platform,message *Message) {
+   os.WriteFile(filepath.Join(d,"seen-"+name),[]byte(message.UserID),0600)
+   previous(p,message)
+  }
+
+ }
+ mux:=http.NewServeMux()
+ mux.HandleFunc("/api/v1/roles",m.wrap(m.handleRoles))
+ mux.HandleFunc("/api/v1/projects/",m.wrap(m.handleProjectRoutes))
+ srv:=httptest.NewServer(mux);defer srv.Close()
+ b,_:=url.Parse(wsURL); g,_:=url.Parse(srv.URL)
+ content:=fmt.Sprintf("data_dir = %q\n[management]\nenabled=true\nport=%s\ntoken='test-directory-only'\n[bridge]\nenabled=true\nport=%s\ntoken='test-bridge-only'\n",filepath.ToSlash(d),g.Port(),b.Port())
+ os.WriteFile(filepath.Join(d,"config.toml"),[]byte(content),0600)
+ for deadline:=time.Now().Add(4*time.Minute);time.Now().Before(deadline);{
+  if _,err:=os.Stat(filepath.Join(d,"restrict"));err==nil{
+   roles:=NewUserRoleManager()
+   roles.Configure("",[]RoleInput{{Name:"member",UserIDs:[]string{"upstream-other-34"}}})
+   m.engines["tide-east"].SetUserRoles(roles)
+   m.engines["owner-bell"].SetUserRoles(roles)
+   os.Remove(filepath.Join(d,"restrict"))
+   os.WriteFile(filepath.Join(d,"restricted"),nil,0600)
+  }
+  if _,err:=os.Stat(filepath.Join(d,"empty-request"));err==nil{
+   m.mu.Lock();m.engines=map[string]*Engine{};m.mu.Unlock()
+   os.Remove(filepath.Join(d,"empty-request"))
+   os.WriteFile(filepath.Join(d,"empty-ready"),[]byte("0"),0600)
+  }
+  if _,err:=os.Stat(filepath.Join(d,"done"));err==nil{return}
+  time.Sleep(100*time.Millisecond)
+ }
+ t.Fatal("test driver did not finish")
+}
+

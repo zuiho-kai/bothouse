@@ -1,0 +1,316 @@
+/* Agent Arcade — foundation. Loaded after every legacy stylesheet; layout files load after this.
+   ============================================================================================
+   COLOUR  One accent hue drives everything. theme.js converts the accent to OKLCH and writes,
+           for light and dark (html:root / html:root[data-color-scheme="dark"]):
+             --accent        interactive fill (>= 4.5:1 with --on-accent, >= 3:1 against --bg)
+             --accent-hover  the same fill, one step further from the page
+             --on-accent     text on the fill (#fff in light, tinted ink in dark)
+             --accent-soft   tinted surface for selected / hovered things
+             --accent-line   tinted border
+             --accent-ink    accent-tinted text (>= 4.5:1 on --bg, --surface, --surface-2, --accent-soft)
+             --bg            page                    light L .962  dark L .165   (chroma .010-.012)
+             --surface       cards, sheets, bars     light L .993  dark L .212
+             --surface-2     recessed / tinted area  light L .936  dark L .256
+             --line          hairlines               light L .882  dark L .335
+             --line-strong   control borders         light L .80   dark L .44
+             --text          body text (>= 7:1)      light L .25   dark L .94
+             --muted         secondary text (>= 4.5:1 on every ground)
+             --tone-1/2/3    decorative atmosphere (accent hue, +38deg, -38deg); never under bare text
+             --accent-h, --accent-c   raw hue / chroma for oklch() in layout files
+           The values below are only the pre-data fallback (accent #b45a86).
+   TYPE    12 / 13 / 15 / 18 / 24 / 32 px   line-height 1.5 / 1.55 / 1.7 / 1.45 / 1.3 / 1.2
+           weights 400 body, 600 emphasis and headings, 650 page titles. System CJK stack kept.
+   SPACE   4-pt grid: 4 8 12 16 20 24 32 40 48
+   RADIUS  8 (controls) / 12 (cards) / 20 (sheets, stage panels) / 999 (pills)
+   ELEV    --elev-1 resting cards, --elev-2 floating (popovers, dialogs, glass panels)
+   MOTION  --ease .2s; view change, accent change and message arrival only; none when reduced.
+   LAYOUT  html[data-layout="immersive|messenger|minimal"], html[data-workspace="companion|work"],
+           body[data-view], body.compact. Everything in this file is layout-neutral.
+   ============================================================================================ */
+@property --accent{syntax:"<color>";inherits:true;initial-value:#b45a86}
+@property --accent-soft{syntax:"<color>";inherits:true;initial-value:#f6e4ec}
+@property --accent-line{syntax:"<color>";inherits:true;initial-value:#dcaec4}
+@property --accent-ink{syntax:"<color>";inherits:true;initial-value:#8a3e63}
+@property --bg{syntax:"<color>";inherits:true;initial-value:#f7f1f4}
+@property --surface{syntax:"<color>";inherits:true;initial-value:#fffcfd}
+@property --surface-2{syntax:"<color>";inherits:true;initial-value:#f1e6eb}
+@property --tone-1{syntax:"<color>";inherits:true;initial-value:#f6d6e3}
+@property --tone-2{syntax:"<color>";inherits:true;initial-value:#f8e3df}
+@property --tone-3{syntax:"<color>";inherits:true;initial-value:#efe6f7}
+html:root{
+  --accent:#b45a86;--accent-hover:#a04d77;--on-accent:#fff;--accent-soft:#f6e4ec;--accent-line:#dcaec4;--accent-ink:#8a3e63;
+  --bg:#f7f1f4;--surface:#fffcfd;--surface-2:#f1e6eb;--line:#dfd5da;--line-strong:#c8b9c0;--text:#281e23;--muted:#6b5f65;
+  --tone-1:#f6d6e3;--tone-2:#f8e3df;--tone-3:#efe6f7;--accent-h:355;--accent-c:.13;
+  --fs-xs:12px;--fs-sm:13px;--fs-md:15px;--fs-lg:18px;--fs-xl:24px;--fs-2xl:32px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;--sp-10:40px;--sp-12:48px;
+  --r-sm:8px;--r-md:12px;--r-lg:20px;--r-full:999px;
+  --elev-1:0 1px 2px rgb(30 20 25/.05),0 4px 14px rgb(30 20 25/.05);
+  --elev-2:0 8px 24px rgb(30 20 25/.10),0 24px 56px rgb(30 20 25/.10);
+  --ease:.2s cubic-bezier(.2,.7,.2,1);
+  --bar-h:56px;
+  font-size:15px;
+  transition:--accent .45s,--accent-soft .45s,--accent-line .45s,--accent-ink .45s,--bg .45s,--surface .45s,--surface-2 .45s,--tone-1 .6s,--tone-2 .6s,--tone-3 .6s;
+}
+html:root[data-color-scheme="dark"]{
+  --accent:#e79abf;--accent-hover:#f0b0cf;--on-accent:#24101a;--accent-soft:#4a2437;--accent-line:#8a5570;--accent-ink:#f0b3d0;
+  --bg:#150f12;--surface:#20181c;--surface-2:#2b2227;--line:#40353a;--line-strong:#5d5057;--text:#f1eaed;--muted:#b6a9af;
+  --tone-1:#4a1f33;--tone-2:#3a2320;--tone-3:#2a2140;
+  --elev-1:0 1px 2px rgb(0 0 0/.3),0 4px 14px rgb(0 0 0/.25);
+  --elev-2:0 8px 24px rgb(0 0 0/.4),0 24px 56px rgb(0 0 0/.35);
+}
+/* Legacy tokens used by the page stylesheets, mapped onto the system above. */
+html:root,html:root[data-color-scheme="dark"]{
+  --paper:var(--surface);--room-soft:var(--surface-2);--room-outline:var(--line-strong);--room-shadow:rgb(0 0 0/.08);
+  --action:var(--accent-ink);--action-hover:var(--accent-ink);--action-soft:var(--accent-soft);
+  --blue:var(--accent-ink);--blue-light:var(--accent-soft);
+  --button-bg:var(--accent);--button-hover:var(--accent-hover);--button-text:var(--on-accent);
+  --card-tint:var(--surface);--card-radius:var(--r-md);--highlight:transparent;
+  --motif:transparent;--motif-opacity:0;
+  --card-shadow:var(--elev-1);--floating-shadow:var(--elev-2);
+  --selection:var(--accent-soft);--selection-text:var(--text);--veil:rgb(20 12 16/.38);
+  --header-height:var(--bar-h);--rail-width:0px;--sheet-pad:var(--sp-8);
+}
+html:root[data-color-scheme="dark"]{--veil:rgb(0 0 0/.6)}
+
+/* ---------- base ---------- */
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--text);font-size:var(--fs-md);line-height:1.7;-webkit-font-smoothing:antialiased}
+h1{font-size:var(--fs-xl);line-height:1.3;font-weight:650;letter-spacing:0}
+h2{font-size:var(--fs-lg);line-height:1.45;font-weight:600}
+h3{font-size:var(--fs-md);line-height:1.55;font-weight:600}
+p{line-height:1.7}
+.subtitle{font-size:var(--fs-sm);line-height:1.6;color:var(--muted);margin:var(--sp-2) 0 0}
+.fine,.eyebrow{font-size:var(--fs-xs)!important;color:var(--muted)}
+::selection{background:var(--accent-soft);color:var(--text)}
+:where(button,a,input,select,textarea,summary,[tabindex]):focus-visible,
+:is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+*{scrollbar-color:var(--line-strong) transparent}
+/* Ornaments from the earlier look are not part of this one. */
+.view:before,.chat-heading:after,.relationship-heading h1:after,.onboarding-header h1:after,.companion-manager-heading h2:after{content:none!important;display:none!important}
+.qq-overview-art,.qq-overview-corner,.qq-account-dialog .qq-login-detail-head:after,.qq-overview-heading h1:after,.qq-account-dialog .qq-login-detail-head:before,.qq-account-dialog .qq-login-help:before,.qq-account-dialog>.qq-runtime-card:before,.qq-account-dialog>.qq-runtime-card:after{content:none!important;display:none!important}
+
+/* ---------- controls ---------- */
+.primary,.secondary{min-height:36px;padding:8px 16px;border-radius:var(--r-sm);font-size:var(--fs-sm);font-weight:600;line-height:1.5;transition:background var(--ease),border-color var(--ease),color var(--ease)}
+.primary,.qq-account-dialog .qq-login-primary button,.qq-requests .primary,.voice-review button,.voice-controls .primary,.bot-inbox .voice-panel .primary,.bot-inbox .voice-panel .voice-review button{background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);box-shadow:none}
+.primary:hover:not(:disabled),.voice-controls .primary:hover:not(:disabled),.voice-review button:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
+.secondary,.voice-controls button{background:var(--surface);color:var(--text);border:1px solid var(--line-strong)}
+.secondary:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent-line);color:var(--text)}
+.plain{min-height:32px;padding:6px 10px;border-radius:var(--r-sm);font-size:var(--fs-sm);color:var(--muted);background:transparent;transition:background var(--ease),color var(--ease)}
+.plain:hover:not(:disabled),.message-copy:hover:not(:disabled){background:var(--surface-2);color:var(--text)}
+.icon-button{width:36px;height:36px;border-radius:var(--r-sm);color:var(--muted)}
+.icon-button:hover{background:var(--surface-2);color:var(--text)}
+button:disabled{opacity:.5}
+:is(input:not([type=checkbox],[type=radio],[type=range],[type=color]),select,textarea){border-radius:var(--r-sm);border-color:var(--line-strong);background:var(--surface);color:var(--text)}
+:is(input,select,textarea){accent-color:var(--accent)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+.settings-card select,.settings-card input:not([type=checkbox],[type=radio],[type=range],[type=color]),.onboarding-shell :is(input,select),.persona-controls select,.companion-manager input,.social-field :is(input,select,textarea),.qq-runtime-panel :is(input,select){border:1px solid var(--line-strong);background:var(--surface);color:var(--text);border-radius:var(--r-sm)}
+.state-pill{font-size:var(--fs-xs);font-weight:600;padding:3px 10px;border-radius:var(--r-full)}
+.problem{border-radius:var(--r-sm);font-size:var(--fs-sm)}
+.banner{border-radius:var(--r-sm);font-size:var(--fs-sm);background:var(--surface-2);color:var(--muted);border-color:var(--line)}
+.banner button{color:var(--accent-ink);font-size:var(--fs-sm)}
+.toast{background:var(--text);color:var(--bg);border-radius:var(--r-md);font-size:var(--fs-sm);box-shadow:var(--elev-2);bottom:var(--sp-6)}
+dialog{border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface);color:var(--text);box-shadow:var(--elev-2)}
+dialog pre,#bot-native-command,.relationship-card-preview,.qq-runtime-log{background:var(--surface-2);border-color:var(--line);color:var(--text)}
+/* Recessed areas (the legacy --surface) */
+.social-field :is(input,select,textarea):disabled,.bot-setup,.voice-panel,.bot-inbox .voice-panel,#artifact-app,.qq-login-sidebar,#qq-runtime-view[data-palette] .qq-login-sidebar,.qq-history-scroll,.qq-history-image-stage,.qrmt-list,.self-profile textarea:disabled,.profile-avatar-preview img,.qq-check,.qq-check[data-state=empty],.social-avatar,.message-avatar,.connection-avatar,.portrait-choice>img,.portrait-pixel,.persona-active>img,.partner-choice>img,.companion-tab img,.relationship-heading>img,.qq-runtime-card img:not(.qq-runtime-qr){background:var(--surface-2)}
+
+/* ---------- pages (neutral) ---------- */
+.view{animation:view-in .2s ease-out}
+@keyframes view-in{from{opacity:0}}
+main{margin:0;min-width:0}
+main>header{display:none}
+.view,.view:not(#bot-view,#qq-runtime-view){max-width:1120px;margin:0 auto;padding:var(--sp-8) var(--sp-8) var(--sp-12);min-height:0;background:transparent;border:0;border-radius:0}
+.view:not(#bot-view,#qq-runtime-view)>*{max-width:none}
+.page-heading,.view:not(#bot-view,#qq-runtime-view) .page-heading{align-items:flex-start;margin-bottom:var(--sp-6)}
+.settings-card,.work-section,.task-card,.relationship-body,.desktop-connection-entry,.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra,.qq-runtime-panel,.qq-runtime-card,.qq-overview-card,:root[data-color-scheme=dark] .qq-overview-card,.qq-overview-card[data-character]{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--elev-1)}
+.settings-card,.work-section,.relationship-body,.desktop-connection-entry,.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra{padding:var(--sp-6)}
+.settings-grid{gap:var(--sp-4)}
+.settings-card h2{font-size:var(--fs-lg)}
+.settings-card p{font-size:var(--fs-sm);line-height:1.65;color:var(--muted)}
+.settings-card label{font-size:var(--fs-md);margin:var(--sp-4) 0}
+.appearance-options{gap:var(--sp-2)}
+.appearance-option{padding:8px 14px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);box-shadow:none;font-size:var(--fs-sm);margin:0!important}
+.appearance-option:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.appearance-option:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+/* Sessions */
+.filters{gap:var(--sp-2);border-bottom:0;margin-bottom:var(--sp-4)}
+.filter{padding:6px 14px;border:1px solid var(--line);border-radius:var(--r-full);font-size:var(--fs-sm);color:var(--muted);background:var(--surface)}
+.filter.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+.task-grid{gap:var(--sp-3)}
+.task-card{padding:var(--sp-4) var(--sp-5);transition:border-color var(--ease),box-shadow var(--ease)}
+.task-card:hover{background:var(--surface);border-color:var(--accent-line);box-shadow:var(--elev-2)}
+.project{font-size:var(--fs-md)}.agent-name,.reason{font-size:var(--fs-xs);color:var(--muted)}.age{font-size:var(--fs-xs);color:var(--muted)}
+.section-title{margin-bottom:var(--sp-3)}.live-label{font-size:var(--fs-xs)}
+.empty{padding:var(--sp-10) 0}.empty p{font-size:var(--fs-sm)}
+footer{font-size:var(--fs-xs)}
+
+
+/* Work and results */
+#work-content{max-width:none;margin:0;padding:0}
+.work-section{margin:0 0 var(--sp-4)}
+.work-prompt{border-radius:var(--r-md);border-color:var(--line-strong);background:var(--surface)}
+.work-row{border-color:var(--line)}.work-row-body span{font-size:var(--fs-xs)}
+/* Relationship */
+.relationship-view{max-width:1120px;padding:var(--sp-8) var(--sp-8) var(--sp-12)}
+.relationship-heading{gap:var(--sp-4);margin-bottom:var(--sp-5)}
+.relationship-heading>img{width:64px;height:64px;border-radius:var(--r-lg)}
+.relationship-heading h1{font-size:var(--fs-xl)}.relationship-heading p{font-size:var(--fs-sm)}
+.relationship-tabs{gap:var(--sp-2);border-bottom:0;margin-bottom:var(--sp-5)}
+.relationship-tabs button{padding:6px 14px;border:1px solid var(--line);border-radius:var(--r-full);font-size:var(--fs-sm);color:var(--muted);background:var(--surface)}
+.relationship-tabs [aria-selected=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+#relationship-view>.relationship-body{max-width:820px;margin-top:0}
+.relationship-intro,.relationship-record-text{font-size:var(--fs-md)}
+.relationship-record{border-color:var(--line)}
+.relationship-memory-sources [aria-pressed=true]{color:var(--text);border-color:var(--accent);background:var(--accent-soft)}
+.relationship-feedback{color:var(--accent-ink)}
+/* Connections / onboarding */
+.onboarding-shell{max-width:860px;margin:0;padding:0}
+.onboarding-header h1{font-size:var(--fs-xl)}.onboarding-header p,.onboarding-copy{font-size:var(--fs-md)}
+.onboarding-shell h2{font-size:var(--fs-lg);margin-bottom:var(--sp-4)}
+.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra,.desktop-connection-entry{margin:0 0 var(--sp-4)}
+.partner-choices .partner-choice,.partner-choice{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);padding:var(--sp-3)}
+.partner-choice:hover{background:var(--surface-2);border-color:var(--line-strong)}
+.partner-choices .partner-choice[aria-pressed=true],.partner-choice[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);border-radius:var(--r-md)}
+.account-method{font-size:var(--fs-md)}.account-method[aria-pressed=true]{color:var(--text);border-bottom-color:var(--accent)}
+.onboarding-mode[aria-pressed=true],.onboarding-method[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+.onboarding-active,.onboarding-legacy,.onboarding-auth-note{background:var(--surface-2);border-radius:var(--r-sm);color:var(--muted)}
+.provider-login-status{border-left-color:var(--line-strong)}
+.portrait-choice{border-radius:var(--r-md);border-color:var(--line);background:var(--surface)}
+.portrait-choice[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.onboarding-channel{border-color:var(--line)}
+/* Companion manager */
+#accounts-view{max-width:1120px}
+.companion-manager h2{font-size:var(--fs-xl)}
+.companion-manage-row{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);box-shadow:var(--elev-1);padding:var(--sp-4) var(--sp-5);margin-bottom:var(--sp-3)}
+.companion-manage-row:first-of-type{border-top:1px solid var(--line)}
+.companion-manage-info p{font-size:var(--fs-xs)}
+/* Character library and conversation settings */
+.characters-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--elev-1);transition:border-color var(--ease),box-shadow var(--ease),transform var(--ease)}
+.characters-card:hover,.characters-card[aria-pressed=true]{border-color:var(--accent)}
+.characters-portrait{background:var(--surface-2);border-color:var(--line)}
+.characters-chat-line,.sources-row,.st-order-row,.st-problem,.desktop-branch-new{background:var(--surface);border-color:var(--line);border-radius:var(--r-md)}
+.characters-badge,.groups-badge,.desktop-branch-active{border-color:var(--accent-line);background:var(--accent-soft);color:var(--text)}
+.st-field :is(input,select,textarea),.sources-field input,.desktop-branch-new-input,.desktop-branch-rename,.desktop-message-edit-area{border-color:var(--line-strong);background:var(--surface);border-radius:var(--r-sm)}
+.st-group,.st-last{border-color:var(--line)}
+.characters-view .button-row{margin:var(--sp-3) 0}
+.characters-section-title{margin:var(--sp-10) 0 var(--sp-2)}
+.sources-row-body strong{font-size:var(--fs-md)}.sources-meta,.characters-meta,.groups-meta{font-size:var(--fs-sm)}
+.sources-row select,.sources-field select{font-size:var(--fs-sm)}
+/* Notices */
+.notices-content{display:grid;gap:var(--sp-4)}
+.notices-content .sources-card{grid-column:auto}
+.notices-recent h2{margin:0 0 var(--sp-2)}
+.notices-recent .sources-recent{margin:0}
+.notices-recent .sources-recent li{padding:var(--sp-3) 0;border-top:1px solid var(--line);font-size:var(--fs-md)}
+.notices-recent .sources-recent li:first-child{border-top:0}
+.notices-recent:has(.sources-recent:not([hidden])) .notices-empty{display:none}
+.notices-empty{margin:0}
+.notice-delivery h2,.notice-delivery p{margin:0 0 var(--sp-2)}
+.notice-delivery-results{display:grid;grid-template-columns:fit-content(46%) minmax(0,1fr);gap:var(--sp-2) var(--sp-4);margin:0}
+.notice-delivery-results dt{color:var(--muted)}
+.notice-delivery-results dd{margin:0}
+.role-journal-controls{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:flex-end;margin-block:var(--sp-2)}
+.role-journal-controls label{display:grid;gap:var(--sp-1)}
+.role-journal-controls input[type="date"]{width:10.5rem;max-width:100%;padding:.35rem .5rem;font:inherit;color:inherit}
+.notice-delivery-results dt,.notice-delivery-results dd,.notice-delivery p{overflow-wrap:anywhere}
+.notice-delivery[hidden],.notice-delivery [hidden]{display:none}
+.settings-version{min-width:0;align-self:center;color:var(--muted);overflow-wrap:anywhere}
+.settings-version .version{font-size:var(--fs-sm)}
+
+/* ---------- chat (neutral) ---------- */
+#bot-view,.compact #bot-view{height:calc(100vh - var(--bar-h));min-height:360px;max-width:none;margin:0;padding:0;background:var(--surface);border:0;border-radius:0}
+.chat-heading,.view .page-heading.chat-heading{margin:0;align-items:center;padding:var(--sp-3) var(--sp-6);min-height:64px;border-bottom:1px solid var(--line);background:transparent}
+.chat-identity h1{font-size:var(--fs-lg)}.chat-identity p{font-size:var(--fs-xs);color:var(--muted)}
+body[data-portrait=anime] #bot-mascot{width:40px;height:40px;background:var(--surface-2)}
+.inspector-toggle[aria-expanded=true]{color:var(--text);background:var(--accent-soft);border-color:var(--accent-line)}
+.bot-inbox,.chat-heading{background:transparent;box-shadow:none}
+.bot-inbox{padding:0 clamp(16px,4vw,48px)}
+.bot-thread-scroll{flex:1 1 140px;min-height:140px;padding:var(--sp-5) var(--sp-2) var(--sp-4)}
+#bot-messages,#bot-task-state,.local-history-control{max-width:720px}
+.bot-message{margin:0 0 var(--sp-5);font-size:var(--fs-md);line-height:1.75;animation:message-in .24s cubic-bezier(.2,.7,.2,1)}
+/* Opacity only: the thread's scroll anchoring measures message positions while they arrive. */
+@keyframes message-in{from{opacity:0}}
+.message-meta,.bot-message>small{gap:var(--sp-2);font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px}
+.message-author,.from-user .message-author{color:var(--text);font-weight:600;font-size:var(--fs-sm)}
+.bot-message.from-agent .message-author:before{display:none}
+.message-meta time,.message-local,.message-edited,.desktop-stream-marker{color:var(--muted);font-size:var(--fs-xs)}
+.message-avatar{width:32px;height:32px;background:var(--surface-2)}
+.bot-message pre,.message-body{font-size:var(--fs-md);line-height:1.75;max-width:64ch}
+/* Bubbles: the reply sits on a quiet surface; your own line carries the accent. */
+.bot-message.from-agent>.message-body{display:block;width:fit-content;max-width:min(64ch,100%);padding:10px 14px;background:var(--surface-2);border-radius:4px 16px 16px 16px}
+.bot-message.from-agent:has(.message-avatar)>:is(.message-body,.message-actions,.message-delivery-error,.desktop-message-edit,.desktop-branch-new,p.desktop-stream-marker){margin-left:40px}
+.bot-message.from-user,.bot-message[data-role=user]{background:transparent;padding:0;border-radius:0;max-width:86%;margin-bottom:var(--sp-8)}
+.bot-message.from-user>.message-meta{justify-content:flex-end;margin-bottom:6px}
+.bot-message.from-user>.message-body{padding:10px 14px;background:var(--accent);color:var(--on-accent);border-radius:16px 16px 4px 16px;width:fit-content;margin-left:auto}
+.bot-message.from-user>.message-body::selection{background:var(--on-accent);color:var(--accent)}
+.message-actions{gap:var(--sp-1);margin-top:6px}
+.message-copy{font-size:var(--fs-xs);color:var(--muted);padding:4px 8px;border-radius:var(--r-sm);margin-left:0}
+.desktop-message-swipes{border-color:var(--line)}
+.message-delivery-error{border-radius:var(--r-sm)}
+.bot-inbox #bot-task-state{border-radius:var(--r-sm);border-left:0;font-size:var(--fs-xs);background:var(--surface-2);color:var(--muted)}
+.chat-empty h2{font-size:var(--fs-xl);font-weight:650;letter-spacing:0}
+.chat-empty p,.bot-empty{font-size:var(--fs-md);color:var(--muted)}
+.bot-input-note,.bot-preview{font-size:var(--fs-xs);color:var(--muted)}
+.latest-message{color:var(--text);background:var(--surface);border-color:var(--line-strong);box-shadow:var(--elev-1);font-size:var(--fs-sm)}
+/* Composer: one rounded field that owns its tools. */
+.desktop-chat{border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--surface);padding:var(--sp-2) var(--sp-3) var(--sp-2);margin:var(--sp-2) 0 var(--sp-3);box-shadow:var(--elev-1);transition:border-color var(--ease),box-shadow var(--ease)}
+.desktop-chat:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.desktop-chat textarea{border:0;background:transparent;padding:var(--sp-2) var(--sp-1);min-height:52px;font-size:var(--fs-md);line-height:1.6;resize:none}
+.desktop-chat textarea:focus-visible{outline:0}
+.desktop-chat-image-tools{margin:0;padding:0 var(--sp-1)}
+.desktop-chat .desktop-chat-image-choose{color:var(--accent-ink);font-size:var(--fs-sm);min-height:28px;padding:2px 6px}
+.desktop-chat-footer{margin-top:0;gap:var(--sp-2)}
+.desktop-chat-note,.desktop-chat .desktop-chat-count{font-size:var(--fs-xs)}
+.desktop-chat button.primary,.desktop-chat button.secondary{min-height:34px;border-radius:var(--r-full);padding:6px 18px;font-size:var(--fs-sm)}
+.desktop-chat-status{font-size:var(--fs-sm)}
+.desktop-conversation-choice{border-bottom:1px solid var(--line);margin:0;padding:var(--sp-2) 0}
+.desktop-conversation-options{gap:2px;padding:2px;border-radius:var(--r-full);background:var(--surface-2)}
+.desktop-conversation-options button,.desktop-conversation-choice .desktop-conversation-options button{min-height:30px;padding:4px 14px;border-radius:var(--r-full);border:0;font-size:var(--fs-sm);color:var(--muted)}
+.desktop-conversation-options button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:600;box-shadow:var(--elev-1)}
+.desktop-conversation-choice button{font-size:var(--fs-sm);min-height:32px}
+.desktop-conversation-note{font-size:var(--fs-xs);margin:var(--sp-1) 0 0}
+.desktop-conversation-status{font-size:var(--fs-sm);margin:var(--sp-2) 0}
+.desktop-branch-bar{font-size:var(--fs-xs);margin:var(--sp-2) 0}
+.desktop-branch-bar button{font-size:var(--fs-sm)}
+.desktop-branch-bar .desktop-branch-toggle,.desktop-branch-bar .desktop-branch-act,#desktop-local-clear-list{color:var(--accent-ink)}
+.desktop-branch-panel{border-color:var(--line);border-radius:var(--r-md);background:var(--surface);box-shadow:var(--elev-2)}
+.desktop-branch-row{border-color:var(--line)}.desktop-branch-row[data-active=true]{border-color:var(--accent-line);background:var(--accent-soft)}
+.desktop-group-speak{font-size:var(--fs-xs)}
+.desktop-group-speak .desktop-group-speak-button{font-size:var(--fs-sm);border-color:var(--line-strong);background:var(--surface)}
+.desktop-group-speak-button:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft)}
+.desktop-group-face{border-color:var(--surface);background:var(--surface-2)}
+.local-history-control button{font-size:var(--fs-sm);color:var(--accent-ink)}
+.bot-setup{border-left:1px solid var(--line)}
+.bot-setup>summary{font-size:var(--fs-md);padding:var(--sp-4) 52px var(--sp-3) var(--sp-5)}
+.bot-setup-content{padding:var(--sp-5)}
+.setup-step legend{font-size:var(--fs-md)}
+.setup-step p,.bot-setup small,.bot-help,.bot-help summary{font-size:var(--fs-xs);color:var(--muted)}
+.bot-setup label{font-size:var(--fs-sm)}
+.bot-setup input,.bot-setup select{font-size:var(--fs-sm);border-color:var(--line-strong);background:var(--surface)}
+.qq-check{border-left:0;border-radius:var(--r-sm)}
+/* Companion bar (neutral presentation; layouts may fold it away) */
+.companion-switcher{min-height:0;height:auto;padding:var(--sp-2) var(--sp-6);background:var(--surface);border-bottom:1px solid var(--line)}
+.companion-tab{min-height:44px;padding:4px 12px 4px 6px;border-radius:var(--r-full)}
+.companion-tab:hover{background:var(--surface-2)}
+.companion-tab[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent-line);box-shadow:none}
+.companion-tab img{width:32px;height:32px}
+.companion-tab strong{font-size:var(--fs-sm)}.companion-tab small{font-size:var(--fs-xs);margin-top:0}
+body:not([data-view=bot],[data-view=relationship]) .companion-switcher{display:none}
+.companion-switcher{box-sizing:border-box;height:57px}
+main>.companion-switcher:not([hidden])~#bot-view{height:calc(100vh - var(--bar-h) - 57px)}
+dialog h2{font-size:var(--fs-xl);font-weight:650;line-height:1.3}
+dialog p{font-size:var(--fs-sm)}
+
+/* ---------- narrow ---------- */
+@media(max-width:900px){.view,.view:not(#bot-view,#qq-runtime-view),.relationship-view{padding:var(--sp-6) var(--sp-5) var(--sp-10)}.settings-card,.work-section,.relationship-body,.desktop-connection-entry,.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra{padding:var(--sp-5)}}
+.compact .view,.compact .view:not(#bot-view,#qq-runtime-view),.compact .relationship-view{padding:var(--sp-4) var(--sp-4) var(--sp-8)}
+.compact h1{font-size:20px}
+.compact .settings-card,.compact .work-section,.compact .relationship-body,.compact .onboarding-provider,.compact .onboarding-account,.compact .onboarding-chat,.compact .onboarding-extra{padding:var(--sp-4)}
+.compact #bot-view{height:calc(100vh - var(--bar-h))}
+.compact .bot-inbox{padding:0 var(--sp-3)}
+.compact .chat-heading{padding:var(--sp-2) var(--sp-3)}
+.compact .companion-switcher{padding:var(--sp-1) var(--sp-3)}
+.compact .bot-message.from-agent:has(.message-avatar)>:is(.message-body,.message-actions,.message-delivery-error,.desktop-message-edit,.desktop-branch-new,p.desktop-stream-marker){margin-left:0}
+@media(max-width:600px){#bot-view{height:calc(100vh - var(--bar-h));border-radius:0}.bot-message.from-agent:has(.message-avatar)>:is(.message-body,.message-actions,.message-delivery-error,.desktop-message-edit,.desktop-branch-new,p.desktop-stream-marker){margin-left:0}}
+@media(prefers-reduced-motion:reduce){html:root{transition:none}.bot-message{animation:none}}
+@media(forced-colors:active){.bot-message.from-user>.message-body{border:1px solid ButtonText}}

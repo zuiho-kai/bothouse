@@ -1,0 +1,552 @@
+{
+  "schema": "qq_ssqq_fixed_assets_v1",
+  "pluginId": "napcat-plugin-ssqq",
+  "pluginVersion": "3.5.2-3",
+  "frontendVersion": "3.5.2",
+  "archiveSha256": "82b9ef50f7e4ddb92a07149d763f7ce98502d24ac73ce8039499b24b25df1c04",
+  "archiveSize": 6118730,
+  "entry": "webui/dist/index.html",
+  "source": "https://github.com/Stapxs/Stapxs-QQ-Lite-2.0/releases/tag/v3.5.2",
+  "license": {
+    "frontend": "AGPL-3.0-only",
+    "wrapper": "MIT",
+    "source": "https://github.com/Stapxs/Stapxs-QQ-Lite-2.0/tree/v3.5.2"
+  },
+  "files": [
+    {
+      "path": "index.mjs",
+      "size": 325,
+      "sha256": "b14b0d99e114df68d659292deb7572666f174bd87a4ec04119e942e62a15d431"
+    },
+    {
+      "path": "package.json",
+      "size": 587,
+      "sha256": "e70ecbbb71276f95060ed67bafd39e3638620b1095b8f27a64b7d27999ddf935"
+    },
+    {
+      "path": "webui/.DS_Store",
+      "size": 6148,
+      "sha256": "d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3"
+    },
+    {
+      "path": "webui/dist/.DS_Store",
+      "size": 6148,
+      "sha256": "c8ad22205adc35fdf44e2d5ea4c2df082b2ffcce5a608fcee5542178a5742d74"
+    },
+    {
+      "path": "webui/dist/assets/css/appStyles-BNdv9jF5.css",
+      "size": 94395,
+      "sha256": "26fe02765b5306ac6af6883908cec6b777e42a53016ebcaa22b2a9b73efe0767"
+    },
+    {
+      "path": "webui/dist/assets/css/append_darwin-CrcCTS0i.css",
+      "size": 910,
+      "sha256": "89123d9e43802534d371f7e6ebc7e57648dfbae0f843791481cbf6d6f6c1b1a6"
+    },
+    {
+      "path": "webui/dist/assets/css/append_full_vibrancy-Cu1vQF3i.css",
+      "size": 5082,
+      "sha256": "8413c5882bd16529bedfde04c75d9de253284d3ab9b673120b675ab3451489ed"
+    },
+    {
+      "path": "webui/dist/assets/css/append_linux-mkXpNxU_.css",
+      "size": 1901,
+      "sha256": "61028de63e4436d5272124daf8ed1decbbf4f1a759d9f01606b76297c6d7bab9"
+    },
+    {
+      "path": "webui/dist/assets/css/append_linux_vibrancy-COiZq8MS.css",
+      "size": 271,
+      "sha256": "72c5dbff8a53bff9ca0445ca44883ba4db2640add2b483213787a967fd28fc4f"
+    },
+    {
+      "path": "webui/dist/assets/css/append_napcat-DV8CAyAd.css",
+      "size": 484,
+      "sha256": "bc20416f48db3162acf67bdb6c2d5551186d7466430a76f3214634db3f39f94c"
+    },
+    {
+      "path": "webui/dist/assets/css/append_new-BDox-KS9.css",
+      "size": 11950,
+      "sha256": "ff2ec86a51fcee782ade7c5118f63ec6c30015a88a642d1ed831391a75662d06"
+    },
+    {
+      "path": "webui/dist/assets/css/append_vibrancy-Bcz2z3uk.css",
+      "size": 1875,
+      "sha256": "9761e0f748e22d6c79b2d727207eec1ea107925652a40835137f4796e966ae3e"
+    },
+    {
+      "path": "webui/dist/assets/css/append_win32-CV5GJ3Oz.css",
+      "size": 1635,
+      "sha256": "edc64237e94c565b12d207966301b400b70aebbf1647593425ae0dc3fa1e9f6b"
+    },
+    {
+      "path": "webui/dist/assets/css/main-DMEDsTMf.css",
+      "size": 61230,
+      "sha256": "78feb9345c59845e5d82c6e2d85b2c1959bdcf7c5c6abc9a0c697a71f1eea466"
+    },
+    {
+      "path": "webui/dist/assets/css/vue-virtual-scroller-BCw0uU-l.css",
+      "size": 1220,
+      "sha256": "4d71315fd8c42dc3e7d0ba1e8cb831ad725c22c34cb76c8ff8dbce87d628abb4"
+    },
+    {
+      "path": "webui/dist/assets/css/vue3-bcui-Cq5XSDgo.css",
+      "size": 12629,
+      "sha256": "edd6ab3da684e161944f04533a0751933b788a160a20335a4f9bac2ab1b46a20"
+    },
+    {
+      "path": "webui/dist/assets/js/@ai-sdk-BPWGVdtk.js",
+      "size": 87790,
+      "sha256": "1339ef29093317a55f1151692b8ac8e08c5d90631633041522d14f814a7e799b"
+    },
+    {
+      "path": "webui/dist/assets/js/@fortawesome-Bt0mTGKt.js",
+      "size": 1002252,
+      "sha256": "fb1dc6620d9d1b796d3c7cee9d730a8d8f89f4fbfd5f254f33b6885230d72466"
+    },
+    {
+      "path": "webui/dist/assets/js/@intlify-C7-MzqOv.js",
+      "size": 34217,
+      "sha256": "9a59fd04e5aab8e9ee52b7c4318debed799640ea9cc2d26c30d16c3472f1c226"
+    },
+    {
+      "path": "webui/dist/assets/js/@opentelemetry-5SkFfupT.js",
+      "size": 16520,
+      "sha256": "dc5188319cc4371ce3efdfa40a8dd5f5ceef60887676707303b9903ba415bf88"
+    },
+    {
+      "path": "webui/dist/assets/js/@stapxs-Dt0MSzbK.js",
+      "size": 3106,
+      "sha256": "97c46386ce52fc4233dda13be741813c60c30394eed29bf9f8b9cb1f6691c120"
+    },
+    {
+      "path": "webui/dist/assets/js/@tauri-apps-NYEaIYVy.js",
+      "size": 3431,
+      "sha256": "fd81923bf2b9180f54e9efad6a6ea58a3d5f7e0c55eb6656709ca3dfa352ca30"
+    },
+    {
+      "path": "webui/dist/assets/js/@vercel-CZqJ8jeu.js",
+      "size": 1171,
+      "sha256": "b9a8c203efbd7cc6e148354e855f35e2481f8ca6cef24529dd2cf5759a51e051"
+    },
+    {
+      "path": "webui/dist/assets/js/@vue-boz8Ntr_.js",
+      "size": 81240,
+      "sha256": "f68a7012ff4ca8ff831865a5afbd225a1fff9d40bbca678299f26d90ba24a2aa"
+    },
+    {
+      "path": "webui/dist/assets/js/@vuemap-CLxLHuNx.js",
+      "size": 23289,
+      "sha256": "e4bf48e811e8fc64fc4fb587cff5f7c772908588c25e4b88ee86f4f30b1da463"
+    },
+    {
+      "path": "webui/dist/assets/js/MealHungryPan-VTqB_lfs.js",
+      "size": 1480,
+      "sha256": "52895ecfdba3de95879ccf9fef0b3ac2596755a60b24c7b2d42e545cd4b1b406"
+    },
+    {
+      "path": "webui/dist/assets/js/MsgBody-BYf-tBU1.js",
+      "size": 1480,
+      "sha256": "39e7f700cbb0a75ff885a875136e3138da86f9a3f0ad3939f07e0be1537e1f4b"
+    },
+    {
+      "path": "webui/dist/assets/js/ai-Da_ZOmjG.js",
+      "size": 89953,
+      "sha256": "2c2ec2362b5709fe853dd12c4dc71d7f00e4af2ce55b2ac6ab8de50899531c77"
+    },
+    {
+      "path": "webui/dist/assets/js/animejs-BNELU3II.js",
+      "size": 18073,
+      "sha256": "7266bb6318e57efefa7247b69681686618b2f3a04480a8ed5764522f6890861b"
+    },
+    {
+      "path": "webui/dist/assets/js/axios-Dko4zhXo.js",
+      "size": 36220,
+      "sha256": "7cd17001d1ec696dcf34dda1003061b1870dcd1d0d56523a10f9f6f805320d15"
+    },
+    {
+      "path": "webui/dist/assets/js/birpc-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/browser-image-compression-BzWLnoYn.js",
+      "size": 53018,
+      "sha256": "7d4b138f40ec1b04a045861766a134ca6072bf55804ef5bed7efb965c003b775"
+    },
+    {
+      "path": "webui/dist/assets/js/clipboard-DiopAHRz.js",
+      "size": 9055,
+      "sha256": "9775a24ca4a35076de34bb5fc2bdc06c881f84eeeed1bf388dfceee434f321f9"
+    },
+    {
+      "path": "webui/dist/assets/js/cssfilter-BjxKUPhv.js",
+      "size": 9206,
+      "sha256": "d6c65781de6c0ff2477c7b91faff25eeea96cded3a05d014bbf2c770b39a5455"
+    },
+    {
+      "path": "webui/dist/assets/js/detect-browser-ClY_l-h2.js",
+      "size": 4188,
+      "sha256": "4f28486414d236f26740d0bfe5b983f1065a69aa2cf9c93667f34925c8d6109f"
+    },
+    {
+      "path": "webui/dist/assets/js/echarts-D8zAxwFR.js",
+      "size": 438502,
+      "sha256": "058f10c00428021e20498a17283864a57b9ef7a042e6ba4602db38759a6e111d"
+    },
+    {
+      "path": "webui/dist/assets/js/eventsource-parser-Fg9TYdYj.js",
+      "size": 1865,
+      "sha256": "de10151633ae524dd3befc961ec5a5aa4f04c1e8acf78026dd780bd2c4e3b573"
+    },
+    {
+      "path": "webui/dist/assets/js/hookable-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/js-file-downloader-BdGV-iE4.js",
+      "size": 18432,
+      "sha256": "2767feaf3b9e312854546be602d5c86836a4341c0e03b1a9c7d49cd628d51c8a"
+    },
+    {
+      "path": "webui/dist/assets/js/jsonpath-aRVlSId2.js",
+      "size": 85290,
+      "sha256": "0569fb81091fe9d2e5ef0ec2470782cd905a0fe61d40f8f317d44d12e07f0609"
+    },
+    {
+      "path": "webui/dist/assets/js/linkify-it-DmNjr4Kv.js",
+      "size": 9137,
+      "sha256": "f60c38aeeefaf5084f2e7844c183e4d9b548503819cc87a4479341151d53ae38"
+    },
+    {
+      "path": "webui/dist/assets/js/lottie-web-B-XNNRd5.js",
+      "size": 307304,
+      "sha256": "21453fcdab870bc18c4a39dce6f72e7cbfc76790b94db84b9b47d6df54a1acf2"
+    },
+    {
+      "path": "webui/dist/assets/js/main-BlF3SHJx.js",
+      "size": 816549,
+      "sha256": "1e38b73ace6eadf4bebf3aa49bbb56aa11ed764eb9433f9c81ed36f58363135d"
+    },
+    {
+      "path": "webui/dist/assets/js/markdown-it-xnYYhWvQ.js",
+      "size": 81714,
+      "sha256": "8f79708d9a3ae5a83aa80799e76cc531cf2797e69eb1044554da0429499435f4"
+    },
+    {
+      "path": "webui/dist/assets/js/mdurl-k9Sl0PQj.js",
+      "size": 4884,
+      "sha256": "2199d7ec648314a33cb46a70d2d777c3e2e01916dd4b2fdb626b44add8e39155"
+    },
+    {
+      "path": "webui/dist/assets/js/perfect-debounce-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/pinia-Dz35Ghk3.js",
+      "size": 3700,
+      "sha256": "5dde479f08bccbe1366a3099b88442adbe030b4c218dd0487837d4e3c451853b"
+    },
+    {
+      "path": "webui/dist/assets/js/pofile-xBef9-1n.js",
+      "size": 5384,
+      "sha256": "a79aa7b12c7ff0e02d03a855634efdf50c7142ea925e3037af5f05d1c3c2e1b4"
+    },
+    {
+      "path": "webui/dist/assets/js/punycode.js-Dj65hjkv.js",
+      "size": 2408,
+      "sha256": "ce7d3e0852d00e24eef4d4459cb00bf6f4431e096f98dcc75182c3a4cc8bc222"
+    },
+    {
+      "path": "webui/dist/assets/js/rollup-plugin-node-polyfills-Dni2_oxc.js",
+      "size": 179,
+      "sha256": "f3867e4f6bab5ee8e8713d4d7ba9577bc024de0183e7d151e24657a6a8025598"
+    },
+    {
+      "path": "webui/dist/assets/js/semver-De77PNLZ.js",
+      "size": 24191,
+      "sha256": "395c8a3aab323e25ba5019fa380e03996cff2c2110bf5c08ed4dde762f498ec5"
+    },
+    {
+      "path": "webui/dist/assets/js/spacingjs-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/uc.micro-kMc2yuuw.js",
+      "size": 5216,
+      "sha256": "02d50b6481f47f306774f12bad6e1fe4d6616fa3191324d94197c10c29c9b667"
+    },
+    {
+      "path": "webui/dist/assets/js/uuid-C_lTrkZC.js",
+      "size": 1079,
+      "sha256": "6428d95dcfd60a011339f2ea072e6baee70b214d2cfd8ad3f9b4247606cbfce8"
+    },
+    {
+      "path": "webui/dist/assets/js/vconsole-_0bUx1Os.js",
+      "size": 286163,
+      "sha256": "af933565bcfa1d27aacd82943d55750636fcbe953c726ee68ec7ee7e8700a176"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-clipboard2-tVWIV7p6.js",
+      "size": 1609,
+      "sha256": "df65c72c8bf351dcf87014b689547031d55e6ad898f444af848bfe7ebc23c6b2"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-demi-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-echarts-5HewB5wt.js",
+      "size": 4158,
+      "sha256": "ba44f9bbf7d750795206ad3ee02d59242bad6e8d4853a3be954cf7457e2fb4c0"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-i18n-DLBMkoQc.js",
+      "size": 20774,
+      "sha256": "066dd9b6e3eb05d1f0488026fbcffaf55e8048441854d049ce86b97dc9c0cda7"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-l0sNRNKZ.js",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-observe-visibility-nt5DyDYg.js",
+      "size": 3893,
+      "sha256": "e72845bc5e9199ac0ac683c0e8113dfb75d1f6d1a3a419f640195c3e0d7667ce"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-resize-D7DmX03B.js",
+      "size": 1994,
+      "sha256": "72109ad30c16226714d817822472b5cb6a2693f730b61bc421e48f81023d30f7"
+    },
+    {
+      "path": "webui/dist/assets/js/vue-virtual-scroller-Ba5FqjeQ.js",
+      "size": 10885,
+      "sha256": "eb07e4ca34117277e01ee90b6de0c299e37210de494a0360ec64ee6675e553d8"
+    },
+    {
+      "path": "webui/dist/assets/js/vue3-bcui-IsKMpvFj.js",
+      "size": 12746,
+      "sha256": "0c374c38ba30a55b0caa25a6801dc3ac47d0d6153b6f4ff3ad359ea0534d7527"
+    },
+    {
+      "path": "webui/dist/assets/js/vue3-danmaku-D55mTox0.js",
+      "size": 6395,
+      "sha256": "c5fea55d03456cbc8d9b8316c952fa7230485e7f6f5b660eda199d33c6a9a936"
+    },
+    {
+      "path": "webui/dist/assets/js/vue3-lottie-WmFQxlz0.js",
+      "size": 6622,
+      "sha256": "88be92b2f106c8ca26b531afb659110473adcdcb204937a8c974f0fe1001ca3b"
+    },
+    {
+      "path": "webui/dist/assets/js/xss-BGyBY8qY.js",
+      "size": 8961,
+      "sha256": "497799887b9a7819cf2a7272864c85ed351927c52f817e6882df91c65ca6058e"
+    },
+    {
+      "path": "webui/dist/assets/js/zod-AWWHntzv.js",
+      "size": 267885,
+      "sha256": "17ad693010f6ff2a4cc59349a86ddaa76f256106fae862f48d7b5572d9bc1341"
+    },
+    {
+      "path": "webui/dist/assets/js/zrender-Dep_JlBe.js",
+      "size": 175458,
+      "sha256": "4cc1771cc3abc32021e19f45fc23f99eae5a04ebc3c233f0b124bd9465b17078"
+    },
+    {
+      "path": "webui/dist/assets/png/AppIcon-DIku6-h0.png",
+      "size": 38033,
+      "sha256": "f063500920dac75663629032e38fa41836acf82c0eb80eb83fc0ca7eecd7f1ac"
+    },
+    {
+      "path": "webui/dist/assets/png/AppIconDark-BYymN71t.png",
+      "size": 37414,
+      "sha256": "583d778352120b122c1468dd8c422f3d46adda0a8d8ee6799eb51952cb2feddd"
+    },
+    {
+      "path": "webui/dist/assets/png/CapacitorAppIcon-CSZwNhvi.png",
+      "size": 132125,
+      "sha256": "186ae84285bcabb688fdfd30a73f068474f17054a89894aa51a78414b3aa913a"
+    },
+    {
+      "path": "webui/dist/assets/png/CapacitorAppIconDark-BMvMOzsg.png",
+      "size": 49842,
+      "sha256": "a80ed73e9775b783926d30f3655d1893d659df92bfb75a1a6865aa59b3e08d66"
+    },
+    {
+      "path": "webui/dist/assets/png/NapcatAppIcon-C7VOAkW9.png",
+      "size": 690594,
+      "sha256": "6a16cfecc1a589aee8a947b467297097f3593d2af45ff216b75481fd50c84fbd"
+    },
+    {
+      "path": "webui/dist/assets/png/Vue-lEhHouxB.png",
+      "size": 128668,
+      "sha256": "a6e46cc8326f3243b992a038589db81cf9e0e94da8f0a9b5ae099744c0e1d275"
+    },
+    {
+      "path": "webui/dist/assets/png/µ£ƒσ╛à-C90_OY60.png",
+      "size": 66123,
+      "sha256": "6a34388220dec3a62592bb1fa15a7af23eef3aec809604e901080c91a1817ac1"
+    },
+    {
+      "path": "webui/dist/assets/svg/cakes-CxTVKdnK.svg",
+      "size": 75723,
+      "sha256": "0bec48bfbd7da5a9240853cf795378ce45ee68a9db07a0c8aae8fb1f502238dc"
+    },
+    {
+      "path": "webui/dist/assets/svg/stars-_FdRUN_C.svg",
+      "size": 6451,
+      "sha256": "79a779e13bd2313408c258dd2eabde495af82f1746b6ab850429cadcc17ee41e"
+    },
+    {
+      "path": "webui/dist/assets/ttf/µû╣µ¡úσû╡σæ£Σ╜ô-CJKIKBn3.ttf",
+      "size": 5670984,
+      "sha256": "e5336454a54d77b27d53e45bbce175ae57d5912cea3f1aa321285f05ff56d73f"
+    },
+    {
+      "path": "webui/dist/bcui/.git",
+      "size": 58,
+      "sha256": "296d7a782aaaee6d8275b3c7935d5b8241e0268a0372ed0c8f05ce2fae5885d0"
+    },
+    {
+      "path": "webui/dist/bcui/.gitignore",
+      "size": 230,
+      "sha256": "7c52e31aa3f52e34b895037f1e57dbb7a9842992019a059ce20eb9fffed12993"
+    },
+    {
+      "path": "webui/dist/bcui/LICENSE",
+      "size": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "webui/dist/bcui/README.md",
+      "size": 16,
+      "sha256": "cc4d45ae637a43bde783aac989b9b154fc4c6c2c930423c9e2dbb9eeee8c5ed9"
+    },
+    {
+      "path": "webui/dist/bcui/css/color-dark.css",
+      "size": 807,
+      "sha256": "d7a040fdb4767b3316f5313b3fb473a42fd09b3f6185ca109967a19d3918f714"
+    },
+    {
+      "path": "webui/dist/bcui/css/color-light.css",
+      "size": 819,
+      "sha256": "af0b241376175103a81409e4e7d187fbeb8ac7c6357707f28f960a48232727cf"
+    },
+    {
+      "path": "webui/dist/bcui/css/prism-dark.css",
+      "size": 4689,
+      "sha256": "1fdf30257a1e43109307d5c3ed96646dcf80ded642aac61ac4925c8324445a2c"
+    },
+    {
+      "path": "webui/dist/bcui/css/prism-light.css",
+      "size": 6433,
+      "sha256": "951c31f695a01f6c381bd14a0ee2707f0a11df62f02301b870e97952fced1413"
+    },
+    {
+      "path": "webui/dist/bcui/css/style.css",
+      "size": 10382,
+      "sha256": "c876dff95628c2cfc8aca596f26ad460777d4157aec8ec6fc276547b337da45d"
+    },
+    {
+      "path": "webui/dist/bcui/js/auto-theme.js",
+      "size": 716,
+      "sha256": "09c3077bce203889552c58be7ccb62f181114812683abf05b556f89d52794338"
+    },
+    {
+      "path": "webui/dist/bcui/js/main.js",
+      "size": 7017,
+      "sha256": "9a2b3ab20220bbbbc9a47835105572076b9ce7f02a894fda3e376dbc1c237176"
+    },
+    {
+      "path": "webui/dist/css/append-dark.css",
+      "size": 278,
+      "sha256": "9c8b6ce6b1aa15b3292d072bdb44a0e6cfc8d2c41629546ce68fbaab35c432cf"
+    },
+    {
+      "path": "webui/dist/css/append-light.css",
+      "size": 278,
+      "sha256": "a85e7d49bb6da19377a6290d9cae4222f7f1433d5d28f4b7c6637677f4232740"
+    },
+    {
+      "path": "webui/dist/css/append-napcat-dark.css",
+      "size": 634,
+      "sha256": "6cdbe61192f9d7011e8fbf79e17d4caa8c5223878364e038945f1594b08aab76"
+    },
+    {
+      "path": "webui/dist/css/append-napcat-light.css",
+      "size": 648,
+      "sha256": "6da2b3b6716279479b6765017f8a3ef7e3f9b4780df993397c1a3a48750a7dca"
+    },
+    {
+      "path": "webui/dist/favicon.ico",
+      "size": 32316,
+      "sha256": "ca0abf5145d30244679ecf1d9736e94226eb7cb161997758d60b96bd0ee7a9fb"
+    },
+    {
+      "path": "webui/dist/img/.DS_Store",
+      "size": 6148,
+      "sha256": "73013aa9968dc703d7ab7b9be3d33ef520a600695a0f46319c458d99781bfbbb"
+    },
+    {
+      "path": "webui/dist/img/icons/icon-for-fuck-apple.png",
+      "size": 2546,
+      "sha256": "667dc5f99dd7675b4e4e05a427f0a636a16edd9ef62923f9557173c14b0f19e7"
+    },
+    {
+      "path": "webui/dist/img/icons/icon-maskable.png",
+      "size": 15550,
+      "sha256": "9a4850f4a7c3d890117d13483a3d8fa7fd86c62b93d7c4aa3d1874c9bb3ebfa3"
+    },
+    {
+      "path": "webui/dist/img/icons/icon.png",
+      "size": 13141,
+      "sha256": "976ae98eab1505c2729362181287c63ba78791d02d9e1e73d55bcdd780b4b580"
+    },
+    {
+      "path": "webui/dist/img/icons/icon.svg",
+      "size": 2983,
+      "sha256": "5aa60866ab3f419f9dd3c3ec8af3ca3fd2d4ccb3a37aaf0013446054a889ce0b"
+    },
+    {
+      "path": "webui/dist/index.html",
+      "size": 6753,
+      "sha256": "720df01533362ce727671b6f5c539dacdf0931f0adf0440d9beb6ef5906c249c"
+    },
+    {
+      "path": "webui/dist/manifest.webmanifest",
+      "size": 260,
+      "sha256": "48c8f9dd334b28b615efb2ce949354db0492c203f285d5925abee02a5efa60d4"
+    },
+    {
+      "path": "webui/dist/notice_local.json",
+      "size": 1194,
+      "sha256": "900ea983c059d400e9c6967d6911846885fb2b75c3d40a5b89ca8207b3a4a834"
+    },
+    {
+      "path": "webui/dist/registerSW.js",
+      "size": 136,
+      "sha256": "e12c8db54e3cc247034427f2b661b305a78fea7e7cdec1eac179fecec3da0fc7"
+    },
+    {
+      "path": "webui/dist/robots.txt",
+      "size": 24,
+      "sha256": "e5c4b84484ee4216e9373be99380320c25dd94805f99f0a805846f087636553f"
+    },
+    {
+      "path": "webui/dist/sw.js",
+      "size": 5443,
+      "sha256": "6836cf28903af4070f835ca0371b0f2d306e9cc2911f8723cb9ddf02a7389bba"
+    },
+    {
+      "path": "webui/dist/workbox-8c29f6e4.js",
+      "size": 15123,
+      "sha256": "3ad21a9ff8347da9410d22a6a7e48bf664194241553f27949d187772d2af870f"
+    }
+  ]
+}

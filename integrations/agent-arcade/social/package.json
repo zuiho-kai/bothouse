@@ -1,0 +1,23 @@
+{
+  "name": "agent-arcade-social",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=24.18.0 <25"
+  },
+  "scripts": {
+    "start": "node server/main.cjs",
+    "test:client": "node client/.qa/verify.cjs",
+    "test:files": "node client/.qa/verify-files.cjs",
+    "test:images": "node client/.qa/verify-images.cjs",
+    "test:stickers": "node client/.qa/verify-stickers.cjs",
+    "test:ai-voice": "node client/.qa/verify-ai-voice.cjs",
+    "test:group-drawing": "node client/.qa/verify-group-cloud-drawing.cjs",
+    "test:ai-friends": "node client/.qa/verify-ai-friend-requests.cjs",
+    "test:send-shortcut": "node client/.qa/verify-send-shortcut.cjs",
+    "test:appointments": "node client/.qa/verify-ai-appointments.cjs",
+    "test:lan": "node server/lan.cjs",
+    "test": "node --test server/social.test.cjs server/ai-group.test.cjs server/personal-ai.test.cjs server/group-card.test.cjs server/public-reactions.test.cjs",
+    "moderate": "node server/moderate.cjs"
+  }
+}

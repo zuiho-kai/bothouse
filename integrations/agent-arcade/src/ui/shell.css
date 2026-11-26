@@ -1,0 +1,188 @@
+/* The Store message view owns the content below this trusted strip. Its
+   WebContentsView is fitted below the open tools panel by the shell. */
+html[data-store-shell]:root body .shell-bar,
+html[data-store-shell][data-layout=minimal] body:not(.compact) .shell-bar{
+  position:fixed;inset:0 0 auto;width:auto;height:44px;padding:0 12px;
+  flex-direction:row;align-items:center;justify-content:flex-end;background:var(--surface);
+  border:0;border-bottom:1px solid var(--line);pointer-events:auto;
+}
+html[data-store-shell] body .shell-bar::before{display:none}
+html[data-store-social=open],html[data-store-social=open] body{overflow:hidden}
+html[data-store-shell] body :is(.shell-brand,.shell-nav,.shell-tools,.shell-observer,#ws-social){display:none}
+html[data-store-shell]:not([data-store-social]) #store-more{display:none}
+html[data-store-shell]:not([data-store-social]) body .shell-bar{display:none}
+html[data-store-shell]:not([data-store-social]) body>main{margin:0 auto;padding:0;max-width:1160px}
+html[data-store-social=open] body .shell-ws{
+  margin:0;padding:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none
+}
+html[data-store-social=open] body>main{visibility:hidden}
+.shell-social-status{position:fixed;inset:44px 0 0;display:grid;align-content:center;justify-items:center;
+  gap:12px;padding:24px;background:var(--surface);color:var(--text);text-align:center}
+.shell-social-status p{margin:0}
+.shell-social-status button{background:var(--action-soft);color:var(--text)}
+.shell-social-support{width:min(100%,28rem);overflow-wrap:anywhere}
+.shell-social-support textarea{width:100%;box-sizing:border-box;margin:8px 0;resize:vertical}
+.shell-social-support button{margin-block-end:6px}
+html[data-store-shell] :is(#ws-social,#store-more){
+  min-height:32px;padding:4px 10px;color:var(--text);font-weight:600
+}
+html[data-store-shell] #store-more[aria-expanded=true],html[data-store-shell] :is(#ws-social,#store-more):hover{
+  background:var(--accent-soft)
+}
+.store-local-tools{
+  position:fixed;inset:64px 12px auto auto;z-index:45;width:min(420px,calc(100vw - 24px));
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:8px;
+  border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);box-shadow:var(--elev-2)
+}
+.store-local-tools[hidden]{display:none}
+html[data-store-bothouse] body :is(#store-more,#ws-social){display:none}
+html[data-store-bothouse] #store-bothouse-back{display:inline-block}
+.store-resident-controls:not([hidden]){display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.store-resident-controls .shell-ws-button{min-height:32px;white-space:nowrap}
+.store-resident-note{font-size:12px;color:var(--text);line-height:1.3}
+html[data-store-social=open] body #shell-bar[data-world-residents]{
+  height:auto;min-height:44px;padding-block:4px;justify-content:flex-start;
+}
+@media(max-width:600px){.store-resident-note{flex-basis:100%}}
+#store-bothouse-panel{text-align:center;max-inline-size:42rem;margin-inline:auto}
+#store-bothouse-panel:not([hidden]){display:grid;gap:12px;justify-items:center}
+html[data-store-social=open] .store-local-tools{
+  inset:44px 0 auto;width:auto;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:max-content;justify-content:end;
+  padding:5px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none
+}
+.store-local-tools .shell-ws-button{
+  min-height:32px;padding:4px 8px;text-align:start;white-space:normal;border-radius:var(--r-sm);color:var(--text)
+}
+.store-local-tools .shell-ws-button:hover,.store-local-tools .shell-ws-button:focus-visible{background:var(--accent-soft)}
+@media(max-width:760px){
+  html[data-store-social=open] .store-local-tools{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  html[data-store-shell] body .shell-brand,html[data-store-shell] body .shell-tools>.shell-tool:not([data-view=settings]){display:none}
+}
+/* Shell: top bar, workspace switch, navigation, tools, popovers, channel sub-navigation and
+   the Interface settings card. Layout-neutral; layout files restyle .shell-bar as they need. */
+.sidebar{display:none!important}
+.shell-bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:var(--sp-3);height:var(--bar-h);padding:0 var(--sp-4);background:var(--surface);border-bottom:1px solid var(--line)}
+.shell-brand{display:flex;align-items:center;height:auto;flex:none}
+.shell-brand .brand-mark-image{width:36px;height:36px}
+.shell-ws{display:flex;flex:none;gap:2px;padding:3px;border-radius:var(--r-full);background:var(--surface-2)}
+.shell-ws-button{min-height:30px;padding:4px 14px;border-radius:var(--r-full);background:transparent;color:var(--muted);font-size:var(--fs-sm);font-weight:600;line-height:1.5;white-space:nowrap;transition:background var(--ease),color var(--ease)}
+.shell-ws-button:hover{color:var(--text)}
+.shell-ws-button[aria-pressed=true]{background:var(--surface);color:var(--text);box-shadow:var(--elev-1)}
+/* Navigation: the legacy <nav> element, laid out as a row of pills. */
+.shell-nav{flex-direction:row;align-items:center;gap:2px;min-width:0;overflow:visible;padding:0}
+.shell-nav .nav{flex-direction:row;width:auto;min-height:36px;padding:6px 12px;gap:6px;border-radius:var(--r-full);font-size:var(--fs-sm);line-height:1.5;font-weight:500;color:var(--muted);white-space:nowrap;margin:0;transition:background var(--ease),color var(--ease)}
+.shell-nav .nav svg{width:18px;height:18px;flex:none}
+.shell-nav .nav:hover{background:var(--surface-2);color:var(--text)}
+.shell-nav .nav.active,.shell-nav .nav.active:hover{background:var(--accent-soft);color:var(--text);font-weight:600}
+.shell-nav .nav.active svg{color:var(--accent-ink)}
+.shell-nav .nav.active:before,.shell-tool.active:before{display:none}
+html[data-workspace=companion] .shell-nav .nav[data-ws=work],html[data-workspace=work] .shell-nav .nav[data-ws=companion],.shell-nav .nav[data-ws=sub],.shell-nav .nav:not([data-ws]){display:none}
+html[data-workspace=companion] #view-picker option[data-ws=work],html[data-workspace=work] #view-picker option[data-ws=companion]{display:none}
+/* Observer state belongs to Work. */
+.shell-observer{position:static;display:none;align-items:center;gap:6px;margin:0;padding:4px 10px;border-radius:var(--r-full);background:var(--surface-2);color:var(--muted);font-size:var(--fs-xs);line-height:1.5;white-space:nowrap;min-width:0}
+html[data-workspace=work] .shell-observer{display:flex}
+.shell-observer .connection-description{position:static;display:flex;gap:6px;min-width:0;padding:0;border:0;background:transparent;box-shadow:none}
+.shell-observer .connection-description>span{display:none}
+.shell-observer small{margin:0;font-size:var(--fs-xs);line-height:1.5;overflow:hidden;text-overflow:ellipsis}
+.shell-observer .dot{width:7px;height:7px;flex:none;background:var(--line-strong)}
+.shell-observer[data-state=connected] .dot{background:var(--success)}
+.shell-observer[data-state=installed] .dot,.shell-observer[data-state=sample] .dot{background:var(--warning)}
+/* Tools */
+.shell-tools{display:flex;align-items:center;gap:2px;margin-left:auto;flex:none}
+.shell-tool,.shell-tools .quiet{display:grid;place-items:center;width:36px;height:36px;min-height:0;padding:0;border:0;border-radius:var(--r-full);background:transparent;color:var(--muted);font-size:var(--fs-sm);transition:background var(--ease),color var(--ease)}
+.shell-tool:hover{background:var(--surface-2);color:var(--text)}
+.shell-tool svg{width:18px;height:18px}
+.shell-tool-text{width:auto;min-width:36px;padding:0 10px;font-weight:600;font-size:var(--fs-xs)}
+.shell-tool[aria-pressed=true],.shell-tool.active,.shell-tool[aria-expanded=true]{background:var(--accent-soft);color:var(--accent-ink)}
+.shell-tool span{display:none}
+#shell-layout svg{width:24px;height:16px}
+.schematic-fill{fill:currentColor;stroke:none;opacity:.45}
+#shell-accent .accent-dot{display:block;width:18px;height:18px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface),0 0 0 3px var(--line-strong)}
+.shell-tools .compact-nav{display:none;max-width:132px;height:34px;padding:4px 8px;margin-right:var(--sp-1);border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-size:var(--fs-sm)}
+/* Popovers */
+.shell-pop{position:relative;display:flex}
+.shell-pop-panel{position:absolute;top:calc(100% + 10px);right:0;z-index:40;width:max-content;max-width:min(340px,calc(100vw - 24px));padding:var(--sp-3);background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--elev-2);animation:pop-in .16s cubic-bezier(.2,.7,.2,1)}
+@keyframes pop-in{from{opacity:0;transform:translateY(-4px)}}
+.shell-pop-title{margin:0 0 var(--sp-2);font-size:var(--fs-xs);font-weight:600;line-height:1.5;color:var(--muted)}
+/* Layout choice */
+.layout-choice{display:grid;gap:var(--sp-1)}
+.layout-option{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border:1px solid transparent;border-radius:var(--r-sm);background:transparent;color:var(--text);text-align:left;transition:background var(--ease),border-color var(--ease)}
+.layout-option svg{flex:none;width:36px;height:24px;color:var(--muted)}
+.layout-option-text{display:grid;gap:1px;min-width:0}
+.layout-option strong{font-size:var(--fs-sm);font-weight:600;line-height:1.5}
+.layout-option-note{font-size:var(--fs-xs);line-height:1.5;color:var(--muted);max-width:26ch}
+.layout-option:hover{background:var(--surface-2)}
+.layout-option[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.layout-option[aria-pressed=true] svg{color:var(--accent-ink)}
+.layout-choice-large{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-3)}
+.layout-choice-large .layout-option{flex-direction:column;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-4);border-color:var(--line);border-radius:var(--r-md)}
+.layout-choice-large .layout-option svg{width:100%;height:auto;max-width:150px;aspect-ratio:3/2;padding:var(--sp-3);box-sizing:content-box;border-radius:var(--r-sm);background:var(--surface-2);stroke-width:1.1}
+.layout-choice-large .layout-option[aria-pressed=true] svg{background:var(--surface)}
+.layout-choice-large .layout-option-note{max-width:none}
+.layout-choice-large .layout-option strong{font-size:var(--fs-md)}
+/* Accent control */
+.accent-control{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.accent-auto{min-height:32px;padding:4px 12px;border:1px solid var(--line-strong);border-radius:var(--r-full);background:var(--surface);color:var(--text);font-size:var(--fs-sm);white-space:nowrap}
+.accent-auto[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+.accent-swatches{display:flex;gap:6px;flex-wrap:wrap}
+.accent-swatch{width:24px;height:24px;padding:0;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px rgb(0 0 0/.14)}
+.accent-swatch[aria-pressed=true]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text)}
+.accent-custom{display:flex!important;align-items:center;justify-content:flex-start!important;gap:var(--sp-2)!important;margin:0!important;font-size:var(--fs-sm)!important;color:var(--muted);max-width:none}
+.accent-custom input[type=color]{width:32px;height:28px;padding:0;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--surface);cursor:pointer}
+.accent-custom[data-active=true]{color:var(--text);font-weight:600}
+.shell-pop-panel .accent-control{max-width:250px}
+/* Channel sub-navigation (connection guide / companions / QQ accounts) */
+.shell-subnav{display:flex;gap:var(--sp-2);flex-wrap:wrap;max-width:1120px;margin:0 auto;padding:var(--sp-5) var(--sp-8) 0}
+.shell-subnav-button{min-height:32px;padding:4px 14px;border:1px solid var(--line);border-radius:var(--r-full);background:var(--surface);color:var(--muted);font-size:var(--fs-sm)}
+.shell-subnav-button:hover{color:var(--text);border-color:var(--line-strong)}
+.shell-subnav-button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+.shell-subnav:not([hidden])~.view{padding-top:var(--sp-5)}
+/* Interface card */
+.interface-card{grid-column:1/-1}
+.interface-card h3{margin:var(--sp-5) 0 var(--sp-2);font-size:var(--fs-sm);font-weight:600;color:var(--muted)}
+.interface-card h3:first-of-type{margin-top:var(--sp-3)}
+.interface-card>p{margin:0 0 var(--sp-3)}
+#settings-view .page-heading{align-items:center}
+.language-choice{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+/* AI and key card: first on the Settings page */
+.ai-card{grid-column:1/-1}
+.settings-card.ai-card p.ai-card-state{margin:var(--sp-2) 0 var(--sp-3);max-width:none}
+.ai-card .button-row{margin:0}
+/* The observer pill shows only on the pages that use it (shell.js sets [hidden]). */
+.shell-observer[hidden],html[data-workspace=work] .shell-observer[hidden]{display:none}
+#observer-card{scroll-margin-top:calc(var(--bar-h) + var(--sp-6))}
+#observer-card:focus{outline:none}
+/* The wizard's own <header> must not inherit the legacy 50px compact header bar. */
+.compact .onboarding-header{height:auto;min-height:0;padding:0;justify-content:initial}
+
+/* ---------- narrow ---------- */
+@media(max-width:1100px){.shell-nav .nav:not(.active) span{display:none}.shell-nav .nav:not(.active){padding:6px 9px}.shell-observer small{display:none}.shell-observer{padding:6px;min-width:28px;min-height:28px;justify-content:center;cursor:help}}
+@media(max-width:700px){.layout-choice-large{grid-template-columns:1fr}.layout-choice-large .layout-option{flex-direction:row;align-items:center}.layout-choice-large .layout-option svg{width:72px;max-width:72px;padding:var(--sp-2)}}
+@media(max-width:600px){.shell-nav,.shell-pop,.shell-observer,html[data-workspace=work] .shell-observer{display:none}.shell-tools .compact-nav{display:inline-block}.shell-bar{gap:var(--sp-2);padding:0 var(--sp-3)}.shell-subnav{padding:var(--sp-3) var(--sp-4) 0}}
+.compact .shell-nav,.compact .shell-pop,.compact .shell-observer,html[data-workspace=work] .compact .shell-observer{display:none}
+.compact .shell-tools .compact-nav{display:inline-block}
+.compact .shell-bar{gap:var(--sp-2);padding:0 var(--sp-3)}
+.compact .shell-ws-button,.compact[class] .shell-ws .shell-ws-button{min-height:30px;padding:4px 9px;font-size:var(--fs-xs)}
+.compact .shell-tools{flex:0 1 auto;min-width:0}
+.compact .shell-tools .compact-nav{flex:1 1 64px;min-width:64px;max-width:104px}
+.compact .shell-tool{width:32px;height:32px}.compact .shell-tool-text{width:auto;min-width:32px;padding:0 6px}
+.compact .shell-subnav{padding:var(--sp-3) var(--sp-4) 0}
+.compact .layout-choice-large{grid-template-columns:1fr}
+.compact .layout-choice-large .layout-option{flex-direction:row;align-items:center}
+.compact .layout-choice-large .layout-option svg{width:72px;max-width:72px;padding:var(--sp-2)}
+@media(prefers-reduced-motion:reduce){.shell-pop-panel{animation:none}}
+@media(forced-colors:active){.shell-ws-button[aria-pressed=true],.layout-option[aria-pressed=true],.accent-swatch[aria-pressed=true],.shell-nav .nav.active{outline:2px solid Highlight}}
+
+/* At narrow widths the view picker yields to the
+   workspace and tool controls instead of widening the document. */
+@media(max-width:600px){
+  html[data-layout] .shell-tools{flex:0 1 auto;min-width:0}
+  html[data-layout] .shell-tools .compact-nav{flex:1 1 64px;min-width:64px;max-width:104px}
+  html[data-layout] .shell-ws{margin-right:0}
+}
+
+@media(max-width:600px){
+  html[data-layout] .shell-tools .shell-tool-text{flex-shrink:0;white-space:nowrap}
+}

@@ -1,0 +1,4 @@
+# Install only into the optional verified local GPT-SoVITS environment.
+# Full model/runtime pins and the synthetic reference provenance are recorded in
+# outputs/voice-comparison/gpt-sovits; the Electron app never downloads them.
+sounddevice==0.5.6

@@ -214,6 +214,10 @@ func pcFuncTool(name, desc string, params any) map[string]any {
 }
 
 func (t protoConvTarget) callUpstream(r *http.Request, req pcReq, ev *upstreamEvents) (int, string) {
+	return t.callUpstreamWithClient(r, req, ev, protoConvClient)
+}
+
+func (t protoConvTarget) callUpstreamWithClient(r *http.Request, req pcReq, ev *upstreamEvents, client *http.Client) (int, string) {
 	if t.model != "" {
 		req.Model = t.model
 	}
@@ -231,7 +235,7 @@ func (t protoConvTarget) callUpstream(r *http.Request, req pcReq, ev *upstreamEv
 	if t.apiKey != "" {
 		hreq.Header.Set("Authorization", "Bearer "+t.apiKey)
 	}
-	resp, err := protoConvClient.Do(hreq)
+	resp, err := client.Do(hreq)
 	if err != nil {
 		return http.StatusBadGateway, "upstream: " + err.Error()
 	}

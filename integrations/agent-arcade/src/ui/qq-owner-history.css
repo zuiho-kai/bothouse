@@ -1,0 +1,38 @@
+/* One quiet reading surface, using the shared room palette and original type. */
+.qq-owner-history{width:min(720px,calc(100vw - 32px));height:min(790px,calc(100vh - 40px));max-height:calc(100vh - 40px);padding:0;color:var(--text);background:var(--paper);border:1px solid var(--room-outline);border-radius:18px;box-shadow:0 18px 65px #49304226;overflow:hidden}
+.qq-owner-history[open]{display:flex;flex-direction:column}.qq-owner-history::backdrop{background:#302b3240}
+.qq-history-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 14px;border-bottom:1px solid var(--line);flex:none}
+.qq-history-heading h2{font-size:17px;line-height:1.5;font-weight:600;margin:0}.qq-history-identity{color:var(--muted);font-size:12px;margin:5px 0 0;overflow-wrap:anywhere}
+.qq-history-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 24px;flex:none}
+.qq-history-density{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.qq-history-density select{border:1px solid var(--room-outline);background:var(--paper);border-radius:7px;color:var(--text);padding:6px 8px;font:inherit}
+.qq-history-scroll{flex:1;min-height:150px;overflow-y:auto;padding:14px 24px 22px;scrollbar-color:var(--room-outline) transparent;background:var(--surface)}
+.qq-history-empty{color:var(--muted);padding:55px 18px;text-align:center;font-size:14px;line-height:1.8;max-width:52ch;margin:0 auto}
+.qq-history-messages{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:24px}.qq-history-message{max-width:min(87%,58ch);align-self:flex-start;min-width:0}.qq-history-message.outgoing{align-self:flex-end}
+.qq-history-meta{display:flex;gap:12px;color:var(--muted);font-size:12px;margin:0 2px 6px;flex-wrap:wrap}.outgoing .qq-history-meta{justify-content:flex-end}
+.qq-history-bubble{font-size:14px;line-height:1.8;padding:12px 15px;border:1px solid var(--line);border-radius:3px 13px 13px 13px;background:var(--paper);white-space:pre-wrap;overflow-wrap:anywhere}.outgoing .qq-history-bubble{background:var(--action-soft);border-color:#ecd3e0;border-radius:13px 3px 13px 13px}.qq-history-media{display:inline-block;color:var(--muted);margin-right:5px}
+.qq-owner-history[data-density=compact] .qq-history-messages{gap:12px}.qq-owner-history[data-density=compact] .qq-history-bubble{padding:7px 11px}
+.qq-history-feedback{font-size:13px;margin:0;padding:10px 24px;color:var(--action);border-top:1px solid var(--line);flex:none}
+.qq-history-footer{padding:13px 24px 17px;border-top:1px solid var(--line);flex:none}.qq-history-pages{display:flex;align-items:center;justify-content:space-between;gap:12px}.qq-history-footer>p{margin:10px 0 0;color:var(--muted)}
+.qq-history-scope{font-size:12px;color:var(--muted);margin-top:12px}.qq-history-scope summary{cursor:pointer}.qq-history-scope p{margin:8px 0 0;max-width:72ch}
+@media(max-width:500px){.qq-history-heading{padding:17px 16px 12px}.qq-history-tools{padding:12px 16px}.qq-history-scroll{padding:12px 16px 20px}.qq-history-footer{padding:12px 16px}.qq-history-feedback{padding:10px 16px}.qq-history-message{max-width:95%}.qq-history-density{gap:5px}}
+
+.qq-history-composer{flex:none;max-height:52%;min-height:190px;overflow-y:auto;box-sizing:border-box;padding:13px 24px;border-top:1px solid var(--line);background:var(--paper)}
+.qq-history-scroll{min-height:80px}.qq-compose-current-status{font-size:12px;color:var(--action);margin-left:auto;text-align:right}
+.qq-history-footer{min-height:0;flex-shrink:1;overflow-y:auto}
+.qq-compose-label{display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
+.qq-history-composer textarea{display:block;width:100%;box-sizing:border-box;min-height:72px;max-height:150px;resize:vertical;border:1px solid var(--room-outline);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px;line-height:1.6;background:var(--surface);color:var(--text)}
+.qq-history-composer textarea:focus{outline:2px solid var(--action);outline-offset:2px}
+.qq-compose-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px}.qq-history-composer>p{margin:8px 0 0;color:var(--muted)}
+.qq-compose-receipt{padding:10px 12px;margin-bottom:12px;border:1px solid var(--room-outline);border-radius:10px;background:var(--action-soft);max-height:140px;overflow-y:auto;overflow-wrap:anywhere;font-size:14px}
+.qq-compose-receipt>strong{font-size:13px;font-weight:600}.qq-compose-sent-text{margin:6px 0;white-space:pre-wrap;max-height:58px;overflow:auto}.qq-compose-receipt .fine{margin:6px 0}.qq-compose-detail{margin-top:8px}.qq-compose-detail summary{cursor:pointer}.qq-compose-detail code{display:block;overflow-wrap:anywhere}
+@media(max-width:500px){.qq-history-composer{padding:12px 16px}.qq-owner-history{height:calc(100vh - 24px);max-height:calc(100vh - 24px)}.qq-history-scroll{min-height:80px}.qq-history-scope{margin-top:6px}}
+
+/* A single requested image stays inside the existing private reading dialog. */
+.qq-history-image-open{display:inline-block;vertical-align:baseline;padding:5px 10px;margin:2px 6px 2px 0;border:1px solid var(--room-outline);border-radius:8px;background:var(--paper);color:var(--action);font:inherit;font-size:14px;line-height:1.6;white-space:normal;box-shadow:none}
+.qq-history-image-open:hover:not(:disabled){background:var(--action-soft)}.qq-history-image-open:focus-visible,.qq-history-image-tools button:focus-visible{outline:2px solid var(--action);outline-offset:3px}
+.qq-history-image-tools{padding:14px 24px;flex:none;border-bottom:1px solid var(--line)}.qq-history-image-tools button{font-size:14px}
+.qq-history-image-stage{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;overflow:auto;padding:20px 24px;background:var(--surface)}
+.qq-history-image{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;border-radius:4px}
+.qq-history-image-state{max-width:40ch;font-size:14px;line-height:1.8;color:var(--muted);text-align:center;margin:20px 0}
+.qq-history-image-note{flex:none;margin:0;padding:12px 24px 16px;font-size:12px;line-height:1.6;color:var(--muted);border-top:1px solid var(--line)}
+@media(max-width:500px){.qq-history-image-tools{padding:12px 16px}.qq-history-image-stage{padding:16px}.qq-history-image-note{padding:12px 16px}}

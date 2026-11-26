@@ -1,0 +1,6 @@
+(arcade_social_proxy) {
+	reverse_proxy {args[0]} {
+		# Trust Caddy's direct peer, never a client-provided IP header.
+		header_up X-Real-IP {http.request.remote.host}
+	}
+}

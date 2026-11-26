@@ -1,0 +1,9 @@
+:root {color-scheme:light dark;font:16px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+body {margin:0;background:Canvas;color:CanvasText}
+main {max-width:46rem;margin:auto;padding:1.5rem}
+h1 {font-size:1.5rem} h2 {font-size:1.13rem;margin:1.3rem 0 .4rem} h1,p,dl {margin-top:0}
+select,button {font:inherit;padding:.35rem .65rem} select {max-width:100%}
+dt {font-weight:600} dd {margin:0 0 .7rem} dd,.entry,#target {white-space:pre-wrap;overflow-wrap:anywhere}
+.entry {display:block;margin:.6rem 0} .entry span {display:block;margin-left:1.45rem}
+#portrait-image {display:block;max-width:min(100%,10rem);max-height:12rem;object-fit:contain}
+footer {position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.7rem;background:Canvas;padding:.7rem 0;border-top:1px solid GrayText}
