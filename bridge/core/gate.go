@@ -509,7 +509,14 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			e.teamNoteTurn(msg, session)
 			// #1856: no gate still records what was seen, so restart catch-up knows where
 			// the posts made while the bridge was down begin (missed_catchup.go).
-			if g == nil && !msg.BackfillOnCall && msg.MessageID != "" {
+			// #2254: with a gate installed this branch is only the owner-DM fast path
+			// (IsPermissionResponse is excluded above), which also hands the message to
+			// a turn — without the mark the DM watermark never moved and every restart
+			// catch-up re-answered the owner's newest private message. With a gate the
+			// mark is taken even for BackfillOnCall (a feishu bare @bot in a p2p chat):
+			// the g == nil BackfillOnCall case is already marked inside the backfill
+			// block above, and skipping it here left the same loop open there.
+			if (g != nil || !msg.BackfillOnCall) && msg.MessageID != "" {
 				markSeen(p, session, msg)
 			}
 			if g != nil || !msg.BackfillOnCall {
