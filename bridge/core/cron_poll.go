@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 )
 
 // Poller cron jobs (CronJob.Poll): the job's Exec is a check script run on
@@ -68,6 +69,11 @@ func (e *Engine) pollCronJob(job *CronJob) (*CronJob, error) {
 	if head == "" {
 		head = fmt.Sprintf("Poller %q reported a change. Look at it and act if needed.", label)
 	}
-	wake.Prompt = head + "\n\n[poller output]\n" + truncateRunes(out, pollOutputMax)
+	body := out
+	if n := utf8.RuneCountInString(out); n > pollOutputMax {
+		// Say the output was cut and where the whole is (#2048: a silent cut left the agent acting on half).
+		body = string([]rune(out)[:pollOutputMax]) + fmt.Sprintf("\n[poller output cut: %d of %d characters shown; the whole output is the latest \"poll\" event in events.jsonl]", pollOutputMax, n)
+	}
+	wake.Prompt = head + "\n\n[poller output]\n" + body
 	return &wake, nil
 }
