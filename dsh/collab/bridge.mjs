@@ -397,7 +397,14 @@ export class Bridge {
     this.changed = false;
     this.first = false;
     this.progress({ stage: 'service' });
-    if (!await this.manage(restart ? 'restart' : 'reload')) this.start(bin);
+    // Windows: a bridge re-exec opens a visible console window for the new process
+    // (Windows Terminal on Win11). Stop it quietly and start a hidden one instead.
+    if (restart && process.platform === 'win32') {
+      await this.stopQuietly();
+      this.start(bin);
+    } else if (!await this.manage(restart ? 'restart' : 'reload')) {
+      this.start(bin);
+    }
     // In the background: the next apply must not wait for the bridge to come up.
     if (this.onCheck !== undefined) {
       const run = ++this.checkRun;
@@ -496,13 +503,30 @@ export class Bridge {
     }
   }
 
+  /** Stop the bridge without asking it to re-exec (Windows: no console window). */
+  async stopQuietly() {
+    try {
+      const r = await run('taskkill', ['/IM', 'bothouse.exe', '/F'], { timeout: 15_000, env: this.env });
+      return r.code === 0;
+    } catch { return false; }
+  }
+
   /**
    * Start the bridge in the background; it outlives this DSH. A second start while one runs exits on its lock.
    * Returns a promise of its exit code (or the spawn error), for revive.
    */
   start(bin) {
     const log = openSync(join(this.dataDir, 'bothouse.log'), 'a', 0o600);
-    const child = spawn(bin, this.cli(['--headless']), { detached: true, stdio: ['ignore', log, log], windowsHide: true, env: this.env });
+    // Windows: the bridge's own shell lookups (cron `exec`, turn hooks) must resolve
+    // powershell to the windowless shim next to config.toml; without it every one of
+    // them pops a console window because the bridge itself has no console.
+    const env = { ...this.env };
+    const shim = join(dirname(this.configFile), 'bin', 'ps-shim');
+    if (process.platform === 'win32' && existsSync(shim)) {
+      const key = Object.keys(env).find(name => name.toUpperCase() === 'PATH') ?? 'Path';
+      env[key] = `${shim};${env[key] ?? ''}`;
+    }
+    const child = spawn(bin, this.cli(['--headless']), { detached: true, stdio: ['ignore', log, log], windowsHide: true, env });
     const exited = new Promise(resolve => {
       child.on('error', error => { this.logger?.warn?.('conest-collab: starting bothouse failed: %s', error?.message ?? error); resolve(String(error?.message ?? error)); });
       child.on('exit', code => resolve(code));

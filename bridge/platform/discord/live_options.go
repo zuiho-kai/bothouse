@@ -63,7 +63,15 @@ func (p *Platform) ReloadOptions(opts map[string]any) []string {
 	lead, _ := opts["team_lead_bot"].(string)
 	guilds, channels := parseGroupReplyAll(opts)
 	share, _ := opts["share_session_in_channel"].(bool)
+	threadIsolation, _ := opts["thread_isolation"].(bool)
+	threadPerUser, _ := opts["thread_session_per_user"].(bool)
 	var restart []string
+	if threadIsolation != p.threadIsolation {
+		restart = append(restart, "thread_isolation")
+	}
+	if threadIsolation && threadPerUser != p.threadSessionPerUser {
+		restart = append(restart, "thread_session_per_user")
+	}
 	p.liveMu.Lock()
 	defer p.liveMu.Unlock()
 	p.allowBots, p.teamLead = allow, lead

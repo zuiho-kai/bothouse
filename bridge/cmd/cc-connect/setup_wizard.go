@@ -125,6 +125,7 @@ func saveFeishuSetup(req core.FeishuSetupSaveRequest) error {
 	}
 	if _, err := config.EnsureProjectWithFeishuPlatform(config.EnsureProjectWithFeishuOptions{
 		ProjectName: req.ProjectName, PlatformType: platType, WorkDir: req.WorkDir, AgentType: req.AgentType,
+		OwnerOpenID: req.OwnerOpenID,
 	}); err != nil {
 		return fmt.Errorf("ensure project: %w", err)
 	}

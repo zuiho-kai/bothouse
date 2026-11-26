@@ -489,13 +489,8 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     items = list(pages.items())
     if len(items) > k and not defer:  # 没有旧说法要沉底：多留的那页不推
         items = items[:k]
-    # 历史词只用于找候选；明确的本句话题不能靠旧话题行占推送额度。
-    # 来源：沿用 rare_toks 的索引实词、FRAG_CH/COMMON 和 PREV_TOKS；无实词的短回复仍用历史。
-    terms = set(search.toks(rare_toks(focus))) if focus else set()
-    if terms:
-        items = [(rel, dict(it, rows=[r for r in it["rows"] if terms & set(search.toks(r["text"]))]))
-                 for rel, it in items]
-        items = [(rel, it) for rel, it in items if it["rows"]]  # 只收紧选定行，不用别页补满
+    # 旧话题行占名额只由 need 的相关度判定（weak_lines）一处管，这里不再按本句稀有词另筛一道：
+    # #1972 的稀有词筛法多是二字碎片、比对的又只有标题，#2031 用 241 题公平标签回放，前 5 命中从 85% 掉到 28%。
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in items]
 
 
@@ -534,11 +529,11 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
     if not found:
         return []
     top = found[0]
-    # 票数和最高分楼一样时推命中的那一楼：多楼帖九成以上各楼同票，同票按「新楼在前」等于随便挑一楼
-    #（11-11 抽查：1097 个多楼帖里 1020 个同票）。别的楼票数真更高才换。
+    # 命中的那一楼在帖里（没折叠、不在历史节）就推它的编号：这轮查到的是它。票更高的别的楼换上来时，
+    # 推的编号取出来不是这轮要的那条（#2031 回放：241 题里 27 题因此没中）；帖标题照旧，票照样能投到这一楼。
     if hit is not None:
         mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
-        if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
+        if mine:
             top = mine[0]
     f, (file, n, line) = top
     here = ((root or WIKI) / rel).resolve()
@@ -573,7 +568,7 @@ def context(req):
     dec = decision_items(text, key)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + corrected_items(bot, key) + board_items(key)
            + proposal_items(text, bot, key)
-           + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True, need=need) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req, own_paths={w["path"] for w in mine})  # 去重后再在两库间分配额度
@@ -975,19 +970,23 @@ def lesson_hits(text, skip=None, prepared=False):
     return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
 
 
-def with_lessons(pages, text, skip=None, prepared=False):
-    """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。"""
+def with_lessons(pages, text, skip=None, prepared=False, need=""):
+    """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。
+    need = 这轮的话：经验行和推页行过同一道相关度判定（weak_lines），不相关的标 weak、占名额不推（#2031：经验原来绕开这道判定，
+    靠前两轮的词或「什么」「怎么」这类虚词就能混进来）。"""
     try:
         hits = lesson_hits(text, skip, prepared)
     except Exception:  # 教训表读坏了不挡推页
         return pages
-    for rel, n, ln, k, d in hits:
+    weak_of = weak_lines(need, [ln for _, _, ln, _, _ in hits])
+    for (rel, n, ln, k, d), weak in zip(hits, weak_of):
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
+        r = dict(_row(rel, ln, row, ln=n), **({"weak": True} if weak else {}))
         if page is None:
-            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row, ln=n)]}))
+            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [r]}))
         elif f"| {n}: " not in page["desc"]:
-            page["rows"].append(_row(rel, ln, row, ln=n))
+            page["rows"].append(r)
             _render(page)
     return pages
 
@@ -1434,8 +1433,20 @@ def _refs(items):
                     rel = ln.strip()
         else:
             rel = p[len(base):] if p.startswith(base) else p
-            out += [_ref_id(rel, n) for n in re.findall(r"\| (\d+): ", d)]
+            # 行写成「| 行号: 」；别的页的楼、沉底到别页后面的旧说法写成「| 路径:行号: 」；页头为空时第一行没有「| 」（#2031：这两类原来漏记）
+            for where, n in _ROW_REF.findall(d):
+                out.append(_ref_id(_rel_of(where, base) if where else rel, n))
     return out
+
+
+_ROW_REF = re.compile(r"(?:^|\| )(?:(\S+?\.md):)?(\d+): ")
+
+
+def _rel_of(shown, base):
+    """推送里写出的页路径（~/wiki/… 或绝对路径）→ 相对主 wiki 的路径；不在主 wiki 下的原样返回。"""
+    full = str(Path(shown).expanduser())
+    b = str(Path(base).expanduser()).rstrip("/") + "/"
+    return full[len(b):] if full.startswith(b) else shown
 
 
 def _ref_id(rel, n):

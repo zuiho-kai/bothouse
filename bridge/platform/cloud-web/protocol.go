@@ -242,23 +242,35 @@ func buildRegisterPayload(name, project, transport string) wireRegister {
 }
 
 func parseRegisterAck(raw []byte) (map[string]bool, error) {
+	ack, err := decodeRegisterAck(raw)
+	if err != nil {
+		return nil, err
+	}
+	return ack.capabilitySet(), nil
+}
+
+func decodeRegisterAck(raw []byte) (wireRegisterAck, error) {
 	var ack wireRegisterAck
 	if err := json.Unmarshal(raw, &ack); err != nil {
-		return nil, fmt.Errorf("cloud_web: parse register_ack: %w", err)
+		return ack, fmt.Errorf("cloud_web: parse register_ack: %w", err)
 	}
 	if ack.Type != "register_ack" {
-		return nil, fmt.Errorf("cloud_web: expected register_ack, got %q", ack.Type)
+		return ack, fmt.Errorf("cloud_web: expected register_ack, got %q", ack.Type)
 	}
 	if !ack.OK {
 		if ack.Error != "" {
-			return nil, fmt.Errorf("cloud_web: register rejected: %s", ack.Error)
+			return ack, fmt.Errorf("cloud_web: register rejected: %s", ack.Error)
 		}
-		return nil, fmt.Errorf("cloud_web: register rejected")
+		return ack, fmt.Errorf("cloud_web: register rejected")
 	}
+	return ack, nil
+}
+
+func (ack wireRegisterAck) capabilitySet() map[string]bool {
 	if len(ack.Capabilities) == 0 {
-		return defaultCapabilities(), nil
+		return defaultCapabilities()
 	}
-	return capabilitySet(ack.Capabilities), nil
+	return capabilitySet(ack.Capabilities)
 }
 
 func decodeImages(items []wireImage) []core.ImageAttachment {

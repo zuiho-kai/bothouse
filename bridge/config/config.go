@@ -216,6 +216,7 @@ type GitHubRuleConfig struct {
 // BridgeConfig controls the WebSocket bridge for external platform adapters.
 type BridgeConfig struct {
 	Enabled     *bool    `toml:"enabled"`                // default false
+	Host        string   `toml:"host,omitempty"`         // listen address; empty means all interfaces
 	Port        int      `toml:"port,omitempty"`         // listen port; default 9810
 	Token       string   `toml:"token,omitempty"`        // shared secret for authentication; required unless insecure=true
 	Path        string   `toml:"path,omitempty"`         // URL path; default "/bridge/ws"
@@ -2361,6 +2362,7 @@ type EnsureProjectWithFeishuOptions struct {
 	CloneFromProject string // optional source project name to clone agent config from
 	WorkDir          string // optional default work_dir when creating project
 	AgentType        string // optional default agent type when no source project exists, default "codex"
+	OwnerOpenID      string // optional verified Feishu account for a new Codex role
 }
 
 // EnsureProjectWithFeishuResult describes whether project provisioning created a new project.
@@ -2480,6 +2482,11 @@ func EnsureProjectWithFeishuPlatform(opts EnsureProjectWithFeishuOptions) (*Ensu
 	}
 	lines = append(lines, "[[projects]]")
 	lines = append(lines, fmt.Sprintf("name = %s", quoteTomlString(proj.Name)))
+	owner := strings.TrimSpace(opts.OwnerOpenID)
+	direct := defaultFeishuDirectCodex(proj.Agent.Type, platformType, map[string]any{"allow_from": owner})
+	if direct {
+		lines = append(lines, "inject_team_rules = false")
+	}
 	lines = append(lines, "")
 	lines = append(lines, "[projects.agent]")
 	lines = append(lines, fmt.Sprintf("type = %s", quoteTomlString(proj.Agent.Type)))
@@ -2496,6 +2503,9 @@ func EnsureProjectWithFeishuPlatform(opts EnsureProjectWithFeishuOptions) (*Ensu
 	lines = append(lines, fmt.Sprintf("type = %s", quoteTomlString(platformType)))
 	lines = append(lines, "")
 	lines = append(lines, "[projects.platforms.options]")
+	if direct {
+		lines = append(lines, fmt.Sprintf("allow_from = %s", quoteTomlString(owner)))
+	}
 	if err := writeRawConfig(joinConfigLines(lines, hadTrailing)); err != nil {
 		return nil, err
 	}
@@ -2503,8 +2513,8 @@ func EnsureProjectWithFeishuPlatform(opts EnsureProjectWithFeishuOptions) (*Ensu
 	return &EnsureProjectWithFeishuResult{
 		Created:          true,
 		AddedPlatform:    false,
-		ProjectIndex:     len(cfg.Projects) - 1,
-		PlatformAbsIndex: len(cfg.Projects[len(cfg.Projects)-1].Platforms) - 1,
+		ProjectIndex:     len(cfg.Projects),
+		PlatformAbsIndex: 0,
 		PlatformType:     platformType,
 	}, nil
 }

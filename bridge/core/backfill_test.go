@@ -349,3 +349,32 @@ func TestChannelBackfill_SkipsOwnAttachments(t *testing.T) {
 		t.Fatal("own attachment was downloaded")
 	}
 }
+
+func TestCalledChannelBackfillWithoutGate(t *testing.T) {
+	p := &historyPlatform{
+		stubPlatformEngine: stubPlatformEngine{n: "feishu"},
+		history: []ChannelHistoryMessage{
+			{ID: "100", Author: "owner", Content: "already seen", Time: time.Now()},
+			{ID: "101", Author: "owner", Content: "recent context", Time: time.Now()},
+		},
+	}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	defer e.Stop()
+	session := e.sessions.GetOrCreateActive("feishu:c1")
+	session.SetLastSeenMsgID("100")
+	msg := &Message{
+		Platform: "feishu", SessionKey: "feishu:c1", ChannelID: "c1", MessageID: "102",
+		Content: MentionOnlyPrompt, Mentioned: true, BackfillOnCall: true,
+	}
+	if e.applyGate(p, msg, session, msg.SessionKey) {
+		t.Fatal("the call should continue to the agent")
+	}
+	if !strings.Contains(msg.Content, "recent context") || strings.Contains(msg.Content, "already seen") ||
+		!strings.HasSuffix(msg.Content, MentionOnlyPrompt) {
+		t.Fatalf("incorrect prompt: %q", msg.Content)
+	}
+	if userTextOf(msg) != MentionOnlyPrompt || session.GetLastSeenMsgID() != "102" {
+		t.Fatalf("history changed the caller's text or did not advance the cursor: %q / %q",
+			userTextOf(msg), session.GetLastSeenMsgID())
+	}
+}

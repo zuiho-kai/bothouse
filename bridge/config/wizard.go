@@ -289,7 +289,8 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 			break
 		}
 	}
-	if p == nil {
+	newProject := p == nil
+	if newProject {
 		at := o.AgentType
 		if at == "" {
 			at = "claudecode"
@@ -372,6 +373,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 					opts["allow_from"] = merged
 				}
 			}
+			if newProject && defaultFeishuDirectCodex(o.AgentType, o.PlatformType, opts) {
+				p["inject_team_rules"] = false
+			}
 		}
 	}
 	if o.NameCustomized != nil {
@@ -411,6 +415,23 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 		agentOpts["provider"] = o.Provider.Name
 	}
 	return nil
+}
+
+// defaultFeishuDirectCodex applies to newly provisioned, single-platform roles.
+func defaultFeishuDirectCodex(agentType, platformType string, options map[string]any) bool {
+	if agentType != "codex" || (platformType != "feishu" && platformType != "lark") {
+		return false
+	}
+	if strings.TrimSpace(stringOption(options["allow_bots"])) != "" || strings.TrimSpace(stringOption(options["team_lead_bot"])) != "" {
+		return false
+	}
+	for _, entry := range strings.Split(stringOption(options["allow_from"]), ",") {
+		id := strings.TrimSpace(entry)
+		if !strings.HasPrefix(id, "ou_") || len(id) == len("ou_") || strings.Contains(id, "*") {
+			return false
+		}
+	}
+	return true
 }
 
 // WizardPlatformProject is a project that has a platform of the asked type.
