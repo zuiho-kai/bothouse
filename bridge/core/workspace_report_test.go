@@ -149,3 +149,41 @@ func TestWorkspaceReportLegacyHandoffOwnership(t *testing.T) {
 		})
 	}
 }
+
+// 2026-11-27 00:34: #2052 was sent back and claimed by another workspace; the old workspace was
+// still asked for its [report], then released, and the stray wake opened a fresh session there on
+// the long-closed #2048. A workspace whose last task went on elsewhere owes no report.
+func TestWorkspaceReportNotAskedAfterTaskMovedAway(t *testing.T) {
+	for _, tc := range []struct {
+		name, taskWS string
+		want         bool
+	}{{"moved to ws2", "discord:ws2", false}, {"still here", "discord:ws1", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _, _ := exitFixture(t, mapParent{"ws1": "chat1"})
+			dir := t.TempDir()
+			e.SetTeam(dir, "橘", false)
+			teamWorkspaceStore.mu.Lock()
+			err := saveTeamWorkspacesLocked(teamWorkspacePath(e.dataDir), &teamWorkspaceState{
+				Parents:  map[string][]TeamWorkspace{"discord:chat1": {{ID: "ws1", Name: "工作区1"}}},
+				Handoffs: map[string][]TeamHandoff{"discord:ws1": {{Chat: "discord:chat1", Board: 2052}}},
+				Tasks:    map[int]TeamTask{2052: {ID: 2052, State: TeamTaskDispatched, WS: tc.taskWS}},
+				Version:  teamWorkspaceStateVersion,
+			})
+			teamWorkspaceStore.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTaskBoard(t, dir, team.TaskBoardFile, `{"id":2052,"who":"工作区1橘","sk":"discord:ws1","status":"在做"}`+"\n")
+			e.beginWorkspaceReportTurn("discord:ws1")
+			e.pendingResetMu.Lock()
+			if e.pendingReset == nil {
+				e.pendingReset = map[string]bool{}
+			}
+			e.pendingReset["discord:ws1"] = true // the handback before the rework queued a reset
+			e.pendingResetMu.Unlock()
+			if got := e.finishWorkspaceReportTurn("discord:ws1", "NO_REPLY"); got != tc.want {
+				t.Fatalf("report requested = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
