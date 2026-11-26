@@ -119,7 +119,7 @@ func TestProactiveLegacyExitRechecksEachChunk(t *testing.T) {
 func TestProactiveExitCannotCreateUnboundLeadTurn(t *testing.T) {
 	e, _, _, ctx := proactiveOutputFixture(t)
 	defer e.Stop()
-	if e.wakeChatLeadContext(ctx, &stubPlatformEngine{n: "discord"}, "chat", "ws", "role", team.ExitKindReport, "result", "room", 0, false, "") {
+	if e.wakeChatLeadContext(ctx, &stubPlatformEngine{n: "discord"}, "chat", "ws", "role", team.ExitKindReport, "result", "room", nil, false, "") {
 		t.Fatal("proactive handback created an unbound timer turn")
 	}
 }

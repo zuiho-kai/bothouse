@@ -81,16 +81,12 @@ func (e *Engine) workspaceHasOpenHandoffFor(sessionKey string, board int) bool {
 // posts the original instead). Loop guard: the turn runs in the chat channel's session (no
 // workspace, no handoff there), so its reply is never forwarded again; ask ids are stripped so
 // the prompt cannot be taken as the user's answer (routeWorkspaceAnswer).
-func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool, headline string) bool {
+func (e *Engine) wakeChatLeadContext(ctx context.Context, p Platform, parent, ws, bot, kind, body, wsSession string, item *teamTaskBoardItem, posted bool, headline string) bool {
 	if _, bound := ctx.Value(proactiveExecutionKey{}).(proactiveExecution); bound {
 		// Timer jobs do not carry task authority. A proactive handback uses the
 		// checked platform path instead of creating an unbound execution.
 		return false
 	}
-	return e.wakeChatLead(p, parent, ws, bot, kind, body, wsSession, boardID, posted, headline)
-}
-
-func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession string, boardID int, posted bool, headline string) bool {
 	if p == nil || parent == "" {
 		return false
 	}
@@ -98,21 +94,24 @@ func (e *Engine) wakeChatLead(p Platform, parent, ws, bot, kind, body, wsSession
 		slog.Error("team exit: forward target is itself a workspace; lead not woken", "parent", parent, "workspace", ws)
 		return false
 	}
-	// A missing or unknown ID is not evidence that the reply belongs to the
-	// newest occupant of this workspace. Preserve the text without that binding.
 	background := ""
 	board := 0
-	if it := e.boardItemByID(boardID); it != nil {
-		board = it.ID
-		background = e.workspaceTaskBackground(wsSession, boardID)
+	if item != nil {
+		board = item.ID
+		background = e.workspaceTaskBackground(wsSession, board)
 	}
 	prompt := chatLeadPrompt(e.dataDir, channelLabel(p.Name(), ws), bot, kind, body, background, posted)
 	prompt = askRef.ReplaceAllString(prompt, "ask-…")
+	batch := workspaceBatchReport(ctx)
+	keyKind := kind
+	if batch {
+		keyKind = exitKindBatch
+	}
 	rec := &pendingReport{
-		Key:      reportKey(p.Name(), parent, ws, kind, board, body),
+		Key:      reportKey(p.Name(), parent, ws, keyKind, board, body),
 		Platform: p.Name(), Chat: parent, Workspace: ws, Bot: bot,
 		Kind: kind, Body: body, Headline: headline, Board: board,
-		Session: wsSession, Posted: posted, CreatedAt: time.Now(),
+		Session: wsSession, Posted: posted, Batch: batch, CreatedAt: time.Now(),
 	}
 	if posted {
 		ok, err := e.rememberReportErr(rec)
