@@ -36,11 +36,13 @@ it('shows avatars and attachments of the paired computer inside a remote panel',
   const { container } = render(
     <CollabUrlContext.Provider value={remote}>
       <Avatar id="a" name="橘" avatar="orange" />
-      <AttachmentList attachments={[{ id: 'f1', name: 'a.txt', mime: 'text/plain', size: 3 }]} t={t} />
+      <AttachmentList attachments={[{ id: 'f1', name: 'full briefing.md', mime: 'text/markdown', size: 3 }]} t={t} />
     </CollabUrlContext.Provider>,
   )
   expect(container.querySelector('img')?.getAttribute('src')).toBe(`collab/remote/${LINK}/avatars/orange.png`)
-  expect(screen.getByRole('link').getAttribute('href')).toBe(`collab/remote/${LINK}/api/attachments/f1`)
+  const download = screen.getByRole('link', { name: /full briefing\.md/ })
+  expect(download.getAttribute('href')).toBe(`collab/remote/${LINK}/api/attachments/f1`)
+  expect(download.getAttribute('download')).toBe('full briefing.md')
 })
 
 it('keeps local paths outside a remote panel', () => {

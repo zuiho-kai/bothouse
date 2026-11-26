@@ -1667,6 +1667,36 @@ test('bot image/file/audio frames become channel attachments; media capabilities
   assert.equal(audioMime(''), 'audio/mpeg');
 });
 
+test('bot file receipt identifies a downloadable attachment or reports rejection', async () => {
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-file-receipt-')), 'attachments'));
+  const hub = makeHub();
+  const ju = connect(new CloudWebGateway(hub, { token: 't', logger: quiet, files }), 'bot=ju&name=橘');
+  await settle();
+  assert.ok(ju.of('register_ack')[0].capabilities.includes('file_receipt'));
+
+  const name = 'full briefing.md';
+  const body = Buffer.from('# Briefing\n\n[Source](https://example.com/report)');
+  const file = { type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
+    data: body.toString('base64'), mime_type: 'text/markdown', file_name: name };
+  ju.frame({ ...file, ref_id: 'stored' });
+  ju.frame({ ...file, ref_id: 'invalid', data: '!!!!' });
+  ju.frame({ ...file, ref_id: 'missing-room', session_key: 'cloud_web:room-99', reply_ctx: 'room-99' });
+  await settle();
+
+  const rows = hub.store.page(1, undefined, 10);
+  assert.equal(rows.length, 1);
+  const row = publicMessage(rows[0], hub.store);
+  const [attachment] = row.attachments;
+  assert.equal(attachment.name, name);
+  assert.equal(hub.store.attachmentMeta(attachment.id).name, name);
+  assert.deepEqual(files.read(attachment.id), body);
+  assert.deepEqual(ju.of('preview_ack'), [
+    { type: 'preview_ack', ref_id: 'stored', preview_handle: String(row.id) },
+    { type: 'preview_ack', ref_id: 'invalid', preview_handle: '' },
+    { type: 'preview_ack', ref_id: 'missing-room', preview_handle: '' },
+  ]);
+});
+
 test('bot websocket cap fits a default 50 MiB cc-connect attachment; a 7 MiB file frame is stored', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

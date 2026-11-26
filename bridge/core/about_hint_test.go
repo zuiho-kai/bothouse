@@ -19,6 +19,9 @@ func TestAboutHintReachesEveryAgentOnce(t *testing.T) {
 	if !strings.Contains(bridgeInstructions, "bothouse send --file") || !strings.Contains(bridgeInstructions, aboutHint) {
 		t.Fatal("shared instructions lack the file-sending rule or the about hint")
 	}
+	if !strings.Contains(bridgeInstructions, "In DSH Channels, local Markdown file links display as plain text.") {
+		t.Fatal("shared instructions lack DSH attachment guidance")
+	}
 	_, e, a, _, s := inputFixture(t)
 	rules := teamModeRulesFor(DefaultDispatchMode)
 
