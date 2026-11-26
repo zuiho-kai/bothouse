@@ -538,19 +538,24 @@ func TestGroupChatIdentityNamesRealChatNotProject(t *testing.T) {
 	}
 }
 
-func TestSingleSenderBacklogTargetSelection(t *testing.T) {
-	trigger := &Message{UserID: "wake"}
-	sameSender := []backlogTarget{{messageID: "m1", senderID: "asker"}, {messageID: "m2", senderID: "asker"}}
-	target, ok := singleSenderBacklogTarget(sameSender, trigger)
-	if !ok || target.messageID != "m1" || target.senderID != "asker" {
-		t.Fatalf("same-sender backlog target = %+v, %v", target, ok)
+func TestGroupChatIdentityUnavailableNameSticksToMissingName(t *testing.T) {
+	srv := ambientGate(t, func(gateRequest) string { return "reply" })
+	e, sess, p := ambientEngine(t, srv)
+
+	msg := &Message{
+		SessionKey: "test:c1", Platform: "test", ChannelKey: "795722872", MessageID: "m1",
+		UserID: "u", UserName: "Eicy", Content: "我是直接从 main fork 吗", Mentioned: true,
+		GroupChat: true, ReplyCtx: "ctx",
 	}
-	mixed := []backlogTarget{{messageID: "m1", senderID: "asker"}, {messageID: "m2", senderID: "other"}}
-	if target, ok := singleSenderBacklogTarget(mixed, trigger); ok {
-		t.Fatalf("mixed-sender backlog produced unsafe target %+v", target)
+	msg.burstDone = true
+	e.handleMessage(p, msg)
+
+	waitFor(t, "one prompt", func() bool { return len(sess.sent()) == 1 })
+	got := sess.sent()[0]
+	if !strings.Contains(got, "the group display name is unavailable") {
+		t.Fatalf("prompt does not say the group name is unavailable:\n%s", got)
 	}
-	onlyWakeSender := []backlogTarget{{messageID: "m1", senderID: "wake"}}
-	if target, ok := singleSenderBacklogTarget(onlyWakeSender, trigger); ok {
-		t.Fatalf("wake sender produced redundant target %+v", target)
+	if strings.Contains(got, "this chat is not named after the project or repository") {
+		t.Fatalf("missing group name still carries the project/repository denial:\n%s", got)
 	}
 }

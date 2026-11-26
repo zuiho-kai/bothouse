@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// A backlog answer must visibly attach to the original asker even when the model
-// answers as ordinary final text instead of running bothouse send --reply-to.
-// OneBot is fake; the QQ adapter, gate, engine and final send path are real.
-func TestBacklogAnswerFallsBackToNativeQuote(t *testing.T) {
+// When one person's question is still in the backlog but another person wakes the
+// bot, an ordinary final answer must not be attached to the earlier question by
+// the sending layer. OneBot is fake; the QQ adapter, gate, engine and final send
+// path are real.
+func TestBacklogAnswerDoesNotQuoteEarlierAskerWhenAnotherAsks(t *testing.T) {
 	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Mentioned bool `json:"mentioned"`
@@ -62,13 +64,28 @@ func TestBacklogAnswerFallsBackToNativeQuote(t *testing.T) {
 	if params == nil {
 		t.Fatal("final answer never reached fake OneBot")
 	}
-	segments, ok := params["message"].([]any)
-	if !ok || len(segments) == 0 {
-		t.Fatalf("final answer did not use structured native reply segments: %#v", params["message"])
+	if segments, ok := params["message"].([]any); ok {
+		for _, segment := range segments {
+			first, _ := segment.(map[string]any)
+			data, _ := first["data"].(map[string]any)
+			if first["type"] == "reply" && segString(data, "id") == "103" {
+				t.Fatalf("final answer quoted backlog message 103 although another sender asked: %#v", segments)
+			}
+		}
 	}
-	first, _ := segments[0].(map[string]any)
-	data, _ := first["data"].(map[string]any)
-	if first["type"] != "reply" || segString(data, "id") != "103" {
-		t.Fatalf("final answer first segment = %#v, want native reply to backlog message 103", first)
+	text, ok := params["message"].(string)
+	if !ok || text != "answer" {
+		t.Fatalf("ordinary final answer = %#v, want the plain text answer without an automatic quote", params["message"])
+	}
+
+	select {
+	case prompt := <-as.prompts:
+		for _, want := range []string{"message_id=103", "sender_id=2001", "--reply-to", "--at-users"} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("backlog prompt missing %s:\n%s", want, prompt)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("backlog prompt never reached the capture session")
 	}
 }
