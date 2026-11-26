@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -1060,9 +1062,9 @@ func TestLark_ErrorMessagePrefix(t *testing.T) {
 }
 
 func TestBuildPreviewCardJSON_ProgressPayloadUsesStructuredCard(t *testing.T) {
-	payload := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryThinking, Text: "planning"},
-		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
+	payload := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryThinking, Text: "planning"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 	if payload == "" {
 		t.Fatal("BuildProgressCardPayload returned empty payload")
@@ -1097,10 +1099,10 @@ func TestBuildPreviewCardJSON_ProgressPayloadUsesStructuredCard(t *testing.T) {
 
 func TestBuildPreviewCardJSON_ProgressPayloadSeparatesReasoningAndTools(t *testing.T) {
 	exitCode := 0
-	payload := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryThinking, Text: "Inspecting event routing"},
-		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
-		{Kind: core.ProgressEntryToolResult, Tool: "Bash", Text: "/tmp/project", ExitCode: &exitCode},
+	payload := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryThinking, Text: "Inspecting event routing"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
+		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "/tmp/project", ExitCode: &exitCode},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 
 	panels := collectCardPanels(t, buildPreviewCardJSON(payload))
@@ -1125,8 +1127,8 @@ func TestBuildPreviewCardJSON_ProgressPayloadSeparatesReasoningAndTools(t *testi
 }
 
 func TestBuildPreviewCardJSON_ProgressPayloadUsesToolDescriptors(t *testing.T) {
-	payload := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryToolUse, Tool: "web_fetch", Text: "https://example.com/docs?token=secret"},
+	payload := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryToolUse, Tool: "web_fetch", Text: "https://example.com/docs?token=secret"},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 
 	panels := collectCardPanels(t, buildPreviewCardJSON(payload))

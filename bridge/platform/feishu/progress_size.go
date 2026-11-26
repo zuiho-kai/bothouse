@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -41,11 +43,11 @@ func progressIntOpt(v any) int {
 
 // cutProgressLines caps each step's text at lineLen runes (core passes the
 // bot's progress_line_len as the payload's LineLen); 0 leaves them whole.
-func cutProgressLines(items []core.ProgressCardEntry, lineLen int) []core.ProgressCardEntry {
+func cutProgressLines(items []model.ProgressCardEntry, lineLen int) []model.ProgressCardEntry {
 	if lineLen <= 0 {
 		return items
 	}
-	out := make([]core.ProgressCardEntry, len(items))
+	out := make([]model.ProgressCardEntry, len(items))
 	for i, it := range items {
 		text := strings.Join(strings.Fields(it.Text), " ")
 		if r := []rune(text); len(r) > lineLen {

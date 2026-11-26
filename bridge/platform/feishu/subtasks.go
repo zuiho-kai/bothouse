@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -36,7 +38,7 @@ func buildFeishuSubTaskCardJSON(payload *core.SubTaskTablePayload) string {
 	for _, t := range payload.Tasks {
 		if t.Live() {
 			running++
-		} else if t.Status == core.SubTaskFailed {
+		} else if t.Status == model.SubTaskFailed {
 			failed++
 		}
 		rows = append(rows, feishuSubTaskRow(t, zh))
@@ -69,7 +71,7 @@ func buildFeishuSubTaskCardJSON(payload *core.SubTaskTablePayload) string {
 //
 //	🔄 前台 · <名字> · <描述> · 开始于 15:04
 //	　└ <当前那一步 / 结束总结第一句>
-func feishuSubTaskRow(t core.SubTask, zh bool) string {
+func feishuSubTaskRow(t model.SubTask, zh bool) string {
 	kind := "fg"
 	if zh {
 		kind = "前台"
@@ -99,7 +101,7 @@ func feishuSubTaskRow(t core.SubTask, zh bool) string {
 		detail = t.Summary
 	}
 	detail = feishuSubTaskText(detail)
-	if t.Status == core.SubTaskWaiting {
+	if t.Status == model.SubTaskWaiting {
 		wait := "waiting for its own background task"
 		if zh {
 			wait = "等自己的后台任务"
@@ -126,15 +128,15 @@ func feishuSubTaskText(s string) string {
 	return compactRichText(strings.Join(strings.Fields(s), " "), feishuSubTaskTextLen)
 }
 
-func feishuSubTaskIcon(t core.SubTask) string {
+func feishuSubTaskIcon(t model.SubTask) string {
 	switch t.Status {
-	case core.SubTaskCompleted:
+	case model.SubTaskCompleted:
 		return "✅"
-	case core.SubTaskFailed:
+	case model.SubTaskFailed:
 		return "❌"
-	case core.SubTaskStopped:
+	case model.SubTaskStopped:
 		return "⏹️"
-	case core.SubTaskWaiting:
+	case model.SubTaskWaiting:
 		return "⏳"
 	}
 	return "🔄"
@@ -142,7 +144,7 @@ func feishuSubTaskIcon(t core.SubTask) string {
 
 // feishuSubTaskWhen is a live row's start time or a finished row's duration. A Feishu card has
 // no self-counting timestamp, so a live row shows the clock time it started at.
-func feishuSubTaskWhen(t core.SubTask, zh bool) string {
+func feishuSubTaskWhen(t model.SubTask, zh bool) string {
 	switch {
 	case t.Live() && !t.StartedAt.IsZero():
 		at := t.StartedAt.Local().Format("15:04")

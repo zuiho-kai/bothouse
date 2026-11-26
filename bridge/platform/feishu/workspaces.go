@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -74,11 +76,11 @@ func feishuPermanent(status, code int) bool {
 
 // TeamGuildChannels returns the chat group and every group the bot is in (Feishu has no
 // categories: ParentID is empty). Private chats and topic groups cannot have workspaces.
-func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (model.TeamChannel, []model.TeamChannel, error) {
 	if p.client == nil {
-		return core.TeamChannel{}, nil, fmt.Errorf("%s: workspace: client not initialized", p.tag())
+		return model.TeamChannel{}, nil, fmt.Errorf("%s: workspace: client not initialized", p.tag())
 	}
-	var self core.TeamChannel
+	var self model.TeamChannel
 	err := p.withFreshTenantAccessTokenRetry(ctx, "workspace get chat", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
 		resp, err := client.Im.Chat.Get(ctx, larkim.NewGetChatReqBuilder().ChatId(chatID).Build(), options...)
 		if err != nil {
@@ -94,18 +96,18 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 		if mode == "p2p" || mode == "topic" || msgType == "thread" {
 			return fmt.Errorf("%s: chat %s (mode %s): %w", p.tag(), chatID, mode, core.ErrNotTeamChannel)
 		}
-		self = core.TeamChannel{ID: chatID, Name: stringValue(resp.Data.Name)}
+		self = model.TeamChannel{ID: chatID, Name: stringValue(resp.Data.Name)}
 		return nil
 	})
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 
 	chats, err := p.listBotChats(ctx)
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
-	all := []core.TeamChannel{self}
+	all := []model.TeamChannel{self}
 	for _, c := range chats {
 		if c.ID != chatID {
 			all = append(all, c)
@@ -116,11 +118,11 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 
 // listBotChats pages through every group the bot is in (GET im/v1/chats; private chats are not
 // listed). API https://open.feishu.cn/document/server-docs/group/chat/list.
-func (p *Platform) listBotChats(ctx context.Context) ([]core.TeamChannel, error) {
+func (p *Platform) listBotChats(ctx context.Context) ([]model.TeamChannel, error) {
 	if p.client == nil {
 		return nil, fmt.Errorf("%s: list chats: client not initialized", p.tag())
 	}
-	var all []core.TeamChannel
+	var all []model.TeamChannel
 	var pageToken string
 	for {
 		var items []*larkim.ListChat
@@ -149,7 +151,7 @@ func (p *Platform) listBotChats(ctx context.Context) ([]core.TeamChannel, error)
 		}
 		for _, c := range items {
 			if id := stringValue(c.ChatId); id != "" {
-				all = append(all, core.TeamChannel{ID: id, Name: stringValue(c.Name)})
+				all = append(all, model.TeamChannel{ID: id, Name: stringValue(c.Name)})
 			}
 		}
 		if !more || pageToken == "" {
@@ -182,9 +184,9 @@ func (p *Platform) RenameTeamWorkspaceChannel(ctx context.Context, chatID, name 
 // CreateTeamWorkspaceChannel creates the group name with the members of besideChatID and the
 // team bots (peer_bots). On a permanent failure (e.g. no im:chat scope) it says so in
 // besideChatID; core then stops retrying that chat until restart, so the note goes out once.
-func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID, name string) (core.TeamChannel, error) {
+func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID, name string) (model.TeamChannel, error) {
 	if p.client == nil {
-		return core.TeamChannel{}, fmt.Errorf("%s: workspace: client not initialized", p.tag())
+		return model.TeamChannel{}, fmt.Errorf("%s: workspace: client not initialized", p.tag())
 	}
 	c, err := p.createWorkspaceGroup(ctx, besideChatID, name)
 	if errors.Is(err, core.ErrTeamWorkspacePermanent) {
@@ -197,10 +199,10 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID,
 	return c, err
 }
 
-func (p *Platform) createWorkspaceGroup(ctx context.Context, besideChatID, name string) (core.TeamChannel, error) {
+func (p *Platform) createWorkspaceGroup(ctx context.Context, besideChatID, name string) (model.TeamChannel, error) {
 	users, err := p.workspaceMembers(ctx, besideChatID)
 	if err != nil {
-		return core.TeamChannel{}, err
+		return model.TeamChannel{}, err
 	}
 	if len(users) > workspaceMaxUsers {
 		slog.Warn(p.tag()+": workspace: chat has more members than one create can add; adding the first ones",
@@ -231,7 +233,7 @@ func (p *Platform) createWorkspaceGroup(ctx context.Context, besideChatID, name 
 	h := hex.EncodeToString(sum[:16])
 	uuid := h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:] // UUID form, as in the doc's example
 	req := larkim.NewCreateChatReqBuilder().UserIdType("open_id").Uuid(uuid).Body(body.Build()).Build()
-	var out core.TeamChannel
+	var out model.TeamChannel
 	err = p.withFreshTenantAccessTokenRetry(ctx, "workspace create chat", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
 		resp, err := client.Im.Chat.Create(ctx, req, options...)
 		if err != nil {
@@ -243,7 +245,7 @@ func (p *Platform) createWorkspaceGroup(ctx context.Context, besideChatID, name 
 		if resp.Data == nil || stringValue(resp.Data.ChatId) == "" {
 			return fmt.Errorf("%s: workspace create chat: no chat_id", p.tag())
 		}
-		out = core.TeamChannel{ID: stringValue(resp.Data.ChatId), Name: stringValue(resp.Data.Name)}
+		out = model.TeamChannel{ID: stringValue(resp.Data.ChatId), Name: stringValue(resp.Data.Name)}
 		if out.Name == "" {
 			out.Name = name
 		}

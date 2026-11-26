@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -36,9 +38,9 @@ func pressCardView(p *Platform, messageID, view string, embeds ...*discordgo.Mes
 
 func cardViewSubTasks() string {
 	start := time.Unix(1_700_000_000, 0)
-	return core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{
-		{ID: "a", Name: "Rawls", Description: "核对卡片渲染", Step: "运行命令", Status: core.SubTaskRunning, StartedAt: start},
-		{ID: "b", Description: "整理测试结果", Step: "读取文件", Status: core.SubTaskCompleted, Summary: "测试都过了", StartedAt: start, EndedAt: start.Add(80 * time.Second)},
+	return core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{
+		{ID: "a", Name: "Rawls", Description: "核对卡片渲染", Step: "运行命令", Status: model.SubTaskRunning, StartedAt: start},
+		{ID: "b", Description: "整理测试结果", Step: "读取文件", Status: model.SubTaskCompleted, Summary: "测试都过了", StartedAt: start, EndedAt: start.Add(80 * time.Second)},
 	})
 }
 
@@ -71,10 +73,10 @@ func TestCardViewSubTaskRendering(t *testing.T) {
 // internal agent ID; named rows keep their name and do not take a number.
 func TestCardViewSubTaskBriefUnnamedUsesSequence(t *testing.T) {
 	start := time.Unix(1700000000, 0)
-	table := &core.SubTaskTablePayload{Lang: string(core.LangChinese), Tasks: []core.SubTask{
-		{ID: "ac7ac0a860fd332e8", Description: "第一件", Status: core.SubTaskCompleted, StartedAt: start, EndedAt: start.Add(70 * time.Second)},
-		{ID: "n1", Name: "Rawls", Description: "第二件", Status: core.SubTaskRunning, StartedAt: start},
-		{ID: "bf19d2e7c4a0b55aa", Description: "第三件", Status: core.SubTaskRunning, StartedAt: start},
+	table := &core.SubTaskTablePayload{Lang: string(core.LangChinese), Tasks: []model.SubTask{
+		{ID: "ac7ac0a860fd332e8", Description: "第一件", Status: model.SubTaskCompleted, StartedAt: start, EndedAt: start.Add(70 * time.Second)},
+		{ID: "n1", Name: "Rawls", Description: "第二件", Status: model.SubTaskRunning, StartedAt: start},
+		{ID: "bf19d2e7c4a0b55aa", Description: "第三件", Status: model.SubTaskRunning, StartedAt: start},
 	}}
 	lines := strings.Split(buildDiscordSubTaskEmbedView(table, cardViewBrief).Description, "\n")
 	if len(lines) != 3 || lines[0] != "✅ 子任务 1 · 用时 1分10秒" || !strings.Contains(lines[1], "Rawls") || !strings.HasPrefix(lines[2], "🔄 子任务 3 · ") {
@@ -91,11 +93,11 @@ func TestCardViewSubTaskBriefUnnamedUsesSequence(t *testing.T) {
 // with ToolSuccess and no output) still reads 成功/失败 in 简略.
 func TestCardViewProgressBriefStatusOnlyResult(t *testing.T) {
 	ok, bad := true, false
-	payload := &core.ProgressCardPayload{Lang: "zh", State: core.ProgressCardStateCompleted, Steps: 2, Items: []core.ProgressCardEntry{
-		{Kind: core.ProgressEntryToolUse, Tool: "run_command", Text: "sleep 1"},
-		{Kind: core.ProgressEntryToolResult, Tool: "run_command", Success: &ok},
-		{Kind: core.ProgressEntryToolUse, Tool: "view_file", Text: "x"},
-		{Kind: core.ProgressEntryToolResult, Tool: "view_file", Status: "error", Success: &bad},
+	payload := &core.ProgressCardPayload{Lang: "zh", State: core.ProgressCardStateCompleted, Steps: 2, Items: []model.ProgressCardEntry{
+		{Kind: model.ProgressEntryToolUse, Tool: "run_command", Text: "sleep 1"},
+		{Kind: model.ProgressEntryToolResult, Tool: "run_command", Success: &ok},
+		{Kind: model.ProgressEntryToolUse, Tool: "view_file", Text: "x"},
+		{Kind: model.ProgressEntryToolResult, Tool: "view_file", Status: "error", Success: &bad},
 	}}
 	brief := buildDiscordProgressBrief(payload)
 	for _, want := range []string{"❌ view_file · 失败"} {
@@ -107,9 +109,9 @@ func TestCardViewProgressBriefStatusOnlyResult(t *testing.T) {
 
 func TestCardViewTaskCardRendering(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	task := &core.Task{ID: "t1", Title: "卡片开关", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", LatestProgress: "LATEST_PROGRESS", ResultSummary: "RESULT_SUM", VerificationResult: "VERIFY_RES", DeliverableURL: "DELIV_URL", NextSteps: "NEXT_STEPS",
+	task := &model.Task{ID: "t1", Title: "卡片开关", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", LatestProgress: "LATEST_PROGRESS", ResultSummary: "RESULT_SUM", VerificationResult: "VERIFY_RES", DeliverableURL: "DELIV_URL", NextSteps: "NEXT_STEPS",
 		CreatedAt: now, UpdatedAt: now,
-		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
+		Members: []model.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
 	join := func(e *discordgo.MessageEmbed) string {
 		var b strings.Builder
 		b.WriteString(e.Title + "\n" + e.Description)
@@ -137,13 +139,13 @@ func TestCardViewTaskCardRendering(t *testing.T) {
 
 func cardViewProgress(state core.ProgressCardState) string {
 	ok, bad := true, false
-	return core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryThinking, Text: "THINK_TEXT"},
-		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "CMD_FULL_TEXT"},
-		{Kind: core.ProgressEntryToolResult, Tool: "Bash", Text: "TOOL_OUTPUT", Success: &ok},
-		{Kind: core.ProgressEntryToolUse, Tool: "Agent", Text: "PROMPT_TEXT"},
-		{Kind: core.ProgressEntryToolResult, Tool: "Agent", Text: "AGENT_OUT", Success: &bad},
-		{Kind: core.ProgressEntryToolUse, Tool: "Read", Text: "READ_PATH"},
+	return core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryThinking, Text: "THINK_TEXT"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "CMD_FULL_TEXT"},
+		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "TOOL_OUTPUT", Success: &ok},
+		{Kind: model.ProgressEntryToolUse, Tool: "Agent", Text: "PROMPT_TEXT"},
+		{Kind: model.ProgressEntryToolResult, Tool: "Agent", Text: "AGENT_OUT", Success: &bad},
+		{Kind: model.ProgressEntryToolUse, Tool: "Read", Text: "READ_PATH"},
 	}, false, "Claude", core.LangChinese, state)
 }
 
@@ -190,8 +192,8 @@ func TestCardViewOneButtonRowPerTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	task := &core.Task{ID: "t2", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
-		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
+	task := &model.Task{ID: "t2", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
+		Members: []model.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
 	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}
@@ -380,8 +382,8 @@ func TestCardViewNewTurnDropsEarlierTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	task := &core.Task{ID: "t3", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
-		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
+	task := &model.Task{ID: "t3", Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
+		Members: []model.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
 	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}

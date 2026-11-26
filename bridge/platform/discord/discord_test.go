@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -936,9 +938,9 @@ func TestSendPreviewStart_ProgressPayloadUsesEmbed(t *testing.T) {
 	s := newTestDiscordSession(t, server)
 	p := &Platform{session: s, progressStyle: "card"}
 
-	progress := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryThinking, Text: "planning"},
-		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
+	progress := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryThinking, Text: "planning"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 	if progress == "" {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
@@ -1049,8 +1051,8 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 	p := &Platform{session: s, progressStyle: "card"}
 
 	exitCode := 0
-	progress := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryToolResult, Tool: "Bash", Text: "hi", Status: "completed", ExitCode: &exitCode},
+	progress := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "hi", Status: "completed", ExitCode: &exitCode},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateCompleted)
 	if progress == "" {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
@@ -1098,8 +1100,8 @@ func TestBuildDiscordProgressEmbed_ShowsTruncatedNotice(t *testing.T) {
 		Lang:      string(core.LangEnglish),
 		State:     core.ProgressCardStateRunning,
 		Truncated: true,
-		Items: []core.ProgressCardEntry{
-			{Kind: core.ProgressEntryThinking, Text: "reviewing repository state"},
+		Items: []model.ProgressCardEntry{
+			{Kind: model.ProgressEntryThinking, Text: "reviewing repository state"},
 		},
 	}
 

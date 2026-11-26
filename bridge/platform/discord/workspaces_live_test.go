@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/chenhg5/cc-connect/core/model"
 
-	"github.com/chenhg5/cc-connect/core"
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestLiveIdleCategory(t *testing.T) {
@@ -85,7 +85,7 @@ func TestLiveIdleCategory(t *testing.T) {
 
 }
 
-func shelfOf(all []core.TeamChannel, id string) bool {
+func shelfOf(all []model.TeamChannel, id string) bool {
 	for _, c := range all {
 		if c.ID == id {
 			return c.Shelved
@@ -94,7 +94,7 @@ func shelfOf(all []core.TeamChannel, id string) bool {
 	return false
 }
 
-func parentOfChannel(all []core.TeamChannel, id string) string {
+func parentOfChannel(all []model.TeamChannel, id string) string {
 	for _, c := range all {
 		if c.ID == id {
 			return c.ParentID

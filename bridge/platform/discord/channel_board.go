@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -22,7 +24,7 @@ import (
 // channelBoardMarker is the footer text that marks this bot's board message.
 const channelBoardMarker = "cc-board"
 
-var _ core.ChannelBoardPoster = (*Platform)(nil)
+var _ model.ChannelBoardPoster = (*Platform)(nil)
 
 // boardSession reads the session under p.mu: Stop() and reconnects replace it
 // (same as StartTyping).
@@ -44,7 +46,7 @@ func channelBoardEmbed(content string) (*discordgo.MessageEmbed, error) {
 	return buildDiscordChannelBoardEmbed(payload), nil
 }
 
-// PostChannelBoard implements core.ChannelBoardPoster.
+// PostChannelBoard implements model.ChannelBoardPoster.
 func (p *Platform) PostChannelBoard(ctx context.Context, channelID, content string) (string, error) {
 	s := p.boardSession()
 	if s == nil {
@@ -63,7 +65,7 @@ func (p *Platform) PostChannelBoard(ctx context.Context, channelID, content stri
 	return m.ID, nil
 }
 
-// EditChannelBoard implements core.ChannelBoardPoster. A deleted message is
+// EditChannelBoard implements model.ChannelBoardPoster. A deleted message is
 // reported as core.ErrChannelBoardGone.
 func (p *Platform) EditChannelBoard(ctx context.Context, channelID, messageID, content string) error {
 	s := p.boardSession()
@@ -87,7 +89,7 @@ func (p *Platform) EditChannelBoard(ctx context.Context, channelID, messageID, c
 	return nil
 }
 
-// PinChannelBoard implements core.ChannelBoardPoster (needs Manage Messages /
+// PinChannelBoard implements model.ChannelBoardPoster (needs Manage Messages /
 // Pin Messages in the channel).
 func (p *Platform) PinChannelBoard(ctx context.Context, channelID, messageID string) error {
 	s := p.boardSession()
@@ -109,7 +111,7 @@ func (p *Platform) PinChannelBoard(ctx context.Context, channelID, messageID str
 	return nil
 }
 
-// FindChannelBoard implements core.ChannelBoardPoster: this bot's message with
+// FindChannelBoard implements model.ChannelBoardPoster: this bot's message with
 // the board marker, among the pinned messages, then the latest page of the
 // channel (one request each).
 func (p *Platform) FindChannelBoard(ctx context.Context, channelID string) (string, bool, error) {

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -52,7 +54,7 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 	for i, t := range payload.Tasks {
 		if t.Live() {
 			running++
-		} else if t.Status == core.SubTaskFailed {
+		} else if t.Status == model.SubTaskFailed {
 			failed++
 		}
 		if view == cardViewBrief {
@@ -91,12 +93,12 @@ func buildDiscordSubTaskEmbedView(payload *core.SubTaskTablePayload, view cardVi
 //
 // A running row's time is a Discord timestamp (<t:unix:R>), which the client
 // keeps counting by itself, so "跑了多久" moves without editing the message.
-func buildDiscordSubTaskRow(t core.SubTask, zh bool) string {
+func buildDiscordSubTaskRow(t model.SubTask, zh bool) string {
 	return buildDiscordSubTaskRowN(t, zh, maxDiscordProgressLineLen)
 }
 
 // buildDiscordSubTaskRowN is buildDiscordSubTaskRow with the detail line cut at detailLen runes.
-func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
+func buildDiscordSubTaskRowN(t model.SubTask, zh bool, detailLen int) string {
 	icon := discordSubTaskIcon(t)
 	kind := "fg"
 	if zh {
@@ -133,7 +135,7 @@ func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 	if !t.Running() && t.Summary != "" {
 		detail = t.Summary
 	}
-	if t.Status == core.SubTaskWaiting {
+	if t.Status == model.SubTaskWaiting {
 		wait := "waiting for its own background task"
 		if zh {
 			wait = "等自己的后台任务"
@@ -166,7 +168,7 @@ func buildDiscordSubTaskRowN(t core.SubTask, zh bool, detailLen int) string {
 // and time on one line. A row without a name (Claude) is labelled by its
 // position in this table (子任务 N; tasks keep their append order), so 简略
 // never shows task text or the internal agent ID.
-func buildDiscordSubTaskBriefRow(t core.SubTask, seq int, zh bool) string {
+func buildDiscordSubTaskBriefRow(t model.SubTask, seq int, zh bool) string {
 	name := compactDiscordProgressText(t.Name)
 	if name == "" {
 		name = fmt.Sprintf("Sub-task %d", seq)
@@ -181,15 +183,15 @@ func buildDiscordSubTaskBriefRow(t core.SubTask, seq int, zh bool) string {
 	return row
 }
 
-func discordSubTaskIcon(t core.SubTask) string {
+func discordSubTaskIcon(t model.SubTask) string {
 	switch t.Status {
-	case core.SubTaskCompleted:
+	case model.SubTaskCompleted:
 		return "✅"
-	case core.SubTaskFailed:
+	case model.SubTaskFailed:
 		return "❌"
-	case core.SubTaskStopped:
+	case model.SubTaskStopped:
 		return "⏹️"
-	case core.SubTaskWaiting:
+	case model.SubTaskWaiting:
 		return "⏳"
 	}
 	return "🔄"
@@ -197,7 +199,7 @@ func discordSubTaskIcon(t core.SubTask) string {
 
 // discordSubTaskWhen is a live row's start (a Discord timestamp the client
 // keeps counting) or a finished row's duration.
-func discordSubTaskWhen(t core.SubTask, zh bool) string {
+func discordSubTaskWhen(t model.SubTask, zh bool) string {
 	switch {
 	case t.Live() && !t.StartedAt.IsZero():
 		if zh {

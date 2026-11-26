@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -11,7 +13,7 @@ import (
 // renderTaskCardEmbedView renders the card in 细节 or 简略. 简略 keeps each
 // member's name, status and time and leaves out the task text and the current
 // step (required summary, latest progress, member titles and steps).
-func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *discordgo.MessageEmbed {
+func renderTaskCardEmbedView(task *model.Task, lang string, view cardView) *discordgo.MessageEmbed {
 	brief := view == cardViewBrief
 	if task == nil {
 		return &discordgo.MessageEmbed{Description: " "}
@@ -111,14 +113,14 @@ func renderTaskCardEmbedView(task *core.Task, lang string, view cardView) *disco
 // display name a queued row is hidden only when another row of that name has left the
 // queue; every row that started, finished or failed stays, and rows that are all queued
 // all survive, because one batch may legitimately run several members under one name.
-func hideSupersededMemberRows(members []core.TaskMember) []core.TaskMember {
+func hideSupersededMemberRows(members []model.TaskMember) []model.TaskMember {
 	progressed := make(map[string]bool, len(members))
 	for _, m := range members {
 		if m.Status != "queued" {
 			progressed[memberRowKey(m)] = true
 		}
 	}
-	out := make([]core.TaskMember, 0, len(members))
+	out := make([]model.TaskMember, 0, len(members))
 	for _, m := range members {
 		if m.Status == "queued" && progressed[memberRowKey(m)] {
 			continue
@@ -128,11 +130,11 @@ func hideSupersededMemberRows(members []core.TaskMember) []core.TaskMember {
 	return out
 }
 
-func memberRowKey(m core.TaskMember) string {
+func memberRowKey(m model.TaskMember) string {
 	return strings.ToLower(strings.TrimSpace(m.Name))
 }
 
-func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) string {
+func renderTaskMembersView(members []model.TaskMember, lang string, brief bool) string {
 	i18n := core.NewI18n(core.Language(lang))
 	members = hideSupersededMemberRows(members)
 	names := make(map[string]string, len(members))
@@ -201,44 +203,44 @@ func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) s
 	return strings.Join(rows, "\n")
 }
 
-func discordTaskColor(state core.TaskState) int {
+func discordTaskColor(state model.TaskState) int {
 	switch state {
-	case core.TaskStateCompleted:
+	case model.TaskStateCompleted:
 		return 0x57F287 // Green
-	case core.TaskStateFailed:
+	case model.TaskStateFailed:
 		return 0xED4245 // Red
-	case core.TaskStateWaitingUser, core.TaskStateResultReady:
+	case model.TaskStateWaitingUser, model.TaskStateResultReady:
 		return 0xFEE75C // Warm Yellow
-	case core.TaskStateCancelled:
+	case model.TaskStateCancelled:
 		return 0x95A5A6 // Grey
 	default:
 		return 0x5865F2 // Blurple
 	}
 }
 
-func formatTaskFullState(state core.TaskState, stage core.FactStage, lang string) string {
+func formatTaskFullState(state model.TaskState, stage model.FactStage, lang string) string {
 	stText := discordTaskStateLabel(state, lang)
-	if stage == "" || stage == core.FactStageReceived {
+	if stage == "" || stage == model.FactStageReceived {
 		return stText
 	}
 	sgText := discordFactStageLabel(stage, lang)
 	return fmt.Sprintf("%s · %s", stText, sgText)
 }
 
-func discordTaskStateLabel(state core.TaskState, lang string) string {
-	if state == core.TaskStateResultReady {
+func discordTaskStateLabel(state model.TaskState, lang string) string {
+	if state == model.TaskStateResultReady {
 		return core.NewI18n(core.Language(lang)).T(core.MsgTaskResultReady)
 	}
 	return core.NewI18n(core.Language(lang)).T(core.MsgKey("task_" + string(state)))
 }
-func discordFactStageLabel(stage core.FactStage, lang string) string {
+func discordFactStageLabel(stage model.FactStage, lang string) string {
 	return core.NewI18n(core.Language(lang)).T(core.MsgKey("task_" + string(stage)))
 }
 func discordTaskFieldLabel(key, lang string) string {
 	return core.NewI18n(core.Language(lang)).T(core.MsgKey("task_" + key))
 }
 
-// RenderTaskCardEmbed converts a core.Task into a structured Discord MessageEmbed.
-func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
+// RenderTaskCardEmbed converts a model.Task into a structured Discord MessageEmbed.
+func RenderTaskCardEmbed(task *model.Task, lang string) *discordgo.MessageEmbed {
 	return renderTaskCardEmbedView(task, lang, cardViewDetail)
 }

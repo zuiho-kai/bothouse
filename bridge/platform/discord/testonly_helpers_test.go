@@ -3,6 +3,8 @@ package discord
 import (
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -50,14 +52,14 @@ func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.Me
 	return buildDiscordPreviewEditView(channelID, messageID, content, cardViewDetail)
 }
 
-func renderTaskMembers(members []core.TaskMember, lang string) string {
+func renderTaskMembers(members []model.TaskMember, lang string) string {
 	return renderTaskMembersView(members, lang, false)
 }
 
 // buildDiscordProgressList — maomao fork: the step/time head plus the recent
 // steps, one per line. Unlike the one-line bar it stays after the turn ends,
 // so words said mid-run are not wiped.
-func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.ProgressCardEntry) string {
+func buildDiscordProgressList(payload *core.ProgressCardPayload, items []model.ProgressCardEntry) string {
 	lines := []string{buildDiscordProgressBarLine(&core.ProgressCardPayload{
 		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec,
 	}, nil)}

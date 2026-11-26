@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -131,14 +133,14 @@ func (p *Platform) RemoveBoard(ctx context.Context, sessionKey, messageID string
 func renderBoardText(content string, live bool) string {
 	lines := strings.Split(strings.ReplaceAll(content, "**", ""), "\n")
 	title := strings.TrimSpace(lines[0])
-	var items []core.ProgressCardEntry
+	var items []model.ProgressCardEntry
 	for _, line := range lines[1:] {
 		if s := strings.TrimSpace(line); s != "" {
-			items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: s})
+			items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: s})
 		}
 	}
 	if len(items) == 0 {
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: title})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: title})
 	}
 	state := core.ProgressCardStateCompleted
 	if live {
