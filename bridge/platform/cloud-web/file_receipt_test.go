@@ -4,18 +4,25 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chenhg5/cc-connect/core"
 )
 
 type fileReceiptTransport struct {
 	ackingTransport
-	handle string
-	frame  map[string]any
+	handle      string
+	dropReceipt bool
+	frame       map[string]any
+	sends       int
 }
 
 func (f *fileReceiptTransport) Send(_ context.Context, frame map[string]any) error {
 	f.frame = frame
+	f.sends++
+	if f.dropReceipt {
+		return nil
+	}
 	if ref, ok := frame["ref_id"].(string); ok {
 		f.mu.Lock()
 		ch := f.waiters[ref]
@@ -27,15 +34,26 @@ func (f *fileReceiptTransport) Send(_ context.Context, frame map[string]any) err
 	return nil
 }
 
+func (f *fileReceiptTransport) expectPreviewAck(refID string) func(time.Duration) (string, error) {
+	wait := f.ackingTransport.expectPreviewAck(refID)
+	if f.dropReceipt {
+		// Exercise the timeout path without waiting for the production deadline.
+		return func(time.Duration) (string, error) { return wait(0) }
+	}
+	return wait
+}
+
 func TestSendFileWaitsForAdvertisedReceipt(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		receipt bool
-		handle  string
-		wantErr string
+		name        string
+		receipt     bool
+		handle      string
+		dropReceipt bool
+		wantErr     string
 	}{
 		{name: "posted", receipt: true, handle: "42"},
 		{name: "rejected", receipt: true, wantErr: "gateway rejected file"},
+		{name: "lost receipt", receipt: true, dropReceipt: true, wantErr: "file delivery unconfirmed: timeout"},
 		{name: "older gateway"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,6 +64,7 @@ func TestSendFileWaitsForAdvertisedReceipt(t *testing.T) {
 			tp := &fileReceiptTransport{
 				ackingTransport: ackingTransport{caps: capabilitySet(caps), waiters: map[string]chan string{}},
 				handle:          tc.handle,
+				dropReceipt:     tc.dropReceipt,
 			}
 			p := &Platform{tp: tp}
 			rc := replyContext{SessionKey: "cloud_web:room-2", ReplyCtx: "room-2"}
@@ -57,6 +76,9 @@ func TestSendFileWaitsForAdvertisedReceipt(t *testing.T) {
 			}
 			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
 				t.Fatalf("send error = %v, want %q", err, tc.wantErr)
+			}
+			if tp.sends != 1 {
+				t.Fatalf("sent %d frames, want 1", tp.sends)
 			}
 			if _, ok := tp.frame["ref_id"]; ok != tc.receipt {
 				t.Fatalf("receipt requested = %v, want %v", ok, tc.receipt)
