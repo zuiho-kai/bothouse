@@ -601,14 +601,14 @@ MERGE_CMD = re.compile(r"\bgh\s+pr\s+merge\b|api\.gitcode\.com/api/v5/repos/")
 
 
 def _merge_gate():
-    """团队工具装在 <数据目录>/collaboration/runtime/lead（有它时桥用它，同 core/role_env.go）或 collaboration/lead；
+    """团队工具只有一份：<数据目录>/collaboration/runtime/lead（桥写的，同 core/role_env.go）；
     钩子目录就在数据目录下，环境变量没给数据目录时按钩子目录找。"""
     if os.environ.get("HOOK_MERGE_GATE"):
         p = os.environ["HOOK_MERGE_GATE"]
         return p if os.path.exists(p) else ""
     env = os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR")
     for data in ([env] if env else []) + [os.path.dirname(HERE), "~/.bothouse"]:
-        for sub in (("runtime", "lead"), ("lead",)):
+        for sub in (("runtime", "lead"),):
             p = os.path.join(os.path.expanduser(data), "collaboration", *sub, "merge-gate")
             if os.path.exists(p):
                 return p

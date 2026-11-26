@@ -1385,19 +1385,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 		}
 		if !r.reused && r.project == pl.fallback && LeadToolFS != nil {
-			// Only the new primary role gets collaboration tools; preserve locally edited scripts.
+			// Only the new primary role gets collaboration tools.
 			ls := fmt.Sprintf("role %d lead tools", i+1)
-			if tools, skipped, err := InstallLeadTools(env.DataDir, r.workDir, r.AgentType, false); err != nil {
+			if tools, err := InstallLeadTools(env.DataDir, r.workDir, r.AgentType); err != nil {
 				addStep(res, ls, err, "")
 			} else {
-				message := tools["tools_dir"]
-				if len(skipped) > 0 {
-					message += fmt.Sprintf(tr3(req.Language,
-						"（保留 %d 个已修改文件）",
-						"（変更済みファイル %d 件を保持）",
-						" (preserved %d modified files)"), len(skipped))
-				}
-				addStep(res, ls, nil, message)
+				addStep(res, ls, nil, tools["tools_dir"])
 			}
 		}
 	}

@@ -14,10 +14,8 @@ import (
 //
 // GATE_SETUP_DIR / BOTHOUSE_DATA_DIR (the data dir under both names the gate/lead scripts read, same as
 // gate_proc.go: contrib/gate/datadir.py lets lead.json follow BOTHOUSE_DATA_DIR and the rest
-// GATE_SETUP_DIR, so they must not diverge) are set only when the product collaboration tools are
-// installed (<dataDir>/collaboration/lead, the same check as the PATH entry). Without them a role may be
-// running private scripts that find their board through their own defaults; forcing these would move
-// that board to an empty dir. When a team status directory is configured, BOARD_DIR follows
+// GATE_SETUP_DIR, so they must not diverge) are set whenever this binary carries the collaboration
+// tools, together with their PATH entry. When a team status directory is configured, BOARD_DIR follows
 // that authoritative source, which is also read by the native task board.
 func (e *Engine) roleSessionEnv(sessionKey string) []string {
 	env := []string{
@@ -41,24 +39,14 @@ func (e *Engine) roleSessionEnv(sessionKey string) []string {
 				path = append(path, dir)
 			}
 		}
-		if lead := filepath.Join(e.dataDir, "collaboration", "lead"); dirExists(lead) {
-			// LEAD_GATE_URL: contrib/lead/lead talks to this data dir's gate, not whatever holds 9930
+		// The bridge's own copy of the collaboration tools (leadRuntimeDir) is the only one:
+		// every script that writes the board uses the gate written by this binary, as
+		// runLeadScript does (#1791). LEAD_GATE_URL: contrib/lead/lead talks to this data dir's
+		// gate, not whatever holds 9930.
+		if root, err := e.leadRuntimeDir(); err == nil && root != "" {
 			env = append(env, "GATE_SETUP_DIR="+e.dataDir, "BOTHOUSE_DATA_DIR="+e.dataDir,
-				"LEAD_GATE_URL=http://"+localGateAddr()+"/lead")
-			path = append(path, lead)
-			// After the user's copy: the bridge's own copy of the same tools, written by this
-			// binary (leadRuntimeDir), so a command added after the install (ws-pass) is still
-			// found while a local edit of an installed one keeps winning.
-			// 来源：2026-11-10 agentm 主角色验收 #29 时 ws-pass 不在 collaboration/lead，验收没法放行。
-			if rt := filepath.Join(e.dataDir, "collaboration", "runtime", "lead"); dirExists(rt) {
-				path = append(path, rt)
-			}
-			// The board is read by this binary (wait_kind, team_task_board.go), so every script
-			// that writes it uses the gate written by this binary, as runLeadScript does: an
-			// installed copy left behind wrote another rule and flipped the task posts (#1791).
-			if root, err := e.leadRuntimeDir(); err == nil && root != "" {
-				env = append(env, "GATE_DIR="+filepath.Join(root, "gate"))
-			}
+				"LEAD_GATE_URL=http://"+localGateAddr()+"/lead", "GATE_DIR="+filepath.Join(root, "gate"))
+			path = append(path, filepath.Join(root, "lead"))
 		}
 	}
 	if exePath, err := os.Executable(); err == nil {

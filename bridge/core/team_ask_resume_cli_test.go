@@ -199,7 +199,7 @@ func askFixture(t *testing.T) *askCUJ {
 	t.Setenv("CC_RUNS_DIR", filepath.Join(data, "runs"))
 	t.Setenv("BOTHOUSE_TEST", "1")
 	// As in TestCUJ_WorkspaceBatchCLI: the real board script, its nested calls to the candidate CLI.
-	bin := filepath.Join(data, "collaboration", "lead", "board")
+	bin := filepath.Join(data, "collaboration", "runtime", "lead", "board")
 	if err := os.MkdirAll(filepath.Dir(bin), 0755); err != nil {
 		t.Fatal(err)
 	}

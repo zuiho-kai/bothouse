@@ -243,12 +243,12 @@ def identity(bot):
 
 
 # 主角色工作手册：只附给当前主角色，当次的不附（用户 2026-10-23「方便任意人当主角色，并且也能放到仓库」）。
-# 默认读 <数据目录>/collaboration/lead/（lead 工具装在那；装包后 gate 从 <数据目录>/gate 跑，../lead 不存在），
-# 那里没有再用本文件旁的 ../lead/（仓库里直跑）；两处都没有仍指向数据目录那份，之后装上 lead 工具即生效。
+# 默认读 <数据目录>/collaboration/runtime/lead/（桥写的唯一一份 lead 工具；装包后 gate 从 <数据目录>/gate 跑，../lead 不存在），
+# 那里没有再用本文件旁的 ../lead/（仓库里直跑）；两处都没有仍指向数据目录那份，桥起来写好后即生效。
 # GATE_PLAYBOOK=<文件> 可换成英文版 PLAYBOOK.md 或自己的；设成空或 off = 不附。
 def _default_playbook():
     name = "PLAYBOOK.zh-CN.md"
-    installed = _PRODUCT_DATA / "collaboration" / "lead" / name
+    installed = _PRODUCT_DATA / "collaboration" / "runtime" / "lead" / name
     beside = Path(__file__).resolve().parent.parent / "lead" / name
     return beside if not installed.is_file() and beside.is_file() else installed
 

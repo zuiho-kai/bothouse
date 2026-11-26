@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -125,11 +126,10 @@ func TestRoleEnvLeadGateURL(t *testing.T) {
 	old := gateAddr
 	t.Cleanup(func() { gateAddr = old })
 	SetLocalGatePort(19733)
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/collaboration/lead", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	e := &Engine{name: "p", dataDir: dir}
+	prev := LeadToolFS
+	LeadToolFS = fstest.MapFS{"contrib/lead/board": {Data: []byte("board\n")}}
+	t.Cleanup(func() { LeadToolFS = prev })
+	e := &Engine{name: "p", dataDir: t.TempDir()}
 	found := false
 	for _, kv := range e.roleSessionEnv("k") {
 		if kv == "LEAD_GATE_URL=http://127.0.0.1:19733/lead" {

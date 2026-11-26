@@ -157,7 +157,7 @@ class DeptManager(unittest.TestCase):
 
 
 HERE = Path(__file__).resolve().parent
-# 装包后的布局：gate 脚本在 <数据目录>/gate（embed_gate.go），lead 工具在 <数据目录>/collaboration/lead（lead_tools.go）
+# 装包后的布局：gate 脚本在 <数据目录>/gate（embed_gate.go），lead 工具在 <数据目录>/collaboration/runtime/lead（lead_tools.go）
 GATE_FILES = ("ctxsvc.py", "wiki_search.py", "lead.py", "board.py", "datadir.py", "filelock.py", "team.example.json")
 PROBE = ("import sys; sys.path.insert(0, '.'); import json, ctxsvc, lead; print(json.dumps({'pb': str(lead.PLAYBOOK), 'hit': any(%r in (x.get('desc') or '') "
          "for x in ctxsvc.context({'bot': '', 'text': '在吗'})['wiki'])}))" % MARK)
@@ -182,9 +182,9 @@ class Installed(unittest.TestCase):
         return json.loads(out.strip().splitlines()[-1])
 
     def test_installed_lead_tools_playbook_reaches_lead(self):
-        shutil.copytree(HERE.parent / "lead", self.data / "collaboration" / "lead")
+        shutil.copytree(HERE.parent / "lead", self.data / "collaboration" / "runtime" / "lead")
         r = self.probe()
-        self.assertEqual(Path(r["pb"]), self.data / "collaboration" / "lead" / "PLAYBOOK.zh-CN.md")
+        self.assertEqual(Path(r["pb"]), self.data / "collaboration" / "runtime" / "lead" / "PLAYBOOK.zh-CN.md")
         self.assertTrue(r["hit"])
 
     def test_no_lead_tools_no_playbook_no_error(self):

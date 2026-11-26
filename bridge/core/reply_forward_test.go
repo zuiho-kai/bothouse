@@ -29,7 +29,7 @@ func TestReplyToRunningWorkHandedToWorkspace(t *testing.T) {
 	if err := os.WriteFile(teamWorkspacePath(e.dataDir), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lead := filepath.Join(e.dataDir, "collaboration", "lead")
+	lead := filepath.Join(e.dataDir, "collaboration", "runtime", "lead")
 	if err := os.MkdirAll(lead, 0o700); err != nil {
 		t.Fatal(err)
 	}

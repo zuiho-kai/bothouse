@@ -23,7 +23,7 @@ func TestBackgroundRunUsesRoleDirectory(t *testing.T) {
 	}
 	e := NewEngine("isolated", &stubAgent{}, nil, "", LangEnglish)
 	data, _ := roleEnvFixture(t, e)
-	cmd := exec.Command(filepath.Join(data, "collaboration", "lead", "bgrun"), "watch-path", "5",
+	cmd := exec.Command(filepath.Join(data, "collaboration", "runtime", "lead", "bgrun"), "watch-path", "5",
 		"/bin/sh", "-c", "sleep 1; echo watcher-visible")
 	cmd.Env = MergeEnv(os.Environ(), e.roleSessionEnv("test:workspace"))
 	cmd.Env = MergeEnv(cmd.Env, []string{"HOME=" + t.TempDir(), "CC_BIN=/usr/bin/true"})
@@ -87,7 +87,7 @@ func TestBackgroundRunWatchEntries(t *testing.T) {
 			}
 			stop := filepath.Join(data, "stop")
 			program := "import os,sys,time\nwhile not os.path.exists(sys.argv[1]):\n if sys.argv[2] == 'true': print('progress', flush=True)\n time.sleep(0.05)\n"
-			cmd := exec.Command(filepath.Join(data, "collaboration", "lead", "bgrun"), tc.name, tc.timeout,
+			cmd := exec.Command(filepath.Join(data, "collaboration", "runtime", "lead", "bgrun"), tc.name, tc.timeout,
 				python, "-u", "-c", program, stop, strconv.FormatBool(tc.output))
 			cmd.Env = MergeEnv(os.Environ(), e.roleSessionEnv("discord:ws1"))
 			cmd.Env = MergeEnv(cmd.Env, []string{"CC_BIN=/usr/bin/true"})
