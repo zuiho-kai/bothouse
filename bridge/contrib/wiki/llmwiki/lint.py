@@ -10,7 +10,10 @@
 import os, re, sys
 from pathlib import Path
 
-WIKI = Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)  # ingest.py sets WIKI_DIR; run alone: the wiki whose bin/ holds this (a link there counts)
+# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
+# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
+WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
+    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
 SHARED_TOOL = 1  # marker: this lint.py takes --root; teammate/ shims refuse a tool without it
 MAX_DOMAINS, INDEX_LINE = 8, 80
 MAX_TOPICS, README_LINE = 15, 120

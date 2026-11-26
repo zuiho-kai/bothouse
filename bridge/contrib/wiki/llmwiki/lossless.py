@@ -21,7 +21,10 @@ any other change of the wording still is.
 import os, re, subprocess, sys
 from pathlib import Path
 
-WIKI = Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)  # ingest.py sets WIKI_DIR; run alone: the wiki whose bin/ holds this (a link there counts)
+# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
+# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
+WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
+    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
 SHARED_TOOL = 1  # marker: this lossless.py takes --root; teammate/ shims refuse a tool without it
 SHOW = 20  # 沿用已有配置：ingest.py compress_check / review_check 报错只列 lost[:20]
 ROOT_FILES = {"MEMORY.md", "log.md", "CLAUDE.md"}  # wiki-root files, not memory pages
