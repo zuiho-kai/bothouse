@@ -25,7 +25,10 @@ import datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys,
 from pathlib import Path
 
 EXP = Path(os.environ.get("MEMVOTE_DIR") or Path(__file__).resolve().parent)
-DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import datadir  # noqa: E402  桥数据文件只在 datadir.py 解析
+
+DATA = datadir.data_dir()
 HOME = Path.home()
 WIKI = Path(os.environ.get("GATE_WIKI", "~/wiki")).expanduser()
 PUSH = EXP / "push.jsonl"
@@ -187,11 +190,7 @@ def running(proj, key):
 
 
 def workspaces():
-    try:
-        d = json.loads((DATA / "team_workspaces.json").read_text())
-    except (OSError, ValueError):
-        return set()
-    return {"discord:" + w["id"] for ws in (d.get("parents") or {}).values() for w in ws if w.get("id")}
+    return datadir.workspace_keys()
 
 
 def load_push():

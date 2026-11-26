@@ -8,7 +8,6 @@
 
 | 模块 | 版本 | 许可 | 许可文件 |
 | --- | --- | --- | --- |
-| cloud.google.com/go/pubsub/v2 | v2.4.0 | Apache-2.0 | https://github.com/googleapis/google-cloud-go/blob/pubsub/v2.4.0/pubsub/v2/LICENSE |
 | github.com/BurntSushi/toml | v1.6.0 | MIT | https://github.com/BurntSushi/toml/blob/v1.6.0/COPYING |
 | github.com/bwmarrin/discordgo | v0.29.0 | BSD-3-Clause | https://github.com/bwmarrin/discordgo/blob/v0.29.0/LICENSE |
 | github.com/charmbracelet/bubbles | v1.0.0 | MIT | https://github.com/charmbracelet/bubbles/blob/v1.0.0/LICENSE |
@@ -16,24 +15,15 @@
 | github.com/charmbracelet/lipgloss | v1.1.0 | MIT | https://github.com/charmbracelet/lipgloss/blob/v1.1.0/LICENSE |
 | github.com/creack/pty | v1.1.24 | MIT | https://github.com/creack/pty/blob/v1.1.24/LICENSE |
 | github.com/go-telegram/bot | v1.20.0 | MIT | https://github.com/go-telegram/bot/blob/v1.20.0/LICENSE |
-| github.com/google/uuid | v1.6.0 | BSD-3-Clause | https://github.com/google/uuid/blob/v1.6.0/LICENSE |
 | github.com/gorilla/websocket | v1.5.0 | BSD-2-Clause | https://github.com/gorilla/websocket/blob/v1.5.0/LICENSE |
 | github.com/larksuite/oapi-sdk-go/v3 | v3.5.3 | MIT | https://github.com/larksuite/oapi-sdk-go/blob/v3.5.3/LICENSE |
-| github.com/line/line-bot-sdk-go/v8 | v8.19.0 | Apache-2.0 | https://github.com/line/line-bot-sdk-go/blob/v8.19.0/LICENSE.txt |
 | github.com/mdp/qrterminal/v3 | v3.2.1 | MIT | https://github.com/mdp/qrterminal/blob/v3.2.1/LICENSE |
-| github.com/open-dingtalk/dingtalk-stream-sdk-go | v0.9.1 | MIT | https://github.com/open-dingtalk/dingtalk-stream-sdk-go/blob/v0.9.1/LICENSE |
 | github.com/robfig/cron/v3 | v3.0.1 | MIT | https://github.com/robfig/cron/blob/v3.0.1/LICENSE |
 | github.com/slack-go/slack | v0.16.0 | BSD-2-Clause | https://github.com/slack-go/slack/blob/v0.16.0/LICENSE |
 | github.com/stretchr/testify | v1.11.1 | MIT | https://github.com/stretchr/testify/blob/v1.11.1/LICENSE |
-| golang.org/x/crypto | v0.50.0 | BSD-3-Clause | https://cs.opensource.google/go/x/crypto/+/v0.50.0:LICENSE |
-| golang.org/x/oauth2 | v0.36.0 | BSD-3-Clause | https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE |
-| google.golang.org/api | v0.272.0 | BSD-3-Clause | https://github.com/googleapis/google-api-go-client/blob/v0.272.0/LICENSE |
 | google.golang.org/protobuf | v1.36.11 | BSD-3-Clause | https://github.com/protocolbuffers/protobuf-go/blob/v1.36.11/LICENSE |
-| maunium.net/go/mautrix | v0.27.0 | MPL-2.0 | https://github.com/mautrix/go.git/blob/v0.27.0/LICENSE |
 | modernc.org/sqlite | v1.49.1 | BSD-3-Clause | https://gitlab.com/cznic/sqlite/-/blob/v1.49.1/LICENSE |
 | rsc.io/qr | v0.2.0 | BSD-3-Clause | https://github.com/rsc/qr/blob/v0.2.0/LICENSE |
-
-`maunium.net/go/mautrix` 为 MPL-2.0（文件级弱 copyleft）：修改它的源文件须按 MPL-2.0 公开；本仓库只作为依赖引用，未修改其源码。
 
 ## bridge/web/（前端，`bridge/web/package.json` 的直接依赖）
 
@@ -74,4 +64,4 @@
 
 ## 尚未列出
 
-- `companion/`、`role-household/`、`experiments/` 的 Python 依赖（见各自 `uv.lock`）还没有生成清单。`integrations/` 没有 package.json，没有第三方 Node 依赖。
+- `role-household/`、`experiments/` 的 Python 依赖（见各自 `uv.lock`）还没有生成清单。`integrations/` 没有 package.json，没有第三方 Node 依赖。

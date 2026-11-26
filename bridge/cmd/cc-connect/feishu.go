@@ -116,7 +116,7 @@ func runFeishuSetup(args []string, requestedMode string) {
 	appSecret := fs.String("app-secret", "", "existing bot app_secret")
 	timeout := fs.Int("timeout", 600, "QR onboarding timeout in seconds")
 	qrImage := fs.String("qr-image", "", "save QR code as PNG image to this path (e.g. qr.png)")
-	setAllowFromEmpty := fs.Bool("set-allow-from-empty", false, "merge owner open_id into allow_from when onboarding returns it (preserves *)")
+	setAllowFromEmpty := fs.Bool("set-allow-from-empty", false, "merge owner open_id into allow_from on an existing role (preserves *)")
 	debug := fs.Bool("debug", false, "print debug logs for onboarding requests")
 	_ = fs.Parse(args)
 
@@ -192,6 +192,7 @@ func runFeishuSetup(args []string, requestedMode string) {
 		ProjectName:  targetProject,
 		PlatformType: provisionType,
 		WorkDir:      workDir,
+		OwnerOpenID:  ownerOpenID,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: prepare project failed: %v\n", err)
@@ -362,7 +363,7 @@ Options:
   --app-secret <secret>       Existing app_secret
   --timeout <seconds>         QR onboarding timeout (default: 600)
   --qr-image <path>           Save QR code as PNG image file (e.g. --qr-image qr.png)
-  --set-allow-from-empty      Merge owner open_id into allow_from when available (default: false)
+  --set-allow-from-empty      Merge owner open_id into allow_from on an existing role (default: false)
   --debug                     Print onboarding debug logs
 
 Examples:

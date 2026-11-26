@@ -31,35 +31,6 @@ import (
 	"time"
 )
 
-// TeamChannel is one guild text channel as seen by the team workspace logic.
-type TeamChannel struct {
-	ID       string
-	Name     string
-	ParentID string // category ("" = no category)
-	// Active is the number of tasks in progress in the channel, where the platform knows it
-	// (cloud_web/DSH); 0 elsewhere (Discord, Feishu rely on the caller's busy check).
-	Active int
-	// ActiveKnown: the platform maintains Active (cloud_web/DSH). False means Active == 0 says
-	// nothing about whether the channel is busy.
-	ActiveKnown bool
-	// Owner is the chat channel ID the workspace belongs to now ("" = free), where the platform
-	// records it itself (OwnerKnown: cloud_web/DSH). Elsewhere the bridge's own record decides.
-	Owner      string
-	OwnerKnown bool
-	// Home is the chat channel ID the workspace belongs to also while it is free (#762: reuse
-	// stays within one chat channel), where the platform records it (OwnerKnown: cloud_web/DSH
-	// rooms.parent_id; "" = none). Elsewhere the bridge's handoff record decides
-	// (teamWorkspaceHomeLocked).
-	Home string
-	// Claim: from CreateTeamWorkspaceChannel only, the platform's id of the claim the create
-	// made (cloud_web: the gateway's claim sequence), "" = the platform keeps none.
-	Claim string
-	// Shelved: a workspace the platform keeps in its own workspace category instead of beside the
-	// chat channels (TeamWorkspaceShelver: Discord 「工作区」), so ParentID is that category
-	// rather than the pool's. It is still a pool workspace: adoptable, numbered with the others.
-	Shelved bool
-}
-
 // ErrNotTeamChannel: the channel cannot have workspaces (DM, thread, voice, …).
 var ErrNotTeamChannel = errors.New("not a guild text channel")
 

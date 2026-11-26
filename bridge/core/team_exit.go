@@ -499,13 +499,6 @@ func (e *Engine) postWithDetail(ctx context.Context, p Platform, rc any, name, t
 	return nil
 }
 
-// postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
-// overrides the first post's header (a headline's details). It returns the forwarded ask id.
-func (e *Engine) postExitOriginal(ctx context.Context, p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) string {
-	id, _ := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, header)
-	return id
-}
-
 // postExitOriginalErr is postExitOriginal with the platform error, so a caller that must keep a
 // handback pending (team_report_delivery.go) knows the post did not happen.
 func (e *Engine) postExitOriginalErr(ctx context.Context, p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) (string, error) {

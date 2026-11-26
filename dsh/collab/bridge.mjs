@@ -11,7 +11,8 @@ import { existsSync, mkdirSync, openSync, readFileSync, statSync, watch, writeFi
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { defaultBridgeConfig, dialHost, managementSettings } from './panel.mjs';
+import { defaultBridgeConfig, managementSettings } from './bridge-files.mjs';
+import { dialHost } from './panel.mjs';
 
 // 来源：仓库根 README / docs/GETTING_STARTED.md 第 1 步的一行安装命令。
 export const INSTALL_SH = 'https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh';

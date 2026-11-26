@@ -17,4 +17,6 @@ See the [main README](../README.md), [installation guide](INSTALL.md), and [conf
 
 Use `/model` in a channel to see that channel's current session model. From a role's tool environment, `bothouse model list --json` queries the same status. When a Codex sandbox cannot reach the bridge, a query for its own project and channel can read its current thread's local metadata instead; `source: "local_session"` identifies this limited result. It does not include the model catalog or pending switch state, and `model set`, `model effort`, and `model auto` still require the bridge. If runtime metadata is unavailable, the bridge retains its configured/default model display.
 
+When Discord thread isolation is enabled, each thread shares one agent session by default. Members can keep individual sessions and use `/history` in the same thread by enabling `thread_session_per_user` and restarting bothouse. Replies stay in the thread. See the [Discord setup guide](docs/discord.md).
+
 The upstream bridge's MIT notice remains in [LICENSE-MIT-upstream](LICENSE-MIT-upstream). Thanks to its original authors and contributors. See [third-party licenses](../THIRD-PARTY-LICENSES.md).

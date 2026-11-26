@@ -47,18 +47,6 @@ const channelBoardFile = "channel_board.json"
 // the board message no longer exists (deleted): the hub posts a new one.
 var ErrChannelBoardGone = errors.New("channel board message gone")
 
-// ChannelBoardPoster is implemented by platforms that can host the board
-// (Discord, Feishu). Content is a ChannelBoardPayload string.
-type ChannelBoardPoster interface {
-	PostChannelBoard(ctx context.Context, channelID, content string) (messageID string, err error)
-	EditChannelBoard(ctx context.Context, channelID, messageID, content string) error
-	PinChannelBoard(ctx context.Context, channelID, messageID string) error
-	// FindChannelBoard looks for a board this bot already posted in the
-	// channel (pinned first, then the latest messages), for when the stored ID
-	// was lost or a post's response never arrived. "" = none.
-	FindChannelBoard(ctx context.Context, channelID string) (messageID string, pinned bool, err error)
-}
-
 // Board outcomes of a finished turn.
 const (
 	BoardDoneCompleted = "completed"

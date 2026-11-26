@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -24,8 +26,8 @@ func sendCardViewTurn(t *testing.T, p *Platform, taskID string) (card, table, ta
 		t.Fatal(err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	tk := &core.Task{ID: taskID, Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
-		Members: []core.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
+	tk := &model.Task{ID: taskID, Title: "Task", ChannelID: "room", RequiredSummary: "REQ_SUMMARY", CreatedAt: now, UpdatedAt: now,
+		Members: []model.TaskMember{{ID: "m1", Name: "龙娘", Title: "MEMBER_TITLE", Status: "running", StartedAt: now, UpdatedAt: now}}}
 	if err := p.EnsureTaskCard(ctx, tk, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}

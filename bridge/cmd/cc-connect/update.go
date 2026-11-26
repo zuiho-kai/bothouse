@@ -1,9 +1,6 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -117,24 +114,6 @@ func checkUpdateAsync() {
 // made after a stable tag (v0.1.79-6-g9cb26c7) are not.
 func isPrereleaseVersion(v string) bool {
 	return core.IsPrereleaseVersion(v)
-}
-
-// verifyDownloaded checks a downloaded release file against the release's checksums.txt.
-func verifyDownloaded(path, checksumsURL, name string) error {
-	sumsFile, err := downloadToTemp(checksumsURL)
-	if err != nil {
-		return fmt.Errorf("download checksums.txt: %w", err)
-	}
-	defer os.Remove(sumsFile)
-	sums, err := os.ReadFile(sumsFile)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return core.VerifyReleaseChecksum(data, sums, name)
 }
 
 // getUpdateHintIfAvailable returns an update hint only from cache (never blocks on network).
@@ -424,127 +403,6 @@ func downloadUpdatePayload(base, tag string) (*core.ReleasePayload, error) {
 		return nil, err
 	}
 	return core.ExtractReleasePayload(data, name)
-}
-
-// extractBinaryFromArchive extracts the cc-connect binary from a .tar.gz or .zip archive.
-func extractBinaryFromArchive(archivePath, archiveName string) (string, error) {
-	if strings.HasSuffix(archiveName, ".zip") {
-		return extractFromZip(archivePath)
-	}
-	return extractFromTarGz(archivePath)
-}
-
-func extractFromTarGz(archivePath string) (string, error) {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return "", fmt.Errorf("gzip: %w", err)
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", fmt.Errorf("tar: %w", err)
-		}
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-		if strings.HasPrefix(hdr.Name, "bothouse") || strings.HasPrefix(hdr.Name, "cc-connect") {
-			tmp, err := os.CreateTemp("", "bothouse-update-*")
-			if err != nil {
-				return "", err
-			}
-			if _, err := io.Copy(tmp, tr); err != nil {
-				tmp.Close()
-				os.Remove(tmp.Name())
-				return "", fmt.Errorf("extract: %w", err)
-			}
-			tmp.Close()
-			return tmp.Name(), nil
-		}
-	}
-	return "", fmt.Errorf("binary not found in archive")
-}
-
-func extractFromZip(archivePath string) (string, error) {
-	r, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return "", fmt.Errorf("zip: %w", err)
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		if !strings.HasPrefix(f.Name, "bothouse") && !strings.HasPrefix(f.Name, "cc-connect") {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return "", err
-		}
-		tmp, err := os.CreateTemp("", "bothouse-update-*")
-		if err != nil {
-			rc.Close()
-			return "", err
-		}
-		if _, err := io.Copy(tmp, rc); err != nil {
-			tmp.Close()
-			rc.Close()
-			os.Remove(tmp.Name())
-			return "", fmt.Errorf("extract: %w", err)
-		}
-		rc.Close()
-		tmp.Close()
-		return tmp.Name(), nil
-	}
-	return "", fmt.Errorf("binary not found in archive")
-}
-
-func downloadToTemp(url string) (string, error) {
-	client := &http.Client{
-		Timeout: 5 * time.Minute,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
-	}
-
-	tmp, err := os.CreateTemp("", "bothouse-update-*")
-	if err != nil {
-		return "", err
-	}
-
-	size, err := io.Copy(tmp, resp.Body)
-	if err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return "", fmt.Errorf("write: %w", err)
-	}
-	tmp.Close()
-
-	fmt.Printf("Downloaded %.1f MB\n", float64(size)/1024/1024)
-	return tmp.Name(), nil
 }
 
 func replaceExecutable(target, src string) error {

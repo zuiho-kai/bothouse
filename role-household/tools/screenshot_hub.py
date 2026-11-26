@@ -21,7 +21,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from rh.host import read_dotenv  # noqa: E402
 
 VIEWPORT = {"width": 1100, "height": 900}  # 来源：沿用 tools/screenshot.py
 POLL_MS = 200  # 多久数一次“在说”的消息（毫秒）。来源：实现者定。
@@ -29,13 +28,24 @@ CONNECT_MS = 15000  # 等网页连上云端（毫秒）。来源：实现者定�
 LAST_N = 8  # 结尾打印最后几条消息。来源：实现者定。
 
 
+
+def _read_dotenv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
 def speaking_now(page) -> list[str]:
     """网页日志里状态是 speaking 的消息（云端库里 status='speaking' 的行的投影），返回说话人名字。"""
     return page.eval_on_selector_all(".msg.speaking .who", "els => els.map(e => e.textContent)")
 
 
 def main() -> None:
-    env = {**read_dotenv(ROOT / ".env"), **os.environ}   # 环境变量优先（全本地时指向 127.0.0.1）
+    env = {**_read_dotenv(ROOT / ".env"), **os.environ}   # 环境变量优先（全本地时指向 127.0.0.1）
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", default="周末要不要一起去海边？各说说想法。")
     ap.add_argument("--no-send", action="store_true")

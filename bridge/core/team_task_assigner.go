@@ -56,18 +56,6 @@ func (e *Engine) assignerUser(p Platform, item *teamTaskBoardItem) string {
 	return ""
 }
 
-// withAssignerMention puts the platform mention of item's assigner (assignerUser) at the start of
-// text; text unchanged when there is no one to notify.
-func (e *Engine) withAssignerMention(p Platform, item *teamTaskBoardItem, text string) string {
-	if p == nil {
-		return text
-	}
-	if m := watchMention(p.Name(), e.assignerUser(p, item)); m != "" {
-		return m + " " + text
-	}
-	return text
-}
-
 // prepareAssignerMention resolves item's assigner mention for a release post in sessionKey,
 // suppressing a duplicate ping when the same bot already notified that user for this task within
 // humanMentionDedupWindow (#2091). Returns the rendered text and the user ID allowed to notify
@@ -101,14 +89,4 @@ func (e *Engine) prepareAssignerMentionFor(sessionKey string, id int, text strin
 		return text, ""
 	}
 	return e.prepareAssignerMention(e.platformForName(name), sessionKey, e.boardItemByID(id), text)
-}
-
-// withAssignerMentionFor is withAssignerMention for a message sent to sessionKey that delivers the
-// result of board item id (ws-pass posting the finished files, #988).
-func (e *Engine) withAssignerMentionFor(sessionKey string, id int, text string) string {
-	name, _, err := parseSessionKeyParts(sessionKey)
-	if err != nil {
-		return text
-	}
-	return e.withAssignerMention(e.platformForName(name), e.boardItemByID(id), text)
 }

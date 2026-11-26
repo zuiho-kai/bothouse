@@ -80,17 +80,17 @@ func TestSharedMemoryHint_MissingFilesDisable(t *testing.T) {
 	}
 }
 
-func TestSharedMemoryHint_ManifestByteLimit(t *testing.T) {
-	for _, size := range []int{sharedMemoryManifestLimit, sharedMemoryManifestLimit + 1, 1 << 20} {
+// A large manifest is read whole: the old 8 KiB cap dropped the hint with no word (#2048).
+func TestSharedMemoryHint_LargeManifestStillRead(t *testing.T) {
+	for _, size := range []int{8 << 10, 8<<10 + 1, 1 << 20} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			workDir, dir := sharedMemoryTestDir(t)
 			manifest := `{"session_keys":["session-a"]}`
 			manifest += strings.Repeat(" ", size-len(manifest))
 			writeSharedMemoryTestFile(t, filepath.Join(dir, "manifest.json"), manifest)
 			writeSharedMemoryTestFile(t, filepath.Join(dir, "index.md"), "private index")
-			got := sharedMemoryHint(workDir, "session-a")
-			if (got != "") != (size <= sharedMemoryManifestLimit) {
-				t.Fatalf("manifest size %d: hint = %q", size, got)
+			if got := sharedMemoryHint(workDir, "session-a"); got == "" {
+				t.Fatalf("manifest size %d: no hint", size)
 			}
 		})
 	}

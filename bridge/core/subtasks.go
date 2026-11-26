@@ -17,40 +17,6 @@ import (
 // from the progress card, and edits it whenever a row changes — also after the
 // main turn ended, because a background sub-agent keeps reporting then.
 
-// SubTaskStatus is the state of one sub-agent row.
-type SubTaskStatus string
-
-const (
-	SubTaskRunning SubTaskStatus = "running"
-	// SubTaskWaiting: the sub-agent is idle but can resume (not done yet),
-	// for example while waiting for its own background work or another input.
-	SubTaskWaiting   SubTaskStatus = "waiting"
-	SubTaskCompleted SubTaskStatus = "completed"
-	SubTaskFailed    SubTaskStatus = "failed"
-	SubTaskStopped   SubTaskStatus = "stopped"
-)
-
-// SubTask is one row of the sub-agent table.
-type SubTask struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name,omitempty"` // who: Codex agent nickname / role; empty for Claude rows
-	Description string        `json:"description"`
-	ModeUnknown bool          `json:"mode_unknown,omitempty"` // backend does not expose foreground/background
-	Background  bool          `json:"background,omitempty"`
-	Step        string        `json:"step,omitempty"`    // what it is doing now (task_progress)
-	Status      SubTaskStatus `json:"status"`            // running / completed / failed / stopped
-	Summary     string        `json:"summary,omitempty"` // first sentence of the final report
-	StartedAt   time.Time     `json:"started_at"`
-	EndedAt     time.Time     `json:"ended_at,omitempty"`
-}
-
-// Running reports whether the sub-agent is working right now.
-func (t SubTask) Running() bool { return t.Status == SubTaskRunning }
-
-// Live reports whether the sub-agent has not finished yet: running, or
-// waiting for its own background work.
-func (t SubTask) Live() bool { return t.Status == SubTaskRunning || t.Status == SubTaskWaiting }
-
 // SubTaskReporter is an optional interface for agent sessions that run
 // sub-agents (maomao fork). SubTasks returns the current table and its
 // generation: the generation changes when a new batch starts after every row of
@@ -63,6 +29,14 @@ func (t SubTask) Live() bool { return t.Status == SubTaskRunning || t.Status == 
 type SubTaskReporter interface {
 	SubTasks() (generation uint64, tasks []SubTask, previous []SubTask)
 	SubTasksChanged() <-chan struct{}
+}
+
+// APIRetryReporter is implemented by agent sessions that can tell the engine
+// the CLI is retrying a failed API request (#2042, Claude Code's
+// system/api_retry). Polled, not an event, so a retry loop does not look like
+// agent activity (#1562).
+type APIRetryReporter interface {
+	APIRetryAttempt() int
 }
 
 // SubTaskTablePayloadSupport is implemented by platforms that render the
@@ -150,6 +124,36 @@ func subAgentWaitText(zh bool, t SubTask) string {
 		s += " — " + step
 	}
 	return s
+}
+
+// modelWaitAfter is how long the turn waits on the model with no event before
+// the progress card says so (#2042); same as slowAgentFirstEvent.
+const modelWaitAfter = slowAgentFirstEvent
+
+// waitLineEvery refreshes the wait line on platforms that set no progress
+// edit interval of their own (Discord edits every 2s, Feishu its own).
+const waitLineEvery = 3 * time.Second
+
+// modelWaitText is the progress-card line shown while the turn waits on the
+// model (#2042, user 11-26 「进度条直接显示『在等模型』，你一眼就能看到卡在哪」):
+// "" when nothing is worth showing. lastType is the last event the turn got
+// ("" before the first); after a tool call the wait is the tool's, not the
+// model's.
+func modelWaitText(zh bool, lastType EventType, waited time.Duration, retry int) string {
+	secs := int(waited.Seconds())
+	if retry > 0 {
+		if zh {
+			return fmt.Sprintf("接口无响应，重试中（第 %d 次，已等 %d 秒）", retry, secs)
+		}
+		return fmt.Sprintf("API not responding, retrying (attempt %d, %ds so far)", retry, secs)
+	}
+	if waited < modelWaitAfter || lastType == EventToolUse || lastType == EventPermissionRequest {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("在等模型 %d 秒", secs)
+	}
+	return fmt.Sprintf("Waiting on the model, %ds", secs)
 }
 
 // subAgentBlocksNotice tells the person whose message was injected that the turn cannot read it

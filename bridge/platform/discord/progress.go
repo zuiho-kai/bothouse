@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -15,10 +17,6 @@ const (
 	maxDiscordProgressLineLen   = 80 // maomao fork: one short line per step (was 220)
 	maxDiscordProgressFooterLen = 512
 )
-
-func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
-	return buildDiscordPreviewMessageView(content, cardViewDetail)
-}
 
 // buildDiscordPreviewMessageView renders a preview in a view (细节/简略). Only
 // the progress card carries the buttons; the sub-agent table follows the
@@ -39,17 +37,6 @@ func buildDiscordPreviewMessageView(content string, view cardView) *discordgo.Me
 	return &discordgo.MessageSend{
 		Content: trimDiscordRunes(content, maxDiscordLen),
 	}
-}
-
-func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.MessageEdit {
-	return buildDiscordPreviewEditView(channelID, messageID, content, cardViewDetail)
-}
-
-// buildDiscordPreviewEditView renders a progress card or sub-agent table in
-// the turn's chosen view. Every progress card edit carries the buttons, so
-// they never drop off; a table edit clears any old buttons it had.
-func buildDiscordPreviewEditView(channelID, messageID, content string, view cardView) *discordgo.MessageEdit {
-	return buildDiscordPreviewEditViewPage(channelID, messageID, content, view, -1)
 }
 
 // buildDiscordPreviewEditViewPage is buildDiscordPreviewEditView on a given
@@ -74,10 +61,6 @@ func buildDiscordPreviewEditViewPage(channelID, messageID, content string, view 
 	edit.SetContent(trimDiscordRunes(content, maxDiscordLen))
 	edit.SetEmbeds([]*discordgo.MessageEmbed{})
 	return edit
-}
-
-func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.MessageEmbed {
-	return buildDiscordProgressEmbedView(payload, cardViewDetail)
 }
 
 func buildDiscordProgressEmbedView(payload *core.ProgressCardPayload, view cardView) *discordgo.MessageEmbed {
@@ -137,9 +120,9 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 	for _, item := range discordProgressItems(payload) {
 		tool := strings.TrimSpace(item.Tool)
 		switch item.Kind {
-		case core.ProgressEntryToolUse:
+		case model.ProgressEntryToolUse:
 			steps = append(steps, step{tool: tool})
-		case core.ProgressEntryToolResult:
+		case model.ProgressEntryToolResult:
 			st := 1
 			if discordProgressItemFailed(item) {
 				st = 2
@@ -161,7 +144,7 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 					steps = append(steps, step{tool: tool, state: st})
 				}
 			}
-		case core.ProgressEntryError:
+		case model.ProgressEntryError:
 			if i := open(""); i >= 0 {
 				steps[i].state = 2
 			}
@@ -207,7 +190,7 @@ func buildDiscordProgressBrief(payload *core.ProgressCardPayload) string {
 	return desc
 }
 
-func discordProgressItemFailed(item core.ProgressCardEntry) bool {
+func discordProgressItemFailed(item model.ProgressCardEntry) bool {
 	if item.Success != nil {
 		return !*item.Success
 	}
@@ -235,96 +218,49 @@ func progressCardRender(content string) (cardRender, bool) {
 	}}, true
 }
 
-func buildDiscordProgressDescription(payload *core.ProgressCardPayload) string {
-	if payload == nil {
-		return " "
-	}
-	items := discordProgressItems(payload)
-	if payload.LineLen > 0 {
-		return buildDiscordProgressList(payload, items)
-	}
-	if payload.Steps > 0 || payload.ElapsedSec > 0 {
-		return buildDiscordProgressBarLine(payload, items)
-	}
-	lines := make([]string, 0, len(items)+1)
-	if payload.Truncated {
-		lines = append(lines, "ℹ️ "+discordProgressLatestOnlyText(payload.Lang))
-	}
-	for _, item := range items {
-		if line := buildDiscordProgressLine(item, payload.Lang); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	desc := strings.Join(lines, "\n")
-	desc = trimDiscordRunes(desc, maxDiscordProgressDescLen)
-	if strings.TrimSpace(desc) == "" {
-		return " "
-	}
-	return desc
-}
-
-func discordProgressItems(payload *core.ProgressCardPayload) []core.ProgressCardEntry {
+func discordProgressItems(payload *core.ProgressCardPayload) []model.ProgressCardEntry {
 	if payload == nil {
 		return nil
 	}
 	if len(payload.Items) > 0 {
 		return payload.Items
 	}
-	out := make([]core.ProgressCardEntry, 0, len(payload.Entries))
+	out := make([]model.ProgressCardEntry, 0, len(payload.Entries))
 	for _, entry := range payload.Entries {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		out = append(out, core.ProgressCardEntry{
-			Kind: core.ProgressEntryInfo,
+		out = append(out, model.ProgressCardEntry{
+			Kind: model.ProgressEntryInfo,
 			Text: entry,
 		})
 	}
 	return out
 }
 
-func buildDiscordProgressLine(item core.ProgressCardEntry, lang string) string {
+func buildDiscordProgressLine(item model.ProgressCardEntry, lang string) string {
 	return buildDiscordProgressLineN(item, lang, maxDiscordProgressLineLen)
 }
 
-func buildDiscordProgressLineN(item core.ProgressCardEntry, lang string, lineLen int) string {
+func buildDiscordProgressLineN(item model.ProgressCardEntry, lang string, lineLen int) string {
 	text := compactDiscordProgressText(item.Text)
 	n := lineLen - 2
 	switch item.Kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		return "💭 " + trimDiscordRunes(text, n)
-	case core.ProgressEntryToolUse:
+	case model.ProgressEntryToolUse:
 		return "🔧 " + trimDiscordRunes(buildDiscordToolUseSummary(item, lang), n)
-	case core.ProgressEntryToolResult:
+	case model.ProgressEntryToolResult:
 		return "🧾 " + trimDiscordRunes(buildDiscordToolResultSummary(item, lang), n)
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		return "❌ " + trimDiscordRunes(text, n)
 	default:
 		return "• " + trimDiscordRunes(text, n)
 	}
 }
 
-// buildDiscordProgressList — maomao fork: the step/time head plus the recent
-// steps, one per line. Unlike the one-line bar it stays after the turn ends,
-// so words said mid-run are not wiped.
-func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.ProgressCardEntry) string {
-	lines := []string{buildDiscordProgressBarLine(&core.ProgressCardPayload{
-		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec,
-	}, nil)}
-	for _, item := range items {
-		if line := buildDiscordProgressLineN(item, payload.Lang, payload.LineLen); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
-	if strings.TrimSpace(desc) == "" {
-		return " "
-	}
-	return desc
-}
-
-func buildDiscordToolUseSummary(item core.ProgressCardEntry, lang string) string {
+func buildDiscordToolUseSummary(item model.ProgressCardEntry, lang string) string {
 	toolName := strings.TrimSpace(item.Tool)
 	if toolName == "" {
 		toolName = discordProgressToolLabel(lang)
@@ -336,7 +272,7 @@ func buildDiscordToolUseSummary(item core.ProgressCardEntry, lang string) string
 	return toolName + " — " + text
 }
 
-func buildDiscordToolResultSummary(item core.ProgressCardEntry, lang string) string {
+func buildDiscordToolResultSummary(item model.ProgressCardEntry, lang string) string {
 	toolName := strings.TrimSpace(item.Tool)
 	text := compactDiscordProgressText(item.Text)
 	meta := make([]string, 0, 3)
@@ -541,7 +477,7 @@ func discordProgressOKText(lang string) string {
 	}
 }
 
-func discordProgressStatusText(item core.ProgressCardEntry, lang string) string {
+func discordProgressStatusText(item model.ProgressCardEntry, lang string) string {
 	status := strings.ToLower(strings.TrimSpace(item.Status))
 	switch status {
 	case "completed", "complete", "success", "succeeded", "ok":
@@ -604,7 +540,7 @@ func trimDiscordRunes(s string, maxRunes int) string {
 
 // buildDiscordProgressBarLine renders the maomao one-line card: "第 12 步 · 3分20秒 · 🔧 Bash — …".
 // The card is edited in place, so it reads like a progress bar instead of a growing log.
-func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []core.ProgressCardEntry) string {
+func buildDiscordProgressBarLine(payload *core.ProgressCardPayload, items []model.ProgressCardEntry) string {
 	zh := normalizeDiscordProgressLang(payload.Lang) == "zh"
 	sec := payload.ElapsedSec
 	var head string

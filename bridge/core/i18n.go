@@ -695,6 +695,7 @@ const (
 	MsgWatchAutoResumed         MsgKey = "watch_auto_resumed"
 	MsgTimerMissedNotice        MsgKey = "timer_missed_notice"
 	MsgTurnSpendCapCron         MsgKey = "turn_spend_cap_cron"
+	MsgHouseRulesOver           MsgKey = "house_rules_over"
 	MsgTurnSpendCapTimer        MsgKey = "turn_spend_cap_timer"
 	MsgTurnSpendCapWorkspace    MsgKey = "turn_spend_cap_workspace"
 	MsgTurnSpendWarn            MsgKey = "turn_spend_warn" // told to the running turn, not to the chat
@@ -1132,6 +1133,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "⏰ 定時「%s」原定 %s，那時橋沒在運行，錯過了，這次沒有執行。要補做請再說一聲。",
 		LangJapanese:           "⏰ タイマー「%s」は %s 予定でしたが、その時ブリッジが止まっていたため実行されませんでした。必要ならもう一度お知らせください。",
 		LangSpanish:            "⏰ El temporizador «%s» tocaba a las %s, pero el puente no estaba en marcha: se perdió y no se ejecutó. Dilo si quieres hacerlo ahora.",
+	},
+	MsgHouseRulesOver: {
+		LangEnglish:            "📏 This machine's house rules are %d bytes, over the %d-byte line. They are still sent whole, but every new session carries all of it; please drop or merge a few rules. File: %s",
+		LangChinese:            "📏 本机守则现在 %d 字节，超过提醒线 %d 字节。守则仍整份照发，但每个新会话都要多带这一段，请删掉或合并几条。文件：%s",
+		LangTraditionalChinese: "📏 本機守則現在 %d 位元組，超過提醒線 %d 位元組。守則仍整份照發，但每個新會話都要多帶這一段，請刪掉或合併幾條。檔案：%s",
+		LangJapanese:           "📏 このマシンのハウスルールは %d バイトで、目安の %d バイトを超えています。全文はそのまま送られますが、新しいセッションごとに全部が載るので、いくつか削るかまとめてください。ファイル：%s",
+		LangSpanish:            "📏 Las reglas de esta máquina ocupan %d bytes, por encima de la línea de %d bytes. Se siguen enviando enteras, pero cada sesión nueva las carga completas; quita o junta algunas. Archivo: %s",
 	},
 	MsgTurnSpendCapCron: {
 		LangEnglish:            "💸 Cron job \"%s\" (%s) has cost about $%s this turn, over the per-turn cap of $%s; the turn was stopped.",

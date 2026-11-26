@@ -575,13 +575,6 @@ func (s *antigravitySession) CachedUsage() *core.UsageReport {
 	return s.cachedUsage()
 }
 
-func (as *antigravitySession) preparePrompt(prompt string, images []core.ImageAttachment, files []core.FileAttachment) (string, []string) {
-	// The task lifecycle and model-control instructions are the Agent's TurnPreamble now: the
-	// engine sends them once per agent context (#1903), not before every prompt.
-	fullPrompt, saved, _ := as.attachRefs(prompt, images, files)
-	return fullPrompt, saved
-}
-
 // attachRefs saves images and files into the workspace (falling back to os.TempDir() if
 // .cc-connect/attachments cannot be created) and appends their paths to prompt. It returns
 // the prompt, all saved paths, and only fallback temp paths to clean up when the turn ends.

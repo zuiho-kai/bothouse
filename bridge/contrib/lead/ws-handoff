@@ -41,7 +41,8 @@ _QUOTE_SEC = next(c for c in _handoff_rules.load()["checks"] if c["id"] == "sect
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(Path(__file__).resolve().parent.parent / "gate"))
 import board  # noqa: E402  任务板：交活时建条目、绑工作区（../gate/board.py）
 
-USAGE = ('用法：ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字） [--model <id> [--effort <级别>]]\n'
+USAGE = ('用法：ws-handoff "<一句话任务>" --short 活名（≤20 字）    一句话交活：交接文件、原话、讨论原文都由程序写\n'
+         '      ws-handoff <交接文件> "<一句话任务>" --short 活名（≤20 字） [--model <id> [--effort <级别>]]\n'
          '      ws-handoff --resume <编号> "<补充>"    任务板上已有的活（暂停、等你、等外部、已完成要返工）接着交给工作区\n'
          "交接文件写在当前目录（角色目录）的 notes/<名>.md，不放 /tmp 这类公共目录：隔离和清理都管不到那里。\n"
          "交活是聊天频道收到大活后的第一步：不用先读 README 或本脚本源码。")
@@ -552,8 +553,12 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None, project=None
             serial += 1
         rec["file"] = path
     tasks[key] = rec
-    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "project": project, "tasks": tasks},
-                                     ensure_ascii=False), encoding="utf-8")
+    # 唯一写者；别的脚本和桥都读它：写临时文件再改名，不让读者读到半截
+    import os  # 测试只摘这个函数执行，不带模块头的导入
+    tmp = _team.LAST.with_name(_team.LAST.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "project": project, "tasks": tasks},
+                              ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _team.LAST)
 
 
 def _lead_name(project):
@@ -693,6 +698,28 @@ SHORT_HOW = ("活名是任务帖标题、置顶任务表和汇报里这件活的
              "比如 --short 帖子标题改成人话；不写编号、代号和只有你懂的叫法")
 
 
+def auto_notes(task: str) -> str:
+    """#2042 一句话交活：主角色只给一句话，交接文件由程序写进当前目录 notes/：原话节是交活前 3 小时这个聊天频道里
+    用户自己说的每条（桥的会话记录导出，同讨论原文 _source._history、is_user），那句话放进参考节。返回交接文件路径；
+    导出不到用户的话就退出，不交空交接。"""
+    chat = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+    project = os.environ.get("CC_PROJECT", "")
+    if ":" not in chat or not project:
+        sys.exit("ws-handoff: 一句话交活要在桥的会话里跑（读 CC_SESSION_KEY、CC_PROJECT 导出原话）；不在桥里就写交接文件：\n" + USAGE)
+    start = _source._window_start("")
+    msgs, _ = _source._history(chat, project, start)
+    quotes = [(ts, who, c.strip()) for ts, who, c in msgs if _source.is_user(who, c or "")]
+    if not quotes:
+        sys.exit(f"ws-handoff: 这个聊天频道 {start:%H:%M} 以来没导出到用户的话，交接里没有原话；写交接文件再交：\n" + USAGE)
+    rows = [f"{who}（{ts[5:10]} {ts[11:16]}，原样）：\n{c}\n" for ts, who, c in quotes]
+    d = Path.cwd() / "notes"
+    d.mkdir(exist_ok=True)
+    path = d / f"handoff-auto-{datetime.now():%m%d-%H%M%S}.md"
+    path.write_text(f"# {task}\n\n## {_QUOTE_SEC}\n\n" + "\n".join(rows) + f"\n## {_source.LEAD_SAYS}\n\n{task}\n", encoding="utf-8")
+    print(f"ws-handoff: 交接文件程序写好了 {path}（原话 {len(quotes)} 条，{start:%m-%d %H:%M} 起）", file=sys.stderr)
+    return str(path)
+
+
 def main(argv):
     if argv[:1] == ["--drain"]:  # 排队表 11-24 拿掉；桥放回工作区后还调（core/team_workspace_one.go），留成空操作
         return 0
@@ -735,6 +762,8 @@ def main(argv):
         k = argv.index("--short")
         short_name = argv[k + 1] if k + 1 < len(argv) else None
         argv = argv[:k] + argv[k + 2:]
+    if len(argv) == 1 and argv[0].strip():  # #2042：一句话交活，交接文件程序写
+        argv = [auto_notes(argv[0]), argv[0]]
     if len(argv) != 2 or not argv[1].strip():
         sys.exit(USAGE)
     # 活名由交活人写，不再从任务句截字（用户 10-30 认可的置顶表方案：没写就退回让写）。

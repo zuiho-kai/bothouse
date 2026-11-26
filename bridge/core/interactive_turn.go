@@ -103,5 +103,32 @@ type interactiveTurn struct {
 	subWaitTick    <-chan time.Time
 	subReporter    SubTaskReporter
 	hasSubReporter bool
-	handlingSince  atomic.Int64 // maomao fork: when the current event's handling began; 0 = waiting
+	// #2042: progress card's "在等模型" line: the last event and when it came
+	// (zero = waiting since waitStart).
+	lastEvtType   EventType
+	lastEvtAt     time.Time
+	handlingSince atomic.Int64 // maomao fork: when the current event's handling began; 0 = waiting
+}
+
+// streamCardContent builds the streaming card markdown with standalone and
+// trailing NO_REPLY markers stripped from the accumulated answer text.
+func (t *interactiveTurn) streamCardContent() string {
+	return buildCardContent(t.cardThinkingText, t.cardToolCalls, stripSilentReply(t.cardAnswerText.String()))
+}
+
+// modelWait is the progress card's wait line for this turn (#2042), "" when the
+// turn is not waiting on the model.
+func (turn *interactiveTurn) modelWait(zh bool, r APIRetryReporter) string {
+	since, last := turn.lastEvtAt, turn.lastEvtType
+	if since.IsZero() || since.Before(turn.waitStart) { // a queued message started a new wait
+		since, last = turn.waitStart, ""
+	}
+	if since.IsZero() {
+		return ""
+	}
+	retry := 0
+	if r != nil {
+		retry = r.APIRetryAttempt()
+	}
+	return modelWaitText(zh, last, time.Since(since), retry)
 }

@@ -24,7 +24,10 @@ import re
 import sys
 from pathlib import Path
 
-DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _team  # noqa: E402  数据目录和桥的数据文件只在 gate/datadir.py 解析
+
+DATA = _team.datadir.data_dir()
 NAMES = {"maomao": "橘", "longniang": "龙娘", "jingyu": "鲸鱼娘", "caihongmao": "彩虹猫", "grok": "grok娘"}
 LINE = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\]\s*([^:：\n]{1,40})[:：]\s?")
 
@@ -49,18 +52,11 @@ def _chat_key(key: str) -> str:
 
 def _lead_project() -> str:
     """主角色项目名：lead.json 的 lead（或按 name 对上 config.toml 的 team_name）。"""
-    try:
-        sel = json.loads((DATA / "lead.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    sel = _team.datadir.lead()
+    if not sel:
         return ""
     lead, name = (sel.get("lead") or "").strip(), (sel.get("name") or "").strip()
-    projs = []
-    try:
-        import tomllib
-        with open(DATA / "config.toml", "rb") as f:
-            projs = tomllib.load(f).get("projects") or []
-    except Exception:  # noqa: BLE001
-        pass
+    projs = _team.datadir.projects(DATA / "config.toml")
     if not projs:
         return lead
     for p in projs:

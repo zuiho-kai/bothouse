@@ -33,25 +33,6 @@ type TaskTextRequest struct {
 	Text       string `json:"text"`
 }
 
-type TaskTextPart struct {
-	State     string `json:"state"`
-	MessageID string `json:"message_id"`
-}
-
-// TaskTextDelivery is public metadata. Text is only in the private task journal.
-type TaskTextDelivery struct {
-	ID         string         `json:"id"`
-	TaskID     string         `json:"task_id"`
-	Revision   int            `json:"revision"`
-	Project    string         `json:"project"`
-	Target     string         `json:"target"`
-	Kind       string         `json:"kind"`
-	BodyRef    string         `json:"body_ref"`
-	State      string         `json:"state"`
-	Parts      []TaskTextPart `json:"parts"`
-	Resolution string         `json:"resolution"`
-}
-
 type taskTextRecord struct {
 	TaskTextDelivery
 	Body                []string `json:"body"`

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -136,11 +135,6 @@ func (b *CardBuilder) Markdown(content string) *CardBuilder {
 		b.card.Elements = append(b.card.Elements, CardMarkdown{Content: content})
 	}
 	return b
-}
-
-// Markdownf appends a formatted markdown text element.
-func (b *CardBuilder) Markdownf(format string, args ...any) *CardBuilder {
-	return b.Markdown(fmt.Sprintf(format, args...))
 }
 
 // Divider appends a horizontal divider.

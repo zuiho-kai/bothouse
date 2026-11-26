@@ -15,4 +15,6 @@ Windows 使用 `install.ps1`，装好后运行 `bothouse.exe`。安装、配置�
 
 详见[主 README](../README.zh-CN.md)、[安装说明](INSTALL.md)和[配置示例](config.example.toml)。开发构建运行 `make build` 得到 `bothouse`；Go module 和内部包路径沿用历史名称。
 
+启用 `thread_isolation` 后，同一 Discord 线程的成员默认共用角色会话。在角色的 Discord 平台选项里加上 `thread_session_per_user = true` 并重启后，每人可接续自己的对话，使用 `/history` 查看自己的会话记录。回复仍发在原线程。[配置示例](config.example.toml)
+
 上游桥接组件的 MIT 声明保留在 [LICENSE-MIT-upstream](LICENSE-MIT-upstream)，感谢原作者及贡献者。[第三方许可](../THIRD-PARTY-LICENSES.md)。

@@ -225,12 +225,6 @@ func (a *Agent) GetModel() string {
 	return core.GetProviderModel(a.providers, a.activeIdx, a.model)
 }
 
-func (a *Agent) configuredModels() []core.ModelOption {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return core.GetProviderModels(a.providers, a.activeIdx)
-}
-
 func (a *Agent) configuredModelsForSnapshot(snapshot opencodeModelDiscoverySnapshot) []core.ModelOption {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -292,12 +286,6 @@ func writeProviderSignaturePart(w io.Writer, key, value string) error {
 	return nil
 }
 
-func (a *Agent) activeProviderKey() string {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.activeProviderKeyLocked()
-}
-
 func (a *Agent) modelDiscoverySnapshot() opencodeModelDiscoverySnapshot {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -336,10 +324,6 @@ func (a *Agent) persistentModelsForSnapshot(snapshot opencodeModelDiscoverySnaps
 	models := make([]core.ModelOption, len(a.persistentModelCache.Models))
 	copy(models, a.persistentModelCache.Models)
 	return models
-}
-
-func (a *Agent) persistentModels() []core.ModelOption {
-	return a.persistentModelsForSnapshot(a.modelDiscoverySnapshot())
 }
 
 func (a *Agent) startPersistentModelRefresh(snapshot opencodeModelDiscoverySnapshot, allowColdStart bool) {

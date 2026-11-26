@@ -1,5 +1,7 @@
 # 独立实例配置与多设备部署指南（Instance Setup）
 
+> `companion/`（电脑语音伙伴）已从 develop 删除，完整代码存档在 tag `archive/companion`。下文的 companion 步骤只对存档版有效。
+
 本文档说明如何在新机器、第二台设备或同机多实例环境下配置与运行 `companion`（包括电脑语音入口 `companion/voice` 与自主活动/日志调度 `companion/autonomy`），多台设备作为成员加入同一个 `cloud_web` 频道（团队协作，见 2.4），以及旧生产实例（`~/.bothouse-maomao/`）的升级兼容方式与回滚边界。
 
 ---

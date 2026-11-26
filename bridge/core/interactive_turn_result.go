@@ -16,6 +16,7 @@ const (
 	turnFlowNext     turnFlow = iota // go on with the code after the call
 	turnFlowContinue                 // continue the event loop with the next event
 	turnFlowReturn                   // leave processInteractiveEvents
+	turnFlowClosed                   // the agent event channel closed: the process exited
 )
 
 // interactiveResult carries one terminal EventResult through the steps that
@@ -143,7 +144,7 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	// answer's source (#703: quiet mode discarded terminal-only text).
 	terminalReply := fullResponse != ""
 	if !terminalReply && len(turn.textParts) > 0 {
-		fullResponse = strings.Join(turn.textParts, "")
+		fullResponse = joinReplyParts(turn.textParts)
 	}
 	// The adapter marked an exhausted quota; say which bot/model ran out so
 	// other bots in the channel are not blamed.
@@ -257,14 +258,17 @@ func (e *Engine) composeTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		isSilent = true
 	}
 	if !isSilent {
-		if stripped, ok := stripTrailingSilent(baseResponse); ok {
+		_, hadTrailing := stripTrailingSilent(baseResponse)
+		if stripped := stripSilentReply(baseResponse); stripped != baseResponse {
 			turn.state.mu.Lock()
 			scheduled := turn.state.turnScheduled
 			turn.state.mu.Unlock()
 			// #1188: a cron/timer turn (兜底到点, 工作区上报, later) has no
-			// user waiting; text before its NO_REPLY is the agent's plan
+			// user waiting; text before a trailing NO_REPLY is the agent's plan
 			// ("我会先核对…"), not a message. Swallow the whole turn.
-			if strings.TrimSpace(stripped) == "" || scheduled {
+			// Leading/mid-turn standalone NO_REPLY markers followed by real text
+			// still deliver the text.
+			if strings.TrimSpace(stripped) == "" || (hadTrailing && scheduled) {
 				isSilent = true
 			} else {
 				baseResponse = stripped
@@ -407,15 +411,14 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 	if turn.streamCard != nil && !turn.streamCard.Failed() {
 		turn.sp.finish("", "") // cleanup preview (should be no-op if card was active)
 		// Silent reply: never render the NO_REPLY marker into the card.
-		// cardAnswerText holds only the text streamed BEFORE the marker
-		// (empty for a bare NO_REPLY, since silentHold suppresses card
-		// writes while the segment is still a NO_REPLY prefix). Finalize
+		// cardAnswerText accumulates raw post-release chunks, so strip any
+		// standalone or trailing NO_REPLY markers before finalizing. Finalize
 		// with that instead of fullResponse so the card resolves to Done
 		// without leaking the marker, and skip the fallback send that
 		// would otherwise post the suppressed marker verbatim.
 		cardBody := fullResponse
 		if isSilent {
-			cardBody = strings.TrimRight(turn.cardAnswerText.String(), " \t\r\n")
+			cardBody = strings.TrimRight(stripSilentReply(turn.cardAnswerText.String()), " \t\r\n")
 		}
 		finalContent := buildCardContent(turn.cardThinkingText, turn.cardToolCalls, cardBody)
 		if err := authorizedOutput(turn.outputCtx, func() error { return turn.streamCard.Finalize(turn.outputCtx, finalContent) }); err != nil {
@@ -452,10 +455,7 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		// orphaned shell. Finalizing-in-place avoids the "撤回了一条消息"
 		// gray bar that DeletePreviewMessage would leave in Lark.
 		if hasRichCard && turn.cardMessageID != nil {
-			silentBody := turn.partialText
-			if stripped, ok := stripTrailingSilent(turn.partialText); ok {
-				silentBody = strings.TrimRight(stripped, " \t\r\n")
-			}
+			silentBody := strings.TrimRight(stripSilentReply(turn.partialText), " \t\r\n")
 			if silentBody != "" || len(turn.toolSteps) > 0 {
 				card := buildResolvedRichCard(CardStatusDone, "", turn.toolSteps, silentBody, false, e.composeRichStatusFooter(false, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir))
 				if updater, ok := p.(MessageUpdater); ok {
@@ -530,15 +530,11 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		// halves glued together). A terminal reply uses the normal flow
 		// instead: it can contain text absent from textParts (#703).
 		if turn.segmentStart < len(turn.textParts) {
-			unsent := strings.Join(turn.textParts[turn.segmentStart:], "")
+			unsent := joinReplyParts(turn.textParts[turn.segmentStart:])
 			unsent = finalReplyText(unsent)
 			// The text before the tool call already went out, so the whole-reply
 			// NO_REPLY check above does not cover this remainder after a tool call.
-			if isSilentReply(unsent) {
-				unsent = ""
-			} else if stripped, ok := stripTrailingSilent(unsent); ok {
-				unsent = stripped
-			}
+			unsent = stripSilentReply(unsent)
 			if unsent == "" {
 				turn.sp.discard()
 			} else {

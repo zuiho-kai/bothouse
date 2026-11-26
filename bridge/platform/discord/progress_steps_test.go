@@ -5,16 +5,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestProgressSteps_EmptyToolInputAcrossCardViews(t *testing.T) {
 	for _, state := range []core.ProgressCardState{core.ProgressCardStateRunning, core.ProgressCardStateCompleted} {
-		items := []core.ProgressCardEntry{
-			{Kind: core.ProgressEntryToolUse, Tool: "bash"},
-			{Kind: core.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
-			{Kind: core.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
-			{Kind: core.ProgressEntryToolUse, Tool: "read"},
+		items := []model.ProgressCardEntry{
+			{Kind: model.ProgressEntryToolUse, Tool: "bash"},
+			{Kind: model.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
+			{Kind: model.ProgressEntryToolResult, Tool: "bash", Status: "completed"},
+			{Kind: model.ProgressEntryToolUse, Tool: "read"},
 		}
 		// The live writer supplies cumulative steps independently of retained items.
 		encoded, err := json.Marshal(core.ProgressCardPayload{Items: items, Agent: "ACP", Lang: "zh", State: state, Steps: 2})

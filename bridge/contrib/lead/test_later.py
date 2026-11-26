@@ -74,5 +74,20 @@ class LaterTest(unittest.TestCase):
         self.assertNotEqual(self.later("1", "10m", "看").returncode, 0)
         self.assertNotIn("next", self.rows()[0])
 
+    def test_limit_six_per_day_recorded_on_item(self):
+        """同一角色同一件 24 小时最多挂 6 次：次数记在条目上（数据目录不是 ~/.bothouse 也生效），挂失败不占次数。"""
+        self.fake_cc(1)
+        self.assertNotEqual(self.later("1", "10m", "看").returncode, 0)
+        self.assertNotIn("later_at", self.rows()[0])  # 定时没挂上：次数一起改回
+        self.fake_cc(0)
+        for _ in range(6):
+            self.assertEqual(self.later("1", "10m", "看").returncode, 0)
+        r = self.later("1", "10m", "看")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("已挂 6 次", r.stderr)
+        self.assertEqual(len([c for c in self.calls_() if c["cc"][:2] == ["timer", "add"]]), 7)  # 第 8 次没去挂
+        self.env["CC_PROJECT"] = "q"  # 别的角色不受这件的次数影响
+        self.assertEqual(self.later("1", "10m", "看").returncode, 0)
+
 if __name__ == "__main__":
     unittest.main()

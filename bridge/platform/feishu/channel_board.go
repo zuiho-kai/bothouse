@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -37,7 +39,7 @@ const (
 	channelBoardPinPage = 50
 )
 
-var _ core.ChannelBoardPoster = (*Platform)(nil)
+var _ model.ChannelBoardPoster = (*Platform)(nil)
 
 func channelBoardCard(content string) (string, error) {
 	payload, ok := core.ParseChannelBoardPayload(content)
@@ -47,7 +49,7 @@ func channelBoardCard(content string) (string, error) {
 	return buildFeishuChannelBoardCard(payload, time.Local), nil
 }
 
-// PostChannelBoard implements core.ChannelBoardPoster.
+// PostChannelBoard implements model.ChannelBoardPoster.
 func (p *Platform) PostChannelBoard(ctx context.Context, channelID, content string) (string, error) {
 	card, err := channelBoardCard(content)
 	if err != nil {
@@ -60,7 +62,7 @@ func (p *Platform) PostChannelBoard(ctx context.Context, channelID, content stri
 	return id, nil
 }
 
-// EditChannelBoard implements core.ChannelBoardPoster. A recalled card, or one
+// EditChannelBoard implements model.ChannelBoardPoster. A recalled card, or one
 // past the 14-day edit window, is reported as core.ErrChannelBoardGone so a
 // new one is posted.
 func (p *Platform) EditChannelBoard(ctx context.Context, _ string, messageID, content string) error {
@@ -77,7 +79,7 @@ func (p *Platform) EditChannelBoard(ctx context.Context, _ string, messageID, co
 	return nil
 }
 
-// PinChannelBoard implements core.ChannelBoardPoster (needs the pin scope, and
+// PinChannelBoard implements model.ChannelBoardPoster (needs the pin scope, and
 // the group must let members pin).
 func (p *Platform) PinChannelBoard(ctx context.Context, _ string, messageID string) error {
 	if err := p.pinMessage(ctx, messageID); err != nil {
@@ -86,7 +88,7 @@ func (p *Platform) PinChannelBoard(ctx context.Context, _ string, messageID stri
 	return nil
 }
 
-// FindChannelBoard implements core.ChannelBoardPoster: this bot's card with the
+// FindChannelBoard implements model.ChannelBoardPoster: this bot's card with the
 // board marker among the chat's pins, then the latest page of the chat.
 func (p *Platform) FindChannelBoard(ctx context.Context, channelID string) (string, bool, error) {
 	// A failed pin list is not fatal: the latest messages are still looked at.
@@ -276,12 +278,12 @@ func buildFeishuChannelBoardCard(b *core.ChannelBoardPayload, loc *time.Location
 }
 
 // boardStepLine is the progress card's newest item in one line.
-func boardStepLine(e core.ProgressCardEntry) string {
+func boardStepLine(e model.ProgressCardEntry) string {
 	text := boardShort(e.Text)
 	switch e.Kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		return "💭 " + text
-	case core.ProgressEntryToolUse, core.ProgressEntryToolResult:
+	case model.ProgressEntryToolUse, model.ProgressEntryToolResult:
 		tool := strings.TrimSpace(e.Tool)
 		if tool == "" {
 			tool = "Tool"
@@ -290,7 +292,7 @@ func boardStepLine(e core.ProgressCardEntry) string {
 			return "🔧 " + boardEscape(tool)
 		}
 		return "🔧 " + boardEscape(tool) + " · " + text
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		return "⚠️ " + text
 	default:
 		return text

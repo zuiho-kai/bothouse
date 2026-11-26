@@ -16,8 +16,6 @@ type EventsReadSource struct {
 	DataDir string
 }
 
-func (s EventsReadSource) Name() string { return string(ReadFrequencySourceEvents) }
-
 func (s EventsReadSource) ReadEvents(since time.Time) ([]ReadEvent, error) {
 	var out []ReadEvent
 	for _, path := range readFrequencyEventFiles(s.DataDir) {
@@ -86,3 +84,5 @@ func readFrequencyEventFiles(dataDir string) []string {
 	current := EventStreamPath(dataDir)
 	return []string{current + ".1", current}
 }
+
+func (s EventsReadSource) Name() string { return string(ReadFrequencySourceEvents) }

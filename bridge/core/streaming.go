@@ -473,6 +473,8 @@ func (sp *streamPreview) finish(finalText, statusFooter string) bool {
 		close(sp.timerStop)
 	}
 
+	finalText = stripSilentReply(finalText)
+
 	if replier, ok := sp.platform.(PreviewReplier); ok && sp.previewMsgID != nil && !sp.degraded && finalText != "" {
 		finalCtx := sp.replyCtx
 		if m, ok := sp.platform.(FinalReplyMarker); ok {
@@ -694,14 +696,4 @@ func (sp *streamPreview) appendSeparator(sep string) bool {
 	}
 	sp.fullText += sep
 	return true
-}
-
-// needsDoneReaction returns true if the preview was delivered via in-place
-// UpdateMessage at least once, meaning the user only received a push for the
-// initial SendPreviewStart and subsequent updates were silent. In this case a
-// "done" reaction can notify the user that processing has completed.
-func (sp *streamPreview) needsDoneReaction() bool {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-	return sp.previewMsgID != nil && sp.lastSentViaUpdate
 }

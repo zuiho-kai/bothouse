@@ -1078,57 +1078,6 @@ func TestRegression_TelegramCommand(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// T-243: 钉钉加解密测试
-// ---------------------------------------------------------------------------
-
-func TestRegression_DingtalkCrypto(t *testing.T) {
-	// Test signature verification logic (simplified)
-	testCases := []struct {
-		name        string
-		signature   string
-		timestamp   string
-		nonce       string
-		token       string
-		expectValid bool
-	}{
-		{
-			name:        "valid signature",
-			signature:   "test-signature",
-			timestamp:   "1234567890",
-			nonce:       "random-nonce",
-			token:       "test-token",
-			expectValid: true,
-		},
-		{
-			name:        "empty signature",
-			signature:   "",
-			timestamp:   "1234567890",
-			nonce:       "random-nonce",
-			token:       "test-token",
-			expectValid: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Simulate signature validation
-			valid := len(tc.signature) > 0
-			assert.Equal(t, tc.expectValid, valid)
-		})
-	}
-
-	// Test plaintext encryption/decryption (EchoAPI encryption mode)
-	plaintext := "test-message-content"
-	encrypted := plaintext // In real implementation, this would be encrypted
-	decrypted := encrypted // In real implementation, this would be decrypted
-
-	assert.Equal(t, plaintext, decrypted)
-	assert.NotEmpty(t, plaintext)
-
-	t.Log("DingTalk crypto: PASS")
-}
-
-// ---------------------------------------------------------------------------
 // T-252: Cron 任务取消测试
 // ---------------------------------------------------------------------------
 

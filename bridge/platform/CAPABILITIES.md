@@ -54,6 +54,15 @@ DSH 没有自己的平台目录：DSH 的房间经它的 collab 网关（dsh/col
 - discord: 不支持：Discord 没有给机器人在输入框或消息上挂「排队中」标记的地方，只能另发消息，会刷屏；排队消息照旧可删原消息撤回
 - feishu: 不支持：同 discord，飞书也没有输入状态旁的提示位，只能另发消息
 
+## ChannelReplyGuidanceProvider
+
+Supplies model formatting guidance once per agent context. The Cloud Web adapter currently returns guidance for DSH Channels connections. Other gateways receive their existing prompts.
+
+- cloud-web: 已接
+- dsh: 已接
+- discord: 不支持：The DSH currency and math guidance is specific to the Channels renderer.
+- feishu: 不支持：The DSH currency and math guidance is specific to the Channels renderer.
+
 ## PlatformNoticer
 
 平台有要用户去修的事时，面板角色页在该平台下显示一行提醒（core/member_events.go，#1058）；Discord 用它提醒没开 Server Members Intent。平台事件（进群、表情回应、频道、语音、置顶）的平台支持见 docs/usage.zh-CN.md「平台事件触发器」。

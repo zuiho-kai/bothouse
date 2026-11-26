@@ -124,7 +124,8 @@ type = "discord"
 
 [projects.platforms.options]
 token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
-# thread_isolation = true  # Optional: isolate each agent session in its own Discord thread
+# thread_isolation = true         # Create or reuse Discord threads for conversations
+# thread_session_per_user = true  # Optional with thread_isolation: one agent session per member in each thread
 # progress_style = "card" # Optional: legacy | compact | card (default card)
 # ack_reaction = true     # Optional, default off: 👀 when a message is taken, ✅/❌ when its turn ends
 # ack_emoji = "🐱"        # Optional: the emoji ack_reaction puts on a taken message (default 👀)
@@ -132,7 +133,7 @@ token = "MTk4NjIyNDgzNDcOTY3NDUxMg.G8vKqh.xxx..."
 ```
 
 > bothouse automatically configures the required Intents (MESSAGE_CONTENT, GUILD_MESSAGES, DIRECT_MESSAGES).
-> With `thread_isolation = true`, bothouse creates or reuses a Discord thread for each session and routes follow-up messages by thread channel ID.
+> With `thread_isolation = true`, members share the thread's agent session by default. To give each member a separate session in that thread, enable `thread_session_per_user` and restart bothouse. Messages and commands such as `/history` then use that member's session. Replies remain visible to everyone with access to the thread. Turning the option off and restarting resumes the previous shared session. Bots configured with `permission_approvers` require shared sessions.
 > With `ack_reaction = true`, the bot puts 👀 on each message it takes on (started or queued) and swaps it for ✅ when the turn finishes or ❌ when it fails. A 👀 left by a restart is cleared when the bot reconnects. Off by default.
 > `ack_emoji` replaces 👀 for this bot, so in a server with several bots you can tell at a glance which one took a message; ✅/❌ stay the same for every bot. Use a Unicode emoji, or `name:id` for a custom server emoji. A mark left by a restart is cleared with the emoji that was actually put on, so changing `ack_emoji` does not leave old ones behind.
 >
@@ -325,8 +326,6 @@ Check:
 ## See Also
 
 - [Feishu Setup](./feishu.md)
-- [DingTalk Setup](./dingtalk.md)
-- [Weibo Setup](./weibo.md)
 - [Telegram Setup](./telegram.md)
 - [Slack Setup](./slack.md)
 - [Back to README](../README.md)

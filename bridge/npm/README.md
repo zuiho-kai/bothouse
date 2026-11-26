@@ -1,6 +1,6 @@
 # cc-connect
 
-Bridge local AI coding agents (Claude Code, Cursor, Gemini CLI, Codex) to messaging platforms (Feishu/Lark, DingTalk, Slack, Telegram, Discord, LINE, WeChat Work).
+Bridge local AI coding agents (Claude Code, Cursor, Gemini CLI, Codex) to messaging platforms (Feishu/Lark, Slack, Telegram, Discord, WeChat Work).
 
 Chat with your AI dev assistant from anywhere.
 

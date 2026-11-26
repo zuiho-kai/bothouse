@@ -14514,18 +14514,22 @@ func TestStripTrailingSilent(t *testing.T) {
 	}{
 		{"trailing on new line", "Hello\nNO_REPLY", "Hello", true},
 		{"trailing lowercase on new line", "Hello\nno_reply", "Hello", true},
-		{"trailing after space", "Some reasoning here NO_REPLY", "Some reasoning here", true},
+		{"trailing after sentence end", "Some reasoning here. NO_REPLY", "Some reasoning here.", true},
+		{"word inside a sentence (#2021)", "Some reasoning here NO_REPLY", "Some reasoning here NO_REPLY", false},
 		{"multi-line then marker", "Line1\nLine2\nNO_REPLY", "Line1\nLine2", true},
-		{"trailing with markdown emphasis", "Done. *NO_REPLY*", "Done. *NO_REPLY*", false},
+		{"trailing with markdown emphasis", "Done. *NO_REPLY*", "Done.", true},
+		{"bold own line", "Done\n**NO_REPLY**", "Done", true},
 		{"trailing preceded by asterisks", "Done.**NO_REPLY", "Done.", true},
 		{"trailing with crlf", "Hello\r\nNO_REPLY", "Hello", true},
-		{"marker followed by trailing whitespace", "Hello NO_REPLY   ", "Hello", true},
+		{"marker followed by trailing whitespace", "Hello\nNO_REPLY   ", "Hello", true},
 
 		{"no marker", "Hello world", "Hello world", false},
 		{"marker not at end", "NO_REPLY then more", "NO_REPLY then more", false},
 		{"marker with suffix token", "Hello NO_REPLY_EXTRA", "Hello NO_REPLY_EXTRA", false},
 		{"marker touching prior letters", "somethingNO_REPLY", "somethingNO_REPLY", false},
-		{"glued after CJK segment", "哦 是这张NO_REPLY", "哦 是这张", true},
+		{"word after CJK (#2021)", "没漏洞只回 NO_REPLY", "没漏洞只回 NO_REPLY", false},
+		{"glued word after CJK (#2021)", "没漏洞只回NO_REPLY", "没漏洞只回NO_REPLY", false},
+		{"word after colon", "没问题就回：NO_REPLY", "没问题就回：NO_REPLY", false},
 		{"glued after CJK punctuation", "好的。NO_REPLY", "好的。", true},
 		{"glued after ascii punctuation", "done.NO_REPLY", "done.", true},
 		{"empty", "", "", false},
@@ -16067,9 +16071,15 @@ type recordingStreamCard struct {
 	mu      sync.Mutex
 	final   bool
 	content string
+	updates []string
 }
 
-func (c *recordingStreamCard) Update(_ context.Context, _ string) error { return nil }
+func (c *recordingStreamCard) Update(_ context.Context, content string) error {
+	c.mu.Lock()
+	c.updates = append(c.updates, content)
+	c.mu.Unlock()
+	return nil
+}
 func (c *recordingStreamCard) Finalize(_ context.Context, content string) error {
 	c.mu.Lock()
 	c.final = true
@@ -16087,6 +16097,11 @@ func (c *recordingStreamCard) finalContent() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.content
+}
+func (c *recordingStreamCard) updateContents() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.updates...)
 }
 
 // recordingStreamCardPlatform is a StreamingCardPlatform whose card records the

@@ -68,7 +68,7 @@ ACP 的原生图片块在适配器入口校验 MIME、base64 和单附件大小�
 
 容量错误的整轮重试只用于尚未出现工具事件的轮次。工具可能已经改变外部状态，无论工具消息是否展示，都不自动重发该用户提示，也不将其放回队列或冷却重投；失败正常报告，后续明确请求继续处理。模型内部的请求级退避仍归后端管理。
 
-DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补丁，对端握手声明 `dsh/steer` 后适配器才走插话，否则排队。
+DSH 忙时插话（steer）要给 dsh-acp 打 dsh/runtime-patches/dsh-acp-steer.patch（dsh/install.sh 打，桥启动时 bridge/agent/dsh/steer_heal.go 自动补），对端握手声明 `dsh/steer` 后适配器才走插话，否则排队。
 
 子 Agent 状态仍由适配器采集，经可选 core.SubTaskReporter 交给现有表格渲染。Codex 原生协作事件直接映射；DSH 由 ACP 自有通知通道转发生命周期元数据，父会话 ID 与运行 ID 共同隔离事件。core 不解析各后端协议，普通工具完成不代表子任务完成。见[集成说明](../integrations/dsh-acp-subtasks/README.md)。
 
@@ -85,7 +85,6 @@ DSH 忙时插话（steer）要给 dsh-acp 打 integrations/dsh-acp-steer 的补�
 | `bridge/platform/` | 各聊天平台的身份、收发消息与卡片 |
 | `bridge/contrib/gate/` | 可选的消息判定与 wiki 检索服务 |
 | `role-household/rh/hub.py` | 随程序分发的自建网页频道，通过 cloud_web WebSocket 接入角色 |
-| `companion/` | 保留的电脑语音、活动采集与归档扩展，独立配置 |
 | `integrations/`、`skills/` | 智能体集成与工作约定 |
 
 DSH 自定义成员头像由 collab 的 owner 专用上传接口接收：浏览器缩放为 256×256 PNG，服务端检查 PNG 文件头、IHDR 尺寸和 256KB 上限，原子写入 `<dataDir>/avatars/<memberId>.png`，成员记录只存 `upload:<memberId>.png`。图片通过 owner 鉴权的静态路由读取；成员事件携带缓存版本，替换后列表和历史消息同步刷新。恢复默认或删除成员会清理本地图片。

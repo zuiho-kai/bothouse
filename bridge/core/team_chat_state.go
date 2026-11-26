@@ -389,20 +389,6 @@ func recordChatStops(st *teamChatState, items []teamTaskBoardItem, now time.Time
 	return changed
 }
 
-// chatClock: 「15:04」 today, 「明天 15:04」 tomorrow, else 「01-02 15:04」.
-func chatClock(t, now time.Time) string {
-	t = t.In(now.Location())
-	y, m, d := now.Date()
-	today := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	switch {
-	case !t.Before(today) && t.Before(today.AddDate(0, 0, 1)):
-		return t.Format("15:04")
-	case !t.Before(today.AddDate(0, 0, 1)) && t.Before(today.AddDate(0, 0, 2)):
-		return "明天 " + t.Format("15:04")
-	}
-	return t.Format("01-02 15:04")
-}
-
 // announceChatStops posts ② once for each stop of this chat's items that began after Since.
 func (e *Engine) announceChatStops(poster ChatNotePoster, st *teamChatState, chat string, items []teamTaskBoardItem, now time.Time) bool {
 	changed := false

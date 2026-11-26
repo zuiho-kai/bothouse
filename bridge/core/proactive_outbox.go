@@ -406,8 +406,7 @@ func turnDelivered(s *Session, prevLen int) bool {
 	if text == "" || isSilentReply(text) {
 		return false
 	}
-	stripped, _ := stripTrailingSilent(text)
-	return strings.TrimSpace(stripped) != ""
+	return strings.TrimSpace(stripSilentReply(text)) != ""
 }
 
 func (e *Engine) startProactiveRun(ids []string, sessionKeys ...string) func() {

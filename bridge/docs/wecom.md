@@ -438,8 +438,6 @@ proxy = "http://vps-ip:8888"
 ## 下一步
 
 - [接入飞书](./feishu.md)
-- [接入钉钉](./dingtalk.md)
-- [接入微博](./weibo.md)
 - [接入 Telegram](./telegram.md)
 - [接入 Slack](./slack.md)
 - [接入 Discord](./discord.md)

@@ -65,6 +65,15 @@ func (s *APIServer) handleTeamReportVerdict(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
+	if req.Action == "pass" {
+		// #2032: a verdict that admits it did not check the work, says the user's goal was not met,
+		// or hands the decision to someone else cannot close the task. Refuse before the verdict is
+		// recorded, so the lead's turn must finish the check, ask the question or send the work back.
+		if why := verdictGateProblem(rec, req.Verdict); why != "" {
+			http.Error(w, why, http.StatusConflict)
+			return
+		}
+	}
 	// The verdict is the task's, not one record's (#1405): kept first, so a report of this task held
 	// now or found again later (a withdrawn record put back, a second copy) settles from it too.
 	if len(engines) > 0 {

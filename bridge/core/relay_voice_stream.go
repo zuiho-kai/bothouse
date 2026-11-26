@@ -105,6 +105,3 @@ func (s *voiceSentenceSplitter) publish(end int, added []string) []string {
 	s.sentences = append(s.sentences, sentence)
 	return append(added, sentence)
 }
-
-// rest is the public text after the published sentences, for final handling.
-func (s *voiceSentenceSplitter) rest() string { return s.text[s.done:] }

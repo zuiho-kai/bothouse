@@ -671,10 +671,6 @@ func (e *Engine) capacityCoolingUntil() time.Time {
 	return time.Time{}
 }
 
-func (e *Engine) quotaCoolingUntil(msg string) (time.Time, bool) {
-	return e.quotaCoolingUntilFor(e.quotaScopeFor(e.agent, modelOf(e.agent)), msg)
-}
-
 func (e *Engine) quotaCoolingUntilFor(scope quotaScope, msg string) (time.Time, bool) {
 	d, ok := quotaCoolingDuration(msg)
 	if !ok {

@@ -283,11 +283,6 @@ var featureNotSwitch = map[string]string{
 	"projects.display.hide_agent_footer":        "per-project display override; the global switch is listed",
 }
 
-// FeatureSwitches returns the registry (a copy).
-func FeatureSwitches() []FeatureSwitch {
-	return append([]FeatureSwitch(nil), featureSwitches...)
-}
-
 // FeatureStates is every switch's value in cfg: the global ones, then each project's.
 // boot is the snapshot taken when the bridge started (FeatureValues); nil = nothing is pending.
 func FeatureStates(cfg *Config, boot map[string]bool) []FeatureState {
@@ -391,4 +386,9 @@ func SetFeatureSwitch(project, key string, on bool) (restart bool, err error) {
 		return false, err
 	}
 	return sw.Restart, nil
+}
+
+// FeatureSwitches returns the registry (a copy).
+func FeatureSwitches() []FeatureSwitch {
+	return append([]FeatureSwitch(nil), featureSwitches...)
 }

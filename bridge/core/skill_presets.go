@@ -65,14 +65,6 @@ type skillPresetsCache struct {
 
 var globalSkillPresetsCache = &skillPresetsCache{}
 
-// SetSkillPresetsURL overrides the default skill presets URL.
-func SetSkillPresetsURL(url string) {
-	globalSkillPresetsCache.mu.Lock()
-	defer globalSkillPresetsCache.mu.Unlock()
-	globalSkillPresetsCache.url = url
-	globalSkillPresetsCache.data = nil
-}
-
 // FetchSkillPresets returns cached or freshly-fetched skill presets.
 func FetchSkillPresets() (*SkillPresetsResponse, error) {
 	return globalSkillPresetsCache.fetch()
