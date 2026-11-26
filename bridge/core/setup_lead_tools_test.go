@@ -42,7 +42,7 @@ func TestApplyWizardInstallsLeadToolsOnlyForNewPrimary(t *testing.T) {
 			if res.FallbackRole != tc.wantLead || (!tc.dryRun && !res.Saved) {
 				t.Fatalf("wizard result: %+v", res)
 			}
-			bin := filepath.Join(dir, "collaboration", "lead")
+			bin := filepath.Join(dir, "collaboration", "runtime", "lead")
 			if tc.dryRun {
 				if _, err := os.Stat(bin); !os.IsNotExist(err) {
 					t.Fatalf("dry run wrote collaboration tools: %v", err)

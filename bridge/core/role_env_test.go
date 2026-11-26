@@ -23,7 +23,7 @@ func roleEnvFixture(t *testing.T, e *Engine) (dataDir, pyBin string) {
 	prev := LeadToolFS
 	LeadToolFS = os.DirFS("..")
 	t.Cleanup(func() { LeadToolFS = prev })
-	if _, _, err := InstallLeadTools(dataDir, t.TempDir(), "claudecode", false); err != nil {
+	if _, err := InstallLeadTools(dataDir, t.TempDir(), "claudecode"); err != nil {
 		t.Fatalf("InstallLeadTools: %v", err)
 	}
 	pyBin = filepath.Join(dataDir, "tools", "bin")
@@ -58,7 +58,7 @@ func checkRoleEnv(t *testing.T, a *sessionEnvRecordingAgent, dataDir, pyBin, ses
 		}
 	}
 	sep := string(filepath.ListSeparator)
-	prefix := strings.Join([]string{pyBin, filepath.Join(dataDir, "collaboration", "lead"), filepath.Dir(exe)}, sep) + sep
+	prefix := strings.Join([]string{pyBin, filepath.Join(dataDir, "collaboration", "runtime", "lead"), filepath.Dir(exe)}, sep) + sep
 	if got := a.EnvValue("PATH"); !strings.HasPrefix(got, prefix) {
 		t.Errorf("PATH = %q, want prefix %q", got, prefix)
 	}
@@ -118,7 +118,7 @@ func TestRoleSessionEnv_Relay(t *testing.T) {
 
 func TestRoleSessionEnv_NoProductPythonOrTools(t *testing.T) {
 	e := NewEngine("test", &stubAgent{}, nil, "", LangEnglish)
-	e.SetDataDir(t.TempDir()) // no collaboration/lead, product Python not resolved
+	e.SetDataDir(t.TempDir()) // no embedded collaboration tools, product Python not resolved
 	exe, _ := os.Executable()
 	env := e.roleSessionEnv("k")
 	// Without the product tools a role may use private scripts with their own board default: nothing
@@ -126,7 +126,7 @@ func TestRoleSessionEnv_NoProductPythonOrTools(t *testing.T) {
 	for _, kv := range env {
 		for _, k := range []string{"GATE_SETUP_DIR=", "BOTHOUSE_DATA_DIR=", "BOARD_DIR="} {
 			if strings.HasPrefix(kv, k) {
-				t.Errorf("role env has %s without collaboration/lead", kv)
+				t.Errorf("role env has %s without collaboration tools", kv)
 			}
 		}
 	}
