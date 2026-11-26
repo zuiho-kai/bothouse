@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import types
 import unittest
 from unittest.mock import Mock
@@ -249,11 +250,11 @@ class ForwardRecipientTest(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")
 
     def test_handoff_records_actual_project_for_queued_dispatch(self):
-        last = Mock()
-        last.read_text.side_effect = OSError()
+        last = Path(tempfile.mkdtemp()) / "ws-handoff-last.json"  # 还没有：record_last 写临时文件再改名
         ns = functions("ws-handoff", {"record_last"}, dict(json=json, _team=types.SimpleNamespace(LAST=last, project=lambda: "gge")))
         ns["record_last"](self.notes, "discord:ws3", "task", "discord:chat", 362, "deep")
-        saved = json.loads(last.write_text.call_args.args[0])
+        self.assertEqual([p.name for p in last.parent.iterdir()], [last.name])  # 没留临时文件
+        saved = json.loads(last.read_text(encoding="utf-8"))
         self.assertEqual(saved["project"], "deep")
         self.assertEqual(saved["tasks"][self.notes]["project"], "deep")
 

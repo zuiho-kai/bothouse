@@ -94,21 +94,7 @@ import filelock  # noqa: E402  跨进程锁：Mac/Linux 用 fcntl.flock，Window
 SETUP = datadir.setup_dir()
 
 
-def _board_dir():
-    if os.environ.get("BOARD_DIR"):
-        return Path(os.environ["BOARD_DIR"]).expanduser()
-    cfg = SETUP / "config.toml"
-    if cfg.is_file():
-        try:
-            m = re.search(r'^\s*team_status_dir\s*=\s*"([^"]+)"', cfg.read_text(encoding="utf-8"), re.M)
-            if m and m.group(1).strip():
-                return Path(m.group(1).strip()).expanduser()
-        except OSError:
-            pass
-    return (SETUP / "team").expanduser()
-
-
-DIR = datadir.guard(_board_dir())  # BOARD_DIR / team_status_dir 也过测试守卫（11-22 测试经 BOARD_DIR 写进了线上板）
+DIR = datadir.board_dir()  # BOARD_DIR → team_status_dir → <setup>/team，过测试守卫（11-22 测试经 BOARD_DIR 写进了线上板）
 
 
 def _path(name):
@@ -639,20 +625,38 @@ def _lookback_reason(what, where, status):
     return None
 
 
+# 续挂上限（2026-11-07：龙娘等外部样本，一天续挂 247 次、跑掉约 2 亿 token）：同一角色同一件 24 小时内最多挂 6 次。
+# 次数记在条目的 later_at（[[时间戳, 项目]…]）上，不再去翻桥的定时文件（#2051：那份文件只归桥）。
+LATER_MAX, LATER_WINDOW = 6, 86400
+
+
+class LaterLimit(Exception):
+    pass
+
+
 def set_next(nid, nxt=None, restore=None):
     """later 用：只改条目的「下次看」。nxt 给几点就设上；restore 给改前的记录（{} = 原来没有）就原样放回。
-    返回 (改前的 next 记录, 事情)；没这个编号返回 None。"""
+    返回 (改前的 next 记录, 事情)；没这个编号返回 None。本角色 24 小时内已挂满 LATER_MAX 次抛 LaterLimit（带次数）。"""
+    keys = ("next", "next_ts", "later_at")
     with _locked():
         cur = _read_locked()
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return None
-        prev = {k: hit[k] for k in ("next", "next_ts") if k in hit}
-        hit.pop("next", None), hit.pop("next_ts", None)
+        prev = {k: hit[k] for k in keys if k in hit}
         if restore is not None:
-            hit.update({k: restore[k] for k in ("next", "next_ts") if k in restore})
+            for k in keys:
+                hit.pop(k, None)
+            hit.update({k: restore[k] for k in keys if k in restore})
         else:
+            now, proj = time.time(), os.environ.get("CC_PROJECT", "")
+            recent = [x for x in hit.get("later_at") or [] if isinstance(x, list) and len(x) == 2 and now - x[0] < LATER_WINDOW]
+            n = sum(1 for x in recent if x[1] == proj)
+            if n >= LATER_MAX:
+                raise LaterLimit(n)
+            hit.pop("next", None), hit.pop("next_ts", None)
             hit["next"], hit["next_ts"] = nxt, _deadline(nxt)
+            hit["later_at"] = recent + [[now, proj]]
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
@@ -2436,7 +2440,11 @@ def main(argv):
             if len(argv) == 4 and argv[2] == "--restore":
                 r = set_next(nid, restore=json.loads(argv[3]))
             elif len(argv) == 3 and re.fullmatch(r"\d\d:\d\d", argv[2]):
-                r = set_next(nid, argv[2])
+                try:
+                    r = set_next(nid, argv[2])
+                except LaterLimit as e:
+                    sys.exit(f"later：#{nid} 这 24 小时已挂 {e.args[0]} 次，不再挂。在等外部的就 board pause {nid} \"等…\"，"
+                             "有消息再接；真要接着盯，交给主角色定。")
             else:
                 sys.exit("用法：board next <编号> <几点如 14:30> | board next <编号> --restore '<JSON>'")
             if r is None:

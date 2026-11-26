@@ -557,8 +557,12 @@ def record_last(path: str, ws: str, task: str, chat: str, nid=None, project=None
             serial += 1
         rec["file"] = path
     tasks[key] = rec
-    _team.LAST.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "project": project, "tasks": tasks},
-                                     ensure_ascii=False), encoding="utf-8")
+    # 唯一写者；别的脚本和桥都读它：写临时文件再改名，不让读者读到半截
+    import os  # 测试只摘这个函数执行，不带模块头的导入
+    tmp = _team.LAST.with_name(_team.LAST.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"file": path, "channel": ws, "task": task, "chat": chat, "project": project, "tasks": tasks},
+                              ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _team.LAST)
 
 
 def _lead_name(project):

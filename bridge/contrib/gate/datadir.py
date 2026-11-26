@@ -63,3 +63,69 @@ def setup_dir():
     if os.environ.get("GATE_SETUP_DIR"):
         return guard(Path(os.environ["GATE_SETUP_DIR"]).expanduser())
     return data_dir()
+
+
+# ── 桥的数据文件：Python 侧只在这里认文件名和格式（#2051 第 5 件）。写者见各函数说明，这里只读。 ──
+
+def load_config(path=None):
+    """config.toml（默认 setup_dir() 下那份）解析成 dict（写者：桥）；文件没有、坏了、Python 没有 tomllib（3.10 及以下）都回 None，
+    调用方按「没配」走默认（桥给角色会话设了 BOARD_DIR，老 Python 上用不到配置）。"""
+    try:
+        import tomllib
+    except ImportError:
+        return None
+    try:
+        with open(path or setup_dir() / "config.toml", "rb") as f:
+            return tomllib.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def projects(path=None):
+    """config.toml 的 [[projects]] 列表；读不了回 []。"""
+    p = (load_config(path) or {}).get("projects")
+    return [x for x in p if isinstance(x, dict)] if isinstance(p, list) else []
+
+
+def board_dir():
+    """任务板目录：BOARD_DIR → config.toml 里第一处 team_status_dir（顶层的，或第一个设了它的 project）→ setup_dir()/team；
+    结果过测试守卫。"""
+    if os.environ.get("BOARD_DIR"):
+        return guard(Path(os.environ["BOARD_DIR"]).expanduser())
+    cfg = load_config() or {}
+    for p in [cfg] + projects():
+        d = str(p.get("team_status_dir") or "").strip() if isinstance(p, dict) else ""
+        if d:
+            return guard(Path(d).expanduser())
+    return guard(setup_dir() / "team")
+
+
+def read_json(name, default=None):
+    """data_dir()/name 的 JSON；文件没有或坏了回 default。"""
+    import json
+    try:
+        return json.loads((data_dir() / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def team_workspaces():
+    """team_workspaces.json 整份（写者：桥 core/team_workspace*.go）；没有回 {}。"""
+    st = read_json("team_workspaces.json", {})
+    return st if isinstance(st, dict) else {}
+
+
+def workspace_keys():
+    """桥记过的所有工作区频道 key：handoffs 的键，加各聊天频道 parents 里工作区的 <平台>:<id>。"""
+    st = team_workspaces()
+    out = set((st.get("handoffs") or {}).keys())
+    for parent, rows in (st.get("parents") or {}).items():
+        plat = str(parent).split(":", 1)[0]
+        out |= {f"{plat}:{w.get('id')}" for w in rows or [] if isinstance(w, dict) and w.get("id")}
+    return out
+
+
+def lead():
+    """lead.json（写者：桥 core/api_handoff.go writeLeadSelectionFile）：{lead, name, at, auto}；没有回 {}。"""
+    st = read_json("lead.json", {})
+    return st if isinstance(st, dict) else {}

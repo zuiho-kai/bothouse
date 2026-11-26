@@ -844,6 +844,9 @@ test('config: absolute paths, unique member ids, token from env only', () => {
   const c = resolveConfig({ dataDir: '/d', workspacePath: '/w', dshMembers: [{ id: 'ds', name: 'DeepSeek' }] }, { CONEST_COLLAB_BOT_TOKEN: 'tok', HOME: '/home' });
   assert.equal(c.botToken, 'tok');
   assert.equal(c.leadFile, join('/home', '.bothouse', 'lead.json'));
+  // cordis.patch.yml no longer computes it: CONEST_LEAD_FILE and BOTHOUSE_DATA_DIR are read here (bridge-files.mjs)
+  assert.equal(resolveConfig({ dataDir: '/d', workspacePath: '/w' }, { HOME: '/home', CONEST_LEAD_FILE: '/x/lead.json' }).leadFile, '/x/lead.json');
+  assert.equal(resolveConfig({ dataDir: '/d', workspacePath: '/w' }, { HOME: '/home', BOTHOUSE_DATA_DIR: '~/bh' }).leadFile, join('/home', 'bh', 'lead.json'));
   assert.deepEqual(c.rooms, [{ id: 1, name: 'general' }]);
 });
 
