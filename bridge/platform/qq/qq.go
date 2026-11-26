@@ -1169,17 +1169,44 @@ var _ core.RepeatedReplySuppressor = (*Platform)(nil)
 // Send sends a message to the conversation identified by replyCtx.
 func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error {
 	content = normalizeReplyText(content)
+	send := p.sendOne
+	if rctx, ok := replyCtx.(*replyContext); ok && rctx != nil && rctx.final {
+		send = func(ctx context.Context, replyCtx any, content string) error {
+			return p.sendFinalWithBacklogTarget(ctx, replyCtx, content)
+		}
+	}
 	// Optionally send blank-line separated paragraphs as individual messages.
 	if parts := splitBubbles(content); p.splitReplyBubbles && len(parts) > 1 {
-		for _, part := range parts {
+		for i, part := range parts {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := p.sendOne(ctx, replyCtx, part); err != nil {
+			partSend := send
+			if i > 0 {
+				partSend = p.sendOne // only the first bubble carries the quote/mention target
+			}
+			if err := partSend(ctx, replyCtx, part); err != nil {
 				return err
 			}
 		}
 		return nil
+	}
+	return send(ctx, replyCtx, content)
+}
+
+// sendFinalWithBacklogTarget is the narrow sending-layer fallback for the incident:
+// one backlog sender was safe to attribute, but the model answered as ordinary final
+// text. Native quoting wins; without a message ID the sender gets a real mention.
+func (p *Platform) sendFinalWithBacklogTarget(ctx context.Context, replyCtx any, content string) error {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok || rctx == nil {
+		return p.sendOne(ctx, replyCtx, content)
+	}
+	if rctx.backlogMessageID != "" {
+		return p.sendSegments(ctx, replyCtx, content, rctx.backlogMessageID, nil, false)
+	}
+	if rctx.backlogSenderID != "" {
+		return p.sendSegments(ctx, replyCtx, content, "", []string{rctx.backlogSenderID}, false)
 	}
 	return p.sendOne(ctx, replyCtx, content)
 }
@@ -1812,6 +1839,33 @@ type replyContext struct {
 	groupID     int64
 	sessionKey  string // conversation key, named in outbound receipts
 	inMessageID string // inbound message that triggered the send; empty for proactive sends
+	// final/backlog*: the gate attached one safe backlog sender to this turn. Only the
+	// turn's final answer may use it; interim and system posts keep their plain form.
+	final            bool
+	backlogMessageID string
+	backlogSenderID  string
+}
+
+// MarkBacklogReplyTarget implements core.BacklogReplyTargetMarker.
+func (*Platform) MarkBacklogReplyTarget(replyCtx any, messageID, senderID string) any {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok || rctx == nil {
+		return replyCtx
+	}
+	cp := *rctx
+	cp.backlogMessageID, cp.backlogSenderID = messageID, senderID
+	return &cp
+}
+
+// MarkFinalReply implements core.FinalReplyMarker.
+func (*Platform) MarkFinalReply(replyCtx any) any {
+	rctx, ok := replyCtx.(*replyContext)
+	if !ok || rctx == nil {
+		return replyCtx
+	}
+	cp := *rctx
+	cp.final = true
+	return &cp
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {

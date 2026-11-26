@@ -537,3 +537,20 @@ func TestGroupChatIdentityNamesRealChatNotProject(t *testing.T) {
 		t.Fatalf("prompt does not rule out project/repository as the group identity:\n%s", got)
 	}
 }
+
+func TestSingleSenderBacklogTargetSelection(t *testing.T) {
+	trigger := &Message{UserID: "wake"}
+	sameSender := []backlogTarget{{messageID: "m1", senderID: "asker"}, {messageID: "m2", senderID: "asker"}}
+	target, ok := singleSenderBacklogTarget(sameSender, trigger)
+	if !ok || target.messageID != "m1" || target.senderID != "asker" {
+		t.Fatalf("same-sender backlog target = %+v, %v", target, ok)
+	}
+	mixed := []backlogTarget{{messageID: "m1", senderID: "asker"}, {messageID: "m2", senderID: "other"}}
+	if target, ok := singleSenderBacklogTarget(mixed, trigger); ok {
+		t.Fatalf("mixed-sender backlog produced unsafe target %+v", target)
+	}
+	onlyWakeSender := []backlogTarget{{messageID: "m1", senderID: "wake"}}
+	if target, ok := singleSenderBacklogTarget(onlyWakeSender, trigger); ok {
+		t.Fatalf("wake sender produced redundant target %+v", target)
+	}
+}

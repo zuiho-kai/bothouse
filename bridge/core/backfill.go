@@ -75,6 +75,14 @@ type FinalReplyMarker interface {
 	MarkFinalReply(replyCtx any) any
 }
 
+// BacklogReplyTargetMarker is implemented by platforms that can carry the original
+// backlogged message's identity in a reply context. The platform may use it for a
+// final-answer fallback when the agent answered as ordinary text instead of using
+// the explicit native-reply or mention command.
+type BacklogReplyTargetMarker interface {
+	MarkBacklogReplyTarget(replyCtx any, messageID, senderID string) any
+}
+
 // InjectedReplyMerger is implemented by platforms whose reply context carries facts about the
 // trigger that must survive a message being injected into a running turn (maomao fork: the
 // lead-dispatched mark behind lead_return.go). The turn keeps answering its own trigger; the
