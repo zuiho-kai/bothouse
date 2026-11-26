@@ -1,6 +1,9 @@
 jiuwenswarm/plugin-pkg/install.py
 jiuwenswarm/plugin-pkg/extension/extension.py
 jiuwenswarm/plugin-pkg/extension/extension.yaml
+jiuwenswarm/plugin-pkg/plugin/bothouse/manifest.json
+jiuwenswarm/plugin-pkg/plugin/bothouse/README.md
+jiuwenswarm/plugin-pkg/plugin/bothouse/rails/bothouse_role_rail.py
 patches/jiuwenswarm/manifest.json
 patches/jiuwenswarm/workswarm-0.2.8/runtime_prompt_rail.patch
 bridge/contrib/wiki/setup_wiki.py

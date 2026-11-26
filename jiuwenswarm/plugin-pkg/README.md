@@ -12,7 +12,16 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/jiuwenswarm
 
 装完重启 JiuwenSwarm（`jiuwenswarm-start`）。JiuwenSwarm 升级后重跑这条命令；重复跑没有副作用。
 
-## 它做了什么
+## JiuwenSwarm 0.2.9 及以后：插件包
+
+0.2.9 去掉了下面第 1 步用的 `application_plugins` 加载，改成「插件包」。装命令看到这种版本时只做两件事，不改 JiuwenSwarm 的任何文件：
+
+1. 用 JiuwenSwarm 自己的导入、安装插件接口装插件包 `plugin/bothouse/`（插件中心「我的插件」里叫「bothouse 人设与记忆」）。它的 Rail 每次调用模型前把人设和记忆 wiki 段放进系统提示词。
+2. 准备人设和记忆，和下面第 3 步一样。
+
+用法：网页对话里勾选这个插件；飞书、钉钉等渠道的 AI 同事（JiuwenMate）在同事的「能力 → 插件」里勾上它，再发布。网页和飞书用的是同一个同事、同一份发布版本。
+
+## 0.2.8：它做了什么
 
 1. 把扩展放进 JiuwenSwarm 数据目录的 `application_plugins/bothouse/`，JiuwenSwarm 启动时自己会加载。
 2. 给装好的 JiuwenSwarm 打一个补丁（一个文件、加一节系统提示词），并让它的后台 Worker 退出，下次启动读到补丁。
@@ -27,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/jiuwenswarm
 对不上时（别的版本、文件被改过）装命令不动 JiuwenSwarm 的文件，打印一行：
 
 ~~~
-补丁跳过：装的是 workswarm 0.2.9，补丁只对准 0.2.8。JiuwenSwarm 的文件没有动；人设和记忆改为拼在每条消息前面（聊天里看得到）。
+补丁跳过：装的是 workswarm 0.2.7，补丁只对准 0.2.8。JiuwenSwarm 的文件没有动；人设和记忆改为拼在每条消息前面（聊天里看得到）。
 ~~~
 
 这时人设和记忆仍然会带上，只是拼在你发的每条消息前面，聊天记录里看得到。等这里补上新版本的补丁后，重跑装命令即可。

@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "package_type": "plugin",
+  "id": "bothouse",
+  "name": "bothouse 人设与记忆",
+  "description": "让九问的智能体带上 bothouse 角色的人设和一本共享的记忆 wiki。",
+  "display_name": {
+    "en": "bothouse persona & memory",
+    "zh": "bothouse 人设与记忆"
+  },
+  "display_description": {
+    "en": "Every model call carries the bothouse role's persona and its shared memory wiki, so the agent keeps one character and remembers what the team wrote down.",
+    "zh": "调用模型时带上 bothouse 角色的人设和共享记忆 wiki：一个性格说话，记得团队写下的事。"
+  },
+  "category": "Others",
+  "source": "local",
+  "avatar": "",
+  "default_init_input": {
+    "zh": "你是谁？自我介绍一下",
+    "en": "Who are you? Introduce yourself"
+  },
+  "tags": [
+    { "en": "Persona", "zh": "人设" },
+    { "en": "Memory", "zh": "记忆" },
+    { "en": "bothouse", "zh": "bothouse" }
+  ],
+  "quick_inputs": [
+    { "zh": "你是谁？自我介绍一下", "en": "Who are you? Introduce yourself" },
+    { "zh": "在记忆 wiki 里查一下我们上次定了什么", "en": "Look up in the memory wiki what we decided last time" },
+    { "zh": "把今天定下的事记进记忆 wiki", "en": "Write what we decided today into the memory wiki" }
+  ],
+  "rails": [
+    {
+      "file": "rails/bothouse_role_rail.py",
+      "class": "BothouseRoleRail",
+      "display_name": { "en": "bothouse role", "zh": "bothouse 角色" },
+      "display_description": {
+        "en": "Puts the bothouse role's persona and memory wiki section into the system prompt before each model call.",
+        "zh": "每次调用模型前，把 bothouse 角色的人设和记忆 wiki 说明放进系统提示词。"
+      }
+    }
+  ]
+}
