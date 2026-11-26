@@ -400,22 +400,27 @@ def _by_project(hits, prof, rule=False, focus=""):
 # ---- 相关度下限：不相关的记忆不硬推，宁可少推（作者 11-13 定）----
 # 查询带着前两轮的话（with_prev），排在前面的行可能只和旧话题沾边、和这一句一个词都不共享。这类行照样占它排到的名额，
 # 但不推、不从后面补位：试过先筛候选再补位，补上来的多是凑数的规矩页。
+# #2031 起改为先筛再补位：判法换成「这句+前两轮」问重排、线提到 RERANK_MIN，补上来的也得过这条线，不再是凑数的；
+# 原来那条 0.005 的线几乎不拦，才会补上凑数行。
 # GATE_RERANK = 重排服务地址（可选，本机自己起）：POST {"q": 这轮的话, "docs": [行…]} → {"p": [每行相关的概率…]}。
 # 没设、连不上、超时或答的条数不对，都退回词法判法：和这轮的话一个词都不共享才算不相关（同 Elasticsearch minimum_should_match=1）。
 RERANK_URL = os.environ.get("GATE_RERANK", "").strip()
 RERANK_URL = "" if RERANK_URL.lower() == "off" else RERANK_URL
-RERANK_MIN = 0.005  # 来源：11-13 用 505 轮真实对话重放（Qwen3-Reranker-0.6B 的 P(yes)）：低于它的砍掉无关行 48%、错杀有用行 7.9%
+RERANK_MIN = 0.2  # #2031：拿「这句+前两轮」问重排（Qwen3-Reranker-0.6B 的 P(yes)），241 题公平标签回放定的线，见 gen-memory/logs/rr-thresh-2031.txt
+# 原 0.005 只拿这一句问：口语短问（「为什么要训」「颗粒度那么粗吗」）本身没话题，对的行只得 0.01、字面撞词的壁纸行反倒 0.03，门槛等于没有
+RERANK_Q = 1500  # 问重排时这句+前两轮最多取这么多字
 RERANK_WAIT = 2  # 秒；同推送判定的 2 秒限时，超了按词法判
 
 
-def weak_lines(need, lines):
-    """每行是不是和 need（这轮的话）不相关。need 空 = 不判（终端 hook 等不给 need 的调用方）。"""
+def weak_lines(need, lines, topic=""):
+    """每行是不是和 need（这轮的话）不相关。need 空 = 不判（终端 hook 等不给 need 的调用方）。
+    topic = 这句+前两轮（turn_query 的结果）：重排按它判——口语追问自己不带话题，话题在前两轮（#2031）；词法退路仍只看这句。"""
     if not need or not lines:
         return [False] * len(lines)
     docs = [_bare(l) for l in lines]
     if RERANK_URL:
         try:
-            req = urllib.request.Request(RERANK_URL, json.dumps({"q": need, "docs": docs}).encode(),
+            req = urllib.request.Request(RERANK_URL, json.dumps({"q": (topic or need)[:RERANK_Q], "docs": docs}).encode(),
                                          {"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
                 ps = json.loads(r.read())["p"]
@@ -444,10 +449,13 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
         hits = [h for h in idx.search(q, k=search.TOP * (2 if key else 1)) if is_item(h[2])]  # 有频道时多取一倍候选：旧说法沉底后要有新的补位
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
+    if need:  # 先判相关、不相关的直接去掉，再排名额（#2031：不相关的行占着前三页，对题的行排在后面挤不进来）
+        hits = [h for h, weak in zip(hits, weak_lines(need, [line for _, _, line in hits], q)) if not weak]
     if key and _same(root, WIKI):  # 按项目排序只对主 wiki（角色 wiki 是各角色自己的经验，不分项目）
-        hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), focus)
+        # 判过相关就不再按「和这句有没有共同字」往前提：那正是字面撞词（「颗粒度」→ 壁纸行）的来路（#2031）
+        hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), "" if need else focus)
     shown_th = set()
-    weak_of = weak_lines(need, [line for _, _, line in hits])
+    weak_of = [False] * len(hits)
     for (rel, ln, line), weak in zip(hits, weak_of):  # 按首次出现排页
         if in_history(rel, ln, root) or (FORUM and FORUM.collapsed(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))):
             continue  # 被取代挪进历史的、被踩到折叠的不推（#1978）；论坛页和手动搜照样看得到
@@ -951,7 +959,7 @@ def lessons(root=None):
 LESSON_MIN_TOKENS = 2  # 命中门槛：和这句话至少共享 2 个词（离线试：闲聊 0 个，「嘉立创下单参数」2 个、「交板子前查什么」4 个）
 
 
-def lesson_hits(text, skip=None, prepared=False):
+def lesson_hits(text, skip=None, prepared=False, k=None):
     """按这轮话题挑经验：不固定取论坛分最高前三，
     和这句话共享词够多才算命中，命中的按共享词 idf 和排，再按论坛分（lessons() 的顺序）取前 LESSON_TOP。"""
     if WIKI is None:
@@ -967,7 +975,7 @@ def lesson_hits(text, skip=None, prepared=False):
         sh = q & set(search.toks(e[2]))
         if len(sh) >= LESSON_MIN_TOKENS:
             hits.append((-sum(idf.get(t, 0) for t in sh), i, e))
-    return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
+    return [e for _, _, e in sorted(hits)[:k or LESSON_TOP]]
 
 
 def with_lessons(pages, text, skip=None, prepared=False, need=""):
@@ -975,11 +983,13 @@ def with_lessons(pages, text, skip=None, prepared=False, need=""):
     need = 这轮的话：经验行和推页行过同一道相关度判定（weak_lines），不相关的标 weak、占名额不推（#2031：经验原来绕开这道判定，
     靠前两轮的词或「什么」「怎么」这类虚词就能混进来）。"""
     try:
-        hits = lesson_hits(text, skip, prepared)
+        hits = lesson_hits(text, skip, prepared, k=LESSON_TOP * 4 if need else None)
     except Exception:  # 教训表读坏了不挡推页
         return pages
-    weak_of = weak_lines(need, [ln for _, _, ln, _, _ in hits])
-    for (rel, n, ln, k, d), weak in zip(hits, weak_of):
+    if need:  # 同 match_wiki：先去掉不相关的，再取前 LESSON_TOP（#2031：共享两个字就进前三，对题的经验反被挤掉）
+        hits = [h for h, weak in zip(hits, weak_lines(need, [ln for _, _, ln, _, _ in hits], text if prepared else query(text))) if not weak][:LESSON_TOP]
+    for (rel, n, ln, k, d) in hits:
+        weak = False
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
         r = dict(_row(rel, ln, row, ln=n), **({"weak": True} if weak else {}))
