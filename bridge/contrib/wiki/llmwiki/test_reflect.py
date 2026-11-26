@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_ingest import Fake, I, jsonl, user, claude
+from test_ingest import Fake, I, jsonl, user, claude, put_lint
 import daypack as D
 import lint
 
@@ -194,8 +194,8 @@ class Reflection(Fake):
     def test_complete_dream_reflects_even_without_new_user_lines(self):
         # Exercise real model_pass -> guard -> commit -> deliver, with an in-process fake engine.
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text(Path(lint.__file__).read_text())
-        (self.w / ".gitignore").write_text(".ingest-work/\n")
+        put_lint(self.w / "bin")
+        (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         self.commit("test runner")
         now = D.ts_of("2026-10-21T13:00:00Z")
         db = sqlite3.connect(":memory:")

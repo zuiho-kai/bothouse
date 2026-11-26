@@ -29,7 +29,7 @@ class BlockContract(unittest.TestCase):
         (self.repo / "misc/README.md").write_text("# Misc\n- [source](source.md) — synthetic source\n", encoding="utf-8")
         (self.repo / "misc/source.md").write_text(PAGE + FACT + FACT, encoding="utf-8")
         (self.repo / "log.md").write_text("# Log\n", encoding="utf-8")
-        (self.repo / ".gitignore").write_text(".ingest*\n", encoding="utf-8")
+        (self.repo / ".gitignore").write_text(".ingest*\n__pycache__/\n", encoding="utf-8")  # as template/gitignore
         self.git("init", "-q")
         self.git("config", "user.name", "Synthetic Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
