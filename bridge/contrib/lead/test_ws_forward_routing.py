@@ -27,7 +27,7 @@ def functions(file, names, ns):
 
 class ForwardRecipientTest(unittest.TestCase):
     def setUp(self):
-        self.notes = os.path.abspath("/persistent/notes/task.md")
+        self.notes = "/persistent/notes/task.md"
         self.record = dict(file=self.notes, channel="discord:ws3", chat="discord:chat", project="deep")
         self.live = dict(id=362, where=self.notes, ws="discord:ws3", chat="discord:chat", who="工作区3肥鱼")
         self.team = types.SimpleNamespace(
@@ -263,7 +263,8 @@ class ForwardRecipientTest(unittest.TestCase):
         self.team.project.assert_not_called()
 
     def test_notes_record_retains_recipient(self):
-        self.record["tasks"] = {self.notes: dict(channel="ws3", ws_key="discord:ws3", chat="discord:chat", project="deep")}
+        path = os.path.abspath(self.notes)
+        self.record["tasks"] = {path: dict(channel="ws3", ws_key="discord:ws3", chat="discord:chat", project="deep")}
         cmd = self.forward("--notes", self.notes)
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")
 
