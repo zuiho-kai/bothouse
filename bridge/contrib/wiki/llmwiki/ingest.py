@@ -373,7 +373,8 @@ each starting with a `=== SESSION` header.
    removing punctuation and whitespace, or the whole message line. Source and date alone are insufficient.
    What only the bot said is no evidence; leave unsupported facts out. Only a whole-line pointer may defer to
    another page; adding a link to a fact does not exempt it. The script checks every new fact and rejects the pass.
-   Rewrite 现状 to the current truth; delete facts the new content supersedes. A reversed decision leaves one
+   Rewrite 现状 to the current truth; nothing is forgotten: a line the new content supersedes moves, unchanged, to the
+   page's `## 历史` section (never deleted, never to log.md). A reversed decision also leaves one
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
    (a MEMORY.md line must name every topic family in its domain; update it when you add one). Append one log.md entry per session (trivial sessions: one line saying so).
@@ -405,7 +406,8 @@ R2 只记长期有用的：配置/路径/命令/版本/运行状态、决定及�
    只在本会话的 log.md 条目里写一行「- 未答复提议：X」。待办只写用户已同意要做、还没做完的事。
 R3 一个事实只住一页：写之前 grep；已有页面拥有它 → 改那一页，别处只放 [[name]] 链接，不复述。
    论文/外部项目：先 grep 它的 arXiv id 或仓库 owner/name；refs/ 已有 → 只补缺的，不另写一条。
-R4 现状写当前事实：被推翻的旧事实直接删；被推翻的决定在 决策与踩坑 留一行「曾以为/曾选 X → 因 Y 改为 Z (YYYY-MM-DD)」。
+R4 现状写当前事实；不遗忘：被推翻的旧行不删、不改字，原样挪到同页「## 历史」小节（不进 log.md）；
+   被推翻的决定另在 决策与踩坑 留一行「曾以为/曾选 X → 因 Y 改为 Z (YYYY-MM-DD)」。
 R5 会过时的环境事实（运行状态、版本、外部状态、待办）带日期 (YYYY-MM-DD)，取自 SESSION header；PR/任务进度不入长期知识，见 PR 引用规则。
 R6 只写 transcript 有依据的；用户的话优先于助手的话；助手的推测不写，或标「推测」。transcript 里后面的更正覆盖前面的说法。
    谁说的看每行开头的标签（不看内容猜）：
@@ -418,8 +420,8 @@ R6 只写 transcript 有依据的；用户的话优先于助手的话；助手�
    写「用户说/用户定/用户否决」前，先找到那句的 USER 行；TEAM/OTHER 说的写成「<名字>说」，SYSTEM 的提示不算谁的决定。
 R6b 每条新写的 bullet 归到四类之一，行尾标记让推送分得清（推送按这几个字判可信度，别用别的写法）：
    事实（用户原话、亲眼核过的命令输出）不标；推论（助手或队友的判断、推断，不是用户说的也不是核过的事实）行尾写「（推论）」，
-   转述队友的判断写明是谁的判断；猜测（没核过的猜想、估计）行尾写「（推测）」；过时的旧说法按 R4 处理。
-   用户原话照旧不标。
+   转述队友的判断写明是谁的判断；猜测（没核过的猜想、估计）行尾写「（推测）」；过时的旧说法按 R4 挪「## 历史」，
+   或在 决策与踩坑 写成「曾以为…→」。用户原话照旧不标。
 R7 不写秘密（token、密码、key），只写它存放的位置。
 R8 页面只用 现状/关键事实/决策与踩坑/待办 四节；一条 bullet 一个事实，单行 ≤@BODY_LINE@ 字；只写结论和关键数字，不写排查过程；不写「未见确认」「不声称」「用户告知」之类批注。
 R8b 写事实时能说清怎么核过的，行尾带 `｜源：亲验 · <怎么核的>`；只是在转述别人时带 `｜源：转述 · <名字>`；用户的原话带 `｜源：原话 · <YYYY-MM-DD>`。
@@ -494,7 +496,7 @@ R4 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）�
    b. DAY PAGES 每页整页读一遍，但只改 DAY WRITES 的 + 行：它和页内旧行（不在 DAY WRITES 里的行）说法打架、
       或写成逐日流水账的，改 DAY WRITES 的行，按 transcript 的最终说法写成一条现状；旧行不改、不删、不并。
       只凭 TRANSCRIPT 的证据改；TRANSCRIPT 里没有依据判断哪条对的，不动。
-      旧行只有 TRANSCRIPT 写明它已不成立时才移到 log.md（原行原样贴进本次 review 条目下）。
+      旧行只有 TRANSCRIPT 写明它已不成立时才原样挪到同页「## 历史」（不删、不进 log.md）。
    c. DAY DELETIONS 每行：TRANSCRIPT 说它已不成立 → 不管；仍成立或 TRANSCRIPT 没说它不成立 → 恢复到原页面。
    没有 DAY WRITES 时不做改错，只补漏。
 4. 补漏：清单里每条都 grep wiki；判定「已记录」必须 grep/Read 到那一行；找不到的按 scope 补进合适页面（没有合适页面就新建，并登记 README）。
@@ -509,7 +511,7 @@ A1 lint ok。
 A2 每个 sid8 都在 log.md 末尾新追加了一条 review 条目。
 A3 事实清单每条都在 wiki 里（写出 文件:行），或判定不记（写出理由）。
 A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY PAGES 和补漏写入处，每处改动都有 TRANSCRIPT 依据。
-A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
+A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样挪到同页「## 历史」的除外；脚本核对）。
 A6 本次每条新事实/记忆都带一句从 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
    抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据。找不到原话就不写进正文。
    """ + POINTER_QUOTES + """
@@ -3588,7 +3590,7 @@ def review_check(shas):
     lost = unkept(removed, keep)
     return (f"REVIEW 3b: {len(lost)} line(s) the day's ingest did not write were removed or rewritten, and are not "
             "verbatim (whole line) on any page or in the new log.md lines. Review only corrects the DAY WRITES lines: "
-            "恢复到原页面（原行原样）；只有 TRANSCRIPT 写明它已不成立时才移到 log.md（原行原样贴进本次 review 条目下）:\n"
+            "恢复到原页面（原行原样）；只有 TRANSCRIPT 写明它已不成立时才原样挪到同页「## 历史」（不删、不进 log.md）:\n"
             + "\n".join(lost[:20])) if lost else ""
 
 
