@@ -7222,8 +7222,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			turn.state.lastEventAt.Store(time.Now().UnixNano())
 			turn.lastEvtType, turn.lastEvtAt = event.Type, time.Now()
 		case <-turn.subWaitTick:
-			if t, ok := foregroundSubTask(turn.subReporter); turn.hasSubReporter && ok {
-				turn.cp.ShowSubAgentWait(subAgentWaitText(e.i18n.IsZhLike(), t))
+			var sub SubTask
+			fg := false
+			if turn.hasSubReporter {
+				sub, fg = foregroundSubTask(turn.subReporter)
+			}
+			if fg {
+				turn.cp.ShowSubAgentWait(subAgentWaitText(e.i18n.IsZhLike(), sub))
 			} else if w := turn.modelWait(e.i18n.IsZhLike(), retrier); w != "" {
 				turn.cp.ShowSubAgentWait(w)
 			} else {
