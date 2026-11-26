@@ -6,12 +6,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Same cadence as bridge/core/team.go:26 teamPollInterval: the desk is never
-// more than one writer tick behind.
+// How often the desk re-reads the directory (its own cadence, not a copy of the writer's).
 export const TEAM_POLL_INTERVAL_MS = 2000;
-// bridge/core/team.go:28 teamStaleAfter: three 20s heartbeats, then the bot
-// is treated as gone rather than busy forever.
-export const TEAM_STALE_AFTER_MS = 60_000;
+// How long a file stays valid is the writer's number: each file carries
+// stale_after_ms (bridge/core/team.go teamFile.StaleAfterMs); a file without it is a bad shape.
 const STATUS_FILE = /^[a-z0-9][a-z0-9_-]*\.json$/i;
 
 function parseTime(value) {
@@ -58,7 +56,7 @@ export function presenceOf(entries) {
 }
 
 /** Parse one status file; `error` is a reason the caller may warn about. */
-export function readStatusFile(path, now, staleAfterMs = TEAM_STALE_AFTER_MS) {
+export function readStatusFile(path, now) {
   let raw;
   try {
     raw = readFileSync(path, 'utf8');
@@ -75,18 +73,18 @@ export function readStatusFile(path, now, staleAfterMs = TEAM_STALE_AFTER_MS) {
     || typeof entry.project !== 'string' || entry.project.trim() === ''
     || (entry.sessions != null && !Array.isArray(entry.sessions))) return { error: 'shape' };
   const updated = parseTime(entry.updated);
-  if (updated === undefined) return { error: 'shape' };
+  const staleAfterMs = entry.stale_after_ms;
+  if (updated === undefined || !Number.isFinite(staleAfterMs) || staleAfterMs <= 0) return { error: 'shape' };
   if (now - updated > staleAfterMs) return { error: 'stale' };
-  return { entry, updated };
+  return { entry, updated, staleAfterMs };
 }
 
 export class TeamStatus {
-  constructor(hub, dir, { logger, intervalMs = TEAM_POLL_INTERVAL_MS, staleAfterMs = TEAM_STALE_AFTER_MS, now = Date.now } = {}) {
+  constructor(hub, dir, { logger, intervalMs = TEAM_POLL_INTERVAL_MS, now = Date.now } = {}) {
     this.hub = hub;
     this.dir = dir;
     this.logger = logger;
     this.intervalMs = intervalMs;
-    this.staleAfterMs = staleAfterMs;
     this.now = now;
     this.timer = undefined;
     this.published = new Set();
@@ -144,29 +142,29 @@ export class TeamStatus {
     for (const name of names) {
       if (!STATUS_FILE.test(name) || name.startsWith('board')) continue;
       const path = join(this.dir, name);
-      const loaded = readStatusFile(path, now, this.staleAfterMs);
+      const loaded = readStatusFile(path, now);
       if (loaded.error !== undefined) {
         if (loaded.error === 'stale' || loaded.error === 'gone') {
           this.fileOwner.delete(name);
         } else {
           this.warnOnce(`file:${name}`, 'conest-collab: bad team status file %s', path);
           // A writer may be mid-replace; keep the last good state, but only for the
-          // same 60s window a readable file would still be valid in.
+          // same window the last readable file said it would be valid in.
           const previous = this.fileOwner.get(name);
-          if (previous !== undefined && now - previous.updated <= this.staleAfterMs) keep.add(previous.id);
+          if (previous !== undefined && now - previous.updated <= previous.staleAfterMs) keep.add(previous.id);
           else this.fileOwner.delete(name);
         }
         continue;
       }
       this.warned.delete(`file:${name}`);
-      const { entry, updated } = loaded;
+      const { entry, updated, staleAfterMs } = loaded;
       const member = this.resolve(entry.project, entry.name);
       if (member === undefined) {
         this.warnOnce(`member:${entry.project}`, 'conest-collab: no hub member for team project %s; busy state skipped', entry.project);
         continue;
       }
       this.warned.delete(`member:${entry.project}`);
-      this.fileOwner.set(name, { id: member.id, updated });
+      this.fileOwner.set(name, { id: member.id, updated, staleAfterMs });
       if (member.online === false || member.error) continue;
       const list = byMember.get(member.id) ?? [];
       list.push(entry);

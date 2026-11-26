@@ -24,7 +24,7 @@ A dissolved subdomain's README lines join the README it moved into, verbatim; lo
 pass, else the tree is reset (the tree must be clean before a run). log.md gets one `restructure | consolidate` entry
 listing every 「旧路径 → 新路径」.
 """
-import os, posixpath, re, subprocess, sys, time
+import json, os, posixpath, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -41,17 +41,29 @@ def pinned(root):
     """Wiki-relative pages under `root` that the bridge config names as a role's life_page (橘's 小日子页 etc.): the
     bridge reads that exact path every turn, so no restructure may move, merge or split it (#1578: split_pass cut
     maomao-days.md into maomao-days/ on 11-13 and the bridge injected an empty template). `root` may be ingest's
-    worktree (<wiki>/.ingest-work), whose pages stand for <wiki>'s. python 3.9: no tomllib, a regex reads the lines."""
-    cfg = Path(os.path.expanduser(os.environ.get("WIKI_BRIDGE_CONFIG", "~/.bothouse/config.toml")))
+    worktree (<wiki>/.ingest-work), whose pages stand for <wiki>'s. The bridge reads its own config for us
+    (`bothouse config get projects`, #2051): python 3.9 has no tomllib, and a second TOML reader here drifts.
+    Bridge binary found like the team scripts do (_team.cc_bin: CC_BIN, then bothouse / cc-connect on PATH);
+    none (no bridge on this machine) = nothing pinned."""
+    bin_ = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
+    if not bin_:
+        return set()
+    cmd = [bin_, "config", "get", "projects"]
+    if os.environ.get("WIKI_BRIDGE_CONFIG"):
+        cmd[3:3] = ["--config", os.path.expanduser(os.environ["WIKI_BRIDGE_CONFIG"])]
     try:
-        text = cfg.read_text()
-    except OSError:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        projects = json.loads(r.stdout) if r.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError):
         return set()
     root = Path(root).resolve()
     bases = [root] + ([root.parent] if root.name == ".ingest-work" else [])
     out = set()
-    for a, b in re.findall(r"""(?m)^\s*life_page\s*=\s*(?:"([^"\n]+)"|'([^'\n]+)')""", text):
-        page = Path(os.path.expanduser(a or b)).resolve()
+    for p in projects or []:
+        life = p.get("life_page") if isinstance(p, dict) else None
+        if not isinstance(life, str) or not life.strip():
+            continue
+        page = Path(os.path.expanduser(life)).resolve()
         for base in bases:
             try:
                 out.add(page.relative_to(base).as_posix())
