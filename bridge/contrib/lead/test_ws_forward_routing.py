@@ -103,7 +103,6 @@ class ForwardRecipientTest(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-s")+1], "discord:ws3")
         reject = self.run.call_args_list[0].args[0]
         self.assertEqual(reject[:5], ["bothouse", "report", "reject", "--id", "1271"])
-        self.board.arm_guard.assert_called_once_with(1271)
 
     def test_waiting_external_item_resumes_and_rejects_held_report(self):
         # #1378: 11-10 #1376 was parked 「等外部」 (workspace freed, busy on another chat's #936); the lead's

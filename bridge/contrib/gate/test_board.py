@@ -96,6 +96,26 @@ class Board(unittest.TestCase):
         self.assertNotIn("wait_task", it)
         self.assertIn("#2060 已收口", it["wait_news"][1])
 
+    def test_wait_on_task_event_only(self):
+        # #2052：写了 #编号、没约时间就传 0 = 只等事件，不排到点重试；那件交回就当场到点，wait_event 清掉
+        for _ in range(2):
+            cli("add", "活", "~/n.md", "在做", "工作区1")
+        cur = board._read()
+        cur[0]["id"], cur[1]["id"] = 4001, 4002
+        board._write(cur)
+        rc, out = cli("wait", "4002", "等 #4001 交回就叫醒", "0")
+        self.assertEqual(rc, 0, out)
+        it = next(i for i in board._read() if i["id"] == 4002)
+        self.assertEqual(it["wait_task"], [4001])
+        self.assertTrue(it.get("wait_event"))
+        self.assertEqual(it["wait_until"], 0)  # 不排到点
+        self.assertIn("只等事件", out)
+        self.assertEqual(cli("returned", "4001", "橘")[0], 0)
+        it = next(i for i in board._read() if i["id"] == 4002)
+        self.assertNotIn("wait_event", it)  # 事件到了：恢复可到点重试
+        self.assertLessEqual(it["wait_until"], int(__import__("time").time()))
+        self.assertIn("#4001 已交回", it["wait_news"][0])
+
     def test_wait_on_task_already_done(self):
         # 等的那件已经收口：当场到点
         cli("add", "活", "~/n.md", "在做", "工作区1")

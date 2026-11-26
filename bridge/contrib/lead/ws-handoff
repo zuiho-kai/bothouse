@@ -9,8 +9,8 @@
 #   --probe：内部探针（自检、验收探针）。条目带 probe=true，交回和提问只进工作区和日志，不进用户的聊天频道。
 #   --force：同一份交接文件已有进行中（没完成、没暂停）的活时照样再交（见 live_dup）；同名撞活也放行（见 live_overlap）。
 #   任务句或交接标题以「接回 #N」「续 #N」「续做 #N」「接着做 #N」开头、#N 还在工作区做着：不新开任务，内容转进那个工作区（见 join）。
-#   --guard：兜底定时器时长（默认 30m，按活的大小改，如 90m、2h）。交出后在本聊天频道挂上，到点工作区还没交回就叫醒
-#   本频道主角色去查；工作区交回 [report]、[ask] 让出、暂停、改派时任务板自动撤（../gate/board.py arm_guard）。
+#   --guard：已停用（#2052：不再挂 30m 兜底定时——交回本身就是事件、系统每 10 分钟也在看进展）。照旧接受这个参数，
+#   但不再挂定时；等外部写了另一件活的 #编号/合并请求就只等事件，那件交回/收口或合并请求有动静当场叫醒。
 #       ws-handoff --drain                        空操作，退出 0（排队表 11-24 拿掉；桥放回工作区后还会调）
 #       ws-handoff --resume <编号> "<用户答复>"    等你的活收到答复，找空工作区接着做（桥调）
 #   --short 活名（≤20 字，用户一眼认得出的一句话），上任务帖标题和置顶任务表（board add --short）；不写就从任务句截（本机 local 规则 flags.require_short 时不写就退回）。
@@ -620,7 +620,6 @@ def start(path, task, chat, nid, project, answer=None, reassigned=False):
             sys.exit(EXIT_CONFIG)
         sys.exit(msg)
     record_last(path, ws, task, chat, nid, project)
-    board.arm_guard(nid, GUARD)
     md = _model.label(previous.get("model"), previous.get("effort"))
     print(f"ws-handoff: #{nid} 交给 {name}" + (f"，模型 {md}" if md else ""), file=sys.stderr)
 
@@ -910,9 +909,7 @@ def main(argv):
                      f"任务板已撤，交接没放回（{reason}），桥恢复后跑 workspace park --session-key {key} --chat {parent}")
         sys.exit(f"ws-handoff: timer add 失败（已撤掉任务板 #{nid} 和这件交接）：{why}")
     record_last(path, ws, task, chat, nid)
-    guard = board.arm_guard(nid, GUARD)
-    print(f"ws-handoff: 任务板 #{nid}" + (f"，模型 {_model.label(model, effort)}" if model else "") +
-          (f"，兜底定时器 {guard}（{GUARD or board.GUARD_DELAY}）" if guard else ""), file=sys.stderr)
+    print(f"ws-handoff: 任务板 #{nid}" + (f"，模型 {_model.label(model, effort)}" if model else ""), file=sys.stderr)
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
     # 交出后主角色就收手：G27 实测里没有这句时，主角色在本轮 sleep 50 秒查任务板等工作区，聊天频道被占 8–11 分钟
     print(DONE.format(name=name))

@@ -90,8 +90,8 @@ func TestWaitExternalOnEventNoBlindRetry(t *testing.T) {
 		body string
 		want time.Duration
 	}{
-		{"等外部：等 #2050先合", WaitExternalMax},
-		{"等外部：等 https://github.com/a/b/pull/12 合并", WaitExternalMax},
+		{"等外部：等 #2050先合", 0},  // #2052：只等事件，不排到点重试（也不再压成一周兜底）
+		{"等外部：等 https://github.com/a/b/pull/12 合并", 0},
 		{"等外部：等 #2050 先合\n再看：2h", 2 * time.Hour},
 		{"等外部：GPU 全被占用", WaitExternalDefault},
 	} {

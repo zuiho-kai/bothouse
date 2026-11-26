@@ -115,15 +115,21 @@ func waitExternal(body string, now time.Time) (why string, after time.Duration, 
 			unread = a[1]
 		}
 	}
+	explicit := a != nil
 	// #1993: the reason itself names when the blocker clears (「平台额度 11-27 14:00 才恢复」) and the
 	// 再看 comes before it: a hand-back then can only find it still blocked. Wait until it clears.
-	if at, read := parseWaitClock(why, now); read && at.Sub(now) > after {
-		after = at.Sub(now)
+	if at, read := parseWaitClock(why, now); read {
+		explicit = true
+		if at.Sub(now) > after {
+			after = at.Sub(now)
+		}
 	}
-	// #2052: the line names what it waits on — another board item or a pull request — and no 再看: the
-	// event wakes it (board.py _wake_dependents, pr-events), so the hour default would only be a blind retry.
-	if a == nil && (waitTaskRef.MatchString(why) || pullRequestLink.MatchString(why)) {
-		after = WaitExternalMax
+	// #2052: the line names what it waits on — another board item or a pull request — and names no time:
+	// the event wakes it (board.py _wake_dependents on a return/close/prune, pr-events on PR activity).
+	// after=0 means event-only: no timed retry at all (board.py wait_event), not even the old one-week
+	// fallback. When the waited item writes its result back, the bridge resumes this task within a minute.
+	if !explicit && (waitTaskRef.MatchString(why) || pullRequestLink.MatchString(why)) {
+		return truncateStr(why, 200), 0, unread, true
 	}
 	if after < WaitExternalMin {
 		after = WaitExternalMin
