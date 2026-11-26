@@ -16,10 +16,6 @@ const (
 	maxDiscordProgressFooterLen = 512
 )
 
-func buildDiscordPreviewMessage(content string) *discordgo.MessageSend {
-	return buildDiscordPreviewMessageView(content, cardViewDetail)
-}
-
 // buildDiscordPreviewMessageView renders a preview in a view (细节/简略). Only
 // the progress card carries the buttons; the sub-agent table follows the
 // progress card's choice (card_view.go).
@@ -39,17 +35,6 @@ func buildDiscordPreviewMessageView(content string, view cardView) *discordgo.Me
 	return &discordgo.MessageSend{
 		Content: trimDiscordRunes(content, maxDiscordLen),
 	}
-}
-
-func buildDiscordPreviewEdit(channelID, messageID, content string) *discordgo.MessageEdit {
-	return buildDiscordPreviewEditView(channelID, messageID, content, cardViewDetail)
-}
-
-// buildDiscordPreviewEditView renders a progress card or sub-agent table in
-// the turn's chosen view. Every progress card edit carries the buttons, so
-// they never drop off; a table edit clears any old buttons it had.
-func buildDiscordPreviewEditView(channelID, messageID, content string, view cardView) *discordgo.MessageEdit {
-	return buildDiscordPreviewEditViewPage(channelID, messageID, content, view, -1)
 }
 
 // buildDiscordPreviewEditViewPage is buildDiscordPreviewEditView on a given
@@ -74,10 +59,6 @@ func buildDiscordPreviewEditViewPage(channelID, messageID, content string, view 
 	edit.SetContent(trimDiscordRunes(content, maxDiscordLen))
 	edit.SetEmbeds([]*discordgo.MessageEmbed{})
 	return edit
-}
-
-func buildDiscordProgressEmbed(payload *core.ProgressCardPayload) *discordgo.MessageEmbed {
-	return buildDiscordProgressEmbedView(payload, cardViewDetail)
 }
 
 func buildDiscordProgressEmbedView(payload *core.ProgressCardPayload, view cardView) *discordgo.MessageEmbed {
@@ -235,34 +216,6 @@ func progressCardRender(content string) (cardRender, bool) {
 	}}, true
 }
 
-func buildDiscordProgressDescription(payload *core.ProgressCardPayload) string {
-	if payload == nil {
-		return " "
-	}
-	items := discordProgressItems(payload)
-	if payload.LineLen > 0 {
-		return buildDiscordProgressList(payload, items)
-	}
-	if payload.Steps > 0 || payload.ElapsedSec > 0 {
-		return buildDiscordProgressBarLine(payload, items)
-	}
-	lines := make([]string, 0, len(items)+1)
-	if payload.Truncated {
-		lines = append(lines, "ℹ️ "+discordProgressLatestOnlyText(payload.Lang))
-	}
-	for _, item := range items {
-		if line := buildDiscordProgressLine(item, payload.Lang); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	desc := strings.Join(lines, "\n")
-	desc = trimDiscordRunes(desc, maxDiscordProgressDescLen)
-	if strings.TrimSpace(desc) == "" {
-		return " "
-	}
-	return desc
-}
-
 func discordProgressItems(payload *core.ProgressCardPayload) []core.ProgressCardEntry {
 	if payload == nil {
 		return nil
@@ -303,25 +256,6 @@ func buildDiscordProgressLineN(item core.ProgressCardEntry, lang string, lineLen
 	default:
 		return "• " + trimDiscordRunes(text, n)
 	}
-}
-
-// buildDiscordProgressList — maomao fork: the step/time head plus the recent
-// steps, one per line. Unlike the one-line bar it stays after the turn ends,
-// so words said mid-run are not wiped.
-func buildDiscordProgressList(payload *core.ProgressCardPayload, items []core.ProgressCardEntry) string {
-	lines := []string{buildDiscordProgressBarLine(&core.ProgressCardPayload{
-		Lang: payload.Lang, Steps: payload.Steps, ElapsedSec: payload.ElapsedSec,
-	}, nil)}
-	for _, item := range items {
-		if line := buildDiscordProgressLineN(item, payload.Lang, payload.LineLen); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	desc := trimDiscordRunes(strings.Join(lines, "\n"), maxDiscordProgressDescLen)
-	if strings.TrimSpace(desc) == "" {
-		return " "
-	}
-	return desc
 }
 
 func buildDiscordToolUseSummary(item core.ProgressCardEntry, lang string) string {

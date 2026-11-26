@@ -208,10 +208,6 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	return s, nil
 }
 
-func (s *APIServer) SocketPath() string {
-	return s.socketPath
-}
-
 func (s *APIServer) RegisterEngine(name string, e *Engine) {
 	s.mu.Lock()
 	s.engines[name] = e
@@ -224,10 +220,6 @@ func (s *APIServer) RegisterEngine(name string, e *Engine) {
 
 func (s *APIServer) SetRelayManager(rm *RelayManager) {
 	s.relay = rm
-}
-
-func (s *APIServer) RelayManager() *RelayManager {
-	return s.relay
 }
 
 func (s *APIServer) SetCronScheduler(cs *CronScheduler) {
@@ -1332,4 +1324,8 @@ func (s *APIServer) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiJSON(w, http.StatusOK, res)
+}
+
+func (s *APIServer) SocketPath() string {
+	return s.socketPath
 }

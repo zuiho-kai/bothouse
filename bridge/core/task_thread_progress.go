@@ -57,12 +57,6 @@ const (
 	taskThreadCardLineLen = 340 // 沿用已有配置：Discord 卡片正文上限 3500 字（maxDiscordProgressDescLen）÷ 10 条，留出抬头行
 )
 
-// taskThreadProgress returns the lookup of a workspace turn's progress card copy in its task
-// card's thread; nil when the session is no workspace or the platform cannot post into threads.
-func (e *Engine) taskThreadProgress(p Platform, session string, transform func(string) string) func() *compactProgressWriter {
-	return e.taskThreadProgressContext(e.ctx, p, session, transform)
-}
-
 func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, session string, transform func(string) string) func() *compactProgressWriter {
 	target, ok := p.(TaskThreadTarget)
 	if !ok || e.publicProgress == nil || !e.isTeamWorkspaceChat(session) {

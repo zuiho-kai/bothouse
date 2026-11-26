@@ -351,11 +351,6 @@ func setDSHModuleDisabled(disabled bool) (DSHModuleState, bool, error) {
 	return st, true, nil
 }
 
-func SetDSHModuleDisabled(disabled bool) (DSHModuleState, error) {
-	st, _, err := setDSHModuleDisabled(disabled)
-	return st, err
-}
-
 type DSHModuleResult struct {
 	OK        bool           `json:"ok"`
 	Platform  string         `json:"platform"`
@@ -451,4 +446,9 @@ func dshModuleEntries(sequence *yaml.Node) []*yaml.Node {
 		}
 	}
 	return entries
+}
+
+func SetDSHModuleDisabled(disabled bool) (DSHModuleState, error) {
+	st, _, err := setDSHModuleDisabled(disabled)
+	return st, err
 }

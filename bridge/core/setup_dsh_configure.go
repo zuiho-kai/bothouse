@@ -6,7 +6,6 @@ package core
 // the background and hands back the link, so nobody has to open a terminal.
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -485,13 +484,6 @@ func dshWebStatePath() string {
 	return filepath.Join(dir, "dsh-web.json")
 }
 
-// OpenDSHWeb returns the running `dsh web` we started earlier, or starts a new one detached from
-// this process (it keeps running after the wizard exits) on a free port. It answers Starting
-// (call again) while that one has not printed its link yet; a launch in progress is claimed.
-func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
-	return openDSHWeb(ctx, "")
-}
-
 func openDSHWeb(ctx context.Context, configuredDataDir string) (DSHWeb, error) {
 	dshWebMu.Lock()
 	defer dshWebMu.Unlock()
@@ -640,21 +632,6 @@ func dshFallbackLead(dataDir string) string {
 	for _, alias := range team.Lead.Aliases {
 		if regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`).MatchString(alias) {
 			return alias
-		}
-	}
-	return ""
-}
-
-func scanDSHWebURL(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if m := dshWebURL.FindStringSubmatch(sc.Text()); m != nil {
-			return m[1]
 		}
 	}
 	return ""
@@ -875,4 +852,11 @@ func adoptOrphanDSHWeb(logPath, token, port string, pid, trackedPID int) (DSHWeb
 	_ = os.WriteFile(dshWebStatePath(), b, 0o600)
 	slog.Info("dsh web: adopted a running dsh web from the log", "pid", pid, "port", port, "log", logPath)
 	return web, true, nil
+}
+
+// OpenDSHWeb returns the running `dsh web` we started earlier, or starts a new one detached from
+// this process (it keeps running after the wizard exits) on a free port. It answers Starting
+// (call again) while that one has not printed its link yet; a launch in progress is claimed.
+func OpenDSHWeb(ctx context.Context) (DSHWeb, error) {
+	return openDSHWeb(ctx, "")
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 )
 
 // The team mode rules (teamrules.ModeRules, core/team_rules/team-mode-rules.md) are shared with DSH members: the build copies it into the DSH plugin
@@ -108,13 +109,6 @@ func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 // (config: inject_team_rules, default true). A persona-only bot (e.g. a QQ chat
 // character) has no channels, workspaces or task board, so the rules are noise.
 func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!on) }
-
-// withTeamModeRules prefixes the team-mode rules of the project's mode when this
-// delivery must carry them (teamRulesOnce).
-func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
-	e.checkRulesContext(session, agent)
-	return prefixRules(e.contextRules(e.teamLayer().WithRoleDuty(teamModeRulesFor(e.DispatchMode()), ""), session, agent), prompt)
-}
 
 // contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless
 // inject_team_rules is off, then the local house rules (<data dir>/rules/house.md, kept even when
@@ -296,9 +290,6 @@ func (e *Engine) checkRulesContext(session *Session, agent Agent) {
 		session.noteContextTokens(tokens)
 	}
 }
-
-// TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.
-func TeamModeWorkspaceInstructions(mode string) string { return teamModeRulesFor(mode) }
 
 // ChannelDispatchModeProvider is optional; other platforms keep project configuration.
 type ChannelDispatchModeProvider interface {

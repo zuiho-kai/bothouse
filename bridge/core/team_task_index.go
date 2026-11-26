@@ -116,30 +116,6 @@ func taskIndexLabel(text string, limit int) string {
 	return text
 }
 
-func renderTeamBoardWithTasks(files []teamFile, chat string, lang Language) string {
-	text, _ := teamBoardWithTasks(files, chat, lang)
-	return text
-}
-
-// teamBoardWithTasks is renderTeamBoardWithTasks and whether it shows live work: a member line
-// in work (teamBoardMembers) or a task card in the index (only running / waiting are listed).
-func teamBoardWithTasks(files []teamFile, chat string, lang Language) (string, bool) {
-	var members []teamTaskMember
-	for _, f := range files {
-		for _, task := range f.Tasks {
-			if chatOf(task.SessionKey) == chat && listedTaskState(task.State) && boardTaskURL(task.URL) {
-				members = append(members, task.Members...)
-			}
-		}
-	}
-	board, live := teamBoardMembers(files, chat, members)
-	index, indexLive := renderTeamTaskIndex(files, chat, lang)
-	if index != "" {
-		board = strings.TrimRight(board, "\n") + "\n\n" + index
-	}
-	return board, live || indexLive
-}
-
 // renderTeamTaskIndex lists this chat's running and waiting task cards: the pinned board's
 // task links (docs/PUBLIC_PROGRESS.md). It stays separate from the 谁在干啥 roster, which the
 // quiet board drops, so a real task still creates and updates a board without member lines.

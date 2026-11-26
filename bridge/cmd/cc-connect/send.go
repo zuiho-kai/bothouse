@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	ccconnect "github.com/chenhg5/cc-connect"
 	"io"
 	"mime"
 	"net"
@@ -15,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	ccconnect "github.com/chenhg5/cc-connect"
 
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
@@ -514,10 +515,6 @@ func detectAttachmentMimeType(fileName string, data []byte) string {
 
 func buildSendPayload(req core.SendRequest) ([]byte, error) {
 	return json.Marshal(req)
-}
-
-func decodeSendPayload(data []byte, req *core.SendRequest) error {
-	return json.Unmarshal(data, req)
 }
 
 func resolveSocketPath(dataDir string) string {

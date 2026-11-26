@@ -157,12 +157,6 @@ func (p *voiceSessionPool) evictExpiredLocked(now time.Time, stale *[]AgentSessi
 	}
 }
 
-func (p *voiceSessionPool) count() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.entries)
-}
-
 func closeVoiceSessions(sessions []AgentSession) {
 	for _, s := range sessions {
 		go func(s AgentSession) {

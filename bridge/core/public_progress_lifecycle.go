@@ -36,14 +36,6 @@ func resumableTask(t *Task, accepted bool, now time.Time) bool {
 	return true
 }
 
-// runStart reports the card this turn may continue: its id and the sequence
-// number that continuation would use. ok is false when the session has no open
-// card, in which case the turn can only start one.
-func (p *PublicProgress) runStart(token string) (taskID string, resumeSeq int64, ok bool) {
-	taskID, resumeSeq, _, _, ok = p.resumeHint(token)
-	return taskID, resumeSeq, ok
-}
-
 // resumeHint is runStart plus the state and title the offered card already
 // carries. It exists for the resume note: a card that delivered a result stays
 // open on purpose (a turn result is not the owner's acceptance), so the next

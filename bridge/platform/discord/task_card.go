@@ -8,11 +8,6 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-// RenderTaskCardEmbed converts a core.Task into a structured Discord MessageEmbed.
-func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
-	return renderTaskCardEmbedView(task, lang, cardViewDetail)
-}
-
 // renderTaskCardEmbedView renders the card in 细节 or 简略. 简略 keeps each
 // member's name, status and time and leaves out the task text and the current
 // step (required summary, latest progress, member titles and steps).
@@ -137,10 +132,6 @@ func memberRowKey(m core.TaskMember) string {
 	return strings.ToLower(strings.TrimSpace(m.Name))
 }
 
-func renderTaskMembers(members []core.TaskMember, lang string) string {
-	return renderTaskMembersView(members, lang, false)
-}
-
 func renderTaskMembersView(members []core.TaskMember, lang string, brief bool) string {
 	i18n := core.NewI18n(core.Language(lang))
 	members = hideSupersededMemberRows(members)
@@ -245,4 +236,9 @@ func discordFactStageLabel(stage core.FactStage, lang string) string {
 }
 func discordTaskFieldLabel(key, lang string) string {
 	return core.NewI18n(core.Language(lang)).T(core.MsgKey("task_" + key))
+}
+
+// RenderTaskCardEmbed converts a core.Task into a structured Discord MessageEmbed.
+func RenderTaskCardEmbed(task *core.Task, lang string) *discordgo.MessageEmbed {
+	return renderTaskCardEmbedView(task, lang, cardViewDetail)
 }

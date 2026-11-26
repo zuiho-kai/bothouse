@@ -63,16 +63,6 @@ func registerWakeReturn(origin *Engine, originKey, destProject, destKey string) 
 	return id
 }
 
-func lookupWakeReturn(id string) (wakeReturn, bool) {
-	wakeReturns.mu.Lock()
-	defer wakeReturns.mu.Unlock()
-	w := wakeReturns.byID[id]
-	if w == nil {
-		return wakeReturn{}, false
-	}
-	return *w, true
-}
-
 // settleWakeReturn records the woken turn's outcome once and hands it to the origin.
 // Later calls for the same wake (a turn's fallback paths) do nothing.
 func settleWakeReturn(id, text string, runErr error) {

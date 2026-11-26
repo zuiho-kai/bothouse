@@ -41,14 +41,6 @@ type WizardProjectOptions struct {
 	MemberWorkspaces *bool
 }
 
-// UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
-func UpsertWizardProject(o WizardProjectOptions) error {
-	_, err := ApplyWizardProjects(func([]WizardProjectSnapshot) ([]WizardProjectOptions, error) {
-		return []WizardProjectOptions{o}, nil
-	})
-	return err
-}
-
 // WizardProjectSnapshot is one [[projects]] entry as it is in config.toml now.
 type WizardProjectSnapshot struct {
 	Name, AgentType, WorkDir, AgentCmd string
@@ -445,29 +437,6 @@ type WizardPlatformProject struct {
 	Fallback  string
 }
 
-// ListPlatformProjects returns projects that have a platform of type platType.
-func ListPlatformProjects(platType string) ([]WizardPlatformProject, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-	cfg, err := loadLocked()
-	if err != nil {
-		return nil, err
-	}
-	var out []WizardPlatformProject
-	for _, p := range cfg.Projects {
-		for _, pl := range p.Platforms {
-			if pl.Type != platType {
-				continue
-			}
-			wd, _ := p.Agent.Options["work_dir"].(string)
-			out = append(out, WizardPlatformProject{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd,
-				Options: pl.Options, GateURL: p.GateURL, Fallback: p.GateFallback})
-			break
-		}
-	}
-	return out, nil
-}
-
 // LoadForSetup parses the config without validation, for the setup wizard on a
 // fresh install (no [[projects]] yet — Load/LoadPermissive reject that).
 func LoadForSetup(path string) (*Config, error) {
@@ -579,4 +548,35 @@ func EnsureWizardHook(event, command string) (added bool, err error) {
 	}
 	doc["hooks"] = append(hooks, map[string]any{"event": event, "type": "command", "command": command})
 	return true, saveConfig(doc)
+}
+
+// UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
+func UpsertWizardProject(o WizardProjectOptions) error {
+	_, err := ApplyWizardProjects(func([]WizardProjectSnapshot) ([]WizardProjectOptions, error) {
+		return []WizardProjectOptions{o}, nil
+	})
+	return err
+}
+
+// ListPlatformProjects returns projects that have a platform of type platType.
+func ListPlatformProjects(platType string) ([]WizardPlatformProject, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	cfg, err := loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	var out []WizardPlatformProject
+	for _, p := range cfg.Projects {
+		for _, pl := range p.Platforms {
+			if pl.Type != platType {
+				continue
+			}
+			wd, _ := p.Agent.Options["work_dir"].(string)
+			out = append(out, WizardPlatformProject{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd,
+				Options: pl.Options, GateURL: p.GateURL, Fallback: p.GateFallback})
+			break
+		}
+	}
+	return out, nil
 }

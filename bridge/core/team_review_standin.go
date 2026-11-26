@@ -187,12 +187,6 @@ func (e *Engine) reviewModelSupportNow(model string) (ok bool, why string, known
 	return false, "这个模型不在该角色后端的模型列表里，后端可能忽略它", true
 }
 
-// agentOffersModel: ms runs on model now or lists it (name or alias).
-func agentOffersModel(ms ModelSwitcher, model string) bool {
-	offered, _ := agentModelOffer(ms, model)
-	return offered
-}
-
 // agentModelOffer: offered as agentOffersModel; listed is false when the model list could not be
 // read (the request timed out or returned nothing), so a miss is not a fact about the model.
 func agentModelOffer(ms ModelSwitcher, model string) (offered, listed bool) {

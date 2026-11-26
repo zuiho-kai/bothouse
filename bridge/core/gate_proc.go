@@ -81,9 +81,6 @@ func sameDir(a, b string) bool {
 	return a != "" && b != "" && clean(a) == clean(b)
 }
 
-// gateIsOurs: the gate on gateAddr serves dataDir (so it can be reused).
-func gateIsOurs(dataDir string) bool { return sameDir(gateWhoami(), dataDir) }
-
 // Who holds the gate port (gatePortHolder).
 type gateHolder int
 

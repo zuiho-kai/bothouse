@@ -287,10 +287,6 @@ const (
 	appServerUsageRefreshTimeout = 1500 * time.Millisecond
 )
 
-func newAppServerSession(ctx context.Context, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
-	return newAppServerSessionAs(ctx, core.SpawnOptions{}, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider, extraEnv, codexHome, permissionProfile, systemPrompt, appendPrompt, baseInstructions)
-}
-
 // newAppServerSessionAs is newAppServerSession with run_as_user isolation (#1367).
 func newAppServerSessionAs(ctx context.Context, spawnOpts core.SpawnOptions, bin, url, workDir, model, effort, mode, resumeID, baseURL, modelProvider string, extraEnv []string, codexHome string, permissionProfile string, systemPrompt string, appendPrompt string, baseInstructions string) (*appServerSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
