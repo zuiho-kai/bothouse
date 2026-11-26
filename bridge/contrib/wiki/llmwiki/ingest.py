@@ -160,6 +160,8 @@ DEFAULTS = {
     # instead of the Codex CLI, several batches at once.
     # api_key_file holds the key; the key never goes into config, logs or the usage table.
     "api_base": "", "api_model": "", "api_key_file": "",
+    # 记忆推送/夜间标注目录（tags.jsonl）："" = <数据目录>/gate；本机实验版在 ~/.bothouse/gate-exp
+    "gate_dir": "",
     "api_concurrency": 6,  # source: measured 2026-11-20, six concurrent calls all succeeded
 }
 
@@ -262,6 +264,9 @@ IDLE_MIN = 30
 MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
 AGENT_PY = Path(os.environ.get("WIKI_AGENT_PYTHON", sys.executable)).expanduser()
 API_DAILY_USD = float(os.environ.get("WIKI_API_DAILY_USD", 0))
+# 用户 2026-11-09「以后这种问自己兜底啊…同一原因还要跑三次啊，这种不应该马上你去触发介入去修吗」：同一原因连续
+# SELF_FIX_STREAK 批被拒（修复轮也没救回）就暂停这些会话、交给 wiki 主人修（self_fix），--selffix-done 解除
+SELF_FIX_STREAK = 2
 MAX_FAILS = 6  # 来源：existing failure threshold; now alerts while retaining unread work, quota refusals don't count
 # Engine per pass: claude | agy (Antigravity CLI, Google login) | gemini (dead relay, kept) | codex (ChatGPT subscription).
 # Engines: haiku | sonnet | opus | claude (= WIKI_CLAUDE_MODEL) | codex (luna, ChatGPT subscription) | agy | gemini |
@@ -373,7 +378,8 @@ each starting with a `=== SESSION` header.
    removing punctuation and whitespace, or the whole message line. Source and date alone are insufficient.
    What only the bot said is no evidence; leave unsupported facts out. Only a whole-line pointer may defer to
    another page; adding a link to a fact does not exempt it. The script checks every new fact and rejects the pass.
-   Rewrite 现状 to the current truth; delete facts the new content supersedes. A reversed decision leaves one
+   Rewrite 现状 to the current truth; nothing is forgotten: a line the new content supersedes moves, unchanged, to the
+   page's `## 历史` section (never deleted, never to log.md). A reversed decision also leaves one
    line in 决策与踩坑 (曾以为 X → 因 Y 改为 Z, date). Date facts that can go stale (YYYY-MM-DD).
 3. Keep every README line and page `description:` in sync with the page body, and MEMORY.md with the READMEs
    (a MEMORY.md line must name every topic family in its domain; update it when you add one). Append one log.md entry per session (trivial sessions: one line saying so).
@@ -405,7 +411,8 @@ R2 只记长期有用的：配置/路径/命令/版本/运行状态、决定及�
    只在本会话的 log.md 条目里写一行「- 未答复提议：X」。待办只写用户已同意要做、还没做完的事。
 R3 一个事实只住一页：写之前 grep；已有页面拥有它 → 改那一页，别处只放 [[name]] 链接，不复述。
    论文/外部项目：先 grep 它的 arXiv id 或仓库 owner/name；refs/ 已有 → 只补缺的，不另写一条。
-R4 现状写当前事实：被推翻的旧事实直接删；被推翻的决定在 决策与踩坑 留一行「曾以为/曾选 X → 因 Y 改为 Z (YYYY-MM-DD)」。
+R4 现状写当前事实；不遗忘：被推翻的旧行不删、不改字，原样挪到同页「## 历史」小节（不进 log.md）；
+   被推翻的决定另在 决策与踩坑 留一行「曾以为/曾选 X → 因 Y 改为 Z (YYYY-MM-DD)」。
 R5 会过时的环境事实（运行状态、版本、外部状态、待办）带日期 (YYYY-MM-DD)，取自 SESSION header；PR/任务进度不入长期知识，见 PR 引用规则。
 R6 只写 transcript 有依据的；用户的话优先于助手的话；助手的推测不写，或标「推测」。transcript 里后面的更正覆盖前面的说法。
    谁说的看每行开头的标签（不看内容猜）：
@@ -418,8 +425,8 @@ R6 只写 transcript 有依据的；用户的话优先于助手的话；助手�
    写「用户说/用户定/用户否决」前，先找到那句的 USER 行；TEAM/OTHER 说的写成「<名字>说」，SYSTEM 的提示不算谁的决定。
 R6b 每条新写的 bullet 归到四类之一，行尾标记让推送分得清（推送按这几个字判可信度，别用别的写法）：
    事实（用户原话、亲眼核过的命令输出）不标；推论（助手或队友的判断、推断，不是用户说的也不是核过的事实）行尾写「（推论）」，
-   转述队友的判断写明是谁的判断；猜测（没核过的猜想、估计）行尾写「（推测）」；过时的旧说法按 R4 处理。
-   用户原话照旧不标。
+   转述队友的判断写明是谁的判断；猜测（没核过的猜想、估计）行尾写「（推测）」；过时的旧说法按 R4 挪「## 历史」，
+   或在 决策与踩坑 写成「曾以为…→」。用户原话照旧不标。
 R7 不写秘密（token、密码、key），只写它存放的位置。
 R8 页面只用 现状/关键事实/决策与踩坑/待办 四节；一条 bullet 一个事实，单行 ≤@BODY_LINE@ 字；只写结论和关键数字，不写排查过程；不写「未见确认」「不声称」「用户告知」之类批注。
 R8b 写事实时能说清怎么核过的，行尾带 `｜源：亲验 · <怎么核的>`；只是在转述别人时带 `｜源：转述 · <名字>`；用户的原话带 `｜源：原话 · <YYYY-MM-DD>`。
@@ -494,7 +501,7 @@ R4 只改 MEMORY.md、log.md、各域目录里的 *.md（含子域子目录）�
    b. DAY PAGES 每页整页读一遍，但只改 DAY WRITES 的 + 行：它和页内旧行（不在 DAY WRITES 里的行）说法打架、
       或写成逐日流水账的，改 DAY WRITES 的行，按 transcript 的最终说法写成一条现状；旧行不改、不删、不并。
       只凭 TRANSCRIPT 的证据改；TRANSCRIPT 里没有依据判断哪条对的，不动。
-      旧行只有 TRANSCRIPT 写明它已不成立时才移到 log.md（原行原样贴进本次 review 条目下）。
+      旧行只有 TRANSCRIPT 写明它已不成立时才原样挪到同页「## 历史」（不删、不进 log.md）。
    c. DAY DELETIONS 每行：TRANSCRIPT 说它已不成立 → 不管；仍成立或 TRANSCRIPT 没说它不成立 → 恢复到原页面。
    没有 DAY WRITES 时不做改错，只补漏。
 4. 补漏：清单里每条都 grep wiki；判定「已记录」必须 grep/Read 到那一行；找不到的按 scope 补进合适页面（没有合适页面就新建，并登记 README）。
@@ -509,7 +516,7 @@ A1 lint ok。
 A2 每个 sid8 都在 log.md 末尾新追加了一条 review 条目。
 A3 事实清单每条都在 wiki 里（写出 文件:行），或判定不记（写出理由）。
 A4 DAY WRITES 里的 + 行没有无依据的说法留下；改动只落在 DAY PAGES 和补漏写入处，每处改动都有 TRANSCRIPT 依据。
-A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样移到 log.md 的除外；脚本核对）。
+A5 没删掉仍然成立的事实；DAY WRITES 以外的旧行没改、没删（TRANSCRIPT 写明已不成立、原行原样挪到同页「## 历史」的除外；脚本核对）。
 A6 本次每条新事实/记忆都带一句从 USER 或 USER→ 行逐字摘出的原话，不限于写了「用户说/定」的记录。
    抹平标点空格后 ≥4 字，或等于用户正文的一整行；只有机器人自己说过的不算依据。找不到原话就不写进正文。
    """ + POINTER_QUOTES + """
@@ -781,7 +788,7 @@ ALERT_STREAK = 3
 
 DISCORD_SOURCE = bool(CFG.get("discord_source", False))
 
-QUOTE = re.compile(r"(\d{2}-\d{2} (?:[0-9a-f]{8}|\d{2}:\d{2} [^\s「」]+))「([^」]+)」")
+QUOTE = re.compile(r"(\d{2}-\d{2} (?:[0-9a-f]{8}|\d{2}:\d{2} [^\s「」『』]+))「([^」]+)」")
 
 SOP_REFLECT_JSON = SOP_REFLECT.split("## SOP")[0].replace("R5 只改", "R5（脚本代写，你不改文件）只改") + """
 ## 交付（只交内容，不改任何文件；读文件可以用 cat、rg 这类只读命令；页面、待办、日志、篇幅都由脚本写）
@@ -930,6 +937,7 @@ def state():
     db.execute("create table if not exists alerts(kind text primary key, day text)")  # alert(): once per kind a day
     # rejection reason (digits dropped) → batches in a row it rejected, sessions in those batches
     db.execute("create table if not exists reject_streak(reason text primary key, n int, sessions int)")
+    _selffix_table(db)
     recover_ingested(db)
     return db
 
@@ -2498,6 +2506,7 @@ def run(a, engines=None):
         lint_pass(db)
         dream(db, time.time() + NIGHT_BUDGET)
         return
+    delivery_pass(db, engines)
     items = []
     # A bounded pending run must not consume closure hints for deferred sessions.
     pending = getattr(a, "pending", False) and not a.nightly
@@ -3374,6 +3383,10 @@ def ingest_batches(db, items, engines, pending=False):
 
 
 def _ingest_batches(db, batches, engines, pending):
+    paused = paused_ids(db)
+    if held := sorted({it["id"][:8] for b in batches for it, _ in b if it["id"] in paused}):
+        log(f"ingest: {len(held)} session(s) paused for self-fix, not re-run until --selffix-done: {', '.join(held)}")
+        batches = [b for b in ([(it, p) for it, p in b if it["id"] not in paused] for b in batches) if b]
     global quota_hit, CRASHED, ROUTE_DOWN, OUT_OF_TIME, BLOCK_PENDING
     remaining = collections.Counter(it["id"] for batch in batches for it, _ in batch)
     for batch in batches:
@@ -3461,14 +3474,15 @@ def _ingest_batches(db, batches, engines, pending):
         if crashed:  # once a day per error type (alert); the batch is a counted failure above, the run goes on
             alert(db, ["crash:" + crashed.split(":")[0]], f"wiki 自动整理脚本出错（{crashed[:200]}），{label} 记失败、"
                                                         f"已回滚，继续下一批。traceback 看 {LOG}（CRASHED 行）。")
-        if retained:
-            why = f"最近的拒绝原因：{REJECT_REASONS[-1].splitlines()[0][:150]}。" if REJECT_REASONS else ""
-            alert(db, ["retained"], f"wiki 自动整理保留了 {retained} 个待办（各连续失败至少 {MAX_FAILS} 次，未推进已读位置，下轮续办）。{why}"
-                                  f"日志看 {LOG}（RETAINED / REVERTED 行）。")
+        if retained:  # #1263：不再只在频道报一句，暂停这些会话交给 wiki 主人修（self_fix），已读位置照旧不推进
+            last = REJECT_REASONS[-1].splitlines()[0][:150] if REJECT_REASONS else "model failed"
+            failed = [i for i in ids if failures(db, i) >= MAX_FAILS]
+            self_fix(db, "fails:" + (reasons_of([last]).pop() if last.strip() else "?"), failed,
+                     f"{retained} 个会话各连续失败 {MAX_FAILS} 次，最近的拒绝原因：{last}")
         if res or (not quota_hit and not BLOCK_PENDING):
             if res:  # a rejection the fix round repaired lost nothing: only batches that end up failing grow a streak
                 REJECT_REASONS.clear()
-            reject_streaks(db, len(ids))
+            reject_streaks(db, ids)
         db.commit()
         # run() keeps a pending round of the other routes to one session, but an oversized session still splits
         # into several batches here: stop after the first so each round's cost stays one batch. The openai route
@@ -3588,7 +3602,7 @@ def review_check(shas):
     lost = unkept(removed, keep)
     return (f"REVIEW 3b: {len(lost)} line(s) the day's ingest did not write were removed or rewritten, and are not "
             "verbatim (whole line) on any page or in the new log.md lines. Review only corrects the DAY WRITES lines: "
-            "恢复到原页面（原行原样）；只有 TRANSCRIPT 写明它已不成立时才移到 log.md（原行原样贴进本次 review 条目下）:\n"
+            "恢复到原页面（原行原样）；只有 TRANSCRIPT 写明它已不成立时才原样挪到同页「## 历史」（不删、不进 log.md）:\n"
             + "\n".join(lost[:20])) if lost else ""
 
 
@@ -3965,6 +3979,8 @@ def nightly(a):
     manuals.run(deadline=deadline, ask_fn=profile_ask, transcripts=ROOT)
     log(f"nightly: stage=review stopped={budget.stopped()}")
     review(state(), deadline)
+    log(f"nightly: stage=scold stopped={budget.stopped()}")
+    scold_pass()
     log(f"nightly: stage=restate stopped={budget.stopped()}")
     restate_pass()  # last: whatever budget is left; a skipped night just runs it the next night
     log(f"nightly: ended stopped={budget.stopped()}")
@@ -4206,7 +4222,7 @@ def day_sessions(start, end):
 RENDERED = {}
 
 
-def pack_misquotes(pack, base="HEAD", logical=RENDERED):
+def pack_misquotes(pack, base="HEAD", logical=RENDERED, drop=None):
     """The 今日反思 lines added must take their numbers and 『sentences』 from the data pack verbatim (SOP_REFLECT R2):
     a $ amount not in the pack, or a 『』 not in it, is made up. `logical` (from reflect_render): a page line wrap()
     cut from a longer one is judged as that whole line — its 「改法 」「明早待办」 exemption and a $12.34 split over two
@@ -4231,12 +4247,36 @@ def pack_misquotes(pack, base="HEAD", logical=RENDERED):
             continue
         if line[1:].strip() in old_lines:
             continue
-        bad += [b for b in pack_bad(logical.get(line[1:].strip(), line), page, pack)
-                if flat(b.strip("『』")) not in old_flat]
+        b_ = [b for b in pack_bad(logical.get(line[1:].strip(), line), page, pack)
+              if flat(b.strip("『』")) not in old_flat]
+        bad += b_
+        if b_ and drop is not None:
+            drop.setdefault(page, []).append((line[1:], b_))
+    if drop is not None:
+        return ""
     if bad:
         return ("numbers / 『sentences』 not in the day's data pack (copy them from it exactly, no arithmetic or "
                 "rounding; or drop them): " + "; ".join(dict.fromkeys(bad)))
     return ""
+
+
+def pack_prune(pack, label, base="HEAD", logical=RENDERED):
+    """After the fix round: the added lines pack_misquotes still rejects are removed from their pages (each logged),
+    the rest of the night is written (用户 11-20「修一下，以后问题你自己修」: one sentence no longer reverts the night).
+    Returns how many lines were removed."""
+    drop = {}
+    pack_misquotes(pack, base, logical, drop)
+    n = 0
+    for page, lines in drop.items():
+        f = WIKI / page
+        text = f.read_text().split("\n")
+        for line, bad in lines:
+            if line in text:
+                text.remove(line)
+                n += 1
+                log(f"{label}: line dropped, not in pack ({'; '.join(bad)}): {page}: {line.strip()}")
+        f.write_text("\n".join(text))
+    return n
 
 
 def reflect_check(pack, said, known, day):
@@ -4362,11 +4402,7 @@ def reflect(db, deadline, day=None):
     prev = {"day": row[0], "totals": json.loads(row[2])} if row and row[2] else None
     # usage and tool timings exist only in Claude Code's own logs: a wiki whose sessions come from elsewhere (ROOT, a
     # teammate's export) gets no cost figures rather than 橘's
-    pack, totals = daypack.build(start, end, [(s, t, r) for s, t, r, _ in sessions], prev=prev,
-                                 prev_fixes=fixes, usage=ROOT is None and ASSISTANT == DEFAULTS["assistant"],
-                                 reply_chars=DREAM_REPLY_CHARS)
-    pack = SECRET.sub(lambda m: (m.group(3) or "") + "[REDACTED]", pack)
-    words, citations = [], {}
+    words, citations, reacts = [], {}, None
     for sid, title, _, d in sessions:
         lines = [f"USER [{dd}] {cite_user(citations, sid, dd, t)}: {t}" for dd, t in d["quotable"]]
         if lines:
@@ -4374,18 +4410,22 @@ def reflect(db, deadline, day=None):
     if DISCORD_SOURCE:  # discord_said.Unavailable propagates: no reflection rather than one without the user's words
         for name, lines in said_lines(discord_words(start, end), citations).values():
             words.append(f"=== SESSION {name} | Discord {name}（用户本人发的消息，按发送者 id 取）\n" + "\n\n".join(lines))
+        reacts = delivery_reacts(start, end, citations)
     words = SECRET.sub(lambda m: (m.group(3) or "") + "[REDACTED]", "\n\n".join(words))
+    # 挨骂四类记数（scold_pass，nightly 在 dream 之后调）用的就是这份当天用户原话：U 编号 → 日期、会话或频道、原话（已去密钥）
+    SCOLD_INPUT.clear()
+    SCOLD_INPUT.update(day=day, items=[{"id": k, "day": v[0], "src": v[1], "text": v[2]} for k, v in citations.items()])
+    # the pack after the user's words: its 「交付后用户的话」 section names them by the same U numbers
+    pack, totals = daypack.build(start, end, [(s, t, r) for s, t, r, _ in sessions], prev=prev,
+                                 prev_fixes=fixes, usage=ROOT is None and ASSISTANT == DEFAULTS["assistant"],
+                                 reply_chars=DREAM_REPLY_CHARS, reacts=reacts)
+    pack = SECRET.sub(lambda m: (m.group(3) or "") + "[REDACTED]", pack)
     text = pack + "\n=== 用户的话（当天，只列用户本人的 USER 行）===\n" + (words or "无") + "\n"
     contexts = reflect_batches(text)
     said = {sid[:8]: d["user"] for sid, _, _, d in sessions}
     known = countable(transcripts(hosts=True).values(), said)
     page = reflect_page()
-    rc = dream_page()
-    sop = (SOP_REFLECT_JSON.replace("{page}", f"今日反思页（{REFLECT_NAME} 及其子页 {REFLECT_GLOB}，`find . -name '{REFLECT_GLOB}' "
-                               "-not -path './.*'`）")
-           .replace("{new}", page).replace("{day}", day)
-           .replace("{rc_page}", f"规则候选页（{rc} 及同目录的 {DREAM_GLOB}）")
-           .replace("{lesson_page}", str((lesson_page() or WIKI / LESSON_NAME).relative_to(WIKI))))
+    sop = reflect_sop(day, page)
     label = f"reflect {day}"
     log(f"{label}: pack {len(pack)} + words {len(words)} chars, {len(sessions)} sessions, {len(contexts)} batches, "
         f"prev {prev_day or '-'} → {DREAM_ENGINE}")
@@ -4504,14 +4544,24 @@ def dream(db, deadline):
                 db.execute("insert into dream_window values (?)", (hi,))
                 words = None
             db.commit()
-    try:
-        res = reflect(db, deadline)
+    # a failed reflection runs once more by itself; only a second failure is said, with where it is stuck — not "read
+    # the log" (五晚无声到 11-02；用户 11-20「修一下，以后问题你自己修」，7046c351c)
+    res, why = False, ""
+    for attempt in (1, 2):
+        mark = len(REJECT_REASONS)
+        try:
+            res = reflect(db, deadline)
+            why = "" if res else (REJECT_REASONS[mark:] or ["模型没交出结果，或今晚预算已用完"])[-1]
+        except Exception as e:  # e.g. daypack's FileNotFoundError/ValueError: a failed reflection, the night goes on
+            log(f"reflect failed: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
+            res, why = False, f"脚本出错 {type(e).__name__}: {e}"
         changed |= res == "changed"
-        if not res:  # a REVERTED or skipped reflection is said, not left in the log (five silent nights to 11-02)
-            alert(db, ["reflect"], f"夜间反思今晚没写进去，原因看 {LOG} 里 reflect 开头的行。")
-    except Exception as e:  # e.g. daypack's FileNotFoundError/ValueError: a failed reflection, the night goes on
-        log(f"reflect failed: {type(e).__name__}: {e}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
-        alert(db, ["reflect"], f"夜间反思今晚出错没写进去：{type(e).__name__}，原因看 {LOG}。")
+        if res:
+            break
+        if attempt == 1:
+            log(f"reflect: failed ({why[:200]}), retrying once")
+    if not res:
+        alert(db, ["reflect"], f"夜间反思今晚没写进去：已自动重跑一次，仍卡在：{why[:300]}")
     profiles_pass(db, deadline)
     if changed and DREAM_NOTIFY:
         notify_dream()
@@ -4554,7 +4604,8 @@ def owner_to_roles(done):
         return
     personas = {k: v["persona"] for k, v in json.loads(bots.read_text(encoding="utf-8")).items()
                 if isinstance(v, dict) and v.get("persona")}
-    roles = profiles.to_roles(REPO / profiles.page_rel(key), key, personas, bots.parent / profiles.ROLE_STATE)
+    roles = profiles.to_roles(REPO / profiles.page_rel(key), key, personas, bots.parent / profiles.ROLE_STATE,
+                              counts=profiles.COUNTS.get(key), days=PROFILE_FIX_DAYS)
     log(f"profile: owner's page written into role instructions: {', '.join(roles) or 'no role asks for it'}")
 
 
@@ -4569,7 +4620,13 @@ def profiles_pass(db, deadline):
     db.execute("create table if not exists profile_window(at real)")
     lo = db.execute("select max(at) from profile_window").fetchone()[0] or 0
     hi = time.time()
-    done, files = profiles.run(REPO, lo, hi, profile_ask, log, deadline=deadline)
+    try:
+        owner = f"discord-{discord_said.user_id()}"
+    except discord_said.Unavailable:  # 桥配置里没有主人：谁的行都不排
+        owner = None
+    # 主人那页按近 PROFILE_FIX_DAYS 天被纠正次数排行（#1902）；别人的页不排
+    done, files = profiles.run(REPO, lo, hi, profile_ask, log, deadline=deadline, days=PROFILE_FIX_DAYS,
+                               fixes_for=lambda k: profile_fixes() if k == owner else None)
     if files and (REPO / ".git").exists() and not os.environ.get("PROFILE_NO_COMMIT"):
         subprocess.run(["git", "add", "--", *files], cwd=REPO, capture_output=True, text=True)
         r = subprocess.run(["git", "commit", "-qm", "dream: 画像", "--", *files], cwd=REPO, capture_output=True, text=True)
@@ -5021,13 +5078,113 @@ def lesson_page(root=None):
     return hits[0] if hits else None
 
 
-def lesson_write(items, day, fill, pack=None):
+# ── 本机 ~/wiki/bin 分叉并回（#2051 第 2 件）：教训表效果行、做法页、交付反应、自修、挨骂记数、画像纠正次数 ──
+
+def gate_dir():
+    """记忆推送和夜间标注的目录（tags.jsonl、ctxsvc.py）：配置 gate_dir，没配是桥装的 <数据目录>/gate。"""
+    return Path(os.path.expanduser(CFG["gate_dir"])) if CFG["gate_dir"] else Path(bridge_data_dir()) / "gate"
+
+
+def lesson_pages(root=None):
+    """主页 + split_pass 拆出的子页，主页在前（#1447）。拆页后主页在同名目录 <名>/<名>.md、子页在它旁边；
+    老布局看主页旁的 <名>/ 目录。同 ctxsvc.lesson_pages。"""
+    root = root or WIKI
+    main = lesson_page(root)
+    if main is None:
+        return []
+    sub = main.parent if main.parent.name == main.stem else main.with_suffix("")
+    subs = sorted(p for p in sub.glob("**/*.md")
+                  if p != main and not any(x.startswith(".") for x in p.relative_to(sub).parts)) if sub.is_dir() else []
+    return [main] + subs
+
+
+def lesson_where():
+    """教训表在提示词里的写法：拆页后主页里 0 条「- 经验：」，模型要看得到子页里已有的那些才能填「同」（#1447）。"""
+    pages = lesson_pages()
+    if not pages:
+        return LESSON_NAME
+    main = str(pages[0].relative_to(WIKI))
+    if len(pages) == 1:
+        return main
+    d = str((pages[0].parent if pages[0].parent.name == pages[0].stem else pages[0].with_suffix("")).relative_to(WIKI))
+    return f"{main}；已有的「- 经验：」行也在拆出的子页里，`rg -n '^- 经验：' {d}` 全看"
+
+
+# 经验的「效果」行（#1853，用户 11-21「做」：经验记录加一栏「改了之后管没管用」）：每条经验下第一行缩进
+# 「  - 效果（截至 MM-DD）：MM-DD 记下后……」。不以日期开头，ctxsvc/lessons 不把它算成一次踩坑；经验行本身不改字（编号是它的指纹）。
+# 记下日 = 这条第一次进教训表那天（回填取 git 历史，新条取它最早一条证据）；证据里日期晚于记下日的 = 记下后又犯。
+OUTCOME_HEAD = "  - 效果"
+
+
+OUTCOME_RIPE = 7  # 记下不满 7 天、也没再犯的，标未验证
+
+
+_OUTCOME = re.compile(r"^  - 效果（截至 (\d\d-\d\d)）：(\d\d-\d\d) 记下")
+
+
+def outcome_line(rec, ev, today, old=""):
+    """一条经验的效果行。ev：证据日期（MM-DD）；结论没变就留旧行（截至日期不天天变，免得每晚整页 diff）。"""
+    after = sorted(d for d in set(ev) if d > rec)
+    y = time.localtime().tm_year
+    days = (time.mktime(time.strptime(f"{y}-{today}", "%Y-%m-%d")) - time.mktime(time.strptime(f"{y}-{rec}", "%Y-%m-%d"))) // 86400
+    if after:
+        body = f"{rec} 记下后又犯 {len(after)} 次（{'、'.join(after[-6:])}），没管住，这条改法要换或丢"
+    elif days >= OUTCOME_RIPE:
+        body = f"{rec} 记下后满 {OUTCOME_RIPE} 天没再记到同类错，暂算管用"
+    else:
+        body = f"{rec} 记下不满 {OUTCOME_RIPE} 天，未验证"
+    if old and re.sub(r"\s*<!--.*?-->\s*$", "", old).split("）：", 1)[-1] == body:  # 行尾论坛标记不算结论变了
+        return old
+    return f"{OUTCOME_HEAD}（截至 {today}）：{body}"
+
+
+def lesson_outcomes(today, since=None, pages=None):
+    """每条「- 经验：」下第一行写/刷新效果行。since：{经验行去掉论坛标记 → YYYY-MM-DD}，回填时用 git 历史给记下日。返回改了几行。"""
+    since, n = since or {}, 0
+    for p in pages or lesson_pages():
+        lines = p.read_text().rstrip("\n").split("\n")
+        k, changed, old = 0, False, []
+        while k < len(lines):
+            if not lines[k].startswith(LESSON_HEAD):
+                k += 1
+                continue
+            j = k + 1
+            while j < len(lines) and lines[j].startswith("  "):
+                j += 1
+            block = lines[k + 1:j]
+            at = next((i for i, l in enumerate(block) if l.startswith(OUTCOME_HEAD)), None)
+            ev = [m.group(1) for l in block if (m := re.match(r"\s+- (\d\d-\d\d) ", l))]
+            m = _OUTCOME.match(block[at]) if at is not None else None
+            key = re.sub(r"\s*<!--.*?-->\s*$", "", lines[k]).strip()
+            rec = m.group(2) if m else (since[key][5:] if key in since else min(ev, default=today))
+            new = outcome_line(rec, ev, today, block[at] if at is not None else "")
+            if at is None:
+                lines[k + 1:k + 1] = [new]
+                j += 1
+                changed, n = True, n + 1
+            elif block[at] != new:
+                old.append(block[at].strip())  # 被刷掉的旧效果行原样进「## 历史」（R-memory；11-22 反思被 LOSSLESS 挡）
+                lines[k + 1 + at] = new
+                changed, n = True, n + 1
+            k = j
+        if changed:
+            text = "\n".join(lines) + "\n"
+            have = set(cut_history(text)[1])
+            keep = [l for l in dict.fromkeys(old) if l not in have]
+            p.write_text(put(text, HISTORY, keep) if keep else text)
+    return n
+
+
+def _lesson_write(items, day, fill, pack=None):
     """今日反思 JSON 的「经验」→ 教训表：同一个坑（「同」能唯一找到那行，或内容一字不差）给那条加一行证据，否则新写一条。
+    「同」和一字不差在主页加拆出的子页全体里找（#1447），命中子页就加在子页那条下面；新条只写主页「关键事实」。
     来源里的数字、『』要在数据包里（pack_bad，同反思页），对不上的整条不写。返回给 log.md 的说明行。"""
-    page, done = lesson_page(), []
-    if page is None or not as_list(items):
+    pages, done = lesson_pages(), []
+    if not pages or not as_list(items):
         return done
-    lines = page.read_text().rstrip("\n").split("\n")
+    page = pages[0]
+    texts = {p: p.read_text().rstrip("\n").split("\n") for p in pages}
+    changed = set()
     rel = str(page.relative_to(WIKI))
     for it in as_list(items):
         if not isinstance(it, dict):
@@ -5036,26 +5193,452 @@ def lesson_write(items, day, fill, pack=None):
         when = fill(it.get("场景")).strip().rstrip("。")
         same = str(it.get("同") or "").strip().removeprefix(LESSON_HEAD)
         src = fill(it.get("来源"))
-        ev = f"  - {day[5:]} {src}"[:280]
+        ev = (f"  - {src}" if src.startswith(day[5:] + " ") else f"  - {day[5:]} {src}")[:280]  # U 号回填已带 MM-DD
         if not src or (pack is not None and pack_bad(ev, rel, pack)):
             log(f"reflect {day}: 经验 dropped (no source / not in pack): {what or same}")
             continue
-        heads = [k for k, l in enumerate(lines) if l.startswith(LESSON_HEAD)]
-        hit = [k for k in heads if same and same in lines[k]] or [k for k in heads if what and lines[k].startswith(LESSON_HEAD + what)]
+        heads = [(p, k) for p in pages for k, l in enumerate(texts[p]) if l.startswith(LESSON_HEAD)]
+        hit = ([(p, k) for p, k in heads if same and same in texts[p][k]]
+               or [(p, k) for p, k in heads if what and texts[p][k].startswith(LESSON_HEAD + what)])
         if len(hit) == 1:
-            j = hit[0] + 1
+            p, k = hit[0]
+            lines = texts[p]
+            j = k + 1
             while j < len(lines) and lines[j].startswith("  "):
                 j += 1
-            if ev not in lines[hit[0]:j]:
+            if ev not in lines[k:j]:
                 lines[j:j] = [ev]
-                done.append(f"再踩 — {lines[hit[0]][len(LESSON_HEAD):][:60]}")
+                changed.add(p)
+                done.append(f"再踩 — {lines[k][len(LESSON_HEAD):][:60]}")
         elif what and len(what) <= LESSON_MAX:
-            head = LESSON_HEAD + what + (f"（场景：{when}）" if when else "")
-            lines = put("\n".join(lines), "关键事实", [head, ev]).rstrip("\n").split("\n")
+            obj = obj_words(it, pack)
+            when2 = "；".join(x for x in (when, f"对象：{obj}" if obj else "") if x)
+            head = LESSON_HEAD + what + (f"（场景：{when2}）" if when2 else "")
+            texts[page] = put("\n".join(texts[page]), "关键事实", [head, ev]).rstrip("\n").split("\n")
+            changed.add(page)
             done.append(f"新增 — {what}")
         else:
             log(f"reflect {day}: 经验 skipped (「同」 matched {len(hit)} lines, or no/too long 内容): {what or same}")
-    page.write_text("\n".join(lines) + "\n")
+    for p in changed:
+        p.write_text("\n".join(texts[p]) + "\n")
+    return done
+
+
+# 交付后被用户纠正的做法（#1447）→ 那件活所在项目页「决策与踩坑」，写法同白天入库 R11：「做<项目>这类<活>的时候 → 该怎么做」
+# + 用户原话（U 编号回填，逐字）+ 出处 (YYYY-MM-DD sid8)。教训表那条照写（lesson_write），这里只多写项目页一行；
+# 只往已有页的这一节末尾加，不建页、不动旧行。
+PRACTICE_HEAD = "决策与踩坑"
+
+
+PRACTICE_MAX = 150  # 「做法」的字数上限，提示词同；R8 单行 ≤300 字里留出原话和出处
+
+
+def practice_page(rel):
+    """The project page an 经验 names, if the script may add to it: an existing domain page, not a hidden file, bin/,
+    a schema/index/log file, the lesson table, the rule-candidate or reflection pages."""
+    rel = str(rel or "").strip().strip("`").removeprefix("./")
+    if not rel.endswith(".md") or rel.startswith("/") or ".." in Path(rel).parts:
+        return None
+    page = WIKI / rel
+    parts = Path(rel).parts
+    if (len(parts) < 2 or any(x.startswith(".") for x in parts) or parts[0] == "bin" or not page.is_file()
+            or page.name in ("CLAUDE.md", "MEMORY.md", "log.md", "README.md") or page in lesson_pages()
+            or fnmatch.fnmatch(page.name, DREAM_GLOB) or fnmatch.fnmatch(page.name, REFLECT_GLOB)):
+        return None
+    return page
+
+
+_PICK = {}
+
+
+def practice_target(how, named):
+    """#1447 选页：下次同类活开工是拿交接去搜（gate ctxsvc.match_wiki），会命中哪页就写哪页。拿做法前半（这类活 + 环节）
+    当查询搜全库，取第一个能写的页；搜不到才用模型填的项目页（原来只用它：那件活所在的项目页，换项目做同类活不会读到）。"""
+    scene = how.split("→")[0]
+    idx = _PICK.get(WIKI)
+    if idx is None:
+        idx = _PICK[WIKI] = search.Index(WIKI)
+    for rel in idx.candidates(scene, k=8):
+        page = practice_page(rel)
+        if page is not None:
+            return page
+    return practice_page(named)
+
+
+OBJ_MAX = 8  # 对象词条数，提示词同
+
+
+def obj_words(it, pack=None):
+    """「对象」词（#1473）：去重、去空，数据包里没出现的丢掉（不让模型编），最多 OBJ_MAX 个，顿号连起来。"""
+    out = []
+    for w in as_list(it.get("对象")) if isinstance(it, dict) else []:
+        w = str(w or "").strip().strip("「」『』`")
+        if w and len(w) <= 30 and w not in out and (pack is None or w in pack):
+            out.append(w)
+    return "、".join(out[:OBJ_MAX])
+
+
+def practice_write(items, day, fill, pack=None):
+    """今日反思「经验」里带了项目页和用户原话的 → 项目页「决策与踩坑」一行。返回给 log.md 的说明行。"""
+    done = []
+    for it in as_list(items):
+        if not isinstance(it, dict) or not str(it.get("项目页") or "").strip():
+            continue
+        how = fill(it.get("做法")).strip().rstrip("。")
+        said = fill(it.get("原话")).strip()
+        page = practice_target(how, it.get("项目页"))
+        sid = str(it.get("会话") or "").strip()
+        sid = sid if re.fullmatch(r"[0-9a-f]{8}", sid) and (pack is None or sid in pack) else ""
+        no = str(it.get("任务") or "").strip()
+        no = no if re.fullmatch(r"#\d{2,5}", no) and (pack is None or f"任务 {no}" in pack) else ""
+        why = ("no such page" if page is None else "做法 not 「…的时候 → …」" if "→" not in how or not re.search(r"[时前后]", how.split("→")[0])
+               else "做法 too long" if len(how) > PRACTICE_MAX else "no user quote (原话 needs a U number)"
+               if not QUOTE.search(said) else "")
+        obj = obj_words(it, pack)
+        shown = re.sub(r"\s*→", f"（对象：{obj}） →", how, count=1) if obj and "→" in how else how
+        line = f"- {shown}（用户原话 {said}）（{' '.join(x for x in (day, sid, no) if x)}）"
+        rel = str(page.relative_to(WIKI)) if page else str(it.get("项目页"))
+        if not why and pack is not None and pack_bad(line, rel, pack):
+            why = "number or 『』 not in pack"
+        if why:
+            log(f"reflect {day}: 项目页做法 dropped ({why}): {rel} {how[:60]}")
+            continue
+        text = page.read_text()
+        if line in text.split("\n"):
+            continue
+        page.write_text(put(text, PRACTICE_HEAD, wrap(line)))
+        done.append(f"{rel}: 决策与踩坑新增 — {how[:60]}")
+    return done
+
+
+def make_fill(citations, day):
+    def fill(t):
+        def one(m):
+            v = citations.get(m[0])
+            if not v or v[0] == "?":
+                log(f"reflect {day}: citation DROPPED unknown ID {m[0]}")
+                return ""
+            return citation_text(v)
+        seen = set()
+        def once(m):
+            c = one(m)
+            if c in seen:
+                return ""
+            seen.add(c)
+            return c
+        t = "、".join(map(str, t)) if isinstance(t, list) else str(t or "")
+        for m in HAND_CITE.finditer(t):
+            log(f"reflect {day}: hand citation DROPPED: {m[0]}")
+        t = HAND_CITE.sub("", t)
+        t = re.sub(r"(?:(?<![\d-])\d{2}-\d{2}[ \t]*)?(?:(?<![0-9A-Za-z])(?:sid)?[0-9a-f]{8}[ \t]*)?(?=" + CITE_ID.pattern + ")", "", t)
+        t = re.sub("(" + CITE_ID.pattern + r")(?:[ \t]*「[^」\n]*」)+", r"\1", t)
+        t = re.sub(r"(?:(?<![\d-])\d{2}-\d{2}[ \t]*)?(?<![0-9A-Za-z])(?:sid)?[0-9a-f]{8}[ \t]*[：:]?[ \t]*(?=『)", "数据包原句", t)
+        t = re.sub(r"([、，；,])(?:\s*[、，；,])+", r"\1", CITE_ID.sub(once, t))
+        t = re.sub(r"[（(]\s*[、，；,]?\s*[)）]", "", t)
+        t = re.sub(r"[、，；,]\s*(?=[)）]|$)", "", t)
+        return lint.META.sub("", t).replace("未答复", "未回").strip()
+    return fill
+
+
+SOP_DELIVERY = """DELIVERY 任务（执行型：根据交付后的用户反应提取踩坑经验）。
+下面是最近交付汇报后用户说的话。如果用户在纠正、否决、批评、打回某份交付（如嫌做错、缺步骤、没按要求做），
+请提取经验；认可、新要求、闲聊不算。
+
+输出严格 JSON 格式：
+{
+  "经验": [
+    {
+      "内容": "先…，再…；不…（跨任务通用的做法，祈使句，≤60字）",
+      "场景": "什么时候该想起这条（活的类别和环节，≤30字，不写项目名）",
+      "同": "<教训表里已有那条「- 经验：」行的一段原文，没有写空串>",
+      "来源": "频道",
+      "项目页": "<那件活所在的项目页路径，如 projects/.../xxx.md；没有用户纠正写空串>",
+      "做法": "做<活的类别>、<出错的环节>的时候 → <以后照着就能做的具体动作>",
+      "原话": "<用户纠正那句的 U 编号>",
+      "会话": "<交付行里写的会话 sid8，没有写空串>",
+      "任务": "<交付行里的 #编号，没有写空串>",
+      "对象": ["<这件活的具体对象词 4–8 个：项目/产品名、交付物和文件类型、工具或平台、动作名，只挑数据包里真出现的>"]
+    }
+  ]
+}
+如果没有批评或不需要提取经验，输出 {"经验": []}。不要输出任何其他文字。
+"""
+
+
+def delivery_render(answer, day, citations, pack):
+    try:
+        data = answer_json(answer)
+    except ValueError as e:
+        return f"DELIVERY: answer is not the JSON object asked for ({e}); output only that JSON"
+    fill = make_fill(citations, day)
+    items = data.get("经验") or []
+    lessons = lesson_write(items, day, fill, pack)
+    practices = practice_write(items, day, fill, pack)
+    if lessons or practices:
+        entry = [
+            f"\n## [{time.strftime('%Y-%m-%d')}] delivery | 交付后用户批评提取",
+            f"- 教训表经验：{', '.join(lessons) if lessons else '无'}",
+            f"- 项目页做法：{', '.join(practices) if practices else '无'}",
+        ]
+        with open(WIKI / "log.md", "a") as f:
+            f.write("\n".join(entry) + "\n")
+    return ""
+
+
+def delivery_pass(db, engines=None):
+    """白天增量批次处理交付后用户的话（#1473 / #1447）：
+    扫描最近 4 小时内有用户反应的 📬 交付汇报。对未处理过的批评提取经验和项目页做法，
+    即时写入教训表与对应项目页，消除夜间入库时延。"""
+    if not DISCORD_SOURCE:
+        return False
+    db.execute("""create table if not exists delivery_ingested(
+        channel text,
+        mail_ts real,
+        react_ts real,
+        at real,
+        primary key (channel, mail_ts)
+    )""")
+    now = time.time()
+    citations = {}
+    try:
+        rows = delivery_reacts(now - 4 * 3600, now, citations)
+    except Exception as e:
+        log(f"delivery_pass: fetch failed ({type(e).__name__}: {e})")
+        return False
+    if not rows:
+        return False
+
+    new_rows = []
+    for r in rows:
+        if not r.get("reacts"):
+            continue
+        max_r_ts = max((x[0] for x in r["reacts"]), default=0)
+        cur = db.execute("select react_ts from delivery_ingested where channel=? and mail_ts=?",
+                         (r["channel"], r["ts"])).fetchone()
+        if cur is None or cur[0] < max_r_ts:
+            new_rows.append((r, max_r_ts))
+    if not new_rows:
+        return False
+
+    pack_rows = [r for r, _ in new_rows]
+    pack_part = daypack.react_part(pack_rows)
+    pack = pack_part if isinstance(pack_part, str) else "\n".join(pack_part)
+    day = time.strftime("%Y-%m-%d")
+    label = f"delivery_pass {len(pack_rows)} items"
+    log(f"{label}: {len(pack)} chars → {ENGINE}")
+
+    engine = (engines or [ENGINE])[0]
+    ok = model_pass(label, SOP_DELIVERY, context=pack, engine=engine,
+                    max_delete=MAX_NET_DELETE, kind="delivery",
+                    apply=lambda out: delivery_render(out, day, citations, pack),
+                    check=lambda: pack_misquotes(pack),
+                    fix_context=pack if len(pack) <= MAX_CHARS else None)
+    if ok or (ok is False and not LAST_REJECTED):
+        for r, max_r_ts in new_rows:
+            db.execute("insert or replace into delivery_ingested values (?,?,?,?)",
+                       (r["channel"], r["ts"], max_r_ts, time.time()))
+        db.commit()
+    return ok
+
+
+def said_key(m, citations):
+    """(day, hm, text, U id) of one Discord Msg: the same evidence → the same ID (said_lines, delivery_reacts)."""
+    day, hm = time.strftime("%m-%d", time.localtime(m.ts)), time.strftime("%H:%M", time.localtime(m.ts))
+    text = SECRET.sub(lambda x: (x.group(3) or "") + "[REDACTED]", m.text)
+    evidence = (day, f"{hm} {m.name}", text)
+    key = next((k for k, v in citations.items() if v == evidence), None)
+    if key is None:
+        key = f"U{len(citations) + 1}"
+        citations[key] = evidence
+    return day, hm, text, key
+
+
+def delivery_reacts(lo, hi, citations):
+    """daypack.react_part's rows (#1447): the 📬 deliveries the user reacted to in [lo, hi) and those words, each by
+    the U number said_lines gave it. The same channels and cached history as discord_words; a failure here is logged
+    and the pack goes without the section rather than the night without a reflection."""
+    try:
+        rows = discord_said.deliveries(lo, hi, ASSISTANT, ASSISTANT == DEFAULTS["assistant"])
+    except Exception as e:  # noqa: BLE001
+        log(f"reflect: deliveries unreadable, pack without 交付后用户的话 ({type(e).__name__}: {e})")
+        return None
+    discord_said.GONE.clear()  # already logged by discord_words for the same channels
+    for r in rows:
+        r["mail"] = SECRET.sub(lambda x: (x.group(3) or "") + "[REDACTED]", r["mail"])
+        r["reacts"] = [(m.ts, said_key(m, citations)[3], said_key(m, citations)[2]) for m in r["reacts"]]
+    return rows
+
+
+def _selffix_table(db):  # a db made before #2051 (or a test's own schema) has no such table yet
+    db.execute("create table if not exists selffix(kind text primary key, ids text, at real)")
+
+
+def paused_ids(db):
+    """Session ids an open self-fix paused (table selffix)."""
+    _selffix_table(db)
+    return {i for (ids,) in db.execute("select ids from selffix") for i in json.loads(ids)}
+
+
+def recent_failures(n=8):
+    """The last n rejected / REVERTED / NOT DELIVERED / PAUSED lines of LOG, each cut to 300 chars: the self-fix's
+    log excerpt."""
+    try:
+        lines = LOG.read_text(errors="replace").splitlines()[-4000:]
+    except OSError:
+        return ""
+    keys = (" rejected, fix round:", " REVERTED:", " NOT DELIVERED", "PAUSED ")
+    return "\n".join(l[:300] for l in [l for l in lines if any(k in l for k in keys)][-n:])
+
+
+def self_fix(db, kind, ids, why):
+    """#1263 (user 2026-11-09 「以后这种问自己兜底啊…这种不应该马上你去触发介入去修吗」): instead of a plain-text alert,
+    pause these sessions (table selffix: not re-run as they are) and hand the reason with a log excerpt to the wiki's
+    owner as a one-shot model turn in DREAM_NOTIFY's channel (cc-connect timer, as notify_dream): she finds the cause,
+    fixes it upstream (or hands it to a workspace), runs `--selffix-done` (the pause lifts, the next run re-ingests)
+    and says one line: what was fixed, or what blocks it. One self-fix per kind while it is open; more sessions failing
+    for it join the pause. A trial copy (REPO is not HOME) only logs the command; a failed timer only logs and the next
+    failing batch tries again."""
+    _selffix_table(db)
+    row = db.execute("select ids from selffix where kind=?", (kind,)).fetchone()
+    if row:
+        joined = sorted(set(json.loads(row[0])) | set(ids))
+        db.execute("update selffix set ids=? where kind=?", (json.dumps(joined), kind))
+        log(f"self-fix {kind[:80]}: already open, {len(joined)} session(s) paused")
+        return
+    home = "~/" + str(HOME.relative_to(Path.home())) if HOME.is_relative_to(Path.home()) else str(HOME)
+    prompt = (f"【wiki 整理自修】这是 {home} 自动整理的自修通知，不是用户消息。{why}。"
+              f"这 {len(ids)} 个会话已暂停重跑（{', '.join(i[:8] for i in ids[:12])}{' 等' if len(ids) > 12 else ''}）。"
+              f"\n最近的失败日志（{LOG}）：\n{recent_failures()}\n"
+              "请你自己兜底：找根因、修上游（整理脚本、别的写 wiki 的脚本，或主 wiki 里的遗留改动），不要只重跑；"
+              "要改代码或预计超过 10 分钟的，按工作区规矩交工作区。"
+              f"修好后跑 `{sys.executable} {Path(__file__).resolve()} --selffix-done` 解除暂停，下次整理自动补跑。"
+              "频道里不转这条通知原文：修好了只回一句修了什么；修不了只回一句卡在哪、要谁做什么。")
+    try:
+        project, key = DREAM_NOTIFY.split()
+        cmd = ["cc-connect", "timer", "add", "--delay", "1m", "-p", project, "-s", key, "--desc", "wiki 整理自修",
+               "--prompt", prompt]
+        if REPO.resolve() != HOME.resolve():
+            log(f"self-fix skipped (trial copy {REPO}, home {HOME}): would run {cmd}")
+            err = ""
+        else:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            err = "" if r.returncode == 0 else (r.stderr or r.stdout)[-200:] or f"exit {r.returncode}"
+    except Exception as e:  # the ingest goes on; the next failing batch tries again
+        err = f"{type(e).__name__}: {e}"
+    log(f"self-fix {kind[:80]} → {DREAM_NOTIFY}: " + (f"FAILED {err}" if err else f"started, {len(ids)} session(s) paused"))
+    if not err:
+        db.execute("insert or replace into selffix values (?,?,?)", (kind, json.dumps(sorted(set(ids))), time.time()))
+        db.commit()
+
+
+def selffix_done(db):
+    """`--selffix-done`: the owner fixed it — every open self-fix closes, its sessions' failure counts and the streaks
+    reset, and the next run re-ingests them."""
+    _selffix_table(db)
+    rows = db.execute("select kind, ids from selffix").fetchall()
+    ids = {i for _, j in rows for i in json.loads(j)}
+    db.executemany("delete from fails where id=?", [(i,) for i in ids])
+    db.execute("delete from selffix")
+    db.execute("delete from reject_streak")
+    db.commit()
+    log(f"self-fix done: {len(rows)} closed, {len(ids)} session(s) unpaused — the next run re-ingests them")
+    return len(rows), len(ids)
+
+
+SCOLD_INPUT = {}  # reflect() 放当天用户原话，nightly 的 scold_pass 取走归四类记数（#1904 修法四）
+
+
+def commit_pages(msg, files):
+    """提交 `files`；被拒（比如 pre-commit 的无损检查）返回 False 并把 git 的原因记进日志。git() 不看退出码：
+    11-12、11-13、11-15 三晚画像提交被拒，日志照样写「24 lines, 4 replaced」，改好的页随后被 reset 掉（#1757）。"""
+    subprocess.run(["git", "add", "--", *files], cwd=REPO, capture_output=True, text=True)
+    r = subprocess.run(["git", "commit", "-qm", msg, "--", *files], cwd=REPO, capture_output=True, text=True)
+    if r.returncode:
+        log(f"{msg}: commit refused: {(r.stderr or r.stdout).strip()[-600:]}")
+    return r.returncode == 0
+
+
+def scold_pass():
+    """挨骂归四类记数：只在本机主 wiki 跑；出错只记日志，不拦当晚别的步。"""
+    items, day = SCOLD_INPUT.get("items") or [], SCOLD_INPUT.get("day")
+    SCOLD_INPUT.clear()
+    if not (items and day and ROOT is None and ASSISTANT == DEFAULTS["assistant"] and REPO.resolve() == HOME.resolve()):
+        return
+    try:
+        import scold_count
+        res = scold_count.record(items, day, wiki=REPO)
+        if res["error"]:
+            log(f"scold_count: {res['error']}")
+            return
+        log(f"scold_count: {len(items)} 句，新记 {res['new']} 条，不算 {res['none']} 条，${res['cost']}")
+        if res["files"] and (REPO / ".git").exists():
+            if not commit_pages("dream: 挨骂四类记数", res["files"]):  # 同画像：没提交上就放回上一版，脏文件不留给后面的 deliver
+                git("reset", "-q", "--", *res["files"], cwd=REPO)
+                git("checkout", "HEAD", "--", *res["files"], cwd=REPO)
+                return
+            with open(REPO / "log.md", "a", encoding="utf-8") as fh:
+                fh.write(f"\n## [{time.strftime('%Y-%m-%d')}] dream | 挨骂四类记数\n{res['line']}\n")
+            commit_pages("dream: 挨骂四类记数（log）", ["log.md"])
+    except Exception as e:  # noqa: BLE001
+        log(f"scold_pass failed: {e!r}")
+
+
+def reflect_sop(day, page=None):
+    """The 今日反思 instruction for `day` (reflect(); the #1447 replay calls the same)."""
+    page = page or reflect_page()
+    return (SOP_REFLECT_JSON.replace("{page}", f"今日反思页（{REFLECT_NAME} 及其子页 {REFLECT_GLOB}，`find . -name '{REFLECT_GLOB}' "
+                                     "-not -path './.*'`）")
+            .replace("{new}", page).replace("{day}", day)
+            .replace("{rc_page}", f"规则候选页（{dream_page()} 及同目录的 {DREAM_GLOB}）")
+            .replace("{lesson_page}", lesson_where()))
+
+
+PROFILE_FIX_DAYS = 7
+
+
+PROFILE_FIX_N = {}  # 这次重写数出来的 {现状行（去掉帖标注）: 次数}，owner_to_roles 写角色说明时标在行尾
+
+
+def profile_fixes():
+    """近 PROFILE_FIX_DAYS 天被夜间标注判成纠正的轮里，用户纠正的那句原话（去重，按时间）。派活话、桥自动发的话照 gate 的
+    判法滤掉（ctxsvc._NOT_USER，只此一处定义）；开头的 [replying to …] 引用去掉（同 score_night.own_words），tags 里
+    只存前 200 字、引用没截完的那句看不到他的话，不要。读不到就回空：次数全 0，行序照旧，不拦画像重写。"""
+    try:
+        # 另起进程只取那条正则：在本进程 import ctxsvc 会把 gate 目录插到 sys.path 最前（lead.py、board.py 自己插的），
+        # 还把 gate 那份 forum_scores 等 7 个模块留在 sys.modules，后半夜的步骤跟着受影响（#1902 自验时看到）
+        r = subprocess.run([sys.executable, "-c", "import ctxsvc; print(ctxsvc._NOT_USER.pattern)"], cwd=gate_dir(),
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode or not r.stdout.strip():
+            raise RuntimeError(f"ctxsvc._NOT_USER 没取到: {r.stderr.strip()[-200:]}")
+        not_user = re.compile(r.stdout.strip())
+        lo = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - PROFILE_FIX_DAYS * 86400))
+        out = []
+        for ln in (gate_dir() / "tags.jsonl").read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(ln)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or not row.get("corrected") or str(row.get("t") or "") < lo:
+                continue
+            said = str(row.get("next") or "")
+            if said.startswith("[replying to "):
+                said = said.split("]\n", 1)[1] if "]\n" in said else ""
+            said = " ".join(said.split())
+            if said and not not_user.match(said):
+                out.append(said)
+        return list(dict.fromkeys(out))
+    except Exception as e:  # noqa: BLE001 — 排序用的数据读不到不拦画像
+        log(f"profile: 近 {PROFILE_FIX_DAYS} 天纠正原话没读到（{type(e).__name__}: {e}），今晚行序照旧")
+        return []
+
+
+def lesson_write(items, day, fill, pack=None):
+    """写完经验（_lesson_write）顺手刷新每条的「效果」行（lesson_outcomes），没有新经验也刷：到满 7 天的要从未验证改成结论。"""
+    done = _lesson_write(items, day, fill, pack)
+    try:
+        lesson_outcomes(day[5:])
+    except Exception as e:  # 效果行算坏了不挡经验入库
+        log(f"reflect {day}: lesson_outcomes failed: {e}")
     return done
 
 
@@ -5321,39 +5904,7 @@ def reflect_render(answer, day, citations, rel, pack=None, logical=None):
         data = answer_json(answer)
     except ValueError as e:
         return f"REFLECT: answer is not the JSON object asked for ({e}); output only that JSON"
-    def fill(t):
-        def one(m):
-            v = citations.get(m[0])
-            if not v or v[0] == "?":
-                log(f"reflect {day}: citation DROPPED unknown ID {m[0]}")
-                return ""
-            return citation_text(v)
-        # a sid8 or date the model wrote before an ID is the backfill's job (「99cab942 U5」 came out as
-        # 「99cab942 10-22 99cab942「…」」, replay 2026-10-22); an ID repeated in one field is cited once
-        seen = set()
-        def once(m):
-            c = one(m)
-            if c in seen:
-                return ""
-            seen.add(c)
-            return c
-        t = "、".join(map(str, t)) if isinstance(t, list) else str(t or "")
-        # a hand-copied 「sid8「原话」」 is not evidence: user words come from U numbers only (as dream_render; review M3)
-        for m in HAND_CITE.finditer(t):
-            log(f"reflect {day}: hand citation DROPPED: {m[0]}")
-        t = HAND_CITE.sub("", t)
-        # a date and/or sid8 the model put before an ID (the backfill writes both): 「10-23 U5」 came out as
-        # 「10-23 10-23 e0ade4c4「…」」 and a 「…」 copied after an ID doubled the quote (鲸鱼娘 2026-10-22 反思)
-        t = re.sub(r"(?:(?<![\d-])\d{2}-\d{2}[ \t]*)?(?:(?<![0-9A-Za-z])(?:sid)?[0-9a-f]{8}[ \t]*)?(?=" + CITE_ID.pattern + ")", "", t)
-        t = re.sub("(" + CITE_ID.pattern + r")(?:[ \t]*「[^」\n]*」)+", r"\1", t)
-        # a sid8 before a 『pack sentence』 dresses the assistant's reply as a session quote (「sid1647e456：『…』」,
-        # 鲸鱼娘 2026-10-22): 『』 are the pack's, sourced as such; user words come from U numbers only
-        t = re.sub(r"(?:(?<![\d-])\d{2}-\d{2}[ \t]*)?(?<![0-9A-Za-z])(?:sid)?[0-9a-f]{8}[ \t]*[：:]?[ \t]*(?=『)", "数据包原句", t)
-        t = re.sub(r"([、，；,])(?:\s*[、，；,])+", r"\1", CITE_ID.sub(once, t))
-        t = re.sub(r"[（(]\s*[、，；,]?\s*[)）]", "", t)  # 「（U17）」 left empty when U17 was already cited
-        t = re.sub(r"[、，；,]\s*(?=[)）]|$)", "", t)
-        # wording lint rejects on any page (lint.META) or in 待办 (未答复) is reworded, not a reason to revert
-        return lint.META.sub("", t).replace("未答复", "未回").strip()
+    fill = make_fill(citations, day)
     unsure = lambda cat: f"  - {cat}：无法判断（有数字或数据包原句对不上，见 .ingest.log）"  # not echoed: pack_misquotes
     body, todos, cands = [f"- {day} 反思"], [], []
     for cat in CATS:
@@ -5456,6 +6007,7 @@ def reflect_render(answer, day, citations, rel, pack=None, logical=None):
         for w in wrap(l):
             logical.setdefault(w.strip(), l)
     lessons = lesson_write(data.get("经验"), day, fill, pack)
+    practices = practice_write(data.get("经验"), day, fill, pack)
     if cands:
         rc = rule_candidates_page()  # created like dream does, not dropped (review item 2)
         have = set(rc.read_text().split("\n"))
@@ -5464,6 +6016,7 @@ def reflect_render(answer, day, citations, rel, pack=None, logical=None):
     entry += [f"- 移入「历史」的较早反思：{l.strip()}" for l in moved if l.strip()]
     entry += [f"- 篇幅超限，原话移入 log：{q}" for q in cut]
     entry += [f"- 教训表经验：{x}" for x in lessons]
+    entry += [f"- {x}" for x in practices]
     with open(WIKI / "log.md", "a") as f:
         f.write("\n".join(entry) + "\n")
     return ""
@@ -5495,7 +6048,7 @@ def reflect_window(db, day):
     return start, end, before[-1] if before else None
 
 
-def reject_streaks(db, sessions):
+def reject_streaks(db, ids):
     """Counts this batch's rejection reasons (REJECT_REASONS) onto their streaks; a reason this batch lacked ends its
     streak. Reasons ALERT_STREAK batches in a row alert, each once a day, all of a batch's in one message (one
     rejection can list many lines)."""
@@ -5505,15 +6058,14 @@ def reject_streaks(db, sessions):
             db.execute("delete from reject_streak where reason=?", (reason,))
     for reason in now:
         n, s = db.execute("select n, sessions from reject_streak where reason=?", (reason,)).fetchone() or (0, 0)
-        n, s = n + 1, s + sessions
+        n, s = n + 1, s + len(ids)
         db.execute("insert or replace into reject_streak values (?,?,?)", (reason, n, s))
-        if n >= ALERT_STREAK and not alerted(db, "streak:" + reason):
+        if n >= SELF_FIX_STREAK:
             hits.append((n, s, reason))
-    if hits:
-        n, s, _ = max(hits)
+    if hits:  # #1263：暂停这批会话、交 wiki 主人修（self_fix），不在频道报
+        n, s, top = max(hits)
         why = "；".join(r[:150] for *_, r in sorted(hits, reverse=True)[:3]) + (f" 等 {len(hits)} 条" if len(hits) > 3 else "")
-        alert(db, ["streak:" + r for *_, r in hits], f"wiki 自动整理连续 {n} 批被同一原因拒绝：{why}。"
-                                                    f"已影响 {s} 个会话，日志看 {LOG}（rejected / REVERTED 行）。")
+        self_fix(db, "streak:" + top, ids, f"连续 {n} 批被同一原因拒绝（修复轮也没救回）：{why}；累计 {s} 个会话")
 
 
 def rule_candidates_page():
@@ -5569,13 +6121,7 @@ def said_lines(msgs, citations, replies=None):
     pairs = [(norm(p), r, ts) for p, r, ts in replies or ()]
     out = {}
     for m in msgs:
-        day, hm = time.strftime("%m-%d", time.localtime(m.ts)), time.strftime("%H:%M", time.localtime(m.ts))
-        text = SECRET.sub(lambda x: (x.group(3) or "") + "[REDACTED]", m.text)
-        evidence = (day, f"{hm} {m.name}", text)
-        key = next((k for k, v in citations.items() if v == evidence), None)
-        if key is None:
-            key = f"U{len(citations) + 1}"
-            citations[key] = evidence
+        day, hm, text, key = said_key(m, citations)
         line = f"USER [{day} {hm}] {key}: {text}"
         mine = norm(text)
         # the words' own piece, else one the gate buffered them into (their lines stay contiguous); nearest in time wins
@@ -5646,6 +6192,7 @@ def main():
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--usage", nargs="?", const=7, type=int, metavar="DAYS", help="token totals per day (default 7 days)")
     ap.add_argument("--hook", action="store_true")
+    ap.add_argument("--selffix-done", action="store_true", help="self-fix done: unpause its sessions (next run re-ingests)")
     ap.add_argument("--make-room", metavar="DOMAIN", help="split this full domain/subdomain into subdomains now (e.g. refs)")
     a = ap.parse_args()
     if a.hook:  # return at once: the hook has a timeout and the session is closing
@@ -5675,6 +6222,11 @@ def main():
         for p in transcripts(live=True).values():
             if p.stat().st_size > done.get(p.stem, 0):
                 print("ready  " if p.stem in ready_ids else "active ", p.stem)
+        return
+    if a.selffix_done:
+        with open(LOCK, "w") as lk:
+            filelock.lock(lk)  # a running pass may be writing the same tables
+            print("self-fix closed: %d, sessions unpaused: %d" % selffix_done(state()))
         return
     if a.make_room:
         with open(LOCK, "w") as lk:

@@ -799,6 +799,34 @@ func SyncMainWikiPrograms(dataDir string) (bool, error) {
 	return false, nil
 }
 
+// SyncRoleWikiPrograms (#2051): the wiki programs the wizard installed (RoleWikiDir: what sub wikis' bin/ shims and a
+// user's wiki that links its bin/ there run) are a copy from the day of the install; on start, when any differs from
+// this build's, all are rewritten. No install yet: nothing is written.
+func SyncRoleWikiPrograms(dataDir string) (bool, error) {
+	dir := RoleWikiDir(dataDir)
+	if RoleWikiFS == nil || !fileExists(filepath.Join(dir, "llmwiki")) {
+		return false, nil
+	}
+	files, err := fs.Glob(RoleWikiFS, "contrib/wiki/llmwiki/*.py")
+	if err != nil {
+		return false, err
+	}
+	for _, f := range files {
+		if strings.HasPrefix(path.Base(f), "test_") {
+			continue
+		}
+		want, err := fs.ReadFile(RoleWikiFS, f)
+		if err != nil {
+			return false, err
+		}
+		if have, _ := os.ReadFile(filepath.Join(dir, "llmwiki", path.Base(f))); !bytes.Equal(have, want) {
+			_, err := InstallRoleWikiPrograms(dataDir)
+			return true, err
+		}
+	}
+	return false, nil
+}
+
 // gitExclude adds name to <wiki>/.git/info/exclude (local only), so ingest's "files the pass changed" never see it.
 func gitExclude(wiki, name string) error {
 	gd := filepath.Join(wiki, ".git")

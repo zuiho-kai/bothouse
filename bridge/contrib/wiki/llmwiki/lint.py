@@ -4,7 +4,7 @@
   lint.py          check
   lint.py --stats  also print sizes per layer
   lint.py --warn   print only soft warnings (≥ WARN of a budget: split early, in the weekly LINT pass)
-  lint.py --wrap   split overlong body lines verbatim before checking
+  lint.py --wrap   first split every body line over BODY_LINE in place, verbatim (wrap()), then check
   lint.py --root DIR   check the wiki at DIR (a teammate's wiki: its bin/lint.py runs this file this way)
 """
 import re, sys
@@ -14,12 +14,17 @@ WIKI = Path(__file__).resolve().parent.parent
 SHARED_TOOL = 1  # marker: this lint.py takes --root; teammate/ shims refuse a tool without it
 MAX_DOMAINS, INDEX_LINE = 8, 80
 MAX_TOPICS, README_LINE = 15, 120
+# 族合并后页的 P90 143 行/12486 字 ÷ 拆分线 0.9（SOP v2，2026-10-25 试跑 /tmp/sop-scratch/measure.py）：合并完不会马上又被拆
 PAGE_LINES, PAGE_CHARS = 159, 13874
+# 整理前各目录深度的页数 1:7 2:104 3:176 4:86 5:52 6:9 7:7 8:37 9:18，5 层内占 86%（SOP v2，2026-10-25）
 MAX_DEPTH = 5
 WARN = 0.8
-SPLIT_AT = WARN  # source: #757 user-approved 八成 split line; ingest splits where --warn starts listing
+# a page this full (lines or chars) is split by ingest's split_pass; family merges stay below it (SOP v2 2026-10-25 relay
+# A2: 「每周整理的拆分线从 0.8 改成 0.9，避免合并后的页又被拆」)
+SPLIT_AT = 0.9
+FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # forum thread/floor tag (#1177, forum_scores.TAG): not counted, never split
 BODY_LINE = 300  # one bullet = one fact; longer lines dodge PAGE_LINES and are unreadable
-SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (invalidate.py)
+SECTIONS = ("现状", "关键事实", "决策与踩坑", "待办", "历史")  # 历史 optional: superseded lines kept verbatim (SOP v2)
 # verification bookkeeping that leaked onto a page instead of fixing the fact
 META = re.compile(r"不声称|未见用户确认|不记作现行|（用户告知）|\(用户告知\)|本会话中")
 # provenance tag: ｜源：亲验 · <text>  ｜源：转述 · <name>  ｜源：原话 · <date>
@@ -124,6 +129,67 @@ def tree(root=None):
     return out
 
 
+def wrap(line):
+    """A line over BODY_LINE as itself plus sub-bullets, cut at 「；。」, then 「，、」, then hard. Every character stays, in
+    order: lossless.kept_split() accepts the pieces as the old line (2026-10-28: models splitting old lines by hand
+    reworded them, the no-forgetting check called them lost and reverted three batches in a row)."""
+    tag = FLOOR_TAG.search(line)
+    if tag:  # the floor tag (#1177) stays on the head line: split off alone it tags an empty bullet (218 such, 11-07)
+        return [x + tag.group(0) if i == 0 else x for i, x in enumerate(wrap(line[:tag.start()]))]
+    if len(line) <= BODY_LINE:
+        return [line]
+    indent = re.match(r"\s*", line)[0] + "  "
+    width = BODY_LINE - len(indent) - 2
+    # the 「dream 建议，用户未答复」 marker stays whole: on a continuation line alone 「未答复」 trips the 待办 rule
+    line = line.replace("dream 建议，用户未答复", "dream 建议\0用户未答复")
+    pieces = re.split(r"(?<=[；。])", line)
+    if max(map(len, pieces)) > width:
+        pieces = re.split(r"(?<=[；。，、])", line)
+    pieces = [x[i:i + width] for x in pieces for i in range(0, len(x), width)]
+    out, cur = [], ""
+    for piece in pieces:
+        if cur and len(cur) + len(piece) > width:
+            out.append(cur)
+            cur = ""
+        cur += piece
+    out.append(cur)
+    out = [x.replace("\0", "，") for x in out]
+    return [out[0].rstrip()] + [f"{indent}- {x.strip()}" for x in out[1:] if x.strip()]
+
+
+FENCE = re.compile(r"\s*(```|~~~)")
+
+
+def wrap_text(text):
+    """`text` with each body line over BODY_LINE wrapped; frontmatter, headings and code blocks untouched."""
+    fm = re.match(r"\A---\n.*?\n---\n", text, re.S)
+    head, body = (fm.group(), text[fm.end():]) if fm else ("", text)
+    out, code = [], False
+    for l in body.split("\n"):
+        if FENCE.match(l):
+            code = not code
+        out += [l] if code or FENCE.match(l) or l.startswith(("#", "|")) else wrap(l)  # a table row stays one line
+    return head + "\n".join(out)
+
+
+def wrap_pages(root=None):
+    """Wrap the over-long body lines of the pages check() reads (tree()'s domains, not their README) in place; returns
+    the pages changed. A catalog directory without a README (refs/media) is data, not pages: left as written."""
+    W = root or WIKI
+    changed = []
+    for p in sorted(p for d in tree(W) for p in (W / d).glob("*.md") if p.name != "README.md"):
+        rel = p.relative_to(W)
+        try:
+            text = p.read_text()
+        except UnicodeDecodeError:  # not a page anyone can read: left for check() / the merge checks to reject
+            continue
+        new = wrap_text(text)
+        if new != text:
+            p.write_text(new)
+            changed.append(rel.as_posix())
+    return changed
+
+
 def check(root=None):
     W = root or WIKI
     errs, stats, warns = [], [], []
@@ -141,7 +207,7 @@ def check(root=None):
             errs.append(f"MEMORY.md: line over {INDEX_LINE} chars ({len(l)}): {l[:50]}…")
     stats.append(f"L0 MEMORY.md: {len(doms)} domains, {len(index.read_text())} chars")
 
-    dirs = {p.name for p in W.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name not in ("bin", "schema")}  # schema/: the llm-wiki template's spec, not a domain
+    dirs = {p.name for p in W.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name not in ("bin", "schema", "rules")}  # schema/: the llm-wiki template's spec; rules/：家规源（rules.py）
     for d in sorted(dirs - linked):
         errs.append(f"{d}/: domain not listed in MEMORY.md")
     todo = sorted(linked)
@@ -152,6 +218,9 @@ def check(root=None):
             errs.append(f"{d}/README.md missing")
             continue
         tops = entries(readme)
+        # soft: consolidate.py --flatten moves it up, but skips (and logs) one whose parent README has no room
+        if d.count("/") + 1 > MAX_DEPTH:
+            warns.append(f"{d}/: depth {d.count('/') + 1} > {MAX_DEPTH}; move it up into its parent (consolidate.py --flatten)")
         if len(tops) > MAX_TOPICS:
             errs.append(f"{d}/README.md: {len(tops)} topics > {MAX_TOPICS}; split the domain")
         if MAX_TOPICS * WARN <= len(tops) <= MAX_TOPICS:
@@ -182,15 +251,18 @@ def check(root=None):
             fm = frontmatter(text)
             if not fm or not {"name", "description", "scope"} <= fm.keys():
                 errs.append(f"{d}/{name}: frontmatter needs name, description, scope")
-            if n_lines > PAGE_LINES or n_chars > PAGE_CHARS:
-                errs.append(f"{d}/{name}: {n_lines} lines / {n_chars} chars > {PAGE_LINES}/{PAGE_CHARS}; split into subtopics or compress")
-            # not elif: an over-budget page is ≥ WARN too, so --warn lists it and ingest's split_pass picks it up
+            # over budget is a warning, never an error (SOP v2 不遗忘: pages only grow): an error would reject the write
+            # that crossed the budget and every retry of it; --warn lists the page and ingest's split_pass splits it
             if max(n_lines / PAGE_LINES, n_chars / PAGE_CHARS) >= WARN:
-                warns.append(f"{d}/{name}: {n_lines}/{PAGE_LINES} lines, {n_chars}/{PAGE_CHARS} chars; split into subtopics")
+                over = " (over budget)" if n_lines > PAGE_LINES or n_chars > PAGE_CHARS else ""
+                warns.append(f"{d}/{name}: {n_lines}/{PAGE_LINES} lines, {n_chars}/{PAGE_CHARS} chars{over}; split into "
+                             "subtopics in its own subdirectory (keep every line)")
             if "## 相关会话" in text:
                 errs.append(f"{d}/{name}: session lists belong in log.md, not on topic pages")
             body = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)
             heads = re.findall(r"^## (.+)$", body, re.M)
+            for h in sorted({h.rstrip() for h in heads if heads.count(h) > 1}):
+                errs.append(f"{d}/{name}: section '## {h}' appears more than once; merge into one (consolidate.py --sections)")
             for h in heads:
                 if not h.startswith(SECTIONS):
                     errs.append(f"{d}/{name}: section '## {h}' not in {'/'.join(SECTIONS)}; fold it into one of them")
@@ -203,8 +275,9 @@ def check(root=None):
                 if sec and sec.startswith("待办") and UNANSWERED.search(l) and "dream 建议" not in l:
                     errs.append(f"{d}/{name}: body line {i} is an unanswered proposal in 待办; 待办 only holds tasks the "
                                 "user agreed to — move it to the log.md entry ('- 未答复提议：…') and drop it here")
-                if len(l) > BODY_LINE:
-                    errs.append(f"{d}/{name}: body line {i} is {len(l)} chars > {BODY_LINE}; split into bullets or move detail to log.md")
+                if len(FLOOR_TAG.sub("", l)) > BODY_LINE:
+                    errs.append(f"{d}/{name}: body line {i} is {len(FLOOR_TAG.sub('', l))} chars > {BODY_LINE}; run `python3 bin/lint.py --wrap` "
+                                "(splits it verbatim) — never split or reword an old line by hand")
                 if META.search(l) and not l.rstrip().endswith(tuple(["｜源：亲验", "｜源：转述", "｜源：原话"])) and "｜源：" not in l:
                     errs.append(f"{d}/{name}: body line {i} has verification bookkeeping ('{META.search(l).group()}'); state the fact or drop it")
                 for m in PROV_TAG.finditer(l):
@@ -223,7 +296,8 @@ def check(root=None):
     for src, n in sorted(links):
         if n not in names:
             warns.append(f"{src}: [[{n}]] has no page yet")
-    stray = [p.name for p in W.glob("*.md") if p.name not in {"MEMORY.md", "CLAUDE.md", "log.md"}]
+    # STANDING.md：bothouse gate 每个会话附上的常驻做法短块（contrib/gate/ctxsvc.py standing_items），和 MEMORY.md 一样放根目录
+    stray = [p.name for p in W.glob("*.md") if p.name not in {"MEMORY.md", "CLAUDE.md", "log.md", "STANDING.md"}]
     for p in stray:
         errs.append(f"{p}: top-level page; move it into a domain")
     return errs, stats, warns
@@ -234,6 +308,10 @@ if __name__ == "__main__":
     if "--wrap" in sys.argv:
         print("\n".join(wrap_pages(root)) or "no long lines")
     errs, stats, warns = check(root)
+    if root is None and (WIKI / "rules/house-rules.toml").exists():  # 家规各处块和规则源一致（bin/rules.py check）
+        r = __import__("subprocess").run([sys.executable, "-I", str(WIKI / "bin/rules.py"), "check"], capture_output=True, text=True)
+        if r.returncode:
+            errs += r.stdout.splitlines()
     if "--warn" in sys.argv:
         print("\n".join(warns))
         sys.exit(0)
