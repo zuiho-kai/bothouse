@@ -586,6 +586,11 @@ func runMain() {
 	}
 
 	// a wizard-made main wiki runs its own copy of the wiki programs: bring it to this build's (#1650)
+	if updated, err := core.SyncRoleWikiPrograms(cfg.DataDir); err != nil {
+		slog.Warn("wiki programs: role install update failed", "error", err)
+	} else if updated {
+		slog.Info("wiki programs: role install updated to this build")
+	}
 	if updated, err := core.SyncMainWikiPrograms(cfg.DataDir); err != nil {
 		slog.Warn("wiki programs: update failed", "error", err)
 	} else if updated {
