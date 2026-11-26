@@ -16,7 +16,9 @@ const (
 	// WaitAgainHint: how a workspace writes when to look again — one wording for every prompt that
 	// teaches it (exit intent, hand-back, PR news; ws-handoff copies it). #1993: #1973 knew the quota came
 	// back 11-27 14:00 and still asked to be retried the next morning, a hand-back that could only fail.
-	WaitAgainHint = "「再看：<卡的那件事最早能好的时候，如 2h、11-23 18:00；知道它几点才好就写那个点或更晚，不写更早的例行时刻>」"
+	// #2052: waiting on another board item or a pull request needs no 再看 — the event wakes it.
+	WaitAgainHint = "「再看：<卡的那件事最早能好的时候，如 2h、11-23 18:00；知道它几点才好就写那个点或更晚，不写更早的例行时刻>」" +
+		"（等另一件任务板的活就在「等外部：」里写它的 #编号、等合并请求就贴链接，不用写再看：那件交回或收口、合并请求有动静，桥当场叫醒）"
 	// WaitExternalDefault: retry time when the report names none. Source: 橘 1283 — the guard timer was
 	// 30 minutes and woke the workspace for nothing; an hour is one hourly 收口.
 	WaitExternalDefault = time.Hour
@@ -33,6 +35,8 @@ var (
 	// waitAgainInline: 「再看：」 written on the 「等外部：」 line itself (#1815: 「等外部：X。再看：7h」 fell to the 1h default).
 	waitAgainInline = regexp.MustCompile(`再看[】\]]?\s*[：:]\s*(.+)$`)
 	waitDuration    = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(h|小时|个小时|m|min|分钟|分)`)
+	// waitTaskRef: another board item named on the 「等外部：」 line (board.py TASK_REF).
+	waitTaskRef = regexp.MustCompile(`#\d{3,6}`)
 	// waitClock: a clock time 「11-23 18:00 JST」「11/23 18:00」「11月23日 18:00 美东」 (#1836 wrote one; it fell to 1h).
 	waitClock = regexp.MustCompile(`(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?\s*(\d{1,2})[:：](\d{2})\s*(ET|EST|EDT|美东|美东时间)?`)
 )
@@ -115,6 +119,11 @@ func waitExternal(body string, now time.Time) (why string, after time.Duration, 
 	// 再看 comes before it: a hand-back then can only find it still blocked. Wait until it clears.
 	if at, read := parseWaitClock(why, now); read && at.Sub(now) > after {
 		after = at.Sub(now)
+	}
+	// #2052: the line names what it waits on — another board item or a pull request — and no 再看: the
+	// event wakes it (board.py _wake_dependents, pr-events), so the hour default would only be a blind retry.
+	if a == nil && (waitTaskRef.MatchString(why) || pullRequestLink.MatchString(why)) {
+		after = WaitExternalMax
 	}
 	if after < WaitExternalMin {
 		after = WaitExternalMin

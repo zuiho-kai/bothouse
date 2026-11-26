@@ -72,6 +72,60 @@ class Board(unittest.TestCase):
         self.assertFalse(board._asking(it))
         self.assertNotEqual(cli("wait", "9", "x", "10")[0], 0)
 
+    def test_wait_on_task_wakes_on_return_and_done(self):
+        # #2052：等外部写了另一件活的 #编号，那件交回或收口就当场到点，不靠「再看」定时；只记板上有的编号
+        for _ in range(3):
+            cli("add", "活", "~/n.md", "在做", "工作区1")
+        cur = board._read()
+        for it, nid in zip(cur, (2050, 2051, 2060)):
+            it["id"] = nid
+        board._write(cur)
+        rc, out = cli("wait", "2051", "等 #2050先合、#9999 和 #2060", "10080")
+        self.assertEqual(rc, 0, out)
+        it = next(i for i in board._read() if i["id"] == 2051)
+        self.assertEqual(it["wait_task"], [2050, 2060])
+        self.assertGreater(it["wait_until"], int(__import__("time").time()) + 3600)
+        self.assertIn("#2050、#2060 交回或收口就叫醒", it["status"])
+        self.assertEqual(cli("returned", "2050", "橘")[0], 0)
+        it = next(i for i in board._read() if i["id"] == 2051)
+        self.assertLessEqual(it["wait_until"], int(__import__("time").time()))
+        self.assertEqual(it["wait_task"], [2060])
+        self.assertIn("#2050 已交回", it["wait_news"][0])
+        self.assertTrue(board.done(2060, 0))
+        it = next(i for i in board._read() if i["id"] == 2051)
+        self.assertNotIn("wait_task", it)
+        self.assertIn("#2060 已收口", it["wait_news"][1])
+
+    def test_wait_on_task_already_done(self):
+        # 等的那件已经收口：当场到点
+        cli("add", "活", "~/n.md", "在做", "工作区1")
+        cli("add", "活", "~/n.md", "在做", "工作区1")
+        cur = board._read()
+        cur[0]["id"], cur[1]["id"] = 3001, 3002
+        board._write(cur)
+        self.assertTrue(board.done(3001, 0))
+        self.assertEqual(cli("wait", "3002", "等 #3001", "10080")[0], 0)
+        it = board._read()[0]
+        self.assertLessEqual(it["wait_until"], int(__import__("time").time()))
+        self.assertNotIn("wait_task", it)
+
+    def test_stale_check_keeps_one_timer(self):
+        # #2052：每次报进度都挂一个「是否停滞」，同一件只留最新的一个
+        cli("add", "活", "~/n.md", "在做", "工作区1")
+        cur = board._read()
+        cur[0]["ws"], cur[0]["sk"] = "discord:ws1", "discord:ws1"
+        board._write(cur)
+        dels = []
+        orig = board._del_timer
+        board._del_timer = dels.append
+        try:
+            board.progress(cur[0]["id"])
+            board.progress(cur[0]["id"])
+        finally:
+            board._del_timer = orig
+        self.assertEqual(board._read()[0]["stale_timer"], "t-test")
+        self.assertEqual(dels, [None, "t-test"])
+
     def test_wait_stop(self):
         # #1972：到点重试是配置错（记的模型不在列表）就停：撤 wait_until，不再是等外部，条目留暂停
         self.assertEqual(cli("add", "PR9977 验证", "~/n.md", "在做", "工作区1"), (0, "#1"))
