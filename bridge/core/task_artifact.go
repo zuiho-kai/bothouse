@@ -10,32 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// TaskArtifactRole separates material the user supplied from work the agent
-// delivers. A rework names the output it changes; an input stays as history.
-type TaskArtifactRole string
-
-const (
-	TaskArtifactInput  TaskArtifactRole = "input"
-	TaskArtifactOutput TaskArtifactRole = "output"
-)
-
-// TaskArtifact is a durable reference to one revision of a task's material or
-// deliverable. Ref is a locator the owner can check (URL, repository path or
-// absolute path); it is never proof that the bytes were uploaded or delivered.
-// The journal stores references only: public cards must show a link only when
-// Ref is an http(s) URL, and /task is a local query.
-type TaskArtifact struct {
-	ID        string           `json:"id"`
-	TaskID    string           `json:"task_id"`
-	Role      TaskArtifactRole `json:"role"`
-	Kind      string           `json:"kind"` // file/image/video/audio/link/text
-	Label     string           `json:"label"`
-	Ref       string           `json:"ref"`
-	Summary   string           `json:"summary,omitempty"`
-	Revision  int              `json:"revision"` // task revision this artifact belongs to
-	CreatedAt time.Time        `json:"created_at"`
-}
-
 // TaskArtifactRequest attaches one artifact reference to an existing task.
 type TaskArtifactRequest struct {
 	Project string `json:"project"`
@@ -209,15 +183,6 @@ func artifactRequestHash(req TaskArtifactRequest) string {
 func reworkRequestHash(req TaskReworkRequest) string {
 	b, _ := json.Marshal([]string{strings.TrimSpace(req.TaskID), strings.TrimSpace(req.ArtifactID), strings.TrimSpace(req.Feedback)})
 	return fmt.Sprintf("%x", sha256.Sum256(b))
-}
-
-// RevisionNo is the task's current revision. Journals written before rework
-// existed carry the zero value; they are the first revision.
-func (t *Task) RevisionNo() int {
-	if t.Revision < 1 {
-		return 1
-	}
-	return t.Revision
 }
 
 // attachableTaskState reports whether more work may still be recorded. A human

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -23,7 +25,7 @@ func TestTaskCardCreatedThenEdited(t *testing.T) {
 	if err != nil || ch != "room-2" {
 		t.Fatalf("destination = %q, %v", ch, err)
 	}
-	task := &core.Task{ID: "task-1", Title: "整理日志", SessionKey: "cloud_web:room-2", ChannelID: ch, State: core.TaskState("running"), LatestProgress: "开始", Seq: 1}
+	task := &model.Task{ID: "task-1", Title: "整理日志", SessionKey: "cloud_web:room-2", ChannelID: ch, State: model.TaskState("running"), LatestProgress: "开始", Seq: 1}
 	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -82,7 +84,7 @@ func TestTaskCardNeedsEditableMessages(t *testing.T) {
 }
 
 func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
-	task := &core.Task{ID: "t1", Title: "修 bug", State: core.TaskStateInProgress, Members: []core.TaskMember{
+	task := &model.Task{ID: "t1", Title: "修 bug", State: model.TaskStateInProgress, Members: []model.TaskMember{
 		{ReporterProject: "gpt", ID: "m1", Name: "龙娘", Title: "改登录", Status: "running", Summary: "进行中"},
 		{ReporterProject: "gpt", ID: "m2", ParentID: "m1", Name: "子任务", Title: "查日志", Status: "completed"},
 	}}
@@ -92,8 +94,8 @@ func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
 		t.Fatalf("not a progress payload: %q", text)
 	}
 	var got struct {
-		Items       []core.ProgressCardEntry `json:"items"`
-		TaskMembers []taskCardMember         `json:"task_members"`
+		Items       []model.ProgressCardEntry `json:"items"`
+		TaskMembers []taskCardMember          `json:"task_members"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
@@ -108,7 +110,7 @@ func TestRenderTaskCardTextCarriesTaskMembers(t *testing.T) {
 	if len(got.Items) != 3 {
 		t.Fatalf("display rows changed: %+v", got.Items)
 	}
-	if plain := renderTaskCardText(&core.Task{ID: "t2", Title: "x"}); strings.Contains(plain, "task_members") {
+	if plain := renderTaskCardText(&model.Task{ID: "t2", Title: "x"}); strings.Contains(plain, "task_members") {
 		t.Fatalf("card without members gained task_members: %q", plain)
 	}
 }

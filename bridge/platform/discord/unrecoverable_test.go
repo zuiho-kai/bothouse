@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -84,7 +86,7 @@ func TestEnsureTaskCardDeletedChannelUnrecoverable(t *testing.T) {
 		want         bool
 	}{{404, discordgo.ErrCodeUnknownChannel, true}, {403, discordgo.ErrCodeMissingAccess, true}, {502, 0, false}} {
 		p, _ := statusPlatform(tc.status, tc.code)
-		task := &core.Task{ID: "task-gone", Title: "t", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		task := &model.Task{ID: "task-gone", Title: "t", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 		err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish)
 		if err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) != tc.want {
 			t.Fatalf("status %d code %d: err=%v want unrecoverable=%v", tc.status, tc.code, err, tc.want)
@@ -106,8 +108,8 @@ func TestPublishTaskFactUnrecoverable(t *testing.T) {
 		{502, 0, false, false},
 	} {
 		p, _ := statusPlatform(tc.status, tc.code)
-		task := &core.Task{ID: "task-gone", ThreadID: "thread", ChannelID: "room"}
-		err := p.PublishTaskFact(context.Background(), task, core.TaskEvent{ID: "task-gone:2", Summary: "x", Timestamp: time.Now(), IsKeyFact: true}, core.LangEnglish)
+		task := &model.Task{ID: "task-gone", ThreadID: "thread", ChannelID: "room"}
+		err := p.PublishTaskFact(context.Background(), task, model.TaskEvent{ID: "task-gone:2", Summary: "x", Timestamp: time.Now(), IsKeyFact: true}, core.LangEnglish)
 		if err == nil || errors.Is(err, core.ErrTaskFactUndeliverable) != tc.undeliverable || errors.Is(err, core.ErrDeliveryUnrecoverable) != tc.unrec {
 			t.Fatalf("status %d code %d: err=%v", tc.status, tc.code, err)
 		}
@@ -181,7 +183,7 @@ func TestEnsureTaskCardRepostsDeletedCard(t *testing.T) {
 		return &Platform{session: session, botID: "bot"}
 	}
 	tr := &repostREST{}
-	task := &core.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "https://discord.com/channels/g/room/old", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task := &model.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "https://discord.com/channels/g/room/old", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := newP(tr).EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +191,7 @@ func TestEnsureTaskCardRepostsDeletedCard(t *testing.T) {
 		t.Fatalf("not reposted: %+v posts=%d", task, tr.posts)
 	}
 	tr = &repostREST{postCode: discordgo.ErrCodeUnknownChannel}
-	task = &core.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "x", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task = &model.Task{ID: "task-del", Title: "t", ChannelID: "room", MessageID: "old", ThreadID: "thread", CardURL: "x", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := newP(tr).EnsureTaskCard(context.Background(), task, core.LangEnglish); !errors.Is(err, core.ErrDeliveryUnrecoverable) || tr.posts != 1 {
 		t.Fatalf("repost refused: err=%v posts=%d", err, tr.posts)
 	}

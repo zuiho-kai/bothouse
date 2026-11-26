@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -67,11 +69,11 @@ func channelsOf(posted []postedMessage) []string {
 }
 
 func progressCard() string {
-	return core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{{Kind: core.ProgressEntryToolUse, Text: "Read x.go"}}, false, "claude", core.LangChinese, core.ProgressCardStateRunning)
+	return core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{{Kind: model.ProgressEntryToolUse, Text: "Read x.go"}}, false, "claude", core.LangChinese, core.ProgressCardStateRunning)
 }
 
 func subTaskTable() string {
-	return core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{{ID: "t1", Description: "查代码", Status: core.SubTaskRunning, StartedAt: time.Now()}})
+	return core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{{ID: "t1", Description: "查代码", Status: model.SubTaskRunning, StartedAt: time.Now()}})
 }
 
 func TestAuxChannels_ProgressCardAndSubTaskTableGoToLogChannel(t *testing.T) {

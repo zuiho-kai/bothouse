@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -83,7 +85,7 @@ func (p *Platform) qzoneOff() error {
 }
 
 // ListMoments reads the bot's own recent posts, newest first.
-func (p *Platform) ListMoments(ctx context.Context, limit int) ([]core.Moment, error) {
+func (p *Platform) ListMoments(ctx context.Context, limit int) ([]model.Moment, error) {
 	if err := p.qzoneOff(); err != nil {
 		return nil, err
 	}
@@ -107,7 +109,7 @@ func (p *Platform) ListMoments(ctx context.Context, limit int) ([]core.Moment, e
 		return nil, fmt.Errorf("qq: 读说说列表: %w", socialErrHint(err))
 	}
 	raw, _ := data["msglist"].([]any)
-	out := make([]core.Moment, 0, len(raw))
+	out := make([]model.Moment, 0, len(raw))
 	for _, item := range raw {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -119,18 +121,18 @@ func (p *Platform) ListMoments(ctx context.Context, limit int) ([]core.Moment, e
 }
 
 // PostMoment publishes text (plus pictures) to the bot's own timeline.
-func (p *Platform) PostMoment(ctx context.Context, text string, images []core.MomentImage) (core.Moment, error) {
+func (p *Platform) PostMoment(ctx context.Context, text string, images []core.MomentImage) (model.Moment, error) {
 	if err := p.qzoneOff(); err != nil {
-		return core.Moment{}, err
+		return model.Moment{}, err
 	}
 	if strings.TrimSpace(text) == "" && len(images) == 0 {
-		return core.Moment{}, fmt.Errorf("qq: 说说需要文字或至少一张图")
+		return model.Moment{}, fmt.Errorf("qq: 说说需要文字或至少一张图")
 	}
 	// 一条说说最多 9 张图是 QQ 自己的限制，不是这里定的；给多了上游会拒，
 	// 不如先拒并说清楚。
 	const maxImages = 9 // 来源：QQ空间单条说说图片上限 9 张（客户端行为）
 	if len(images) > maxImages {
-		return core.Moment{}, fmt.Errorf("qq: 一条说说最多 %d 张图，这次给了 %d 张", maxImages, len(images))
+		return model.Moment{}, fmt.Errorf("qq: 一条说说最多 %d 张图，这次给了 %d 张", maxImages, len(images))
 	}
 	params := map[string]any{"content": text}
 	if len(images) > 0 {
@@ -146,7 +148,7 @@ func (p *Platform) PostMoment(ctx context.Context, text string, images []core.Mo
 				continue
 			}
 			if len(img.Data) > socialMaxImage {
-				return core.Moment{}, fmt.Errorf("qq: 图片 %s 有 %d 字节，超过 %d 上限",
+				return model.Moment{}, fmt.Errorf("qq: 图片 %s 有 %d 字节，超过 %d 上限",
 					img.Name, len(img.Data), socialMaxImage)
 			}
 			files = append(files, "base64://"+base64.StdEncoding.EncodeToString(img.Data))
@@ -159,7 +161,7 @@ func (p *Platform) PostMoment(ctx context.Context, text string, images []core.Mo
 	defer cancel()
 	data, err := p.callAPIContext(ctx, "send_qzone_msg", params)
 	if err != nil {
-		return core.Moment{}, fmt.Errorf("qq: 发说说: %w", socialErrHint(err))
+		return model.Moment{}, fmt.Errorf("qq: 发说说: %w", socialErrHint(err))
 	}
 	id := stringOf(data["tid"])
 	if id == "" {
@@ -169,7 +171,7 @@ func (p *Platform) PostMoment(ctx context.Context, text string, images []core.Mo
 	// Images 总是数组：面板直接读 .length，nil 会让它算不出来。
 	// Private 这里是真的知道的：这条是刚刚发出去的，没带 ugc_right，上游缺省 1 =
 	// 所有人可见（napcat-onebot/action/extends/SendQzoneMsg.ts:16-17）。
-	return core.Moment{ID: id, Text: text, Time: time.Now(), Images: []string{}, Private: false, PrivateKnown: true}, nil
+	return model.Moment{ID: id, Text: text, Time: time.Now(), Images: []string{}, Private: false, PrivateKnown: true}, nil
 }
 
 // RemoveMoment deletes one of the bot's own posts.
@@ -197,39 +199,39 @@ func (p *Platform) RemoveMoment(ctx context.Context, id string) error {
 // replacement was clean.
 //
 // 可见范围不在这里替你决定：见 replaceAudienceBlocked。
-func (p *Platform) ReplaceMoment(ctx context.Context, id, text string, opts core.MomentReplaceOptions) (core.Moment, error) {
+func (p *Platform) ReplaceMoment(ctx context.Context, id, text string, opts core.MomentReplaceOptions) (model.Moment, error) {
 	if err := p.qzoneOff(); err != nil {
-		return core.Moment{}, err
+		return model.Moment{}, err
 	}
 	if strings.TrimSpace(id) == "" {
-		return core.Moment{}, fmt.Errorf("qq: 换说说需要原来是哪一条（tid）")
+		return model.Moment{}, fmt.Errorf("qq: 换说说需要原来是哪一条（tid）")
 	}
 	if strings.TrimSpace(text) == "" {
-		return core.Moment{}, fmt.Errorf("qq: 换说说需要新的文字")
+		return model.Moment{}, fmt.Errorf("qq: 换说说需要新的文字")
 	}
 	if qzoneHasTextEdit {
 		// 上游将来若有正文编辑入口，在这里直接改那一条，不再发新删旧。
-		return core.Moment{}, fmt.Errorf("qq: 换说说还没有接上正文编辑入口")
+		return model.Moment{}, fmt.Errorf("qq: 换说说还没有接上正文编辑入口")
 	}
 	old, err := p.momentByID(ctx, id)
 	if err != nil {
 		// 读不回原来那条就不知道它带没带图。宁可什么都不发，也不发一条
 		// 丢了图的「新版」再把原来的删掉。
-		return core.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
+		return model.Moment{}, fmt.Errorf("qq: 换说说：读不回原来那条，先不动它: %w", err)
 	}
 	if reason, blocked := replaceAudienceBlocked(old, opts); blocked {
 		// 一个请求都不发：不发新的、更不删旧的。
-		return core.Moment{}, fmt.Errorf("%s: %w", reason, core.ErrSocialCannotReplace)
+		return model.Moment{}, fmt.Errorf("%s: %w", reason, core.ErrSocialCannotReplace)
 	}
 	carry, err := imagesForCarryOver(old)
 	if err != nil {
 		// 旧说说上的图带不过去（不是 http(s) 链接），同样不能发个没图的再删原的。
-		return core.Moment{}, fmt.Errorf("qq: 换说说：旧说说的图带不过去，先不动它: %w", err)
+		return model.Moment{}, fmt.Errorf("qq: 换说说：旧说说的图带不过去，先不动它: %w", err)
 	}
 	published, err := p.PostMoment(ctx, text, carry)
 	if err != nil {
 		// 旧的那条没动：调用方可以照原样留着。
-		return core.Moment{}, fmt.Errorf("qq: 换说说：新的没发出去，旧的原样保留: %w", err)
+		return model.Moment{}, fmt.Errorf("qq: 换说说：新的没发出去，旧的原样保留: %w", err)
 	}
 	if published.ID == "" {
 		// 新的发出去了，但上游没给 tid：既没法确认是哪一条，也没法保证删对了
@@ -266,7 +268,7 @@ func (p *Platform) ReplaceMoment(ctx context.Context, id, text string, opts core
 // 前两种连人确认也不行——那两种是「已经确定会改宽」，不是「可能」。
 //
 // 返回的 reason 是给人看的那句话；blocked 为真时调用方一个上游请求都不要发。
-func replaceAudienceBlocked(old core.Moment, opts core.MomentReplaceOptions) (reason string, blocked bool) {
+func replaceAudienceBlocked(old model.Moment, opts core.MomentReplaceOptions) (reason string, blocked bool) {
 	if !old.PrivateKnown {
 		return "qq: 换说说：上游没说原来那条的可见范围（不是认识的响应形状），换一条有可能把它变成所有人可见，所以先不动它", true
 	}
@@ -286,17 +288,17 @@ const qzoneReplaceLookback = 50
 
 // momentByID 读回自己的一条说说。换说说要靠它拿到旧说说自带的图和可见范围，
 // 才能决定「能不能换」并把图原样带到新的一条上；读不到就是读不到，不做猜测。
-func (p *Platform) momentByID(ctx context.Context, id string) (core.Moment, error) {
+func (p *Platform) momentByID(ctx context.Context, id string) (model.Moment, error) {
 	moments, err := p.ListMoments(ctx, qzoneReplaceLookback)
 	if err != nil {
-		return core.Moment{}, err
+		return model.Moment{}, err
 	}
 	for _, m := range moments {
 		if m.ID == id {
 			return m, nil
 		}
 	}
-	return core.Moment{}, fmt.Errorf("最近 %d 条说心里没有 %s（太老的那条读不回来）", qzoneReplaceLookback, id)
+	return model.Moment{}, fmt.Errorf("最近 %d 条说心里没有 %s（太老的那条读不回来）", qzoneReplaceLookback, id)
 }
 
 // imagesForCarryOver turns the picture URLs read back from an existing post into
@@ -307,7 +309,7 @@ func (p *Platform) momentByID(ctx context.Context, id string) (core.Moment, erro
 // that came out of an upstream response would let that response name a local
 // file; an old post's pictures are always http(s) in practice, so anything else
 // is treated as "cannot carry the pictures over" rather than as a special case.
-func imagesForCarryOver(m core.Moment) ([]core.MomentImage, error) {
+func imagesForCarryOver(m model.Moment) ([]core.MomentImage, error) {
 	if len(m.Images) == 0 {
 		return nil, nil
 	}
@@ -364,8 +366,8 @@ func socialErrHint(err error) error {
 	return err
 }
 
-func momentFromAPI(m map[string]any) core.Moment {
-	out := core.Moment{
+func momentFromAPI(m map[string]any) model.Moment {
+	out := model.Moment{
 		ID:     stringOf(m["tid"]),
 		Text:   stringOf(m["content"]),
 		Images: []string{},

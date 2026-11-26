@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -3922,25 +3924,25 @@ func progressStateMeta(state core.ProgressCardState, lang string, agent string) 
 	}
 }
 
-func progressKindLabel(kind core.ProgressCardEntryKind, lang string) string {
+func progressKindLabel(kind model.ProgressCardEntryKind, lang string) string {
 	zh := isZhLikeProgressLang(lang)
 	switch kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		if zh {
 			return "思考"
 		}
 		return "Thinking"
-	case core.ProgressEntryToolUse:
+	case model.ProgressEntryToolUse:
 		if zh {
 			return "工具调用"
 		}
 		return "Tool"
-	case core.ProgressEntryToolResult:
+	case model.ProgressEntryToolResult:
 		if zh {
 			return "工具结果"
 		}
 		return "Result"
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		if zh {
 			return "错误"
 		}
@@ -3953,31 +3955,31 @@ func progressKindLabel(kind core.ProgressCardEntryKind, lang string) string {
 	}
 }
 
-func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCardEntry {
+func normalizeProgressItems(payload *core.ProgressCardPayload) []model.ProgressCardEntry {
 	if payload == nil {
 		return nil
 	}
 	if len(payload.Items) > 0 {
 		return cutProgressLines(payload.Items, payload.LineLen)
 	}
-	out := make([]core.ProgressCardEntry, 0, len(payload.Entries))
+	out := make([]model.ProgressCardEntry, 0, len(payload.Entries))
 	for _, entry := range payload.Entries {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		kind := core.ProgressEntryInfo
+		kind := model.ProgressEntryInfo
 		switch {
 		case strings.HasPrefix(entry, "💭"):
-			kind = core.ProgressEntryThinking
+			kind = model.ProgressEntryThinking
 		case strings.HasPrefix(entry, "🔧"), strings.Contains(entry, "**Tool #"):
-			kind = core.ProgressEntryToolUse
+			kind = model.ProgressEntryToolUse
 		case strings.HasPrefix(entry, "🧾"):
-			kind = core.ProgressEntryToolResult
+			kind = model.ProgressEntryToolResult
 		case strings.HasPrefix(entry, "❌"):
-			kind = core.ProgressEntryError
+			kind = model.ProgressEntryError
 		}
-		out = append(out, core.ProgressCardEntry{Kind: kind, Text: entry})
+		out = append(out, model.ProgressCardEntry{Kind: kind, Text: entry})
 	}
 	return cutProgressLines(out, payload.LineLen)
 }
@@ -4110,7 +4112,7 @@ func progressNoOutputText(lang string) string {
 	return "No output"
 }
 
-func progressResultDot(item core.ProgressCardEntry) string {
+func progressResultDot(item model.ProgressCardEntry) string {
 	if item.Success != nil {
 		if *item.Success {
 			return "🟢"
@@ -4146,13 +4148,13 @@ func progressToolElement(iconToken string, content string) map[string]any {
 	return elem
 }
 
-func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[string]any {
+func renderProgressEntryElement(item model.ProgressCardEntry, lang string) map[string]any {
 	text := strings.TrimSpace(item.Text)
 	if text == "" {
 		text = " "
 	}
 	switch item.Kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		return map[string]any{
 			"tag":  "div",
 			"icon": map[string]any{"tag": "standard_icon", "token": reasoningToolIcon},
@@ -4163,7 +4165,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 				"text_color": "grey",
 			},
 		}
-	case core.ProgressEntryToolUse:
+	case model.ProgressEntryToolUse:
 		toolName := strings.TrimSpace(item.Tool)
 		if toolName == "" {
 			toolName = "Tool"
@@ -4174,7 +4176,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 			content += "\n" + body
 		}
 		return progressToolElement(display.IconToken, content)
-	case core.ProgressEntryToolResult:
+	case model.ProgressEntryToolResult:
 		toolName := strings.TrimSpace(item.Tool)
 		display := buildToolDisplay(toolName, "")
 		content := fmt.Sprintf("<text_tag color='turquoise'>%s</text_tag> **%s**", progressKindLabel(item.Kind, lang), inlineCodeText(display.Title))
@@ -4190,7 +4192,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 			content += "\n_" + progressNoOutputText(lang) + "_"
 		}
 		return progressToolElement(display.IconToken, content)
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		content := fmt.Sprintf("<text_tag color='red'>%s</text_tag>\n%s", progressKindLabel(item.Kind, lang), sanitizeCardMarkdownForCard(text))
 		return map[string]any{
 			"tag":     "markdown",
@@ -4204,12 +4206,12 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 	}
 }
 
-func splitProgressItemsByLane(items []core.ProgressCardEntry) (reasoning []core.ProgressCardEntry, tools []core.ProgressCardEntry, others []core.ProgressCardEntry) {
+func splitProgressItemsByLane(items []model.ProgressCardEntry) (reasoning []model.ProgressCardEntry, tools []model.ProgressCardEntry, others []model.ProgressCardEntry) {
 	for _, item := range items {
 		switch item.Kind {
-		case core.ProgressEntryThinking:
+		case model.ProgressEntryThinking:
 			reasoning = append(reasoning, item)
-		case core.ProgressEntryToolUse, core.ProgressEntryToolResult:
+		case model.ProgressEntryToolUse, model.ProgressEntryToolResult:
 			tools = append(tools, item)
 		default:
 			others = append(others, item)
@@ -4250,7 +4252,7 @@ func buildProgressPanel(title string, expanded bool, elements []map[string]any) 
 	}
 }
 
-func buildProgressPanelElements(items []core.ProgressCardEntry, lang string) []map[string]any {
+func buildProgressPanelElements(items []model.ProgressCardEntry, lang string) []map[string]any {
 	elements := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		elements = append(elements, renderProgressEntryElement(item, lang))
@@ -4258,7 +4260,7 @@ func buildProgressPanelElements(items []core.ProgressCardEntry, lang string) []m
 	return elements
 }
 
-func appendProgressGroupedElements(elements []map[string]any, items []core.ProgressCardEntry, lang string, running bool) []map[string]any {
+func appendProgressGroupedElements(elements []map[string]any, items []model.ProgressCardEntry, lang string, running bool) []map[string]any {
 	reasoning, tools, others := splitProgressItemsByLane(items)
 	if len(reasoning) > 0 {
 		elements = append(elements, buildProgressPanel(

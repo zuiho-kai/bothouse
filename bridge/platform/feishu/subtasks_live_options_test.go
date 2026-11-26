@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -19,10 +21,10 @@ func TestFeishuSubTaskTableCard(t *testing.T) {
 		t.Fatal("no table without card-style progress and interactive cards")
 	}
 	start := time.Date(2026, 11, 23, 9, 5, 0, 0, time.Local)
-	tasks := []core.SubTask{
-		{ID: "a", Name: "探路", Description: "查\n日志", Background: true, Step: "读 bridge.log", Status: core.SubTaskRunning, StartedAt: start},
-		{ID: "b", Description: "跑测试", Status: core.SubTaskCompleted, Summary: "全部通过", Step: "旧的一步", StartedAt: start, EndedAt: start.Add(200 * time.Second)},
-		{ID: "c", Description: "等结果", Status: core.SubTaskWaiting, Step: "bgrun 起了"},
+	tasks := []model.SubTask{
+		{ID: "a", Name: "探路", Description: "查\n日志", Background: true, Step: "读 bridge.log", Status: model.SubTaskRunning, StartedAt: start},
+		{ID: "b", Description: "跑测试", Status: model.SubTaskCompleted, Summary: "全部通过", Step: "旧的一步", StartedAt: start, EndedAt: start.Add(200 * time.Second)},
+		{ID: "c", Description: "等结果", Status: model.SubTaskWaiting, Step: "bgrun 起了"},
 	}
 	card := buildPreviewCardJSON(core.BuildSubTaskTablePayload(core.LangChinese, tasks))
 	for _, want := range []string{`"content":"子进程表"`, `"template":"blue"`,
@@ -36,7 +38,7 @@ func TestFeishuSubTaskTableCard(t *testing.T) {
 	if strings.Contains(card, "旧的一步") {
 		t.Errorf("a finished row shows its summary, not its last step:\n%s", card)
 	}
-	done := buildFeishuSubTaskCardJSON(&core.SubTaskTablePayload{Lang: "en", Tasks: []core.SubTask{{ID: "b", Description: "tests", Status: core.SubTaskFailed}}})
+	done := buildFeishuSubTaskCardJSON(&core.SubTaskTablePayload{Lang: "en", Tasks: []model.SubTask{{ID: "b", Description: "tests", Status: model.SubTaskFailed}}})
 	if !strings.Contains(done, `"template":"red"`) || !strings.Contains(done, `"content":"Sub-agents"`) || !strings.Contains(done, "❌ fg · tests") {
 		t.Errorf("failed table = %s", done)
 	}
@@ -48,11 +50,11 @@ func TestFeishuSubTaskTableEdit(t *testing.T) {
 	p := newFakeFeishuPlatform(t, f)
 	p.useInteractiveCard = true
 	ctx := context.Background()
-	h, err := p.SendPreviewStart(ctx, replyContext{chatID: "oc_chat"}, core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{{ID: "a", Description: "查日志", Status: core.SubTaskRunning}}))
+	h, err := p.SendPreviewStart(ctx, replyContext{chatID: "oc_chat"}, core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{{ID: "a", Description: "查日志", Status: model.SubTaskRunning}}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.UpdateMessage(ctx, h, core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{{ID: "a", Description: "查日志", Status: core.SubTaskCompleted, Summary: "找到了"}})); err != nil {
+	if err := p.UpdateMessage(ctx, h, core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{{ID: "a", Description: "查日志", Status: model.SubTaskCompleted, Summary: "找到了"}})); err != nil {
 		t.Fatal(err)
 	}
 	id := h.(*feishuPreviewHandle).messageID

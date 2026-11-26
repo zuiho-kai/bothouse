@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -17,8 +19,8 @@ func TestChannelBoardEmbed_Render(t *testing.T) {
 		Lang: "zh",
 		Running: []core.BoardRunning{
 			{Bot: "橘", Desc: "帮我看一下，现在感觉我们的任务有点乱", StartedAt: start,
-				Step: &core.ProgressCardEntry{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "go test ./core/"},
-				Subs: []core.SubTask{{ID: "a1", Description: "查 Discord 限流文档", Background: true, Status: core.SubTaskRunning, StartedAt: start, Step: "WebFetch docs.discord.com"}}},
+				Step: &model.ProgressCardEntry{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "go test ./core/"},
+				Subs: []model.SubTask{{ID: "a1", Description: "查 Discord 限流文档", Background: true, Status: model.SubTaskRunning, StartedAt: start, Step: "WebFetch docs.discord.com"}}},
 			{Bot: "龙娘", Desc: "【橘】@龙娘 写 diff 审查", StartedAt: start.Add(time.Minute)},
 		},
 		Queued: []core.BoardQueued{

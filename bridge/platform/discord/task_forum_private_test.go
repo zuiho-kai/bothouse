@@ -3,6 +3,8 @@ package discord
 import (
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -74,11 +76,11 @@ func TestTaskForumPrivateChannelPostsInItself(t *testing.T) {
 	if solo, err := p.ensureTaskForum(api, "solo", "", nil); err != nil || solo.ID != "solo" {
 		t.Fatalf("a private channel outside any category posts in itself too: %+v %v", solo, err)
 	}
-	id, err := p.openTaskPost(api, f, core.TaskForumPost{Marker: "#1", Title: "#1 活", Card: "卡", Tag: core.TaskForumTagRunning})
+	id, err := p.openTaskPost(api, f, model.TaskForumPost{Marker: "#1", Title: "#1 活", Card: "卡", Tag: core.TaskForumTagRunning})
 	if err != nil || id != "card" || len(api.sent) != 1 || api.sent[0] != "mine" || len(api.started) != 1 || api.started[0] != "mine:card" || api.forum != 0 {
 		t.Fatalf("post must be a thread on a card in the channel: id=%s err=%v sent=%v started=%v forum=%d", id, err, api.sent, api.started, api.forum)
 	}
-	if err := p.updateTaskPost(api, f, id, core.TaskForumPost{Title: "#1 活", Card: "新卡", Tag: core.TaskForumTagDone, Archived: true}); err != nil {
+	if err := p.updateTaskPost(api, f, id, model.TaskForumPost{Title: "#1 活", Card: "新卡", Tag: core.TaskForumTagDone, Archived: true}); err != nil {
 		t.Fatal(err)
 	}
 	if api.tagged || len(api.edited) != 1 || api.edited[0].Channel != "mine" || api.edited[0].ID != "card" {

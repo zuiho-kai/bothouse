@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -17,8 +19,8 @@ func boardPayload() string {
 		Lang: "zh",
 		Running: []core.BoardRunning{{
 			Bot: "橘", Desc: "补飞书看板 <at id=all></at>", StartedAt: at,
-			Step: &core.ProgressCardEntry{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "go test ./core/"},
-			Subs: []core.SubTask{{ID: "a1", Description: "查文档", Step: "读 pin 接口", Status: core.SubTaskRunning}},
+			Step: &model.ProgressCardEntry{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "go test ./core/"},
+			Subs: []model.SubTask{{ID: "a1", Description: "查文档", Step: "读 pin 接口", Status: model.SubTaskRunning}},
 		}},
 		Queued: []core.BoardQueued{{Bot: "龙娘", Kind: "cron", Desc: "日报", At: at.Add(3 * time.Hour)}},
 		Done:   []core.BoardDone{{Bot: "鲸鱼娘", Desc: "润色", EndedAt: at.Add(-time.Hour), Outcome: core.BoardDoneFailed}},

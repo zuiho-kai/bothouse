@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -22,10 +24,10 @@ type channelAPI interface {
 	GuildChannelsReorder(guildID string, channels []*discordgo.Channel, options ...discordgo.RequestOption) error
 }
 
-func (p *Platform) CreateTeamChannel(ctx context.Context, besideChannelID, name string) (core.TeamChannel, error) {
+func (p *Platform) CreateTeamChannel(ctx context.Context, besideChannelID, name string) (model.TeamChannel, error) {
 	s := p.boardSession()
 	if s == nil {
-		return core.TeamChannel{}, errors.New("discord: channel create: not connected")
+		return model.TeamChannel{}, errors.New("discord: channel create: not connected")
 	}
 	c, err := createChannelAboveWorkspaces(s, besideChannelID, name, discordgo.WithContext(ctx))
 	if err != nil {
@@ -34,21 +36,21 @@ func (p *Platform) CreateTeamChannel(ctx context.Context, besideChannelID, name 
 	return c, err
 }
 
-func createChannelAboveWorkspaces(api channelAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
+func createChannelAboveWorkspaces(api channelAPI, besideChannelID, name string, options ...discordgo.RequestOption) (model.TeamChannel, error) {
 	ch, err := api.Channel(besideChannelID, options...)
 	if err != nil {
-		return core.TeamChannel{}, err
+		return model.TeamChannel{}, err
 	}
 	if ch.GuildID == "" {
-		return core.TeamChannel{}, fmt.Errorf("discord: channel %s: %w", besideChannelID, core.ErrNotTeamChannel)
+		return model.TeamChannel{}, fmt.Errorf("discord: channel %s: %w", besideChannelID, core.ErrNotTeamChannel)
 	}
 	c, err := api.GuildChannelCreateComplex(ch.GuildID, discordgo.GuildChannelCreateData{
 		Name: name, Type: discordgo.ChannelTypeGuildText, ParentID: ch.ParentID,
 	}, options...)
 	if err != nil {
-		return core.TeamChannel{}, channelPermissionHint(err)
+		return model.TeamChannel{}, channelPermissionHint(err)
 	}
-	out := core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID}
+	out := model.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID}
 	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
 		return out, fmt.Errorf("频道已建好，但没能排到工作区上面（读频道列表失败）: %w", err)

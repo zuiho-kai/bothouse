@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -43,7 +45,7 @@ func (p *Platform) TaskCardDestination(sessionKey string) (string, error) {
 // uuid derived from the task ID: Feishu de-duplicates sends with the same uuid,
 // so a retry after a lost response returns the same card instead of posting a
 // second one. A card deleted by hand, or too old to edit, is posted again.
-func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+func (p *Platform) EnsureTaskCard(ctx context.Context, task *model.Task, lang core.Language) error {
 	if task == nil {
 		return errors.New("feishu: nil task")
 	}
@@ -70,7 +72,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 
 // PublishTaskFact replies to the card in its thread, one reply per event. The
 // reply carries a uuid from the event, so a retry does not post it twice.
-func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
+func (p *Platform) PublishTaskFact(ctx context.Context, task *model.Task, ev model.TaskEvent, lang core.Language) error {
 	if task == nil || task.MessageID == "" {
 		return errors.New("feishu: task card not posted yet")
 	}
@@ -312,14 +314,14 @@ func (p *Platform) deleteMessage(ctx context.Context, messageID string) error {
 // renderFeishuTaskCard draws the task card with the progress-card renderer:
 // a title/state row, the latest progress, then one row per member (same rows
 // as the cloud_web task card).
-func renderFeishuTaskCard(task *core.Task, lang core.Language) string {
+func renderFeishuTaskCard(task *model.Task, lang core.Language) string {
 	title := strings.TrimSpace(task.Title)
 	if title == "" {
 		title = task.ID
 	}
-	items := []core.ProgressCardEntry{{Kind: core.ProgressEntryInfo, Text: fmt.Sprintf("📋 %s · %s", title, task.State)}}
+	items := []model.ProgressCardEntry{{Kind: model.ProgressEntryInfo, Text: fmt.Sprintf("📋 %s · %s", title, task.State)}}
 	if s := strings.TrimSpace(task.LatestProgress); s != "" {
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: s})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: s})
 	}
 	for _, m := range task.Members {
 		line := m.Name
@@ -332,19 +334,19 @@ func renderFeishuTaskCard(task *core.Task, lang core.Language) string {
 		if m.Summary != "" {
 			line += " " + m.Summary
 		}
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: line})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: line})
 	}
 	payload := &core.ProgressCardPayload{Items: items, Agent: "📋 " + title, Lang: string(lang), State: feishuTaskCardState(task.State)}
 	return buildProgressCardJSONFromPayload(payload)
 }
 
-func feishuTaskCardState(s core.TaskState) core.ProgressCardState {
+func feishuTaskCardState(s model.TaskState) core.ProgressCardState {
 	switch s {
-	case core.TaskStateCompleted, core.TaskStateResultReady:
+	case model.TaskStateCompleted, model.TaskStateResultReady:
 		return core.ProgressCardStateCompleted
-	case core.TaskStateCancelled:
+	case model.TaskStateCancelled:
 		return core.ProgressCardStateAborted
-	case core.TaskStateFailed:
+	case model.TaskStateFailed:
 		return core.ProgressCardStateFailed
 	}
 	return core.ProgressCardStateRunning

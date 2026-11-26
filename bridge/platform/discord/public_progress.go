@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -62,7 +64,7 @@ func (p *Platform) findPublicFact(ctx context.Context, channel, marker string, s
 // EnsureTaskCard posts or edits the task card. A destination Discord refuses
 // for good (deleted channel or card, lost access, archived thread) is reported
 // wrapping core.ErrDeliveryUnrecoverable, so core stops retrying it.
-func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+func (p *Platform) EnsureTaskCard(ctx context.Context, task *model.Task, lang core.Language) error {
 	// The board owns the forum starter card; public progress sends its facts there.
 	if task.ForumPost {
 		return nil
@@ -71,7 +73,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 }
 
 // reposted is set on the second pass after the card was found deleted.
-func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang core.Language, reposted bool) error {
+func (p *Platform) ensureTaskCard(ctx context.Context, task *model.Task, lang core.Language, reposted bool) error {
 	if p.session == nil || p.selfID() == "" {
 		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
@@ -167,7 +169,7 @@ func (p *Platform) ensureTaskCard(ctx context.Context, task *core.Task, lang cor
 // is only logged and never blocks the card or the thread's messages. Each
 // title is tried once, and a rate limit fails fast instead of sleeping through
 // the delivery's deadline.
-func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
+func (p *Platform) syncTaskThreadName(ctx context.Context, task *model.Task) {
 	if task.ForumPost {
 		return
 	}
@@ -185,7 +187,7 @@ func (p *Platform) syncTaskThreadName(ctx context.Context, task *core.Task) {
 // message and Discord reopens a public thread automatically when someone posts
 // in it again. A thread the card merely lives in is the user's own and is left
 // alone.
-func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error {
+func (p *Platform) ArchiveTaskThread(ctx context.Context, task *model.Task) error {
 	if p.session == nil || p.selfID() == "" {
 		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
@@ -217,7 +219,7 @@ func (p *Platform) ArchiveTaskThread(ctx context.Context, task *core.Task) error
 // an acceptance) can be posted instead of being refused with 50083. A thread
 // that is gone is treated as already handled here; posting the fact will
 // surface the missing destination through the normal unrecoverable path.
-func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error {
+func (p *Platform) ReopenTaskThread(ctx context.Context, task *model.Task) error {
 	if p.session == nil || p.selfID() == "" {
 		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
@@ -239,7 +241,7 @@ func (p *Platform) ReopenTaskThread(ctx context.Context, task *core.Task) error 
 // message, or the moment Discord last changed its archive status (a reopen).
 // The archive sweep waits from the later of this and the card's UpdatedAt, so
 // a reply that reopened a thread is not hidden again by the same sweep.
-func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) (time.Time, error) {
+func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *model.Task) (time.Time, error) {
 	if p.session == nil || p.selfID() == "" {
 		return time.Time{}, fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
@@ -276,7 +278,7 @@ func (p *Platform) TaskThreadLastActivity(ctx context.Context, task *core.Task) 
 	return last, nil
 }
 
-func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language) error {
+func (p *Platform) PublishTaskFact(ctx context.Context, task *model.Task, ev model.TaskEvent, lang core.Language) error {
 	if p.session == nil || p.selfID() == "" {
 		return fmt.Errorf("discord session is not ready: %w", core.ErrPlatformNotReady)
 	}
@@ -329,7 +331,7 @@ func (p *Platform) PublishTaskFact(ctx context.Context, task *core.Task, ev core
 // over-long event. When the card lives in the user's thread, several cards
 // share it and each counts from 1, so the footer carries the event ID, which
 // includes the card's ID.
-func taskFactMarker(task *core.Task, ev core.TaskEvent, i, n int) string {
+func taskFactMarker(task *model.Task, ev model.TaskEvent, i, n int) string {
 	marker := "#" + ev.ID
 	if ev.Seq > 0 && (task.ThreadID != task.ChannelID || ev.ID == "") {
 		marker = fmt.Sprintf("#%d", ev.Seq)
@@ -340,7 +342,7 @@ func taskFactMarker(task *core.Task, ev core.TaskEvent, i, n int) string {
 	return marker
 }
 
-func (p *Platform) publishTaskFactPart(ctx context.Context, task *core.Task, ev core.TaskEvent, lang core.Language, marker, part string) error {
+func (p *Platform) publishTaskFactPart(ctx context.Context, task *model.Task, ev model.TaskEvent, lang core.Language, marker, part string) error {
 	id, err := p.findPublicFact(ctx, task.ThreadID, marker, ev.Timestamp)
 	if err != nil || id != "" {
 		return err

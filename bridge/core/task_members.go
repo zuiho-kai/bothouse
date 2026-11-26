@@ -13,29 +13,6 @@ import (
 	"unicode/utf8"
 )
 
-// TaskMember is deliberately public. Capability tokens are kept only in memory.
-// Assignment is not execution: StartedAt is set by the member's first report.
-type TaskMember struct {
-	ReporterProject string    `json:"reporter_project,omitempty"`
-	ID              string    `json:"id"`
-	ParentID        string    `json:"parent_id,omitempty"`
-	Name            string    `json:"name"`
-	Title           string    `json:"title"`
-	Ref             string    `json:"ref,omitempty"`
-	Base            string    `json:"base,omitempty"`
-	Workspace       string    `json:"workspace,omitempty"` // execution workspace channel, "" = source workspace
-	Status          string    `json:"status"`
-	Summary         string    `json:"summary,omitempty"`
-	AssignedAt      time.Time `json:"assigned_at"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	EndedAt         time.Time `json:"ended_at,omitempty"`
-}
-
-func (m TaskMember) Live() bool {
-	return m.Status == "queued" || m.Status == "running" || m.Status == "waiting"
-}
-
 type TaskMemberAssignment struct {
 	ReporterProject string `json:"reporter_project,omitempty"` // configured project id, never a display name
 	Project         string `json:"project"`
@@ -241,7 +218,7 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	// card's channel (the source workspace, or the workspace holding a
 	// chat-channel source's card): the bot must be bound there, or its facts
 	// would degrade to a creator-posted "reporter muted" note.
-	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), execSession) {
+	for _, session := range taskReporterSessions(taskCardSessionKey(r.record.Task), execSession) {
 		if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, session, r.publisher); err != nil {
 			// Unbound teammate: the command says what to do, and so does the channel (#587).
 			var nb *notBoundError

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -184,7 +186,7 @@ func TestPublicTaskWorkerUsesOwnAccountSameThread(t *testing.T) {
 		return &Platform{session: session, botID: id}
 	}
 	lead, worker := newPlatform("lead", "Bot fixture-lead"), newPlatform("worker", "Bot fixture-worker")
-	task := &core.Task{ID: "task-member", Title: "Task", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task := &model.Task{ID: "task-member", Title: "Task", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	transport.botID = "lead"
 	if err := lead.EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil {
 		t.Fatal(err)
@@ -196,7 +198,7 @@ func TestPublicTaskWorkerUsesOwnAccountSameThread(t *testing.T) {
 	}
 	transport.seenAuth = nil
 	transport.botID, transport.loseACK = "worker", true
-	ev := core.TaskEvent{ID: "task-member:2", Summary: "gjiang: Started", ReporterProject: "gjiang", Timestamp: time.Now(), IsKeyFact: true}
+	ev := model.TaskEvent{ID: "task-member:2", Summary: "gjiang: Started", ReporterProject: "gjiang", Timestamp: time.Now(), IsKeyFact: true}
 	if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangEnglish); err == nil {
 		t.Fatal("lost ACK was not surfaced")
 	}
@@ -219,8 +221,8 @@ func TestPublicTaskWorkerDetailResumesAfterLostACK(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	worker := &Platform{session: session, botID: "worker"}
-	task := &core.Task{ID: "shared-task", ChannelID: "room", ThreadID: "shared-thread"}
-	ev := core.TaskEvent{ID: "shared-task:7", Seq: 7, Summary: "Worker result", Detail: strings.Repeat("进展🙂", maxDiscordLen), Timestamp: time.Now()}
+	task := &model.Task{ID: "shared-task", ChannelID: "room", ThreadID: "shared-thread"}
+	ev := model.TaskEvent{ID: "shared-task:7", Seq: 7, Summary: "Worker result", Detail: strings.Repeat("进展🙂", maxDiscordLen), Timestamp: time.Now()}
 	parts := core.SplitMessageCodeFenceAware(ev.ThreadText(), maxDiscordLen)
 	// Simulate a partial delivery: first part confirmed, the next POST lost ACK.
 	if err := worker.publishTaskFactPart(context.Background(), task, ev, core.LangEnglish, taskFactMarker(task, ev, 0, len(parts)), parts[0]); err != nil {
@@ -256,7 +258,7 @@ func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-test", Title: "检查绑定", Agent: "fish", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now(), State: core.TaskStateInProgress, LatestProgress: "@everyone 公开进展"}
+	task := &model.Task{ID: "task-test", Title: "检查绑定", Agent: "fish", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now(), State: model.TaskStateInProgress, LatestProgress: "@everyone 公开进展"}
 	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err == nil {
 		t.Fatal("lost ACK not reported")
 	}
@@ -269,7 +271,7 @@ func TestPublicTaskCardLostACKReconciliation(t *testing.T) {
 	if transport.sends != 1 || task.MessageID != "101" || task.ThreadID != "101" {
 		t.Fatalf("duplicate card or missing mapping: sends=%d %+v", transport.sends, task)
 	}
-	ev := core.TaskEvent{ID: "task-test:1", Summary: "关键结果", Timestamp: time.Now(), IsKeyFact: true}
+	ev := model.TaskEvent{ID: "task-test:1", Summary: "关键结果", Timestamp: time.Now(), IsKeyFact: true}
 	transport.loseACK = true
 	if err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err == nil {
 		t.Fatal("lost fact ACK not reported")
@@ -305,7 +307,7 @@ func TestPublicTaskPermalinkUsesActualChannel(t *testing.T) {
 			session.MaxRestRetries = 0
 			p := &Platform{session: session, botID: "bot"}
 			// Existing message/thread with no URL exercises old journal upgrades.
-			task := &core.Task{ID: "task-old", ChannelID: "111", MessageID: "222", ThreadID: "333", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			task := &model.Task{ID: "task-old", ChannelID: "111", MessageID: "222", ThreadID: "333", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 			if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
 				t.Fatal(err)
 			}
@@ -323,7 +325,7 @@ func TestPublicTaskCardCannotEstablishAbsence(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-test", Title: "test", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task := &model.Task{ID: "task-test", Title: "test", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish); err == nil || transport.sends != 0 {
 		t.Fatal("created blindly after history failure")
 	}
@@ -331,7 +333,7 @@ func TestPublicTaskCardCannotEstablishAbsence(t *testing.T) {
 
 func TestPublicTaskResultDoesNotClaimAcceptance(t *testing.T) {
 	for _, lang := range []core.Language{core.LangEnglish, core.LangChinese, core.LangTraditionalChinese, core.LangJapanese, core.LangSpanish} {
-		task := &core.Task{ID: "t", Title: "task", Agent: "fish", State: core.TaskStateResultReady, ResultSummary: "result"}
+		task := &model.Task{ID: "t", Title: "task", Agent: "fish", State: model.TaskStateResultReady, ResultSummary: "result"}
 		embed := RenderTaskCardEmbed(task, string(lang))
 		if embed.Fields[1].Value != core.NewI18n(lang).T(core.MsgTaskResultReady) {
 			t.Fatalf("wrong state %s", lang)
@@ -356,8 +358,8 @@ func TestPublicTaskFactPermanentRefusalClassified(t *testing.T) {
 		session.Client = &http.Client{Transport: transport}
 		session.MaxRestRetries = 0
 		p := &Platform{session: session, botID: "worker"}
-		task := &core.Task{ID: "task-refused", ThreadID: "thread", ChannelID: "room"}
-		err := p.PublishTaskFact(context.Background(), task, core.TaskEvent{ID: "task-refused:2", Summary: "x", Timestamp: time.Now(), IsKeyFact: true}, core.LangEnglish)
+		task := &model.Task{ID: "task-refused", ThreadID: "thread", ChannelID: "room"}
+		err := p.PublishTaskFact(context.Background(), task, model.TaskEvent{ID: "task-refused:2", Summary: "x", Timestamp: time.Now(), IsKeyFact: true}, core.LangEnglish)
 		if err == nil || errors.Is(err, core.ErrTaskFactUndeliverable) != tc.permanent {
 			t.Fatalf("status %d: err=%v permanent=%v", tc.status, err, tc.permanent)
 		}
@@ -373,8 +375,8 @@ func TestPublicTaskFactIsOneTidyMessage(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	worker := &Platform{session: session, botID: "worker"}
-	task := &core.Task{ID: "task-abc", ChannelID: "room", ThreadID: "thread"}
-	ev := core.TaskEvent{ID: "task-abc:10", Seq: 10, Summary: "C酱 更新了进度，详见任务线程", Detail: "started", Pointer: true, Timestamp: time.Now()}
+	task := &model.Task{ID: "task-abc", ChannelID: "room", ThreadID: "thread"}
+	ev := model.TaskEvent{ID: "task-abc:10", Seq: 10, Summary: "C酱 更新了进度，详见任务线程", Detail: "started", Pointer: true, Timestamp: time.Now()}
 	for i := 0; i < 2; i++ { // the retry finds the posted message by its marker
 		if err := worker.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err != nil {
 			t.Fatal(err)
@@ -388,7 +390,7 @@ func TestPublicTaskFactIsOneTidyMessage(t *testing.T) {
 	if e.Title != "" || e.Description != "started" || e.Footer == nil || e.Footer.Text != "#10" {
 		t.Fatalf("untidy fact: title=%q description=%q footer=%+v", e.Title, e.Description, e.Footer)
 	}
-	assigned := core.TaskEvent{ID: "task-abc:9", Seq: 9, Summary: "已派给 肥鱼", Detail: "只测试置顶", Timestamp: time.Now()}
+	assigned := model.TaskEvent{ID: "task-abc:9", Seq: 9, Summary: "已派给 肥鱼", Detail: "只测试置顶", Timestamp: time.Now()}
 	if err := worker.PublishTaskFact(context.Background(), task, assigned, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +408,7 @@ func TestPublicTaskThreadRenameFailureDoesNotBlockCard(t *testing.T) {
 		session.Client = &http.Client{Transport: transport}
 		session.MaxRestRetries = 0
 		p := &Platform{session: session, botID: "lead"}
-		task := &core.Task{ID: "task-r", Title: "New title", ChannelID: "room", MessageID: "100", ThreadID: "thr", CardURL: "https://discord.com/channels/g/room/100", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		task := &model.Task{ID: "task-r", Title: "New title", ChannelID: "room", MessageID: "100", ThreadID: "thr", CardURL: "https://discord.com/channels/g/room/100", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
 			t.Fatalf("status %d: rename failure blocked the card: %v", code, err)
@@ -422,7 +424,7 @@ func TestPublicTaskThreadRenameFailureDoesNotBlockCard(t *testing.T) {
 		if err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil || len(transport.renames) != 1 {
 			t.Fatalf("status %d: rename retried (%d) or failed: %v", code, len(transport.renames), err)
 		}
-		if err := p.PublishTaskFact(context.Background(), task, core.TaskEvent{ID: "task-r:2", Seq: 2, Summary: "update", Timestamp: time.Now()}, core.LangEnglish); err != nil || len(transport.messages["thr"]) != 1 {
+		if err := p.PublishTaskFact(context.Background(), task, model.TaskEvent{ID: "task-r:2", Seq: 2, Summary: "update", Timestamp: time.Now()}, core.LangEnglish); err != nil || len(transport.messages["thr"]) != 1 {
 			t.Fatalf("status %d: thread message not sent: %v", code, err)
 		}
 	}
@@ -436,12 +438,12 @@ func TestPublicTaskFactsOfCardsSharingUserThread(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "lead"}
-	first := &core.Task{ID: "task-a", ChannelID: "userthread", ThreadID: "userthread"}
-	second := &core.Task{ID: "task-b", ChannelID: "userthread", ThreadID: "userthread"}
-	if err := p.PublishTaskFact(context.Background(), first, core.TaskEvent{ID: "task-a:1", Seq: 1, Summary: "first card", Timestamp: time.Now()}, core.LangEnglish); err != nil {
+	first := &model.Task{ID: "task-a", ChannelID: "userthread", ThreadID: "userthread"}
+	second := &model.Task{ID: "task-b", ChannelID: "userthread", ThreadID: "userthread"}
+	if err := p.PublishTaskFact(context.Background(), first, model.TaskEvent{ID: "task-a:1", Seq: 1, Summary: "first card", Timestamp: time.Now()}, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.PublishTaskFact(context.Background(), second, core.TaskEvent{ID: "task-b:1", Seq: 1, Summary: "second card", Timestamp: time.Now()}, core.LangEnglish); err != nil {
+	if err := p.PublishTaskFact(context.Background(), second, model.TaskEvent{ID: "task-b:1", Seq: 1, Summary: "second card", Timestamp: time.Now()}, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
 	messages := transport.messages["userthread"]
@@ -462,7 +464,7 @@ func TestArchiveTaskThreadArchivesOnceAndSkipsUserThread(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	task := &model.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
 
 	if err := p.ArchiveTaskThread(context.Background(), task); err != nil {
 		t.Fatal(err)
@@ -498,7 +500,7 @@ func TestTaskThreadCreationUsesLongAutoArchive(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-new", Title: "新任务", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task := &model.Task{ID: "task-new", Title: "新任务", ChannelID: "room", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := p.EnsureTaskCard(context.Background(), task, core.LangChinese); err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +518,7 @@ func TestPublicTaskThreadRenameSkipsArchivedThread(t *testing.T) {
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "lead"}
 	archivedAt := time.Now().Add(-time.Hour)
-	task := &core.Task{ID: "task-r", Title: "New title", ThreadTitle: "Old title", ChannelID: "room", MessageID: "100", ThreadID: "thr", CardURL: "https://discord.com/channels/g/room/100", ThreadArchivedAt: &archivedAt, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	task := &model.Task{ID: "task-r", Title: "New title", ThreadTitle: "Old title", ChannelID: "room", MessageID: "100", ThreadID: "thr", CardURL: "https://discord.com/channels/g/room/100", ThreadArchivedAt: &archivedAt, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	if err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +538,7 @@ func TestPublicTaskThreadLastActivityUsesNewestMessage(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	task := &model.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
 	got, err := p.TaskThreadLastActivity(context.Background(), task)
 	if err != nil {
 		t.Fatal(err)
@@ -560,8 +562,8 @@ func TestPublishTaskFactReopensArchivedThread(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
-	ev := core.TaskEvent{ID: "task-a:3", Seq: 3, Summary: "已验收", Timestamp: time.Now()}
+	task := &model.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	ev := model.TaskEvent{ID: "task-a:3", Seq: 3, Summary: "已验收", Timestamp: time.Now()}
 	if err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese); err != nil {
 		t.Fatalf("fact after archive: %v", err)
 	}
@@ -590,8 +592,8 @@ func TestPublishTaskFactKeepsRetryableReopenError(t *testing.T) {
 	// so the caller sees the same rate-limit error a bounded call would return.
 	session.ShouldRetryOnRateLimit = false
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
-	ev := core.TaskEvent{ID: "task-a:3", Seq: 3, Summary: "已验收", Timestamp: time.Now()}
+	task := &model.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	ev := model.TaskEvent{ID: "task-a:3", Seq: 3, Summary: "已验收", Timestamp: time.Now()}
 	err := p.PublishTaskFact(context.Background(), task, ev, core.LangChinese)
 	if err == nil {
 		t.Fatal("reopen failure was ignored")
@@ -622,7 +624,7 @@ func TestPublicTaskThreadLastActivityUsesArchiveTimestamp(t *testing.T) {
 	session.Client = &http.Client{Transport: transport}
 	session.MaxRestRetries = 0
 	p := &Platform{session: session, botID: "bot"}
-	task := &core.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
+	task := &model.Task{ID: "task-a", ChannelID: "room", ThreadID: "thread-a"}
 	got, err := p.TaskThreadLastActivity(context.Background(), task)
 	if err != nil {
 		t.Fatal(err)

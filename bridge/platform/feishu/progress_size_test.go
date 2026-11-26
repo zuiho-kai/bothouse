@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
@@ -38,16 +40,16 @@ func TestFeishuProgressCardSizeOptions(t *testing.T) {
 func TestFeishuProgressLinesCutToLineLen(t *testing.T) {
 	long := "第一行很长很长很长很长\n第二行"
 	items := normalizeProgressItems(&core.ProgressCardPayload{
-		Items: []core.ProgressCardEntry{{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: long}}, LineLen: 8,
+		Items: []model.ProgressCardEntry{{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: long}}, LineLen: 8,
 	})
 	if got := items[0].Text; got != "第一行很长很长…" {
 		t.Fatalf("cut item = %q", got)
 	}
 	legacy := normalizeProgressItems(&core.ProgressCardPayload{Entries: []string{"💭 " + strings.Repeat("想", 20)}, LineLen: 5})
-	if got := legacy[0].Text; got != "💭 想想…" || legacy[0].Kind != core.ProgressEntryThinking {
+	if got := legacy[0].Text; got != "💭 想想…" || legacy[0].Kind != model.ProgressEntryThinking {
 		t.Fatalf("cut legacy entry = %q (%v)", got, legacy[0].Kind)
 	}
-	whole := normalizeProgressItems(&core.ProgressCardPayload{Items: []core.ProgressCardEntry{{Text: long}}})
+	whole := normalizeProgressItems(&core.ProgressCardPayload{Items: []model.ProgressCardEntry{{Text: long}}})
 	if whole[0].Text != long {
 		t.Fatalf("LineLen 0 changed the text: %q", whole[0].Text)
 	}
