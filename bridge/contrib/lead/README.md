@@ -13,7 +13,7 @@
 
 - `PLAYBOOK.zh-CN.md`（原文）/ `PLAYBOOK.md`（英文译本）：主角色怎么带团队并行干活。
   gate 的 `/context` 只给当前主角色附这份手册（`../gate/lead.py` 的 `playbook()`），当次的不附；换主后新主的下一轮收到一次。
-  `GATE_PLAYBOOK=<文件>` 换成英文版或自己的版本，`off` = 不附。默认先读 `<数据目录>/collaboration/lead/PLAYBOOK.zh-CN.md`（向导装的 lead 工具），没有再读 gate 旁的 `../lead/`。
+  `GATE_PLAYBOOK=<文件>` 换成英文版或自己的版本，`off` = 不附。默认先读 `<数据目录>/collaboration/runtime/lead/PLAYBOOK.zh-CN.md`（桥写的那一份），没有再读 gate 旁的 `../lead/`。
 - `DEPT_MANAGER.zh-CN.md`：工作区做法（工作区里的主角色当部门经理：自定做法、开工核前提、两轮不降换方法、给自己配秘书）。
   gate 的 `/context` 只在工作区会话里、任务板上有绑到这个工作区且没暂停的活时附给当前主角色（`lead.py` 的 `dept_manager()`），每接一件新活收到一次；聊天频道和当次的角色不附。
   跟主角色手册同目录；`GATE_DEPT_MANAGER=<文件>` 换成自己的，`off` = 不附。

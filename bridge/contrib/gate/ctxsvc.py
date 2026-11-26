@@ -1035,11 +1035,11 @@ def with_lessons(pages, text, skip=None, prepared=False, need=""):
 
 
 def _existing_mod():
-    """开工清单程序（~/.bothouse/collaboration/lead/_existing.py，ws-handoff 交活时用的同一份）；没装就 None。"""
+    """开工清单程序（~/.bothouse/collaboration/runtime/lead/_existing.py，ws-handoff 交活时用的同一份）；没装就 None。"""
     import importlib.util
     here = Path(__file__).resolve().parent
-    for f in (EXP.parent / "collaboration/lead/_existing.py", here.parent / "collaboration/lead/_existing.py",
-              here.parent / "lead/_existing.py", Path.home() / ".bothouse/collaboration/lead/_existing.py"):
+    for f in (EXP.parent / "collaboration/runtime/lead/_existing.py", here.parent / "collaboration/runtime/lead/_existing.py",
+              Path.home() / ".bothouse/collaboration/runtime/lead/_existing.py", here.parent / "lead/_existing.py"):
         if f.exists():
             try:
                 spec = importlib.util.spec_from_file_location("_existing", f)

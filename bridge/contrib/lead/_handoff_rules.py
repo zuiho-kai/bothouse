@@ -10,7 +10,7 @@ RULES = Path(__file__).resolve().parent / "handoff-rules.json"
 STRICT = RULES.with_name("handoff-rules.strict.json")
 # 本机叠加：<数据目录>/collaboration/handoff-rules.local.json（不进发布包）。{"profile": "strict"} 叠加严格档；
 # "checks" 按 id 覆盖或追加；"flags" 给 ws-handoff 的额外关卡（require_short、cli_gate）。
-# 脚本装在 <数据目录>/collaboration/runtime/lead（桥内嵌版）或 <数据目录>/collaboration/lead（旧的用户副本），
+# 脚本装在 <数据目录>/collaboration/runtime/lead（#2051 起只留桥写的一份；旧的用户副本已删），
 # 两种都找到 <数据目录>/collaboration/handoff-rules.local.json。原来只认「上上级」，内嵌版找到的是 runtime/ 下那个
 # 不存在的文件，本机叠加的严格档和开关全没了也不报错（#2051）。
 LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL") or next(

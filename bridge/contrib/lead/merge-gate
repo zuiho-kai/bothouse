@@ -30,7 +30,7 @@ FAKE = re.compile(r'假|mock|fake|模拟|伪造|未登录|没登录|无登录', 
 GC_API = 'https://api.gitcode.com/api/v5/repos'
 GC_URL = re.compile(r'api\.gitcode\.com/api/v5/repos/([\w.-]+)/([\w.-]+)/(pulls|issues)(?:/(\d+|\{[^}]*\}|\$\w+))?(/[\w-]+)?')
 HOW = ('先在用户实际用的入口（桌面版、用户的浏览器页面这类）用真实登录态跑一遍，留截图或日志，再登记：\n'
-       "  ~/.bothouse/collaboration/lead/merge-gate record --pr {pr} --login '<真账号怎么登的>' --entry '<入口>' --proof <截图或日志>\n"
+       "  merge-gate record --pr {pr} --login '<真账号怎么登的>' --entry '<入口>' --proof <截图或日志>\n"
        '出处：复盘 10-30 第 4 条（!9279 只做假登录态对比就合进 0.2.8）。')
 
 
