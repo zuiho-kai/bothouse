@@ -1977,9 +1977,10 @@ def claude(instruction, stdin="", label="?", context=None, model=None, api=False
     # workspace-write) confines writes to the wiki directory.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
+    perm_mode = "bypassPermissions" if use_ducc else "acceptEdits"
     cmd = [cli_bin, "-p", instruction, "--model", model, "--no-session-persistence", "--strict-mcp-config",
            "--tools", "Read,Edit,Write,Glob,Grep,Bash",
-           "--permission-mode", "acceptEdits", "--output-format", "json"]
+           "--permission-mode", perm_mode, "--output-format", "json"]
     if not use_ducc:
         cmd += ["--settings", json.dumps(settings)]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
