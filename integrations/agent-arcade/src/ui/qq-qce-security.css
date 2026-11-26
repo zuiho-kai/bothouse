@@ -1,0 +1,28 @@
+/* QCE access rules retain the existing room font and single-dialog layout. */
+.qq-qce-security{min-width:0;font-size:14px;line-height:1.8}
+.qq-qce-security h3{font-size:17px;line-height:1.5;font-weight:600;margin:0 0 12px}
+.qq-qce-security h4{font-size:14px;font-weight:600;margin:0 0 8px}
+.qq-qce-security p{font-size:14px;line-height:1.8;margin:8px 0}
+.qq-qce-security button{font-size:14px;max-width:100%;white-space:normal}
+.qq-qce-security-note,.qq-qce-security-source{color:var(--muted)}
+.qq-qce-security-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.qq-qce-security-section{padding:18px 0;border-top:1px solid var(--line);min-width:0}
+.qq-qce-security-list{list-style:none;margin:12px 0;padding:0}
+.qq-qce-security-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);min-width:0}
+.qq-qce-security-value{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.qq-qce-security-impact{border-left:3px solid #c99bb2;background:var(--action-soft);padding:10px 14px;margin:16px 0}
+.qq-qce-security-field{display:block;min-width:0;margin:16px 0}
+.qq-qce-security-field>label{display:block;margin-bottom:6px;font-size:14px}
+.qq-qce-security-field input[type=text]{display:block;width:100%;min-width:0;box-sizing:border-box;font:inherit;font-size:14px;line-height:1.6;color:var(--text);border:1px solid var(--room-outline);border-radius:8px;background:var(--paper);padding:9px 11px}
+.qq-qce-security-field input[aria-invalid=true]{border-color:var(--error,#b13c57)}
+.qq-qce-security-validation{color:var(--error,#b13c57)}
+.qq-qce-security-feedback:empty,.qq-qce-security-validation:empty{display:none}
+.qq-qce-security-diff{margin:10px 0}
+.qq-qce-security-diff dt{color:var(--muted);margin-top:10px}
+.qq-qce-security-diff dd{margin:3px 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.qq-qce-security-result{border-block:1px solid var(--line);padding:18px 0;margin:18px 0}
+.qq-qce-security-details{margin:18px 0}
+.qq-qce-security-details summary{cursor:pointer;font-size:14px}
+.qq-qce-security-details p{color:var(--muted);font-size:14px}
+@media(max-width:520px){.qq-qce-security-row{align-items:flex-start;flex-direction:column;gap:8px}.qq-qce-security-actions{align-items:stretch}.qq-qce-security-actions button{text-align:left}.qq-qce-security-section{padding:16px 0}}
+@media(prefers-reduced-motion:reduce){.qq-qce-security,.qq-qce-security *{scroll-behavior:auto!important;animation:none!important;transition:none!important}}

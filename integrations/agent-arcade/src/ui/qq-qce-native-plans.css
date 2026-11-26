@@ -1,0 +1,33 @@
+/* Native QCE plans remain a separate subview of the existing room dialog. */
+.qq-qce-native-plans{min-width:0;font-size:14px;line-height:1.8}
+.qq-qce-native-plans h3{font-size:17px;line-height:1.5;font-weight:600;margin:0 0 12px}
+.qq-qce-native-plans h4{font-size:14px;line-height:1.6;font-weight:600;margin:0 0 8px}
+.qq-qce-native-plans p{font-size:14px;line-height:1.8;margin:8px 0;overflow-wrap:anywhere}
+.qq-qce-native-plans button{font-size:14px;max-width:100%;white-space:normal}
+.qq-qce-native-plans-note,.qq-qce-native-plans-source{color:var(--muted)}
+.qq-qce-native-plans-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.qq-qce-native-plans-impact{border-left:3px solid #c99bb2;background:var(--action-soft);padding:10px 14px;margin:16px 0}
+.qq-qce-native-plans-list{list-style:none;padding:0;margin:16px 0}
+.qq-qce-native-plans-row{border-top:1px solid var(--line);padding:18px 0;min-width:0}
+.qq-qce-native-plans-row-heading{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
+.qq-qce-native-plans-value{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.qq-qce-native-plans-field{display:block;min-width:0;margin:14px 0}
+.qq-qce-native-plans-field>label,.qq-qce-native-plans-field>span{display:block;margin-bottom:6px}
+.qq-qce-native-plans :is(input[type=text],input[type=number],input[type=time],select,textarea){width:100%;min-width:0;box-sizing:border-box;font:inherit;font-size:14px;color:var(--text);background:var(--paper);border:1px solid var(--room-outline);border-radius:8px;padding:9px 11px}
+.qq-qce-native-plans input[aria-invalid=true],.qq-qce-native-plans textarea[aria-invalid=true]{border-color:var(--error,#b13c57)}
+.qq-qce-native-plans-choice{display:flex;gap:9px;align-items:flex-start;margin:8px 0;min-width:0}
+.qq-qce-native-plans-choice input{flex:none;width:16px;height:16px;margin-top:6px;accent-color:var(--action)}
+.qq-qce-native-plans-choice span{overflow-wrap:anywhere;min-width:0}
+.qq-qce-native-plans-targets{list-style:none;padding:0;margin:12px 0;max-height:240px;overflow:auto;overscroll-behavior:contain}
+.qq-qce-native-plans-targets li{border-top:1px solid var(--line);padding:8px 0}
+.qq-qce-native-plans-review,.qq-qce-native-plans-result{border-block:1px solid var(--line);padding:18px 0;margin:18px 0}
+.qq-qce-native-plans dl{margin:12px 0}
+.qq-qce-native-plans dt{color:var(--muted);margin-top:10px}
+.qq-qce-native-plans dd{margin:3px 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.qq-qce-native-plans-details{margin:18px 0}
+.qq-qce-native-plans-details summary{cursor:pointer;font-size:14px}
+.qq-qce-native-plans-details p{color:var(--muted)}
+.qq-qce-native-plans-validation{color:var(--error,#b13c57)}
+.qq-qce-native-plans-feedback:empty,.qq-qce-native-plans-validation:empty{display:none}
+@media(max-width:520px){.qq-qce-native-plans-actions{align-items:stretch}.qq-qce-native-plans-actions button{text-align:left}}
+@media(prefers-reduced-motion:reduce){.qq-qce-native-plans,.qq-qce-native-plans *{scroll-behavior:auto!important;animation:none!important;transition:none!important}}

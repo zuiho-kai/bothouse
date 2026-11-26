@@ -1,0 +1,86 @@
+/* Shared mist-pink room. Typography and domain-specific status colours stay
+   with their original components; these tokens only unify the application chrome. */
+:root{
+  --text:#302b32;--muted:#706770;--paper:#fffdfe;--surface:#faf6f9;
+  --line:#eadfe6;--action:#a44775;--action-hover:#8f3c65;--action-soft:#f8e8f0;
+  --blue:var(--action);--blue-light:var(--action-soft);
+  --room-soft:#f3edf1;--room-outline:#d7c3ce;--room-shadow:#49304212;
+}
+body{background:var(--surface)}
+.sidebar,main>header{background:var(--paper);border-color:var(--line)}
+.nav{color:var(--muted)}.nav:hover{background:var(--room-soft);color:var(--text)}
+.nav.active{background:var(--action-soft);color:var(--action)}
+.quiet,.plain{color:var(--muted)}.quiet[aria-pressed=true]{color:var(--action);background:var(--action-soft)}
+.primary:hover{background:var(--action-hover)}
+.secondary{color:var(--text);border-color:var(--room-outline);background:var(--paper)}
+.secondary:hover:not(:disabled){background:var(--action-soft);border-color:#c79ab1}
+.icon-button:hover{background:var(--room-soft)}
+.filter.selected{color:var(--action)}
+:is(input,select,textarea){accent-color:var(--action)}
+:is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline-color:var(--action)}
+.companion-tabs,.relationship-tabs,.bot-thread-scroll,.bot-setup{scrollbar-color:var(--room-outline) transparent}
+.companion-tab:hover{background:var(--room-soft)}
+.companion-tab[aria-pressed=true]{border-color:#d7a9bf;background:var(--paper)}
+.companion-tab img,.relationship-heading>img,.qq-runtime-card img:not(.qq-runtime-qr){background:var(--room-soft)}
+.companion-manager input,.relationship-example textarea,.qq-runtime-panel input,.qq-runtime-panel select{border-color:var(--room-outline)}
+.relationship-card-preview{background:var(--room-soft);border-left-color:#c99bb2}
+.relationship-heading,.onboarding-header,.companion-manager-heading{position:relative}
+.relationship-heading h1:after,.onboarding-header h1:after,.companion-manager-heading h2:after{content:"";display:inline-block;width:42px;height:1px;background:#d5acbf;vertical-align:middle;margin-left:16px;pointer-events:none}
+.portrait-choice[aria-pressed=true]{border-color:#c78ba8;box-shadow:0 0 0 2px var(--action-soft)}
+.portrait-choice{background:var(--paper)}
+.chat-heading,.bot-inbox{background:var(--paper)}
+.inspector-toggle[aria-expanded=true]{border-color:#dfb8cd;color:var(--action);background:var(--action-soft)}
+.bot-setup{background:#fcf8fb}
+.bot-setup input,.bot-setup select{border-color:var(--room-outline);background:var(--paper)}
+.bot-message.from-user,.bot-message[data-role=user]{background:var(--action-soft)}
+.message-meta,.message-meta time,.message-copy,.bot-input-note,.bot-preview{color:var(--muted)}
+.message-author,.from-user .message-author{color:#725065}
+.bot-inbox #bot-task-state{background:var(--room-soft);border-left-color:#c99bb2;color:#725065}
+.bot-project-row output,.bot-help summary{color:var(--muted)}
+#bot-native-command{background:var(--room-soft);border-color:var(--line);color:var(--text)}
+.latest-message{color:var(--action);border-color:var(--room-outline);box-shadow:0 2px 10px var(--room-shadow)}
+.banner{background:var(--room-soft);color:var(--muted)}
+.task-card{background:var(--paper)}.task-card:hover{background:#fcf7fa}
+.age{color:var(--muted)}
+.onboarding-active,.onboarding-extra,.onboarding-channel{border-color:var(--line)}
+.onboarding-account,.onboarding-provider,.onboarding-chat{background:transparent}
+.partner-choice{background:var(--paper);border-color:var(--line)}
+.partner-choices{flex-wrap:wrap;gap:12px}
+.partner-choice{flex:1 1 135px;max-width:240px}
+.partner-choice:hover{background:#fcf5f9;border-color:#d7a9bf}
+.partner-choice[aria-pressed=true]{background:var(--action-soft);border-color:#c78ba8;box-shadow:none}
+.partner-choice img,.persona-active>img{background:var(--room-soft)}
+.onboarding-mode[aria-pressed=true],.onboarding-method[aria-pressed=true]{background:var(--action-soft);border-color:#d7a9bf;color:var(--action)}
+.account-method[aria-pressed=true]{color:var(--action)}
+.onboarding-shell select{font:inherit;padding:9px 11px;border:1px solid var(--room-outline);border-radius:7px;max-width:100%}
+.onboarding-shell :is(input,select),.settings-card :is(input,select){border-color:var(--room-outline);background:var(--paper);color:var(--text)}
+.onboarding-active,.onboarding-auth-note{background:var(--room-soft);color:var(--muted)}
+.qq-runtime-installation,.qq-runtime-log{background:var(--room-soft);border-color:var(--line)}
+.qq-runtime-log{color:var(--text)}
+.qq-directory-controls input,.qq-directory-controls select{border-color:var(--room-outline);background:var(--paper)}
+.qq-components,.qq-directory,.qq-first-setup,.qq-friend-requests,.qq-media,.qq-voice{box-shadow:-12px 0 40px var(--room-shadow)}
+.qq-components::backdrop,.qq-directory::backdrop,.qq-first-setup::backdrop,.qq-friend-requests::backdrop,.qq-media::backdrop,.qq-voice::backdrop{background:#49304230}
+/* One stable decorative rule is enough outside the persona sign-in page. */
+@media(max-width:650px){.relationship-heading h1:after,.onboarding-header h1:after,.companion-manager-heading h2:after{display:none}}
+@media(prefers-reduced-motion:reduce){.sidebar *,.companion-switcher *,.onboarding-shell *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+.bot-inbox .voice-panel{background:var(--surface)}
+.bot-inbox .voice-panel .voice-reply{background:var(--room-soft)}
+.bot-inbox .voice-panel .voice-advanced{border-color:var(--line)}
+.bot-inbox .voice-panel :is(.voice-advanced summary,.voice-review-label){color:var(--muted)}
+.bot-inbox .voice-panel :is(.voice-editor,.voice-options select){color:var(--text);background:var(--paper);border-color:var(--room-outline)}
+.bot-inbox .voice-panel .voice-controls button:not(.primary){color:var(--text);background:var(--paper);border-color:var(--room-outline)}
+.bot-inbox .voice-panel .voice-controls button:not(.primary):hover:not(:disabled){background:var(--action-soft)}
+.bot-inbox .voice-panel .voice-check input{accent-color:var(--action)}
+.qq-voice :is(.qq-voice-player,.qq-voice-empty){background:var(--room-soft)}
+
+/* Local conversation history: one quiet action above the existing thread. */
+.local-history-control{max-width:700px;margin:0 auto 20px;text-align:center;overflow-anchor:none}
+.local-history-control[hidden]{display:none}
+.local-history-control button{font-size:14px;line-height:1.5;padding:7px 12px;color:var(--action);border-radius:6px}
+.local-history-control button:hover:not(:disabled){background:var(--action-soft)}
+.local-history-control button:disabled{color:var(--muted);cursor:wait}
+.local-history-feedback{margin:6px 0 0;font-size:12px;line-height:1.6;color:var(--muted);overflow-wrap:anywhere}
+
+/* The desktop composer owns its space; Latest stays between it and the thread. */
+.bot-inbox:has(>.desktop-chat)>.latest-message{position:static;transform:none;align-self:center;flex:none;margin:0 auto 4px}

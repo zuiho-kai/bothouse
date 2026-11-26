@@ -1,0 +1,17 @@
+{
+  "name": "@agent-arcade/transfer-helper",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Optional independent HTTPS resumable transfer service",
+  "engines": {"node": ">=24.18.0 <25"},
+  "scripts": {
+    "start": "node ../../src/transfer-helper/cli.cjs",
+    "test": "node ../../scripts/test.cjs"
+  },
+  "dependencies": {
+    "@tus/server": "2.4.7",
+    "@tus/utils": "0.7.3",
+    "yazl": "3.3.1"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schema": "agent_arcade_synthetic_voice_reference_v1",
+  "file": "serena-reference.wav",
+  "sha256": "20a9b9c687db1dc2e9c5783c3e915c9694e49118fff9e72dad56b1c32a37d179",
+  "bytes": 318764,
+  "format": {
+    "container": "WAV",
+    "encoding": "PCM signed 16-bit",
+    "sampleRate": 24000,
+    "channels": 1,
+    "frames": 159360,
+    "durationSeconds": 6.64
+  },
+  "origin": {
+    "kind": "locally_generated_synthetic_speech",
+    "generationDateUTC": "2026-11-05",
+    "projectAuthor": "Agent Arcade contributors (AI-assisted text and local synthesis)",
+    "modelAuthor": "Qwen Team",
+    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+    "modelRevision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+    "speaker": "Serena",
+    "speakerKind": "official named CustomVoice preset",
+    "language": "Chinese",
+    "text": "晚上好，今天过得怎么样？不着急，慢慢说，我在听。",
+    "referenceAudioUsed": false,
+    "microphoneOpened": false,
+    "audioUploaded": false,
+    "humanRecording": false,
+    "sourceArtifact": "qwen3-tts-serena.wav",
+    "copiedWithoutReencoding": true
+  },
+  "generation": {
+    "method": "Qwen3TTSModel.generate_custom_voice",
+    "seed": 20261105,
+    "maxNewTokens": 384,
+    "instruction": null,
+    "dtype": "bfloat16",
+    "attention": "sdpa",
+    "device": "cuda:0",
+    "python": "3.11.9",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "qwen-tts": "0.1.1",
+    "torch": "2.11.0+cu128",
+    "torchaudio": "2.11.0+cu128",
+    "transformers": "4.57.3",
+    "accelerate": "1.12.0",
+    "soundfile": "0.14.0"
+  },
+  "licensing": {
+    "projectContributionLicense": "MIT",
+    "grantScope": "The original text and generated project asset, to the extent Agent Arcade contributors hold licensable rights.",
+    "upstreamModelLicense": "Apache-2.0 as declared by the pinned upstream model card; separate from the project's output license.",
+    "humanPerformerReleaseClaimed": false,
+    "voiceIdentityOwnershipOrEndorsementClaimed": false,
+    "notice": "README.md and the repository THIRD_PARTY_NOTICES.md provide provenance and the license boundary."
+  },
+  "sources": {
+    "modelCard": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice/blob/0c0e3051f131929182e2c023b9537f8b1c68adfe/README.md",
+    "upstreamCode": "https://github.com/QwenLM/Qwen3-TTS"
+  }
+}

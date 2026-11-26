@@ -1,0 +1,199 @@
+/* Immersive layout: the companion's artwork fills a stage, the conversation is a glass column,
+   navigation floats as pills. Everything here is scoped to html[data-layout="immersive"].
+   Glass rule: a glass panel is >= 78% --surface and the artwork behind it is <= 22% opaque, so
+   text tokens keep the contrast they were solved for against --surface-2. */
+html[data-layout="immersive"]{
+  --bar-h:72px;
+  --glass:color-mix(in oklab,var(--surface) 80%,transparent);
+  --glass-strong:color-mix(in oklab,var(--surface) 90%,transparent);
+  --glass-line:color-mix(in oklab,var(--line-strong) 60%,transparent);
+  --glass-blur:blur(26px) saturate(1.35);
+}
+html[data-layout="immersive"] body{background:transparent}
+html[data-layout="immersive"] body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:
+  radial-gradient(72% 62% at 6% 104%,var(--tone-1),transparent 72%),
+  radial-gradient(58% 56% at 102% -4%,var(--tone-2),transparent 70%),
+  radial-gradient(52% 60% at 64% 118%,var(--tone-3),transparent 70%),
+  var(--bg)}
+/* Work is calmer: one plain tinted ground. */
+html[data-layout="immersive"][data-workspace="work"] body::before{background:var(--bg)}
+
+/* ---------- floating dock ---------- */
+html[data-layout="immersive"] .shell-bar{position:fixed;inset:12px 16px auto;height:48px;padding:0;gap:var(--sp-2);background:transparent;border:0;pointer-events:none}
+html[data-layout="immersive"] .shell-bar>*{pointer-events:auto}
+html[data-layout="immersive"] :is(.shell-brand,.shell-ws,.shell-nav,.shell-tools,.shell-observer){background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-line);border-radius:var(--r-full);box-shadow:var(--elev-1)}
+html[data-layout="immersive"] .shell-brand{width:48px;height:48px;justify-content:center}
+html[data-layout="immersive"] .shell-brand .brand-mark-image{width:34px;height:34px}
+html[data-layout="immersive"] .shell-ws{height:48px;padding:5px;align-items:center}
+html[data-layout="immersive"] .shell-ws-button{min-height:36px;padding:6px 16px}
+html[data-layout="immersive"] .shell-nav{height:48px;padding:5px;margin-inline:auto}
+html[data-layout="immersive"] .shell-nav .nav{min-height:36px;padding:6px 14px}
+html[data-layout="immersive"] .shell-nav .nav.active,html[data-layout="immersive"] .shell-nav .nav.active:hover{background:var(--accent);color:var(--on-accent)}
+html[data-layout="immersive"] .shell-nav .nav.active svg{color:inherit}
+html[data-layout="immersive"] .shell-tools{height:48px;padding:5px;margin-left:0}
+html[data-layout="immersive"] .shell-observer{height:48px;padding:0 14px}
+html[data-layout="immersive"] .shell-pop-panel{top:calc(100% + 14px)}
+html[data-layout="immersive"] main{padding:76px 16px 24px}
+/* Pages scroll under the floating bar: a blurred strip of the page colour keeps their text from
+   showing between the pills. The chat stage is fixed and never scrolls under the bar. */
+html[data-layout="immersive"] body:not([data-view=bot]) .shell-bar::before{content:"";position:fixed;inset:0 0 auto;height:76px;z-index:-1;pointer-events:none;background:color-mix(in oklab,var(--bg) 82%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);-webkit-mask-image:linear-gradient(#000 72%,transparent);mask-image:linear-gradient(#000 72%,transparent)}
+html[data-layout="immersive"] body.compact:not([data-view=bot]) .shell-bar::before{height:64px}
+
+/* ---------- pages float as sheets ---------- */
+html[data-layout="immersive"] .view:not(#bot-view),html[data-layout="immersive"] .view:not(#bot-view,#qq-runtime-view){max-width:1080px;margin:0 auto;padding:var(--sp-8) var(--sp-10) var(--sp-12);background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-line);border-radius:var(--r-lg);box-shadow:var(--elev-2)}
+html[data-layout="immersive"][data-workspace="work"] .view:not(#bot-view){background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--line);box-shadow:var(--elev-1)}
+html[data-layout="immersive"] :is(.settings-card,.work-section,.task-card,.relationship-body,.desktop-connection-entry,.onboarding-provider,.onboarding-account,.onboarding-chat,.onboarding-extra,.companion-manage-row){background:color-mix(in oklab,var(--surface) 72%,transparent);box-shadow:none}
+html[data-layout="immersive"] .shell-subnav{max-width:1080px;padding:0 0 var(--sp-3);justify-content:center}
+html[data-layout="immersive"] .shell-subnav-button{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border-color:var(--glass-line);min-height:36px;padding:6px 16px}
+html[data-layout="immersive"] .shell-subnav-button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}
+html[data-layout="immersive"] .shell-subnav:not([hidden])~.view{padding-top:var(--sp-8)}
+html[data-layout="immersive"] body:not([data-view=bot]) .companion-switcher{display:none}
+html[data-layout="immersive"] .page-heading h1,html[data-layout="immersive"] .relationship-heading h1,html[data-layout="immersive"] .onboarding-header h1,html[data-layout="immersive"] #work-content>h1,html[data-layout="immersive"] .companion-manager h2{font-size:var(--fs-2xl);line-height:1.2;font-weight:650}
+
+/* ---------- character library: 3:4 artwork tiles ---------- */
+html[data-layout="immersive"] .characters-grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:var(--sp-4);margin-bottom:var(--sp-8)}
+html[data-layout="immersive"] .characters-card{display:block;aspect-ratio:3/4;padding:0;overflow:hidden;border-radius:var(--r-lg);border:1px solid var(--glass-line);background:var(--surface-2);box-shadow:var(--elev-1);isolation:isolate}
+html[data-layout="immersive"] .characters-card:hover{transform:translateY(-3px);box-shadow:var(--elev-2);border-color:var(--accent-line)}
+html[data-layout="immersive"] .characters-card[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),var(--elev-2)}
+html[data-layout="immersive"] .characters-card .characters-portrait{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;z-index:-1;background:linear-gradient(160deg,oklch(78% .09 var(--tile-h,var(--accent-h))),oklch(52% .11 calc(var(--tile-h,var(--accent-h)) + 30)))}
+html[data-layout="immersive"] .characters-card .characters-portrait img{object-position:center top}
+html[data-layout="immersive"] .characters-card .characters-portrait span{font-size:72px;font-weight:650;line-height:1;color:rgb(255 255 255/.92);margin-bottom:28%}
+html[data-layout="immersive"] .characters-card .characters-card-body{position:absolute;inset:auto 0 0;display:grid;gap:2px;padding:44px 14px 12px;background:linear-gradient(transparent,rgb(12 8 10/.78) 62%);color:#fff;text-align:left}
+html[data-layout="immersive"] .characters-card .characters-card-body strong{font-size:var(--fs-md);line-height:1.4;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+html[data-layout="immersive"] .characters-card .characters-meta{color:rgb(255 255 255/.86);font-size:var(--fs-xs);line-height:1.5;white-space:nowrap;text-overflow:ellipsis}
+html[data-layout="immersive"] .characters-card:has(.characters-badge) .characters-card-body{padding-top:44px}
+html[data-layout="immersive"] .characters-card .characters-badge{top:10px;left:10px;right:auto;border:0;background:var(--accent);color:var(--on-accent);font-weight:600;padding:3px 10px}
+html[data-layout="immersive"] .characters-detail{max-width:none}
+html[data-layout="immersive"] .characters-portrait-large{width:120px;height:160px;border-radius:var(--r-md)}
+
+/* ---------- the stage (chat view) ---------- */
+html[data-layout="immersive"] body[data-view=bot] main{padding:0}
+html[data-layout="immersive"] #bot-view,html[data-layout="immersive"] .compact #bot-view{position:fixed;inset:0;height:auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) min(720px,56vw);grid-template-rows:auto auto auto auto auto minmax(0,1fr);padding:72px 16px 16px 0;background:transparent;border:0;border-radius:0;overflow:hidden}
+html[data-layout="immersive"] #bot-view>*{grid-column:2;position:relative;z-index:1;min-width:0}
+html[data-layout="immersive"] #bot-view::after{content:"";grid-column:2;grid-row:2/-1;z-index:0;min-height:0;border-radius:var(--r-lg);background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-line);box-shadow:var(--elev-2)}
+html[data-layout="immersive"] #bot-view>.chat-heading{grid-row:2;min-height:60px;padding:var(--sp-3) var(--sp-5);border-bottom:1px solid var(--glass-line)}
+html[data-layout="immersive"] #bot-view>#bot-problem{grid-row:3;margin:var(--sp-3) var(--sp-5) 0}
+html[data-layout="immersive"] #bot-view>#bot-problem-qq-runtime{grid-row:4;justify-self:start;margin:var(--sp-1) var(--sp-5) 0}
+html[data-layout="immersive"] #bot-view>#bot-saved-connection-host{grid-row:5;margin:var(--sp-2) var(--sp-5) 0}
+html[data-layout="immersive"] #bot-view>.bot-layout{grid-row:6;min-height:0;overflow:hidden;border-radius:0 0 var(--r-lg) var(--r-lg)}
+html[data-layout="immersive"] .bot-inbox{padding:0 var(--sp-5)}
+/* Connection settings open beside the thread, inside the same glass column. */
+html[data-layout="immersive"] .bot-layout:has(.bot-setup[open]){grid-template-columns:minmax(0,1fr) min(344px,50%)}
+html[data-layout="immersive"] .bot-setup{background:color-mix(in oklab,var(--surface) 62%,transparent);border-left:1px solid var(--glass-line)}
+html[data-layout="immersive"] .bot-layout:has(.bot-setup[open]) .chat-empty h2{font-size:var(--fs-lg)}
+html[data-layout="immersive"] .chat-identity h1,html[data-layout="immersive"] .compact .chat-identity h1{font-size:var(--fs-lg)}
+html[data-layout="immersive"] .bot-thread-scroll{flex:1 1 120px;min-height:120px}
+html[data-layout="immersive"] #bot-mascot,html[data-layout="immersive"] body[data-portrait=anime] #bot-mascot{display:none}
+html[data-layout="immersive"] .inspector-toggle span{display:none}
+html[data-layout="immersive"] .inspector-toggle{width:36px;padding:0;justify-content:center;border-radius:var(--r-full)}
+html[data-layout="immersive"] .bot-heading-actions .secondary{border-radius:var(--r-full)}
+/* Bubbles on glass sit on solid surfaces. */
+html[data-layout="immersive"] .bot-message.from-agent>.message-body{background:var(--surface);border:1px solid var(--glass-line);box-shadow:var(--elev-1)}
+html[data-layout="immersive"] .bot-message.from-user>.message-body{box-shadow:var(--elev-1)}
+html[data-layout="immersive"] .desktop-chat{margin:var(--sp-2) 0 var(--sp-4);box-shadow:var(--elev-2)}
+html[data-layout="immersive"] .bot-input-note,html[data-layout="immersive"] .bot-preview{padding-bottom:var(--sp-2)}
+html[data-layout="immersive"] .chat-empty h2{font-size:var(--fs-xl)}
+
+/* Backdrop and artwork */
+html[data-layout="immersive"] #bot-view>.imm-backdrop{grid-column:1/-1;grid-row:1/-1;position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+html[data-layout="immersive"] .imm-backdrop img{position:absolute;inset:-8%;width:116%;height:116%;object-fit:cover;object-position:center 20%;filter:blur(48px) saturate(1.25);opacity:.22}
+html[data-layout="immersive"] .imm-backdrop img:not([src]){display:none}
+/* The artwork never runs under the glass column: text there must not depend on what a portrait happens to contain. */
+html[data-layout="immersive"] #bot-view>.imm-art{grid-column:1;grid-row:1/-1;z-index:0;container-type:size;overflow:clip;pointer-events:none;margin-top:-72px;margin-bottom:-16px}
+html[data-layout="immersive"] .imm-figures{position:absolute;inset:0}
+html[data-layout="immersive"] .imm-figure{position:absolute;margin:0;bottom:0;transition:transform .35s cubic-bezier(.2,.7,.2,1),filter .35s,opacity .35s}
+html[data-layout="immersive"] .imm-figure img{display:block;width:100%;height:100%}
+/* Built-in personas: a transparent bust, standing on the bottom edge. */
+html[data-layout="immersive"] .imm-bust{left:50%;bottom:-2cqh;width:min(112cqw,94cqh);aspect-ratio:1;transform:translateX(-47%);filter:drop-shadow(0 18px 40px rgb(0 0 0/.22))}
+html[data-layout="immersive"] .imm-bust img{object-fit:contain;object-position:center bottom}
+html[data-layout="immersive"] .imm-bust::before{content:"";position:absolute;left:8%;right:8%;bottom:6%;aspect-ratio:1;border-radius:50%;z-index:-1;background:radial-gradient(closest-side,color-mix(in oklab,var(--accent) 34%,transparent),transparent)}
+/* Library characters: the card art as a tall poster that dissolves into the stage. */
+html[data-layout="immersive"] .imm-card{left:max(24px,6cqw);height:min(calc(100cqh - 96px),150cqw);width:auto;aspect-ratio:var(--ratio,2/3);max-width:calc(100cqw - 48px);border-radius:28px 28px 0 0;overflow:hidden;box-shadow:0 24px 60px rgb(0 0 0/.25);-webkit-mask-image:linear-gradient(#000 66%,transparent 99%);mask-image:linear-gradient(#000 66%,transparent 99%)}
+html[data-layout="immersive"] .imm-card img{object-fit:cover;object-position:center top}
+html[data-layout="immersive"] .imm-monogram{display:grid;place-items:center;width:100%;height:100%;background:linear-gradient(165deg,oklch(80% .09 var(--fig-h,var(--accent-h))),oklch(50% .12 calc(var(--fig-h,var(--accent-h)) + 34)));color:rgb(255 255 255/.92);font-size:min(46cqw,220px);font-weight:650;line-height:1;padding-bottom:22%}
+/* Groups: up to three posters, the current speaker in front. */
+html[data-layout="immersive"] .imm-art[data-kind=group] .imm-card{width:46cqw;height:auto;aspect-ratio:2/3;max-height:calc(100cqh - 150px);filter:saturate(.75) brightness(.86)}
+html[data-layout="immersive"] .imm-art[data-kind=group] .imm-card:nth-child(1){left:3cqw;z-index:1}
+html[data-layout="immersive"] .imm-art[data-kind=group] .imm-card:nth-child(2){left:27cqw;z-index:2;transform:translateY(-3cqh)}
+html[data-layout="immersive"] .imm-art[data-kind=group] .imm-card:nth-child(3){left:51cqw;z-index:1}
+html[data-layout="immersive"] .imm-art[data-kind=group] .imm-card.is-speaker{z-index:3;filter:none;transform:translateY(-5cqh) scale(1.06)}
+html[data-layout="immersive"] .imm-art[data-count="2"] .imm-card:nth-child(1){left:8cqw}
+html[data-layout="immersive"] .imm-art[data-count="2"] .imm-card:nth-child(2){left:44cqw}
+/* Name plate */
+html[data-layout="immersive"] .imm-nameplate{position:absolute;left:24px;bottom:28px;z-index:4;display:grid;gap:2px;max-width:calc(100% - 48px);padding:var(--sp-3) var(--sp-5) var(--sp-3) var(--sp-4);border-left:4px solid var(--accent);border-radius:var(--r-sm) var(--r-md) var(--r-md) var(--r-sm);background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);box-shadow:var(--elev-2);color:var(--text)}
+html[data-layout="immersive"] .imm-nameplate-kicker{font-size:var(--fs-xs);line-height:1.5;color:var(--muted)}
+html[data-layout="immersive"] .imm-nameplate strong{font-size:var(--fs-2xl);line-height:1.2;font-weight:650;overflow-wrap:anywhere}
+html[data-layout="immersive"] .imm-nameplate-sub{font-size:var(--fs-sm);line-height:1.5;color:var(--muted)}
+html[data-layout="immersive"] .imm-nameplate-sub:empty,html[data-layout="immersive"] .imm-nameplate-kicker:empty{display:none}
+
+/* Top-left control: current companion (+ switch) and where the conversation happens */
+html[data-layout="immersive"] #bot-view>.imm-control{grid-column:1;grid-row:1/-1;align-self:start;justify-self:start;z-index:7;display:flex;align-items:flex-start;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-2) var(--sp-3) 0 16px;max-width:calc(100% - 28px)}
+html[data-layout="immersive"] .imm-companion{position:relative;display:flex}
+html[data-layout="immersive"] .imm-chip{display:flex;align-items:center;gap:var(--sp-2);min-height:44px;padding:4px 12px 4px 5px;border:1px solid var(--glass-line);border-radius:var(--r-full);background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);box-shadow:var(--elev-1);color:var(--text);text-align:left}
+html[data-layout="immersive"] .imm-chip:hover,html[data-layout="immersive"] .imm-chip[aria-expanded=true]{border-color:var(--accent)}
+html[data-layout="immersive"] .imm-chip img{width:34px;height:34px;border-radius:50%;object-fit:contain;background:var(--surface-2)}
+html[data-layout="immersive"] .imm-chip img:not([src]){display:none}
+html[data-layout="immersive"] .imm-chip-text{display:grid;min-width:0}
+html[data-layout="immersive"] .imm-chip strong{font-size:var(--fs-sm);line-height:1.4;font-weight:600;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-layout="immersive"] .imm-chip small{font-size:var(--fs-xs);line-height:1.4;color:var(--muted);white-space:nowrap}
+html[data-layout="immersive"] .imm-chip svg{flex:none;color:var(--muted)}
+html[data-layout="immersive"] .imm-companion .companion-switcher{display:none}
+html[data-layout="immersive"] .imm-companion[data-open=true] .companion-switcher{display:flex;flex-direction:column;align-items:stretch;gap:var(--sp-2);position:absolute;top:calc(100% + 8px);left:0;z-index:8;width:max-content;min-width:240px;max-width:min(320px,calc(100vw - 32px));max-height:min(60vh,420px);overflow:auto;height:auto;padding:var(--sp-2);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--elev-2)}
+html[data-layout="immersive"] .imm-companion .companion-tabs{flex-direction:column;align-items:stretch;gap:2px;overflow:visible}
+html[data-layout="immersive"] .imm-companion .companion-tab{border-radius:var(--r-sm)}
+html[data-layout="immersive"] .imm-companion .companion-switcher>.plain{text-align:left;border-top:1px solid var(--line);border-radius:0 0 var(--r-sm) var(--r-sm);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sm);color:var(--accent-ink)}
+html[data-layout="immersive"] .imm-control .desktop-conversation-choice{display:flex;align-items:center;gap:var(--sp-1) var(--sp-2);flex-wrap:wrap;min-height:44px;max-width:100%;margin:0;padding:4px 6px;border:1px solid var(--glass-line);border-radius:22px;background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);box-shadow:var(--elev-1)}
+html[data-layout="immersive"] .imm-control .desktop-conversation-row{gap:var(--sp-1);flex-wrap:nowrap}
+html[data-layout="immersive"] .imm-control .desktop-conversation-options{background:transparent;padding:0;flex-wrap:nowrap}
+html[data-layout="immersive"] .imm-control .desktop-conversation-options button[aria-pressed=true]{background:var(--accent-soft);box-shadow:none}
+html[data-layout="immersive"] .imm-control .desktop-conversation-note{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+html[data-layout="immersive"] .imm-control .desktop-conversation-status{flex:1 1 100%;margin:0;padding:2px 8px 4px;font-size:var(--fs-xs);max-width:44ch}
+html[data-layout="immersive"] .imm-control .desktop-conversation-choice>button{margin:0 0 4px 6px;min-height:30px;padding:4px 12px;border-radius:var(--r-full)}
+
+/* ---------- narrow: the artwork steps aside, the glass column takes the width ---------- */
+@media(max-width:999px){
+  html[data-layout="immersive"] #bot-view{grid-template-columns:minmax(0,1fr);padding:68px 12px 12px}
+  html[data-layout="immersive"] #bot-view>*,html[data-layout="immersive"] #bot-view::after{grid-column:1}
+  html[data-layout="immersive"] #bot-view>.imm-art{display:none}
+  html[data-layout="immersive"] #bot-view>.imm-control{grid-column:1;grid-row:1;margin:0 0 var(--sp-2);max-width:100%}
+  html[data-layout="immersive"] body:not([data-desktop-group]) #bot-mascot{display:block}
+  html[data-layout="immersive"] .view:not(#bot-view),html[data-layout="immersive"] .view:not(#bot-view,#qq-runtime-view){padding:var(--sp-6) var(--sp-5) var(--sp-10)}
+  html[data-layout="immersive"] .shell-nav{margin-inline:auto}
+}
+html[data-layout="immersive"] .compact #bot-view{grid-template-columns:minmax(0,1fr);padding:64px 8px 8px}
+html[data-layout="immersive"] .compact #bot-view>*,html[data-layout="immersive"] .compact #bot-view::after{grid-column:1}
+html[data-layout="immersive"] .compact #bot-view>.imm-art{display:none}
+html[data-layout="immersive"] .compact #bot-view>.imm-control{grid-column:1;grid-row:1;margin:0 0 var(--sp-2);max-width:100%}
+html[data-layout="immersive"] body.compact:not([data-desktop-group]) #bot-mascot{display:block}
+html[data-layout="immersive"] .compact .shell-bar{inset:8px 8px auto;gap:var(--sp-1)}
+html[data-layout="immersive"] .compact .shell-brand,html[data-layout="immersive"] .compact .shell-tools>[data-view=settings]{display:none}
+html[data-layout="immersive"] .compact .shell-tools{margin-left:auto}
+html[data-layout="immersive"] .compact .shell-tools .compact-nav{border:0;background:transparent;margin:0}
+html[data-layout="immersive"] .compact .shell-ws,html[data-layout="immersive"] .compact .shell-tools{height:44px;padding:5px}
+html[data-layout="immersive"] .compact .shell-ws-button{min-height:32px;padding:4px 9px}
+html[data-layout="immersive"] .compact main{padding:68px 8px 16px}
+html[data-layout="immersive"] .compact .view:not(#bot-view),html[data-layout="immersive"] .compact .view:not(#bot-view,#qq-runtime-view){padding:var(--sp-5) var(--sp-4) var(--sp-8);border-radius:var(--r-md)}
+html[data-layout="immersive"] .compact .bot-inbox{padding:0 var(--sp-3)}
+html[data-layout="immersive"] .compact .chat-heading{padding:var(--sp-2) var(--sp-3)}
+html[data-layout="immersive"] .compact .characters-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:var(--sp-3)}
+html[data-layout="immersive"] .compact .page-heading h1,html[data-layout="immersive"] .compact .relationship-heading h1,html[data-layout="immersive"] .compact .onboarding-header h1{font-size:var(--fs-xl)}
+@media(max-width:600px){
+  html[data-layout="immersive"] .shell-brand{display:none}
+  html[data-layout="immersive"] .shell-tools{margin-left:auto}
+  html[data-layout="immersive"] main{padding:68px 8px 16px}
+  html[data-layout="immersive"] #bot-view{padding:64px 8px 8px}
+}
+@media(prefers-reduced-motion:reduce){html[data-layout="immersive"] .imm-figure,html[data-layout="immersive"] .characters-card{transition:none}html[data-layout="immersive"] .characters-card:hover{transform:none}}
+@media(prefers-reduced-transparency:reduce){html[data-layout="immersive"]{--glass:var(--surface);--glass-strong:var(--surface);--glass-blur:none}}
+@media(forced-colors:active){html[data-layout="immersive"] .imm-backdrop,html[data-layout="immersive"] .imm-art{display:none}}
+/* Notes and Tasks on the glass sheet */
+html[data-layout="immersive"] :is(.kn-item,.tb-card,.tb-sandbox){background:color-mix(in oklab,var(--surface) 78%,transparent)}
+html[data-layout="immersive"] .tb-column{border-radius:var(--r-lg);background:color-mix(in oklab,var(--surface-2) 70%,transparent)}
+html[data-layout="immersive"] .tb-card{border-radius:14px}
+
+/* Fit the floating dock at phone-sized window widths without hiding tools. */
+@media(max-width:600px){
+  html[data-layout="immersive"] .shell-ws-button{padding:6px 9px}
+  html[data-layout="immersive"] .shell-tool,html[data-layout="immersive"] .shell-tools .quiet{width:32px;height:32px}
+  html[data-layout="immersive"] .shell-tools .shell-tool-text{width:auto;min-width:32px;padding:0 6px}
+}

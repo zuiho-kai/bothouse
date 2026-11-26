@@ -1,0 +1,119 @@
+#qq-daily-group-settings {
+  box-sizing:border-box;
+  width:min(39rem, calc(100vw - 24px));
+  max-width:100vw;
+  max-height:calc(100dvh - 24px);
+  padding:0;
+  color:var(--text);
+  background:var(--surface);
+  overflow:hidden;
+}
+#qq-daily-group-settings[open] { display:flex; flex-direction:column; }
+#qq-daily-group-settings::backdrop {background:rgba(21,18,24,.36)}
+.qq-daily-header,.qq-daily-context,.qq-daily-tabs {
+  flex:none;
+  padding-inline:clamp(12px,3vw,24px);
+}
+.qq-daily-header {display:flex;justify-content:space-between;align-items:center;gap:12px;padding-block:10px 6px}
+#qq-daily-title {margin:0;font-size:var(--fs-lg);line-height:1.35}
+.qq-daily-context {display:grid;grid-template-columns:1fr 1fr;gap:12px;padding-bottom:10px}
+.qq-daily-context label {min-width:0;font-size:var(--fs-sm);color:var(--muted)}
+#qq-daily-group-settings select,#qq-daily-group-settings textarea {max-width:100%;box-sizing:border-box}
+.qq-daily-context select,#qq-daily-group-settings #bot-qq-group-role-card {display:block;width:100%;min-width:0;margin-top:3px}
+#qq-daily-notice {margin:0;padding:0 20px 8px;color:var(--muted)}
+.qq-daily-tabs {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;align-items:stretch;border-bottom:1px solid var(--line)}
+.qq-daily-tabs button {padding:6px 10px;border:0;border-radius:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:var(--fs-sm)}
+.qq-daily-tabs button[aria-pressed=true] {color:var(--accent-ink);border-bottom-color:var(--accent);font-weight:650}
+#qq-daily-body {min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.qq-group-membership {padding:10px clamp(12px,3vw,24px);border-bottom:1px solid var(--line)}
+.qq-group-membership p {margin:0 0 5px}
+.qq-membership-actions,.qq-group-membership [data-add-form] {display:flex;align-items:end;flex-wrap:wrap;gap:5px 8px}
+.qq-group-membership [data-add-form],.qq-group-membership [data-review] {margin-top:8px}
+.qq-group-membership [data-add-form] label {display:grid;gap:3px;min-width:0}
+.qq-group-membership [data-add-effects] {flex-basis:100%;margin:0}
+.qq-group-membership [data-feedback] {margin:6px 0 0;color:var(--accent-ink)}
+#qq-daily-group-settings #bot-qq-groups {display:block;border:0;border-radius:0;box-shadow:none;padding:0;margin:0;background:transparent}
+#qq-daily-group-settings #bot-qq-groups>section {min-width:0;padding:12px clamp(12px,3vw,24px) 16px}
+#qq-daily-group-settings [hidden] {display:none!important}
+#qq-daily-group-settings p {overflow-wrap:anywhere;line-height:1.45}
+#qq-daily-group-settings p:empty {display:none}
+#qq-daily-group-settings #bot-qq-group-roles {margin:0;border:0;padding:0;background:transparent}
+#qq-daily-group-settings #bot-qq-group-roles>summary,
+#qq-daily-group-settings [for="bot-qq-group-role-group"],
+#qq-daily-group-settings #bot-qq-group-role-group,
+#qq-daily-group-settings #bot-qq-group-role-binding,
+#qq-daily-group-settings #bot-qq-group-voice-privacy,
+#qq-daily-group-settings #bot-qq-groups-title,
+#qq-daily-group-settings [data-bot="qqGroupsNote"] {display:none}
+#qq-daily-group-settings #bot-qq-group-role-current {font-weight:650;margin:0 0 8px}
+#qq-daily-group-settings #bot-qq-group-role-clear:disabled {display:none}
+#qq-daily-group-settings #bot-qq-group-role-controls .qq-actions {display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+#qq-daily-group-settings #bot-qq-group-role-preview {position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;align-items:baseline;margin:8px 0 0;padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md)}
+#qq-daily-group-settings #bot-qq-group-role-preview h3 {grid-column:1/-1;margin:0;font-size:var(--fs-md)}
+#qq-daily-group-settings :is(#bot-qq-group-role-preview-scope, #bot-qq-group-role-preview [data-bot="qqGroupRolesNote"]) {grid-column:1/-1;color:var(--muted)}
+#qq-daily-group-settings :is(#bot-qq-group-role-preview-description,#bot-qq-group-role-preview-examples) {max-height:6.5em;overflow:auto}
+#qq-daily-group-settings #bot-qq-group-role-preview h4 {margin:6px 0 1px;font-size:var(--fs-sm);color:var(--muted)}
+#qq-daily-group-settings #bot-qq-group-role-preview p {white-space:pre-wrap;margin:0}
+#qq-daily-group-settings #bot-qq-group-role-preview .qq-actions {grid-column:1/-1;position:sticky;bottom:0;background:var(--surface-2);padding-block:5px}
+#qq-daily-policy-footer {display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;flex:none;border-top:1px solid var(--line);padding:8px clamp(12px,3vw,24px);background:var(--surface)}
+#qq-daily-policy-footer .qq-actions {margin:0}
+#qq-daily-policy-panel #bot-qq-outgoing-save {display:none}
+#qq-daily-policy-panel #bot-qq-group-outgoing {margin-top:0}
+#bot-qq-public-web {box-sizing:border-box;min-width:0;max-width:100%;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm)}
+#bot-qq-public-web h3 {margin:0;font-size:var(--fs-sm)}
+#bot-qq-public-web-state {margin:4px 0;overflow-wrap:anywhere}
+#bot-qq-public-web .qq-web-actions {display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:6px 0}
+#bot-qq-public-web .qq-web-actions label {display:flex;align-items:center;gap:6px;margin:0;text-align:left}
+#bot-qq-public-web .qq-web-actions input {width:auto;margin:0}
+#bot-qq-public-web-source {margin:4px 0 0}
+#bot-qq-public-web-endpoint {box-sizing:border-box;width:100%;max-width:100%;margin-bottom:6px}
+#bot-qq-public-web-feedback {margin:4px 0 0}
+#bot-qq-public-web-feedback:empty {display:none}
+#qq-daily-policy-panel :is(#bot-qq-outgoing-account,label[for="bot-qq-outgoing-group"],#bot-qq-outgoing-group),
+#qq-daily-policy-panel #bot-qq-group-outgoing:has([data-card-image])>[data-bot="qqOutgoingNote"] {display:none}
+#qq-daily-policy-panel .qq-card-image {min-width:0;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+#qq-daily-policy-panel .qq-card-image:first-child {margin-top:0;padding-top:0;border-top:0}
+#qq-daily-policy-panel .qq-card-image h4 {margin:0 0 4px;font-size:var(--fs-sm);color:var(--text)}
+#qq-daily-policy-panel .qq-card-image-selection {display:flex;align-items:center;gap:10px;margin-bottom:6px}
+#qq-daily-policy-panel .qq-card-image-selection>div {flex:1;min-width:0}
+#qq-daily-policy-panel .qq-card-image-preview {width:clamp(56px,16vw,88px);height:clamp(56px,16vw,88px);flex:none;object-fit:contain;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm)}
+#qq-daily-policy-panel .qq-card-image .qq-actions {display:flex;flex-wrap:wrap;gap:4px 8px;margin:4px 0 0}
+#qq-group-named-sticker-picker {width:min(26rem,calc(100vw - 24px));box-sizing:border-box;max-height:calc(100dvh - 20px);overflow:auto;padding:16px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md)}
+#qq-group-named-sticker-picker::backdrop {background:rgba(21,18,24,.36)}
+#qq-group-named-sticker-picker h2 {font-size:var(--fs-lg);margin:0}
+#qq-group-named-sticker-picker :is(p,label) {display:block;margin:6px 0;overflow-wrap:anywhere}
+#qq-group-named-sticker-picker select {max-width:100%;width:100%}
+#qq-group-named-sticker-picker .qq-picker-image {display:block;max-width:100%;width:auto;max-height:min(180px,30dvh);object-fit:contain;margin:10px auto}
+#qq-group-named-sticker-picker [hidden] {display:none!important}
+#qq-group-named-sticker-picker .qq-picker-actions {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:12px}
+#qq-group-named-sticker-picker .qq-picker-permissions {min-width:0;margin:10px 0 0;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-sm)}
+#qq-group-named-sticker-picker .qq-picker-permissions label {display:flex;align-items:center;gap:6px}
+#qq-daily-policy-panel .qq-sticker-collection h5 {margin:10px 0 5px;font-size:var(--fs-sm)}
+#qq-daily-policy-panel .qq-sticker-collection select {display:block;max-width:100%;width:100%;margin:4px 0 7px}
+#qq-daily-policy-panel .qq-sticker-collection small {display:block;overflow-wrap:anywhere}
+#qq-daily-policy-panel .qq-card-image [hidden] {display:none!important}
+#qq-daily-group-settings #bot-qq-group-role-approve,#qq-daily-group-settings #bot-qq-groups-save:not(:disabled) {background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+#qq-daily-group-settings .qq-group-media {min-width:0;margin:0 0 10px;padding:6px 10px 8px;border:1px solid var(--line);border-radius:var(--r-sm)}
+#qq-daily-group-settings .qq-group-media small {display:block;line-height:1.45}
+#qq-group-image-workflows .qq-actions {display:flex;gap:6px 10px;flex-wrap:wrap;margin:6px 0}
+#qq-group-drawing-share {margin-top:7px}
+#qq-group-image-workflows [role="status"]:empty {display:none}
+#qq-group-image-workflows #qq-drawing-service {overflow-wrap:anywhere}
+#qq-daily-group-settings .qq-group-toggle {display:flex;align-items:flex-start;gap:8px;margin:4px 0;font-size:var(--fs-sm)}
+#qq-daily-group-settings .qq-group-toggle input {flex:none;margin-top:3px}
+#qq-daily-group-settings #bot-qq-groups-feedback,#qq-daily-group-settings #bot-qq-group-role-feedback {margin:6px 0;color:var(--accent-ink)}
+#qq-daily-group-settings #qq-daily-advanced-panel details {margin-block:8px}
+#qq-daily-group-settings #qq-daily-advanced-panel label {display:block}
+#qq-daily-group-settings #bot-qq-group-ids {width:100%}
+#qq-daily-group-settings :focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:480px) {
+  #qq-daily-group-settings {width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}
+  .qq-daily-context {gap:8px}
+  .qq-daily-tabs button {padding-inline:7px}
+}
+@media(max-height:500px) {
+  #qq-daily-policy-panel .qq-card-image-preview {width:68px;height:68px}
+  #qq-daily-group-settings .qq-daily-header {padding-block:4px 2px}
+  #qq-daily-group-settings .qq-daily-context {padding-bottom:4px}
+  #qq-daily-group-settings .qq-daily-tabs button {padding-block:3px}
+}

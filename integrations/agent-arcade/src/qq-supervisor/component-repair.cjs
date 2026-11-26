@@ -1,0 +1,31 @@
+'use strict';
+const {performance}=require('node:perf_hooks');
+const P=require('./policy.cjs'),C=require('./component-repair-policy.cjs');
+const M=require('../bot/qq-managed-shell-repair-metadata.cjs');
+const {QQManagedShellCodeRepair}=require('../bot/qq-managed-shell-code-repair.cjs');
+class SupervisorComponentRepair{
+ constructor(config,{runtime,now=Date.now,monotonic=()=>performance.now(),helperFactory=o=>new QQManagedShellCodeRepair(o)}={}){Object.assign(this,{config,runtime,now,monotonic,helperFactory,helper:null,ticket:null,closed:false});}
+ capability(){return C.capability({supported:true,enabled:this.config.componentRepair?.enabled===true,component:'napcat-shell',version:C.VERSION,versionId:C.VERSION_ID,scope:'shared-fixed-shell-code',source:'verified-local-cache-only',requiresStoppedRuntime:true,automaticStart:false,automaticStop:false,versionChange:false,maxResponseBytes:C.MAX_RESPONSE_BYTES});}
+ _check(o={}){if(this.closed)C.fail('closed');if(!this.capability().enabled)C.fail('component_repair_disabled',403);if(o.signal?.aborted)C.fail('cancelled');const r=o.assertCurrent?.();if(r&&typeof r.then==='function'){Promise.resolve(r).catch(()=>{});C.fail('invalid_request');}}
+ _binding(){const i=this.config.installation,m=M.readManagedShellRepairMetadata({root:i.componentStoreRoot,setupId:i.setupId}),{codePresence,...metadata}=m.repairMetadata;return P.hash(JSON.stringify({installation:i,installationId:m.installationId,descriptorSha256:m.descriptorSha256,current:m.current,repairMetadata:metadata}));}
+ _helper(){if(!this.helper){const i=this.config.installation,host=this.runtime?.manager?.host;if(typeof host?.snapshot!=='function')C.fail('unsupported_installation');this.helper=this.helperFactory({root:i.componentStoreRoot,setupId:i.setupId,lockRoot:i.lockRoot,processHost:host,now:this.now,monotonic:this.monotonic});if(['inspect','preview','confirm','reconcilePreview','reconcileConfirm','discard','close'].some(k=>typeof this.helper?.[k]!=='function'))C.fail('invalid_response');}return this.helper;}
+ _options(o,binding){return {signal:o.signal,assertCurrent:()=>{this._check(o);if(this._binding()!==binding)C.fail('changed');}};}
+ async inspect(o={}){this._check(o);this.ticket=null;const h=this._helper();if((await h.discard())?.discarded!==true)C.fail('cleanup_unconfirmed');this._check(o);const binding=this._binding(),raw=await h.inspect(this._options(o,binding));this._check(o);if(this._binding()!==binding)C.fail('changed');return C.inspection(raw);}
+ async preview(input,o={}){input=C.previewRequest(input);this._check(o);this.ticket=null;const binding=this._binding(),h=this._helper(),options=this._options(o,binding),raw=input.action==='repair'?await h.preview({observationId:input.observationId,...options}):await h.reconcilePreview({operationId:input.operationId,decision:input.action,...options});this._check(o);if(this._binding()!==binding)C.fail('changed');if(input.action!=='repair'&&raw.operationId!==input.operationId||raw.operation!==(input.action==='repair'?'shell-code-repair':'shell-code-reconcile')||input.action!=='repair'&&raw.decision!==input.action)C.fail('invalid_response');
+  const effects={replacesCode:['repair','complete-prepared'].includes(input.action),retainsOriginalTreeIfPresent:input.action==='repair',restoresOriginalCode:input.action==='restore-original',settlesExistingPublication:input.action==='acknowledge-complete',removesRetainedCode:false,changesDescriptors:false,changesPreparedManifest:false,writesAccountData:false,changesWorkPaths:false,versionChange:false,automaticStop:false,automaticStart:false};
+  // Validate the helper's effect promises before projecting the common wire form.
+  const required=input.action==='repair'?{replacesCode:true,retainsOriginalTreeIfPresent:true,changesDescriptors:false,changesPreparedManifest:false,writesAccountData:false,changesWorkPaths:false,versionChange:false,automaticStop:false,automaticStart:false}:{publishesPreparedCode:input.action==='complete-prepared',restoresOriginalCode:input.action==='restore-original',settlesExistingPublication:input.action==='acknowledge-complete',removesRetainedCode:false,changesDescriptors:false,changesPreparedManifest:false,writesAccountData:false,automaticStart:false,automaticStop:false,versionChange:false};
+  if(!raw.effects||Object.entries(required).some(([k,v])=>raw.effects[k]!==v))C.fail('invalid_response');
+  const value=C.preview({action:input.action,operationId:raw.operationId,ticketId:raw.ticketId,expectedDigest:raw.expectedDigest,expiresAt:raw.expiresAt,component:raw.component,version:raw.version,versionId:raw.versionId,scope:raw.scope,source:input.action==='repair'?raw.source:null,previousTree:input.action==='repair'?raw.previousTree:null,effects});
+  this.ticket={...value,binding,helper:h,deadline:this.monotonic()+Math.min(300000,Math.max(0,value.expiresAt-this.now()))};return value;
+ }
+ take(input,o={}){input=C.request(input);this._check(o);const t=this.ticket;this.ticket=null;if(!t||['action','operationId','ticketId','expectedDigest'].some(k=>input[k]!==t[k]))C.fail('stale_ticket');if(this.monotonic()>=t.deadline)C.fail('preview_expired');if(this._binding()!==t.binding)C.fail('changed');return t;}
+ async confirm(input,t,o={}){this._check(o);if(t.helper!==this.helper)C.fail('changed');const options=this._options(o,t.binding),request={ticketId:t.ticketId,expectedDigest:t.expectedDigest,...options};const raw=t.action==='repair'?await t.helper.confirm(request):await t.helper.reconcileConfirm(request);if(raw?.operationId!==input.operationId||raw.operation!==(input.action==='repair'?'shell-code-repair':'shell-code-reconcile'))C.fail('invalid_response');
+  // The primitive rechecks all current/stop/gate proofs before mutation. Do not
+  // discard a known publication because the caller disconnected afterwards.
+  return C.result({...raw,receiptId:input.requestId,action:input.action});
+ }
+ async discard(){this.ticket=null;if(this.helper&&(await this.helper.discard())?.discarded!==true)C.fail('cleanup_unconfirmed');return {discarded:true};}
+ async close(){this.ticket=null;if(this.helper&&(await this.helper.close())?.closed!==true)C.fail('cleanup_unconfirmed');this.helper=null;this.closed=true;return {closed:true};}
+}
+module.exports={SupervisorComponentRepair};

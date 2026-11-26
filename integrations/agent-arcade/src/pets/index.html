@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-+29mFWLOnEofR/KNNSl2sIjdZ/OG7ab+TCYED53xNYs='; style-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">
+<title>Agent Arcade Desktop Pet</title>
+<link rel="stylesheet" href="/pet.css">
+<script type="importmap">{"imports":{"three":"/three/build/three.module.js"}}</script>
+<script type="module" src="/pet.mjs"></script>
+</head>
+<body>
+<header><span id="name"></span><button id="close" type="button" aria-label="Close desktop pet">×</button></header>
+<canvas tabindex="0" id="model" aria-label="3D character"></canvas>
+<p id="status" role="status"></p>
+</body>
+</html>

@@ -1,0 +1,34 @@
+/* Explicit component recovery within the existing management drawer. */
+.qq-components{width:min(660px,100vw);max-width:100vw}
+.qq-components-heading>div{min-width:0;overflow-wrap:anywhere}
+.qq-components-repair>summary{font-size:14px;font-weight:600;cursor:pointer}
+.qq-components-repair .problem{font-size:12px;line-height:1.8}
+.qq-components-repair-id{display:block;font-size:11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+@media(max-height:650px){.qq-components-footer{max-height:35dvh;overflow:auto;align-items:flex-start}.qq-components-heading h2{margin-bottom:3px}}
+
+/* Incomplete preparation stays within the existing component drawer. */
+.qq-components-preparation>summary{font-size:14px;font-weight:600}
+.qq-components-preparation>label{display:block;margin:14px 0 6px}
+.qq-components-preparation>select{display:block;width:100%;max-width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--room-outline,#dec8d7);border-radius:7px;color:inherit;background:var(--paper,#fff);font:inherit}
+
+/* Pending plans are preserved records, not a component repair. */
+.qq-components .qq-components-heading h2{font-size:17px}
+.qq-components-pending>summary{font-size:14px;font-weight:600;cursor:pointer}
+.qq-components-pending>label{display:block;margin:14px 0 6px;font-size:14px}
+.qq-components-pending>select{display:block;width:100%;max-width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--room-outline,#dec8d7);border-radius:7px;color:inherit;background:var(--paper,#fff);font:inherit;font-size:14px}
+.qq-components-pending .qq-components-actions{margin-top:16px}
+.qq-components-pending .qq-components-preview>p{font-size:14px!important}
+
+/* Fixed same-version Node repair remains one task in the component drawer. */
+.qq-node-repair>summary{font-size:17px;font-weight:600;cursor:pointer;line-height:1.5}
+.qq-node-repair p,.qq-node-repair .social-hint,.qq-node-repair .qq-components-preview>p{font-size:14px!important;line-height:1.75;overflow-wrap:anywhere}
+.qq-node-repair h3{font-size:17px;line-height:1.5}
+.qq-node-repair button{font-size:14px;max-width:100%}
+.qq-node-repair .qq-components-actions{margin-top:18px}
+.qq-node-repair-details{margin:16px 0;font-size:14px;line-height:1.7}
+.qq-node-repair-details>summary{cursor:pointer;color:var(--muted);padding:5px 0}
+.qq-node-repair-records{margin-top:20px}
+.qq-node-repair-record{border-top:1px solid var(--line);padding:12px 0}
+.qq-node-repair-record p{margin:5px 0 12px}
+.qq-node-repair-record .qq-components-actions{margin-top:8px}
+@media(max-width:520px){.qq-node-repair .qq-components-actions{flex-direction:column;align-items:stretch}.qq-node-repair .qq-components-preview{padding-left:12px}}
