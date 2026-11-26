@@ -761,7 +761,7 @@ func TestLark_SessionKeyPrefix(t *testing.T) {
 
 func TestLark_ThreadIsolationUsesRootSessionKey(t *testing.T) {
 	p, err := newPlatform("lark", lark.LarkBaseUrl, map[string]any{
-		"app_id": "cli_xxx", "app_secret": "secret", "enable_feishu_card": true, "thread_isolation": true,
+		"app_id": "cli_xxx", "app_secret": "secret", "enable_feishu_card": true, "thread_isolation": true, "allow_from": "ou_test",
 	})
 	if err != nil {
 		t.Fatalf("newPlatform(lark) error = %v", err)

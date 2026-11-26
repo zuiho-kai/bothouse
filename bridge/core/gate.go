@@ -467,19 +467,31 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
 				return true
 			}
+			keepUserText(msg)
+			if g == nil && msg.BackfillOnCall {
+				session.backfillMu.Lock()
+				msg.Content = withLatestMark(msg.Content)
+				if back, images, ok := e.channelBackfill(p, msg, session); ok {
+					if back != "" {
+						msg.Content = back + "\n\n" + msg.Content
+					}
+					msg.Images = append(images, msg.Images...)
+				}
+				markSeen(p, session, msg)
+				session.backfillMu.Unlock()
+			}
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true
 			}
 			e.teamNoteTurn(msg, session)
 			// #1856: no gate still records what was seen, so restart catch-up knows where
 			// the posts made while the bridge was down begin (missed_catchup.go).
-			if g == nil && msg.MessageID != "" {
+			if g == nil && !msg.BackfillOnCall && msg.MessageID != "" {
 				markSeen(p, session, msg)
 			}
-			// #1375: no gate (agentm's claude role) also means no backfill and no @ note, so the
-			// person's words came bare after the memory and member blocks and read as their tail.
-			keepUserText(msg)
-			msg.Content = withLatestMark(msg.Content)
+			if g != nil || !msg.BackfillOnCall {
+				msg.Content = withLatestMark(msg.Content)
+			}
 		}
 		return false
 	}

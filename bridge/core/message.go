@@ -386,6 +386,9 @@ func WithMissedAttachments(content string, missed ...string) string {
 	return content + "\n" + note
 }
 
+// MentionOnlyPrompt starts a turn when a person calls a bot without a message body.
+const MentionOnlyPrompt = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
+
 type Message struct {
 	authorization *AuthorizationTurn
 	SessionKey    string // unique key for user context, e.g. "feishu:{chatID}:{userID}"
@@ -431,9 +434,10 @@ type Message struct {
 	// with the structured UserName to label each speaker's own words, both in the prompt and in
 	// the gate's silent buffer, so attribution does not depend on AmbientChat being non-empty:
 	// the first message after start/reconnect and a quote-only message must keep their author too.
-	GroupChat  bool
-	StopAll    bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
-	SeenUpToID string // maomao fork: newest message folded into this one (gate burst), for channel backfill
+	GroupChat      bool
+	StopAll        bool   // set only by a platform that saw a stop word calling no bot (discord isBareStop); the engine stops the whole channel
+	SeenUpToID     string // maomao fork: newest message folded into this one (gate burst), for channel backfill
+	BackfillOnCall bool   // read channel history for this call even without an external gate
 	// maomao fork: channel backfill ran for this turn and covered the posts after BackfillFrom
 	// ("" = the whole first window); freshContextImages adds the images from before it.
 	BackfillFrom string

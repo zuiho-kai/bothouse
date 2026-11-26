@@ -108,11 +108,13 @@ func init() {
 }
 
 type replyContext struct {
-	messageID       string
-	chatID          string
-	sessionKey      string
-	bootstrapThread bool
-	// mentioned / direct: the message @-s the bot in a group / comes from a p2p chat. Copied onto
+	messageID        string
+	chatID           string
+	sessionKey       string
+	bootstrapThread  bool
+	group            bool
+	checkReplyTarget bool
+	// mentioned / direct: the message calls the bot in a group / comes from a p2p chat. Copied onto
 	// core.Message in dispatchCoreMessage for core's built-in busy rules (core/gate_local.go).
 	mentioned bool
 	direct    bool
@@ -1162,6 +1164,9 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 	p.populateWorkspaceChannelKeys(msg)
 	if rc, ok := msg.ReplyCtx.(replyContext); ok {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
+		if rc.group && !isThreadSessionKey(rc.sessionKey) {
+			msg.ChannelID = rc.chatID
+		}
 		msg.Direct = msg.Direct || rc.direct
 		msg.FromBot = msg.FromBot || rc.fromBot
 		msg.StopAll = msg.StopAll || rc.stopAll
@@ -1474,11 +1479,20 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		return nil
 	}
 
-	if chatType == "group" && !p.groupReplyAll && p.getBotOpenID() != "" {
-		if !isBotMentioned(msg.Mentions, p.getBotOpenID()) {
+	parentID := stringValue(msg.ParentId)
+	botID := p.getBotOpenID()
+	group := chatType == "group"
+	mentioned := group && botID != "" && isBotMentioned(msg.Mentions, botID)
+	allMentioned := p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all")
+	stopAll := isStopAllEvent(sender, msgType, msg.Content)
+	checkReplyTarget := group && !fromBot && botID != "" && !mentioned && !allMentioned && parentID != "" && !stopAll
+	if group && !p.groupReplyAll && botID != "" {
+		if !mentioned {
 			switch {
+			case checkReplyTarget:
+				// The async dispatcher checks the parent author before starting a turn.
 			// Feishu @all sends {"text":"@_all"} with 0 mentions.
-			case p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all"):
+			case allMentioned:
 				slog.Debug(p.tag()+": responding to @all message", "chat_id", chatID)
 			// Once a thread has been engaged via @bot, allow follow-up
 			// attachment-only messages (image/file/audio) in the same thread
@@ -1489,7 +1503,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 				slog.Debug(p.tag()+": passing attachment through active thread without mention",
 					"chat_id", chatID, "session_key", sessionKey, "msg_type", msgType, "message_id", messageID)
 			// "/stop all" from a user reaches every bot in the chat, mentioned or not.
-			case isStopAllEvent(sender, msgType, msg.Content):
+			case stopAll:
 				slog.Debug(p.tag()+": passing /stop all without mention", "chat_id", chatID)
 			// A bare stop word that calls no bot also reaches every bot, as on Discord.
 			case isBareStopEvent(sender, msg):
@@ -1503,7 +1517,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	if !fromBot && !core.AllowList(p.allowFrom, userID) {
 		slog.Debug(p.tag()+": message from unauthorized user", "user", userID)
-		p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
+		if !checkReplyTarget {
+			p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
+		}
 		return nil
 	}
 
@@ -1527,12 +1543,11 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		content = *msg.Content
 	}
 	mentions := msg.Mentions
-	parentID := stringValue(msg.ParentId)
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
-		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
-		fromBot:   fromBot,
-		direct:    chatType == "p2p", replyTo: parentID,
+		group: group, mentioned: mentioned, checkReplyTarget: checkReplyTarget,
+		fromBot: fromBot,
+		direct:  chatType == "p2p", replyTo: parentID,
 		stopAll: chatType == "group" && isBareStopEvent(sender, msg)}
 	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
@@ -1545,7 +1560,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	// in the same thread can pass through without re-mentioning the bot. When
 	// this is the first accepted message in an existing thread, remember that
 	// dispatch must bootstrap the agent context from the parent/root message.
-	rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
+	if !checkReplyTarget {
+		rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
+	}
 	if rctx.bootstrapThread && parentID == "" {
 		parentID = stringValue(msg.RootId)
 	}
@@ -1575,6 +1592,17 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 	if p.isMessageRecalled(messageID) {
 		slog.Debug(p.tag()+": recalled message ignored in async dispatch", "message_id", messageID)
 		return
+	}
+
+	if rctx.checkReplyTarget {
+		mayListen := (p.groupReplyAll && len(mentions) == 0) ||
+			(p.threadIsolation && isAttachmentMsgType(msgType) && p.isActiveThreadSession(sessionKey))
+		addressed, accept := p.groupReplyTarget(ctx, rctx, mayListen)
+		if !accept {
+			return
+		}
+		rctx.mentioned = addressed
+		rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
 	}
 
 	// Resolve user and chat names asynchronously so SDK dispatcher is not blocked.
@@ -1615,13 +1643,12 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 		// zero file-resource API calls.
 		approvedFileMetas := p.filterQuotedFilesForUser(quoted.files, mentions, userID)
 		quotedFiles := p.downloadQuotedFiles(ctx, approvedFileMetas)
-		if text == "" && quoted.text == "" && len(quoted.images) == 0 && len(quotedFiles) == 0 {
-			slog.Debug(p.tag()+": dropping empty text after mention stripping",
-				"message_id", messageID,
-				"raw_text_len", len(textBody.Text),
-				"mentions", len(mentions),
-			)
-			return
+		bareMention := text == "" && quoted.text == "" && len(quoted.images) == 0 && len(quotedFiles) == 0
+		if bareMention {
+			if !rctx.mentioned || rctx.fromBot {
+				return
+			}
+			text = core.MentionOnlyPrompt
 		}
 		// Flush any image batch buffered earlier in this session so the image
 		// reaches the engine before the text message advances the user-message
@@ -1632,6 +1659,7 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 			MessageID: messageID,
 			UserID:    userID, UserName: userName, ChatName: chatName,
 			Content: text, ExtraContent: quoted.text, Images: quoted.images, Files: quotedFiles, ReplyCtx: rctx,
+			BackfillOnCall:    bareMention && !isThreadSessionKey(sessionKey),
 			UserMessageTimeMs: createTimeMs,
 		})
 
@@ -1722,8 +1750,12 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 	case "post":
 		textParts, images := p.parsePostContent(messageID, content)
 		text := stripMentions(strings.Join(textParts, "\n"), mentions, p.getBotOpenID())
-		if text == "" && len(images) == 0 && quoted.text == "" && len(quoted.images) == 0 {
-			return
+		bareMention := text == "" && len(images) == 0 && quoted.text == "" && len(quoted.images) == 0
+		if bareMention {
+			if !rctx.mentioned || rctx.fromBot {
+				return
+			}
+			text = core.MentionOnlyPrompt
 		}
 		// Flush any image batch buffered earlier in this session (#1686 P1-B).
 		p.flushImageBatchForSession(sessionKey)
@@ -1732,6 +1764,7 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 			MessageID: messageID,
 			UserID:    userID, UserName: userName, ChatName: chatName,
 			Content: text, ExtraContent: quoted.text, Images: append(quoted.images, images...),
+			BackfillOnCall:    bareMention && !isThreadSessionKey(sessionKey),
 			ReplyCtx:          rctx,
 			UserMessageTimeMs: createTimeMs,
 		})
