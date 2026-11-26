@@ -18,8 +18,9 @@ LOG = Path.home() / ".bothouse" / "logs" / "added-judge.tsv"
 # 规则表里没登记、但交接规则表 needs_if 要求写的写法，同样放行（规则改了自动跟上，不用抄一份）。
 HOUSE_RULES = Path(os.environ.get("HOUSE_RULES") or Path.home() / "wiki" / "rules" / "house-rules.toml")
 HANDOFF_RULES = Path(os.environ.get("HANDOFF_RULES") or Path(__file__).with_name("handoff-rules.json"))
-HANDOFF_LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL")
-                     or Path(__file__).with_name("handoff-rules.json").parent.parent / "handoff-rules.local.json")
+HANDOFF_LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL") or next(  # 同 _handoff_rules.LOCAL：内嵌版和用户副本都找得到
+    (d / "handoff-rules.local.json" for d in (Path(__file__).resolve().parent.parent, Path(__file__).resolve().parent.parent.parent)
+     if (d / "handoff-rules.local.json").is_file()), Path(__file__).resolve().parent.parent / "handoff-rules.local.json"))
 HANDOFF_STRICT = HANDOFF_RULES.with_name("handoff-rules.strict.json")
 OWN = "我加的"          # 节名：「## 我加的（原话没有）」
 QUOTE_HEAD = "原话"     # 标题含「原话」的节都算用户原话（用户原话、补充原话……），程序附的「原话出处」除外
