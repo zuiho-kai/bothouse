@@ -65,6 +65,14 @@ type SubTaskReporter interface {
 	SubTasksChanged() <-chan struct{}
 }
 
+// APIRetryReporter is implemented by agent sessions that can tell the engine
+// the CLI is retrying a failed API request (#2042, Claude Code's
+// system/api_retry). Polled, not an event, so a retry loop does not look like
+// agent activity (#1562).
+type APIRetryReporter interface {
+	APIRetryAttempt() int
+}
+
 // SubTaskTablePayloadSupport is implemented by platforms that render the
 // sub-agent table payload (Discord). Other platforms get no table.
 type SubTaskTablePayloadSupport interface {
@@ -150,6 +158,32 @@ func subAgentWaitText(zh bool, t SubTask) string {
 		s += " — " + step
 	}
 	return s
+}
+
+// modelWaitAfter is how long the turn waits on the model with no event before
+// the progress card says so (#2042); same as slowAgentFirstEvent.
+const modelWaitAfter = slowAgentFirstEvent
+
+// modelWaitText is the progress-card line shown while the turn waits on the
+// model (#2042, user 11-26 「进度条直接显示『在等模型』，你一眼就能看到卡在哪」):
+// "" when nothing is worth showing. lastType is the last event the turn got
+// ("" before the first); after a tool call the wait is the tool's, not the
+// model's.
+func modelWaitText(zh bool, lastType EventType, waited time.Duration, retry int) string {
+	secs := int(waited.Seconds())
+	if retry > 0 {
+		if zh {
+			return fmt.Sprintf("接口无响应，重试中（第 %d 次，已等 %d 秒）", retry, secs)
+		}
+		return fmt.Sprintf("API not responding, retrying (attempt %d, %ds so far)", retry, secs)
+	}
+	if waited < modelWaitAfter || lastType == EventToolUse || lastType == EventPermissionRequest {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("在等模型 %d 秒", secs)
+	}
+	return fmt.Sprintf("Waiting on the model, %ds", secs)
 }
 
 // subAgentBlocksNotice tells the person whose message was injected that the turn cannot read it

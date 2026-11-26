@@ -7192,7 +7192,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// interval).
 	e.ensureSubTaskTable(turn.state, turn.sessionKey)
 	turn.subReporter, turn.hasSubReporter = turn.agentSession.(SubTaskReporter)
-	if turn.hasSubReporter && turn.cp.Active() && turn.cp.minUpdateInterval > 0 {
+	retrier, _ := turn.agentSession.(APIRetryReporter)
+	if turn.cp.Active() && turn.cp.minUpdateInterval > 0 { // #2042: also for the "在等模型" line
 		t := time.NewTicker(turn.cp.minUpdateInterval)
 		defer t.Stop()
 		turn.subWaitTick = t.C
@@ -7215,9 +7216,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				goto channelClosed
 			}
 			turn.state.lastEventAt.Store(time.Now().UnixNano())
+			turn.lastEvtType, turn.lastEvtAt = event.Type, time.Now()
 		case <-turn.subWaitTick:
-			if t, ok := foregroundSubTask(turn.subReporter); ok {
+			if t, ok := foregroundSubTask(turn.subReporter); turn.hasSubReporter && ok {
 				turn.cp.ShowSubAgentWait(subAgentWaitText(e.i18n.IsZhLike(), t))
+			} else if w := turn.modelWait(e.i18n.IsZhLike(), retrier); w != "" {
+				turn.cp.ShowSubAgentWait(w)
 			} else {
 				turn.cp.ClearSubAgentWait()
 			}
