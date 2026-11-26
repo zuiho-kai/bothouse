@@ -260,20 +260,6 @@ func (a *Agent) startSession(ctx context.Context, sessionID string, strict bool)
 	return a.startSessionWithEnv(ctx, sessionID, strict, nil)
 }
 
-func (a *Agent) StartVoiceRelay(ctx context.Context, id string, env []string) (core.AgentSession, error) {
-	if id == core.ContinueSession {
-		return nil, fmt.Errorf("acp: concrete voice relay identity required")
-	}
-	session, err := a.startSessionWithEnv(ctx, id, id != "", env)
-	if err != nil {
-		return nil, err
-	}
-	// Voice completion is independent of whether this native context is new
-	// or restored, and of whether the caller uses Send or SendResumed.
-	session.(*acpSession).requireEndTurn = true
-	return session, nil
-}
-
 func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, strict bool, sessionEnv []string) (core.AgentSession, error) {
 	a.mu.RLock()
 	command := a.cmd

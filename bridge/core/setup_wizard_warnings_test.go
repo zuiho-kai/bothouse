@@ -39,7 +39,7 @@ func findWarning(res *WizardResult, code string) *WizardWarning {
 
 // Before: intent off / bot not in the server came back as ok:true with only a line in steps.
 func TestApplyWizardIntentOffIsNotOK(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	tok := fakeToken("111")
 	fakeDiscord(t, map[string]string{tok: "nointent"})
 	store := newMemStore()
@@ -57,7 +57,7 @@ func TestApplyWizardIntentOffIsNotOK(t *testing.T) {
 }
 
 func TestApplyWizardNotInGuildIsNotOK(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	tok := fakeToken("111")
 	fakeDiscord(t, map[string]string{tok: "Juzi"}) // the fake bot is only in guild 900
 	res := ApplyWizard(context.Background(), WizardEnv{Store: newMemStore(), DataDir: t.TempDir(), CLIs: testCLIs}, discordReq("901", WizardRole{Token: tok}))
@@ -82,7 +82,7 @@ func TestApplyWizardNotInGuildIsNotOK(t *testing.T) {
 // A server picked and nothing given: everyone in that server (a team channel answers its other
 // members, not only the owner); the bots' owners still get admin_from.
 func TestApplyWizardAllowFromDefaultsToServer(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp"})
 	store := newMemStore()
@@ -104,7 +104,7 @@ func TestApplyWizardAllowFromDefaultsToServer(t *testing.T) {
 }
 
 func TestApplyWizardAllowFromDefaultsToOwner(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2, t3 := fakeToken("111"), fakeToken("222"), fakeToken("333")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp", t3: "noowner"})
 	store := newMemStore()
@@ -165,7 +165,7 @@ func TestApplyWizardAllowFromDefaultsToOwner(t *testing.T) {
 }
 
 func TestApplyWizardGateStatus(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	dataDir := t.TempDir()
@@ -197,7 +197,7 @@ func TestApplyWizardGateStatus(t *testing.T) {
 
 // The web wizard posts to /setup/apply: saved-with-warnings is a 200 carrying the warnings.
 func TestSetupApplyHTTPSavedWithWarnings(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	tok := fakeToken("111")
 	fakeDiscord(t, map[string]string{tok: "nointent"})
 	m := NewManagementServer(0, "tok", nil)
@@ -224,7 +224,7 @@ func TestSetupApplyHTTPSavedWithWarnings(t *testing.T) {
 
 // The application lookup failing used to skip the intent check and report ok:true.
 func TestApplyWizardIntentUnknownIsNotOK(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	tok := fakeToken("111")
 	fakeDiscord(t, map[string]string{tok: "noapp"})
 	given := "777"
@@ -240,7 +240,7 @@ func TestApplyWizardIntentUnknownIsNotOK(t *testing.T) {
 
 // The wizard's channel_id used to stay in conest-setup.json only; now it scopes listening without @.
 func TestApplyWizardWritesDefaultChannel(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	store := newMemStore()
@@ -278,7 +278,7 @@ func TestVerifyReleaseChecksum(t *testing.T) {
 // A failed run writes AllowFromUnset; rerunning with the user's ID (as the fix says) must replace
 // it. It used to keep the placeholder (only empty values were overwritten) and report ok:true.
 func TestApplyWizardAllowFromRerunReplacesPlaceholder(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	tok := fakeToken("111")
 	fakeDiscord(t, map[string]string{tok: "noowner"})
 	store := newMemStore()
@@ -302,7 +302,7 @@ func TestApplyWizardAllowFromRerunReplacesPlaceholder(t *testing.T) {
 // Two or more roles with no usable jev: a non-blocking note recommends one (otherwise the
 // fallback role answers every message that names no one). One role, or a saved jev: no note.
 func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	apply := func(dataDir string, roles ...WizardRole) *WizardResult {
@@ -334,7 +334,7 @@ func TestApplyWizardRecommendsJevForTeam(t *testing.T) {
 // to. A typed allow_from is not taken as admin_from (the looked-up owner is), and an existing
 // admin_from is kept.
 func TestApplyWizardAdminFromDefaultsToOwner(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "teamapp"})
 	store := newMemStore()

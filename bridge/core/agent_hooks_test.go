@@ -460,7 +460,7 @@ func TestWithHookRules(t *testing.T) {
 
 func TestApplyWizardNewClaudeRoleGetsHooks(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	dir := t.TempDir()

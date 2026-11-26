@@ -10,7 +10,7 @@ import (
 
 // #1407: a connection-only rerun must neither populate agent defaults nor touch persona files.
 func TestApplyWizardQQReusePreservesRole(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	ws := fakeNapCat(t, "")
 	dir := t.TempDir()
 	persona := filepath.Join(dir, "AGENTS.md")
@@ -44,7 +44,7 @@ func TestApplyWizardQQReusePreservesRole(t *testing.T) {
 }
 
 func TestApplyWizardQQBlankTokenUsesSavedCredential(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	ws := fakeNapCat(t, "saved")
 	store := newMemStore()
 	store.projects["existing"] = &WizardProjectWrite{Name: "existing", AgentType: "codex", WorkDir: t.TempDir(), PlatformType: "qq", Options: map[string]any{"ws_url": ws, "token": "saved", "allow_from": "12345"}}
@@ -64,7 +64,7 @@ func TestApplyWizardQQBlankTokenUsesSavedCredential(t *testing.T) {
 }
 
 func TestApplyWizardQQBlankTokenKeepsEnvironmentReference(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t.Setenv("QQ_WIZARD_TEST_TOKEN", "saved")
 	ws := fakeNapCat(t, "saved")
 	store := newMemStore()

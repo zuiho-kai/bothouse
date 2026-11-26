@@ -54,7 +54,7 @@ func TestNormalizeLanguage(t *testing.T) {
 // server's preferred_locale is not used: Discord leaves it at en-US, which would turn a Chinese
 // machine's bots English (review of PR #207).
 func TestApplyWizardReplyLanguageDefaultIsVisible(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LC_MESSAGES", "")
 	t.Setenv("LANG", "zh_CN.UTF-8")
@@ -97,7 +97,7 @@ func TestApplyWizardReplyLanguageDefaultIsVisible(t *testing.T) {
 // Changing the language of a bot that is already set up: reply_language on its role rewrites
 // only the reply-language line; the persona text stays.
 func TestApplyWizardReplyLanguageOnlyForExistingBot(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()
@@ -126,7 +126,7 @@ func TestApplyWizardReplyLanguageOnlyForExistingBot(t *testing.T) {
 // n150: no CLI logged in → the first supported one was picked silently and the config saved
 // "ok"; the bot could not answer. Now: a blocking warning that says how to log in.
 func TestApplyWizardWarnsCLINotLoggedIn(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	clis := []LocalCLI{{AgentType: "claudecode", Label: "Claude Code", Supported: true, Login: "not_logged_in"}}
@@ -162,7 +162,7 @@ func TestApplyWizardWarnsCLINotLoggedIn(t *testing.T) {
 
 // n150: a wrong token gave only "error"; now a blocking warning with the fix and the portal link.
 func TestApplyWizardInvalidTokenHasFix(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{})
 	req := n150Req(WizardRole{Token: fakeToken("999")})
 	req.Language = "zh"
@@ -179,7 +179,7 @@ func TestApplyWizardInvalidTokenHasFix(t *testing.T) {
 
 // n150: a dry run said "The config is saved" and persona_written:true although nothing was written.
 func TestApplyWizardDryRunIsHonest(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	req := n150Req(WizardRole{Token: t1})
@@ -207,7 +207,7 @@ func TestApplyWizardDryRunIsHonest(t *testing.T) {
 // n150: on first run the backup is the empty template apply itself just wrote, yet the output said
 // "previous config kept as …".
 func TestApplyWizardFreshConfigNoBackupClaim(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	req := n150Req(WizardRole{Token: t1})
@@ -224,7 +224,7 @@ func TestApplyWizardFreshConfigNoBackupClaim(t *testing.T) {
 
 // n150: a bot named in Chinese became project role-1 with no word why (the docs said "project = bot name").
 func TestApplyWizardNonASCIINameSaysWhy(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "橘子"})
 	req := n150Req(WizardRole{Token: t1})
@@ -251,7 +251,7 @@ func TestWithReplyLanguageKeepsTextBelow(t *testing.T) {
 // Review of PR #207: an existing persona that can't be read (not "missing") must not be replaced by
 // just the language line.
 func TestApplyWizardReplyLanguageUnreadablePersonaFails(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()
@@ -274,7 +274,7 @@ func (freshStore) IsFreshConfig() bool { return true }
 // Review of PR #207: the web wizard's first run (store says the config is the first-run template)
 // must not claim a backup either.
 func TestApplyWizardFreshStoreNoBackupClaim(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	res := ApplyWizard(context.Background(), WizardEnv{Store: freshStore{newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs}, n150Req(WizardRole{Token: t1}))
@@ -302,7 +302,7 @@ func TestWithReplyLanguageCRLF(t *testing.T) {
 
 // Review of PR #207: user-facing warnings follow language zh / ja / en (ja was English before).
 func TestWizardWarningsJapanese(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{})
 	req := n150Req(WizardRole{Token: fakeToken("999")})
 	req.Language = "ja"

@@ -43,7 +43,6 @@ type claudeSession struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	alive           atomic.Bool
-	voiceOnly       atomic.Bool
 
 	// maomao fork: on --resume the CLI reports background tasks the previous
 	// process left behind (system/task_notification before the first init) and
@@ -785,13 +784,6 @@ var apiErrorResultGrace = 10 * time.Second
 
 // armAPIErrorFallback is called when an assistant event carries an API error.
 func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
-	if cs.voiceOnly.Load() {
-		select {
-		case cs.events <- core.Event{Type: core.EventError, Content: "voice provider failed", SessionID: cs.CurrentSessionID()}:
-		case <-cs.ctx.Done():
-		}
-		return
-	}
 	msg, _ := raw["message"].(map[string]any)
 	text := assistantText(msg)
 	errKind, _ := raw["error"].(string)
@@ -1179,17 +1171,6 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		case <-cs.ctx.Done():
 		}
 		return
-	}
-	if cs.voiceOnly.Load() && !isCompaction {
-		isError, _ := raw["is_error"].(bool)
-		stop, _ := raw["stop_reason"].(string)
-		if resultSubtype(raw) != "success" || isError || (stop != "" && stop != "end_turn") {
-			select {
-			case cs.events <- core.Event{Type: core.EventError, Content: "voice reply did not finish normally", SessionID: cs.CurrentSessionID()}:
-			case <-cs.ctx.Done():
-			}
-			return
-		}
 	}
 	if isCompaction {
 		slog.Info("claudeSession: mid-turn compaction event; continuing turn", "subtype", resultSubtype(raw))

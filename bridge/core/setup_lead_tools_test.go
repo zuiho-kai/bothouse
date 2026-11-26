@@ -10,7 +10,7 @@ import (
 )
 
 func TestApplyWizardInstallsLeadToolsOnlyForNewPrimary(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	old := LeadToolFS
 	LeadToolFS = fstest.MapFS{

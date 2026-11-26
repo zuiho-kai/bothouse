@@ -50,7 +50,7 @@ func LocalGatePort() int {
 
 // GateRunning reports whether the gate answers on this machine.
 func GateRunning() bool {
-	c, err := net.DialTimeout("tcp", localGateAddr(), 300*time.Millisecond) // 本机连接，300ms 足够（同 HardwarePresent）
+	c, err := net.DialTimeout("tcp", localGateAddr(), 300*time.Millisecond) // 本机连接，300ms 足够
 	if err != nil {
 		return false
 	}

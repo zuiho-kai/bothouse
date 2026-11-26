@@ -158,14 +158,6 @@ func TestRelayTeamBind_SameModelRolesAreSeparate(t *testing.T) {
 	if b == nil || b.Bots["lead"] != "lead" || b.Bots["worker"] != "worker" || len(b.Bots) != 2 {
 		t.Fatalf("same-model roles not both bound: %+v", b)
 	}
-	for _, pair := range [][2]string{{"lead", "worker"}, {"worker", "lead"}} {
-		if _, _, err := rm.voiceTarget(RelayRequest{From: pair[0], To: pair[1], SessionKey: "discord:room:u1", Scope: "desk"}); err != nil {
-			t.Fatalf("voice %s→%s refused: %v", pair[0], pair[1], err)
-		}
-	}
-	if _, _, err := rm.voiceTarget(RelayRequest{From: "lead", To: "ext", SessionKey: "discord:room:u1", Scope: "desk"}); err == nil {
-		t.Fatal("voice to external project accepted")
-	}
 }
 
 func TestRelayTeamBind_TeamsSplitByPlatform(t *testing.T) {
