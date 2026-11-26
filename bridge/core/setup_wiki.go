@@ -10,9 +10,11 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -102,13 +104,68 @@ func mainWikiDefault(home string) string {
 	return cur
 }
 
+// findLocalDuccForWiki locates the local ducc binary if installed.
+func findLocalDuccForWiki() string {
+	if p, err := exec.LookPath("ducc"); err == nil && p != "" {
+		return p
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidate := filepath.Join(home, ".comate", "baidu-cc", "bin", "ducc")
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// wikiEnginesWithDucc builds the selectable wiki engine list, adding live ducc
+// models (as "ducc:<model>") when ducc is installed locally.
+func wikiEnginesWithDucc(cur WizardWiki) []WikiEngine {
+	out := make([]WikiEngine, 0, len(WikiEngines)+48)
+	seen := map[string]bool{}
+	add := func(e WikiEngine) {
+		if e.ID == "" || seen[e.ID] {
+			return
+		}
+		seen[e.ID] = true
+		out = append(out, e)
+	}
+	if duccBin := findLocalDuccForWiki(); duccBin != "" {
+		for _, m := range FetchDuccModels(context.Background(), duccBin, false) {
+			name := strings.TrimSpace(m.Name)
+			if name == "" {
+				continue
+			}
+			add(WikiEngine{
+				ID:        "ducc:" + name,
+				Label:     name + " (ducc)",
+				AgentType: "claudecode",
+			})
+		}
+	}
+	for _, e := range WikiEngines {
+		add(e)
+	}
+	// Preserve any already-configured ducc:<model> even if offline/unavailable.
+	for _, id := range []string{cur.Daily, cur.Night, cur.Split} {
+		if strings.HasPrefix(id, "ducc:") {
+			name := strings.TrimSpace(strings.TrimPrefix(id, "ducc:"))
+			if name != "" {
+				add(WikiEngine{ID: id, Label: name + " (ducc)", AgentType: "claudecode"})
+			}
+		}
+	}
+	return out
+}
+
 // LoadWikiSetup: nil when there is no wiki.
 func LoadWikiSetup() *WikiSetup {
 	dir, ok := FindWiki()
 	if !ok {
 		return nil
 	}
-	return &WikiSetup{Dir: dir, Engines: WikiEngines, Defaults: wikiDefaults, Current: wikiCurrent(dir)}
+	cur := wikiCurrent(dir)
+	return &WikiSetup{Dir: dir, Engines: wikiEnginesWithDucc(cur), Defaults: wikiDefaults, Current: cur}
 }
 
 func wikiCurrent(dir string) WizardWiki {
@@ -132,6 +189,9 @@ func wikiCurrent(dir string) WizardWiki {
 }
 
 func validWikiEngine(id string) bool {
+	if strings.HasPrefix(id, "ducc:") && strings.TrimSpace(strings.TrimPrefix(id, "ducc:")) != "" {
+		return true
+	}
 	for _, e := range WikiEngines {
 		if e.ID == id {
 			return true

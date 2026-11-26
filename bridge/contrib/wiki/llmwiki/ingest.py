@@ -145,6 +145,7 @@ DEFAULTS = {
     "codex_models": ["gpt-6-luna", "gpt-6.1-sol"], "after_codex": ["agy", "haiku"],
     "agy_model": "gemini-3.8-flash-high",  # Existing default; each wiki can choose its own Antigravity model.
     "agy_cmd": "agy",  # Existing CLI name; installations outside PATH can supply an absolute executable.
+    "claude_cmd": "",  # Optional Claude/ducc CLI override; empty auto-detects claude or ducc.
     # the nightly reflection (dream) on or off: the role turns it off when its user asks in chat (export.py --switch;
     # user 2026-10-22 「插件默认全开，别人可关」「用户直接跟机器人说，就可以关了」)
     "dream": True,
@@ -316,6 +317,7 @@ MODELS = {"claude": os.environ.get("WIKI_CLAUDE_MODEL", "sonnet"), "gemini": "ge
 # Source: github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/model.py, checked 2026-11-18.
 # Pin wiki shorthand here: Claude's user settings may map the same shorthand to a different family.
 CLAUDE_MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
+DUCC_CLAUDE_MODELS = {"haiku": "Claude Haiku 5.5", "sonnet": "Claude Sonnet 5.5", "opus": "Claude Opus 5.5"}
 CODEX_CHAIN = os.environ.get("WIKI_CODEX_CHAIN", ",".join(CFG["codex_models"])).split(",")  # models in turn
 AFTER_CODEX = os.environ.get("WIKI_AFTER_CODEX", ",".join(CFG["after_codex"])).split(",")  # fresh engines once the chain fails
 RESUME_PROMPT = "上一轮调用已结束但任务未完成。核对会话记录和文件，保留完成的修改，只继续未完成的部分（含 log.md 与 lint），不要重复已完成的操作；最后按原任务交付格式输出。"
@@ -331,7 +333,7 @@ MIRROR_TO = os.environ.get("WIKI_MIRROR_TO", "")
 HOSTS = Path(os.path.expanduser(CFG["hosts"] or "/nonexistent-wiki-hosts"))  # on the Mac: <hostname>/{projects/,ingest.sqlite,ingest.log}
 MIRROR_DIR = Path(os.path.expanduser(CFG["mirror_dir"]))
 MIRRORED = WIKI / ".mirror.json"  # on the mirroring machine: {transcript path: size already sent}
-SOP_ENGINES = set(os.environ.get("WIKI_SOP_ENGINES", "codex,agy,gemini,claude,haiku,sonnet,opus,dsh").split(","))
+SOP_ENGINES = set(os.environ.get("WIKI_SOP_ENGINES", "codex,agy,gemini,claude,haiku,sonnet,opus,dsh,ducc").split(","))
 
 SECRET = re.compile(
     r"(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
@@ -1935,23 +1937,51 @@ class ClaudeModelError(SystemExit):
     """Stop the run: a model identity violation must bypass ordinary failure/fallback handlers."""
 
 
+def _resolve_ducc_bin():
+    for candidate in (
+        CFG.get("claude_cmd") or "",
+        os.environ.get("WIKI_DUCC_CMD", ""),
+        shutil.which("ducc") or "",
+        str(Path.home() / ".comate" / "baidu-cc" / "bin" / "ducc"),
+    ):
+        candidate = str(candidate).strip()
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return ""
+
+
 def claude(instruction, stdin="", label="?", context=None, model=None, api=False):
     """`context` (the transcript) goes at the end of the system prompt: that is cached and sits before the
     git status and the user message, so the INGEST and VERIFY passes share it. --strict-mcp-config keeps
     claude.ai connectors out, which otherwise make every prefix unique. Keep --tools identical across passes."""
     requested = model or MODELS["claude"]
-    model = CLAUDE_MODELS.get(requested, requested)
-    if not re.fullmatch(r"claude-[a-z0-9-]+-\d+", model):
-        raise ClaudeModelError(f"{label}: Claude requires an exact model ID, got {requested!r}")
+    use_ducc = False
+    cli_bin = CFG.get("claude_cmd") or "claude"
+    if requested.startswith("ducc:"):
+        use_ducc = True
+        model = requested[len("ducc:"):].strip()
+        if not model:
+            raise ClaudeModelError(f"{label}: ducc requires a non-empty model name, got {requested!r}")
+        cli_bin = _resolve_ducc_bin() or "ducc"
+    elif not api and (Path(cli_bin).name == "ducc" or (cli_bin == "claude" and not shutil.which("claude") and _resolve_ducc_bin())):
+        use_ducc = True
+        cli_bin = _resolve_ducc_bin() or cli_bin
+        model = DUCC_CLAUDE_MODELS.get(requested, requested)
+    else:
+        model = CLAUDE_MODELS.get(requested, requested)
+        if not re.fullmatch(r"claude-[a-z0-9-]+-\d+", model):
+            raise ClaudeModelError(f"{label}: Claude requires an exact model ID, got {requested!r}")
     # autoMemoryDirectory points at this wiki: the memory dir is writable without permission, so with the
     # global ~/wiki setting a trial on a clone would edit the real wiki.
     # Full tools like luna: Bash runs auto-approved inside Claude Code's sandbox, which (like codex
     # workspace-write) confines writes to the wiki directory.
     settings = {"autoMemoryDirectory": str(WIKI),
                 "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False}}
-    cmd = ["claude", "-p", instruction, "--model", model, "--no-session-persistence", "--strict-mcp-config",
-           "--settings", json.dumps(settings), "--tools", "Read,Edit,Write,Glob,Grep,Bash",
+    cmd = [cli_bin, "-p", instruction, "--model", model, "--no-session-persistence", "--strict-mcp-config",
+           "--tools", "Read,Edit,Write,Glob,Grep,Bash",
            "--permission-mode", "acceptEdits", "--output-format", "json"]
+    if not use_ducc:
+        cmd += ["--settings", json.dumps(settings)]
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="wiki-ctx-") as f:  # outside WIKI: not committed
         if context:
             f.write(CONTEXT.format(text=context))
@@ -1980,7 +2010,8 @@ def claude(instruction, stdin="", label="?", context=None, model=None, api=False
         # Keep every reported model's usage, including failed calls, before rejecting a mismatched result.
         log(f"{label} tokens: {record_usage(label, res, 'api:' if api else '')}")
         actual = set(res.get("modelUsage") or {})
-        if (actual or r.returncode == 0) and actual != {model}:
+        is_auto_ducc = use_ducc and model.lower() in ("auto", "auto-内部")
+        if not is_auto_ducc and (actual or r.returncode == 0) and actual != {model}:
             error = f"{label}: Claude expected {model}, reported {', '.join(sorted(actual)) or 'no model'}; batch not delivered"
             log(error)
             raise ClaudeModelError(error)

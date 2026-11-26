@@ -5,6 +5,10 @@ export interface ProjectSummary {
   /** the name people see: team_name, e.g. the user's 鲸鱼娘 for project role-1 (falls back to name) */
   display_name?: string;
   agent_type: string;
+  model?: string;
+  team_remote_active?: boolean;
+  remote_host?: string;
+  relay_host?: string;
   platforms: string[];
   sessions_count: number;
   heartbeat_enabled: boolean;
@@ -28,6 +32,11 @@ export interface ProjectDetail {
   display_name?: string;
   agent_type: string;
   work_dir?: string;
+  model?: string;
+  team_remote_active?: boolean;
+  remote_host?: string;
+  relay_host?: string;
+  ssh_args?: string[];
   agent_mode?: string;
   show_context_indicator?: boolean;
   show_workdir_indicator?: boolean;
@@ -57,6 +66,10 @@ export interface ProjectSettingsUpdate {
   admin_from?: string;
   disabled_commands?: string[];
   work_dir?: string;
+  model?: string;
+  remote_host?: string;
+  relay_host?: string;
+  ssh_args?: string[];
   mode?: string;
   agent_type?: string;
   show_context_indicator?: boolean;
@@ -70,11 +83,27 @@ export const listAgentTypes = () => api.get<{ agents: string[]; platforms: strin
 
 export const listProjects = () => api.get<{ projects: ProjectSummary[] }>('/projects');
 export const getProject = (name: string) => api.get<ProjectDetail>(`/projects/${name}`);
+export const getProjectModels = (name: string, refresh = false) =>
+  api.get<{ models: string[]; options?: { name: string; desc?: string }[]; current: string }>(
+    `/projects/${encodeURIComponent(name)}/models`,
+    refresh ? { refresh: '1' } : undefined,
+  );
 export const updateProject = (name: string, body: ProjectSettingsUpdate) => api.patch(`/projects/${name}`, body);
 
 export const addPlatformToProject = (projectName: string, body: {
   type: string; options: Record<string, any>; work_dir?: string; agent_type?: string;
+  model?: string; remote_host?: string; relay_host?: string; ssh_args?: string[];
 }) => api.post<{ message: string; restart_required: boolean }>(`/projects/${projectName}/add-platform`, body);
+
+export const batchSetRemoteTarget = (body: {
+  projects: string[];
+  remote_host: string;
+  relay_host?: string;
+  ssh_args?: string[];
+  work_dir?: string;
+  mode?: string;
+  agent_type?: string;
+}) => api.post<{ updated: string[]; restart_required: boolean }>('/projects/remote-target', body);
 
 // hot_load: the service stopped the role without a restart (projects_removed), or why it could
 // not (hot_load_error; restart_required is then true)

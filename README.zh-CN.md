@@ -42,6 +42,13 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.md)；只有一个模型、一个账号，见[一个 CLI 组团队](docs/single-cli-team.md)；用 DeepSeek 桌面版（DSH）的，见[在 DSH 里用 bothouse](docs/platforms/dsh.md)。
 
+### 团队远程开发机
+
+打开 **系统 → 全局设置 → 团队远程开发机**，填写 SSH 主机（例如 `njjs`）、可选的 Relay 跳板和 Linux 工作目录，勾选共享这套配置的 Claude Code（`ducc`）或 Zulu 角色。保存后重启 bothouse 生效。取消勾选或关闭开关后，重启即可恢复角色自己的运行配置。单角色也可以在 **项目 → 设置 → 运行环境** 中单独配置 SSH。
+
+开发机上需安装并登录对应 CLI。远程 Claude Code 支持文本对话和续接。该模式暂不支持附件和交互式审批卡片。
+
+
 <a id="why"></a>
 <a id="usage"></a>
 

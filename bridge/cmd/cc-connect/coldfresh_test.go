@@ -60,7 +60,7 @@ func TestRegisteredAgentsSessionHandoffReader(t *testing.T) {
 		"claudecode": true, "codex": true, "antigravity": true, "pi": true, "dsh": true,
 		"acp":     false, // generic ACP; a DSH launcher under acp is checked below
 		"copilot": false, "cursor": false, "devin": false, "gemini": false, "iflow": false,
-		"kimi": false, "opencode": false, "qoder": false, "reasonix": false, "tmux": false,
+		"kimi": false, "opencode": false, "qoder": false, "reasonix": false, "tmux": false, "zulu": false,
 	}
 	extra := map[string]map[string]any{
 		"reasonix": {"serve_url": "http://127.0.0.1:1"},

@@ -4,10 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Settings2, Smartphone } from 'lucide-react';
 import { Button, Input, Modal } from '@/components/ui';
 import { platformMeta } from '@/lib/platformMeta';
+import AgentModelSelector from '@/components/AgentModelSelector';
+import ZuluRemoteFields, { supportsRemoteDevelopment, parseSSHArgs } from '@/components/ZuluRemoteFields';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
 
 const AGENT_OPTIONS = [
+  { key: 'zulu', label: 'iDev Zulu (本地 / 远程 SSH)' },
   { key: 'claudecode', label: 'Claude Code' },
   { key: 'codex', label: 'Codex' },
   { key: 'gemini', label: 'Gemini CLI' },
@@ -56,9 +59,17 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
   const [name, setName] = useState('');
   const [workDir, setWorkDir] = useState('');
   const [agentType, setAgentType] = useState('claudecode');
+  const [model, setModel] = useState('');
+  const [remoteHost, setRemoteHost] = useState('');
+  const [relayHost, setRelayHost] = useState('');
+  const [sshArgsText, setSshArgsText] = useState('');
   // acp has no CLI of its own: the launch command goes to the server as "acp:<command>"
   const [acpCmd, setAcpCmd] = useState('');
   const agentTypeToSend = agentType === 'acp' ? `acp:${acpCmd.trim()}` : agentType;
+  const modelToSend = model.trim() || undefined;
+  const remoteHostToSend = supportsRemoteDevelopment(agentType) ? remoteHost.trim() || undefined : undefined;
+  const relayHostToSend = supportsRemoteDevelopment(agentType) ? relayHost.trim() || undefined : undefined;
+  const sshArgsToSend = supportsRemoteDevelopment(agentType) && parseSSHArgs(sshArgsText).length ? parseSSHArgs(sshArgsText) : undefined;
   const [platform, setPlatform] = useState('');
 
   const reset = () => {
@@ -66,6 +77,10 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
     setName('');
     setWorkDir('');
     setAgentType('claudecode');
+    setModel('');
+    setRemoteHost('');
+    setRelayHost('');
+    setSshArgsText('');
     setAcpCmd('');
     setPlatform('');
   };
@@ -93,12 +108,12 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
             placeholder="my-project"
             autoFocus
           />
-          <Input
+          {!supportsRemoteDevelopment(agentType) && <Input
             label={t('setup.workDir', '工作目录')}
             value={workDir}
             onChange={(e) => setWorkDir(e.target.value)}
             placeholder="/path/to/project"
-          />
+          />}
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-soft">
               {t('setup.agentType', 'Agent 类型')}
@@ -115,6 +130,32 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
               ))}
             </select>
           </div>
+          {supportsRemoteDevelopment(agentType) && (
+            <ZuluRemoteFields
+                agentType={agentType === 'claudecode' ? 'claudecode' : 'zulu'}
+              remoteHost={remoteHost}
+              relayHost={relayHost}
+              sshArgsText={sshArgsText}
+              workDir={workDir}
+              showWorkDir
+              onChangeRemoteHost={setRemoteHost}
+              onChangeRelayHost={setRelayHost}
+              onChangeSSHArgsText={setSshArgsText}
+              onChangeWorkDir={setWorkDir}
+              testIdPrefix="project-wizard-zulu"
+            />
+          )}
+          {supportsRemoteDevelopment(agentType) && (
+            <AgentModelSelector
+              agentType={agentType}
+              remoteHost={supportsRemoteDevelopment(agentType) ? remoteHost : ''}
+              relayHost={supportsRemoteDevelopment(agentType) ? relayHost : ''}
+              sshArgs={supportsRemoteDevelopment(agentType) ? parseSSHArgs(sshArgsText) : undefined}
+              value={model}
+              onChange={setModel}
+              testIdPrefix="project-wizard-model"
+            />
+          )}
           {agentType === 'acp' && (
             <Input
               label={t('setup.acpCommand', 'ACP 启动命令')}
@@ -172,6 +213,10 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
           projectName={name}
           workDir={workDir}
           agentType={agentTypeToSend}
+          model={modelToSend}
+          remoteHost={remoteHostToSend}
+          relayHost={relayHostToSend}
+          sshArgs={sshArgsToSend}
           onComplete={() => {
             reset();
             onCreated();
@@ -186,6 +231,10 @@ export function ProjectWizard({ open, onClose, onCreated }: WizardProps) {
           projectName={name}
           workDir={workDir}
           agentType={agentTypeToSend}
+          model={modelToSend}
+          remoteHost={remoteHostToSend}
+          relayHost={relayHostToSend}
+          sshArgs={sshArgsToSend}
           onComplete={() => {
             reset();
             onCreated();

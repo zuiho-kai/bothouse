@@ -121,6 +121,9 @@ type WizardRole struct {
 	AgentType       string            `json:"agent_type,omitempty"`
 	AgentCmd        string            `json:"agent_cmd,omitempty"` // a new acp role's launch command with its arguments (written as cmd)
 	AgentEnv        map[string]string `json:"agent_env,omitempty"` // a new acp role's environment (written as the agent's env)
+	RemoteHost      string            `json:"remote_host,omitempty"`
+	RelayHost       string            `json:"relay_host,omitempty"`
+	SSHArgs         []string          `json:"ssh_args,omitempty"`
 	WorkDir         string            `json:"work_dir,omitempty"`
 	Persona         string            `json:"persona,omitempty"`
 	EditPersona     bool              `json:"edit_persona,omitempty"` // an existing bot's persona file is only written when this is true
@@ -256,11 +259,11 @@ type WizardProjectWrite struct {
 // WizardExistingProject is one [[projects]] entry as read from config.toml.
 // Options include secrets; they never leave the server.
 type WizardExistingProject struct {
-	Name, AgentType, WorkDir, AgentCmd string
-	Platforms                          map[string]map[string]any // platform type → options (first of each type)
-	GateURL, GateFallback              string
-	DisplayName                        string // team_name ("" = Name)
-	AdminFrom                          string // project-level admin_from
+	Name, AgentType, WorkDir, AgentCmd, RemoteHost string
+	Platforms                                      map[string]map[string]any // platform type → options (first of each type)
+	GateURL, GateFallback                          string
+	DisplayName                                    string // team_name ("" = Name)
+	AdminFrom                                      string // project-level admin_from
 }
 
 // WizardSnapshot is config.toml's projects at one moment.
@@ -732,7 +735,7 @@ func acpCmdNotFoundText(lang, project, cmd string) string {
 var memoryFileOfAgent = map[string]string{
 	"claudecode": "CLAUDE.md", "codex": "AGENTS.md", "gemini": "GEMINI.md", "antigravity": "GEMINI.md",
 	"opencode": "OPENCODE.md", "iflow": "IFLOW.md", "reasonix": "REASONIX.md",
-	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md", "dsh": "AGENTS.md",
+	"qoder": "AGENTS.md", "kimi": "AGENTS.md", "pi": "AGENTS.md", "dsh": "AGENTS.md", "zulu": "AGENTS.md",
 }
 
 // canonicalAgentType maps a CLI binary name the caller may send (claude, agy, cursor-agent,
@@ -1232,6 +1235,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		for i, r := range pl.roles {
 			res.Roles[i].PersonaWritten = false
 			step := fmt.Sprintf("role %d persona", i+1)
+			if strings.TrimSpace(r.RemoteHost) != "" {
+				addStep(res, step, nil, fmt.Sprintf("remote SSH host %s (%s)", strings.TrimSpace(r.RemoteHost), r.workDir))
+				continue
+			}
 			switch {
 			case r.writesPersona():
 				addStep(res, step, nil, stepDryPersonaWrite(req.Language, PersonaFilePath(r.AgentType, r.workDir), r.ReplyLanguage))
@@ -1318,6 +1325,10 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 	var moodRoles []moodRole // new roles with the diary section: they get the hourly 「想不想说」 (setup_defaults.go)
 	for i, r := range pl.roles {
 		step := fmt.Sprintf("role %d persona", i+1)
+		if strings.TrimSpace(r.RemoteHost) != "" {
+			addStep(res, step, nil, fmt.Sprintf("remote SSH host %s (%s)", strings.TrimSpace(r.RemoteHost), r.workDir))
+			continue
+		}
 		if r.reused && !r.writesPersona() {
 			if r.updatesReplyLanguage() {
 				// only the reply-language section changes; the rest of the persona stays as it is
@@ -1623,7 +1634,7 @@ func KnownAgentYoloMode(agentType string) (mode string, ok bool) {
 		return "bypassPermissions", true
 	case "cursor":
 		return "force", true
-	case "codex", "gemini", "antigravity", "pi", "qoder", "opencode", "kimi", "iflow", "reasonix":
+	case "codex", "gemini", "antigravity", "pi", "qoder", "opencode", "kimi", "iflow", "reasonix", "zulu":
 		return "yolo", true
 	default:
 		return "", false
@@ -1750,6 +1761,7 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				r.AgentType = ex.AgentType
 			}
 			r.workDir = ex.WorkDir
+			r.RemoteHost = ex.RemoteHost
 		}
 		if r.AgentType == "" {
 			r.AgentType = defaultAgent
@@ -1772,25 +1784,40 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 			return nil, fmt.Errorf("%s is an existing DSH role: change its model in DSH's own config", r.project)
 		}
 		if !r.reused {
-			r.workDir = r.WorkDir
-			if r.workDir == "" {
-				r.workDir = filepath.Join(dataDir, "roles", r.project)
+			remoteHost := strings.TrimSpace(r.RemoteHost)
+			if remoteHost != "" {
+				if !SupportsRemoteDevelopment(r.AgentType) {
+					return nil, fmt.Errorf("role %q: %s does not support SSH execution", r.project, r.AgentType)
+				}
+				r.workDir = strings.TrimSpace(r.WorkDir)
+				if r.workDir == "" {
+					r.workDir = "~"
+				}
+				// Remote SSH roles do not write local persona/hook files into the remote repo,
+				// so multiple specialist bots can collaborate on the same remote codebase.
+			} else {
+				r.workDir = r.WorkDir
+				if r.workDir == "" {
+					r.workDir = filepath.Join(dataDir, "roles", r.project)
+				}
+				dir, err := filepath.Abs(r.workDir)
+				if err != nil {
+					return nil, fmt.Errorf("project %q work_dir: %w", r.project, err)
+				}
+				if owner, exists := workDirs[dir]; exists {
+					return nil, fmt.Errorf("%s", sharedWorkDirText(req.Language, r.project, owner, dir))
+				}
+				workDirs[dir] = r.project
 			}
-			dir, err := filepath.Abs(r.workDir)
-			if err != nil {
-				return nil, fmt.Errorf("project %q work_dir: %w", r.project, err)
-			}
-			if owner, exists := workDirs[dir]; exists {
-				return nil, fmt.Errorf("%s", sharedWorkDirText(req.Language, r.project, owner, dir))
-			}
-			workDirs[dir] = r.project
 		}
 		if r.reused && r.workDir == "" && r.writesPersona() {
 			return nil, fmt.Errorf("project %q has no work_dir, so there is no persona file to write", r.project)
 		}
-		for _, c := range clis {
-			if c.AgentType == r.AgentType && c.Supported && c.Path != "" && (!c.InPath || alwaysCmd) {
-				r.agentCmd = c.Path // found outside PATH: tell the service where it is (L2)
+		if strings.TrimSpace(r.RemoteHost) == "" {
+			for _, c := range clis {
+				if c.AgentType == r.AgentType && c.Supported && c.Path != "" && (!c.InPath || alwaysCmd) {
+					r.agentCmd = c.Path // found outside PATH: tell the service where it is (L2)
+				}
 			}
 		}
 		if r.AgentType == "acp" && !r.reused {
@@ -1974,6 +2001,23 @@ func planWizard(s WizardSnapshot, ids []wizardIdentity, req WizardRequest, state
 				pw.AgentOptions["backend"] = "app_server"
 				if pw.Provider != nil && strings.TrimSpace(pw.Provider.Model) != "" {
 					pw.AgentOptions["model"] = strings.TrimSpace(pw.Provider.Model)
+				}
+			}
+			if rh := strings.TrimSpace(r.RemoteHost); rh != "" {
+				pw.AgentOptions["remote_host"] = rh
+			}
+			if rl := strings.TrimSpace(r.RelayHost); rl != "" {
+				pw.AgentOptions["relay_host"] = rl
+			}
+			if len(r.SSHArgs) > 0 {
+				cleaned := make([]string, 0, len(r.SSHArgs))
+				for _, a := range r.SSHArgs {
+					if t := strings.TrimSpace(a); t != "" {
+						cleaned = append(cleaned, t)
+					}
+				}
+				if len(cleaned) > 0 {
+					pw.AgentOptions["ssh_args"] = cleaned
 				}
 			}
 		}

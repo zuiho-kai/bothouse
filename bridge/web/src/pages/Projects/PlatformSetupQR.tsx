@@ -17,13 +17,17 @@ interface Props {
   projectName: string;
   workDir?: string;
   agentType?: string;
+  model?: string;
+  remoteHost?: string;
+  relayHost?: string;
+  sshArgs?: string[];
   onComplete: () => void;
   onCancel: () => void;
   /** Setup wizard: receive the scanned Feishu credentials instead of saving here. */
   onCredentials?: (c: { app_id: string; app_secret: string; platform_type: string; owner_open_id?: string }) => void;
 }
 
-export default function PlatformSetupQR({ platformType, projectName, workDir, agentType, onComplete, onCancel, onCredentials }: Props) {
+export default function PlatformSetupQR({ platformType, projectName, workDir, agentType, model, remoteHost, relayHost, sshArgs, onComplete, onCancel, onCredentials }: Props) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('idle');
   const [qrUrl, setQrUrl] = useState('');
@@ -91,6 +95,10 @@ export default function PlatformSetupQR({ platformType, projectName, workDir, ag
                 owner_open_id: res.owner_open_id,
                 work_dir: workDir,
                 agent_type: agentType,
+                ...(model ? { model } : {}),
+                ...(remoteHost ? { remote_host: remoteHost } : {}),
+                ...(relayHost ? { relay_host: relayHost } : {}),
+                ...(sshArgs?.length ? { ssh_args: sshArgs } : {}),
               });
               setPhase('completed');
               pollingRef.current = false;
@@ -160,6 +168,10 @@ export default function PlatformSetupQR({ platformType, projectName, workDir, ag
                 ilink_user_id: pollRes.ilink_user_id,
                 work_dir: workDir,
                 agent_type: agentType,
+                ...(model ? { model } : {}),
+                ...(remoteHost ? { remote_host: remoteHost } : {}),
+                ...(relayHost ? { relay_host: relayHost } : {}),
+                ...(sshArgs?.length ? { ssh_args: sshArgs } : {}),
               });
               setPhase('completed');
               return;

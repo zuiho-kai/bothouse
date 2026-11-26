@@ -6,6 +6,12 @@
 
 领取进程与关闭进程共用交互状态锁和关闭令牌；前台持有进程期间，后台完成事件不能安排或执行关闭。最后一次队列检查和会话解锁同时释放进程归属，随后才安排关闭；一旦进入关闭，下一轮等待实际 `Close` 完成再恢复。关闭只释放进程，不重置对话；期间排队的消息交给新状态继续处理。后台任务完成事件也走同一个轮次收尾入口。
 
+## 远程开发执行
+
+管理端将团队主机、Relay、目录和选中的项目 ID 保存到 `[team_remote]`。构建角色时对配置副本应用共享参数，原项目配置仍用于关闭共享后的启动。已运行角色在服务重启时切换。远程会话索引按项目、Relay、主机和目录区分，Linux 目录不套用本机目录覆盖。
+
+Claude Code 和 Zulu 共用 SSH 传输。远端 Claude Code 每轮以 `stream-json` 启动 `ducc` 或 `claude`，已有会话号用 `--resume` 续接。CLI 自己在开发机上维护原生会话记录，平台收发和桥接服务仍在本机。
+
 ## 角色与插件
 
 DSH Channels discovery first reads the channel data directory's private `collab.owner.json`. A live owner PID and a validated loopback HTTP origin select the Channels transport, which authenticates with `X-Collab-Local` for state, member management and event streams. New connections re-read the record to follow host restarts. Missing or invalid records use the existing shell launch-record and log discovery. The local credential is scoped to Channels routes and stays inside the management server; DSH shell proxy authentication still uses its launch token.

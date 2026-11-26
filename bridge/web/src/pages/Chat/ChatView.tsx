@@ -7,7 +7,7 @@ import {
   Slash, ChevronDown,
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
-import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
+import { listSessions, getSession, createSession, type Session, type SessionDetail } from '@/api/sessions';
 import { getProject, shownName } from '@/api/projects';
 import { useSessionModel } from '@/hooks/useSessionModel';
 import {
@@ -297,19 +297,18 @@ export default function ChatView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSessionId = searchParams.get('session') || '';
   const [shown, setShown] = useState('');
-  const [projectMeta, setProjectMeta] = useState<{ agentType?: string }>({});
+  const [projectMeta, setProjectMeta] = useState<{ agentType?: string; model?: string }>({});
   useEffect(() => {
     setShown('');
     setProjectMeta({});
     if (projectName) {
       getProject(projectName).then((p) => {
         setShown(shownName(p));
-        setProjectMeta({ agentType: p.agent_type });
+        setProjectMeta({ agentType: p.agent_type, model: p.model });
       }).catch(() => {});
     }
   }, [projectName]);
   const avatarStyle = useAvatarStyle();
-  const avatarUrl = resolveRoleAvatar({ name: shown || projectName, agentType: projectMeta.agentType }, avatarStyle);
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -319,6 +318,8 @@ export default function ChatView() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [typing, setTyping] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [sessionError, setSessionError] = useState('');
   const [bridgeCfg, setBridgeCfg] = useState<BridgeConfig | null>(null);
 
   // UI state
@@ -338,8 +339,13 @@ export default function ChatView() {
   const webSessionKey = projectName ? `bridge:web-admin:${projectName}` : '';
   const currentSession = loadedSession && loadedSession.project === projectName && loadedSession.selectedId === selectedSessionId
     ? loadedSession.detail : null;
-  const sessionKey = selectedSessionId ? currentSession?.session_key || '' : webSessionKey;
+  // A historical session sharing another session's key must never send to that active session.
+  const sessionKey = selectedSessionId ? (currentSession?.active ? currentSession.session_key : '') : webSessionKey;
   const sessionModel = useSessionModel(projectName, sessionKey, selectedSessionId);
+  const avatarUrl = resolveRoleAvatar(
+    { name: shown || projectName, agentType: projectMeta.agentType, model: sessionModel || projectMeta.model },
+    avatarStyle,
+  );
   sessionKeyRef.current = sessionKey;
 
   useEffect(() => {
@@ -470,6 +476,11 @@ export default function ChatView() {
       setTyping(true);
     } else if (msg.type === 'typing_stop') {
       setTyping(false);
+      setMessages(prev =>
+        prev.some(m => m.streaming)
+          ? prev.map(m => (m.streaming ? { ...m, streaming: false } : m))
+          : prev,
+      );
     } else if (msg.type === 'preview_start') {
       const ps = msg as Extract<BridgeIncoming, { type: 'preview_start' }>;
       const handle = `web-preview-${++previewHandleCounter.current}`;
@@ -478,7 +489,13 @@ export default function ChatView() {
     } else if (msg.type === 'update_message') {
       const um = msg as Extract<BridgeIncoming, { type: 'update_message' }>;
       setMessages(prev => {
-        const idx = prev.findIndex(m => m.streaming);
+        const targetId = um.preview_handle ? `stream-${um.preview_handle}` : '';
+        let idx = targetId ? prev.findIndex(m => m.id === targetId) : -1;
+        if (idx < 0) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].streaming) { idx = i; break; }
+          }
+        }
         if (idx >= 0) {
           const updated = [...prev];
           updated[idx] = { ...updated[idx], content: um.content };
@@ -487,8 +504,15 @@ export default function ChatView() {
         return prev;
       });
     } else if (msg.type === 'delete_message') {
+      const dm = msg as Extract<BridgeIncoming, { type: 'delete_message' }>;
       setMessages(prev => {
-        const idx = prev.findIndex(m => m.streaming);
+        const targetId = dm.preview_handle ? `stream-${dm.preview_handle}` : '';
+        let idx = targetId ? prev.findIndex(m => m.id === targetId) : -1;
+        if (idx < 0) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].streaming) { idx = i; break; }
+          }
+        }
         if (idx >= 0) return prev.filter((_, i) => i !== idx);
         return prev;
       });
@@ -507,11 +531,40 @@ export default function ChatView() {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
 
+  const handleNewSession = useCallback(async (name?: string) => {
+    if (!projectName || creatingSession) return;
+    setCreatingSession(true);
+    setSessionError('');
+    try {
+      // The bridge routes by session key. Each web conversation needs its own
+      // key so opening an older conversation also sends into that conversation.
+      const nonce = Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-');
+      const created = await createSession(projectName, {
+        session_key: `bridge:web-admin:${projectName}-${nonce}`,
+        name,
+      });
+      setDrawerOpen(false);
+      setSearchParams(params => {
+        const next = new URLSearchParams(params);
+        next.set('session', created.id);
+        return next;
+      });
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingSession(false);
+    }
+  }, [projectName, creatingSession, setSearchParams]);
+
   // Send message
   const handleSend = useCallback(() => {
     if (!input.trim() || bridgeStatus !== 'connected') return;
     const content = input.trim();
     setInput('');
+    if (/^\/new(?:\s|$)/.test(content)) {
+      void handleNewSession(content.slice(4).trim() || undefined);
+      return;
+    }
     setSending(true);
 
     const cmdToken = content.split(' ')[0];
@@ -523,7 +576,7 @@ export default function ChatView() {
     }
     bridgeSend(content);
     setTimeout(() => setSending(false), 300);
-  }, [input, bridgeStatus, bridgeSend]);
+  }, [input, bridgeStatus, bridgeSend, handleNewSession]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -542,6 +595,10 @@ export default function ChatView() {
 
   const handleCmdSelect = useCallback((cmd: SlashCommand) => {
     setCmdOpen(false);
+    if (cmd.cmd === '/new') {
+      void handleNewSession();
+      return;
+    }
     if (bridgeStatus !== 'connected') return;
 
     if (chatCommands.has(cmd.cmd)) {
@@ -550,7 +607,7 @@ export default function ChatView() {
       pendingCmdRef.current = cmd.cmd;
     }
     bridgeSend(cmd.cmd);
-  }, [bridgeStatus, bridgeSend]);
+  }, [bridgeStatus, bridgeSend, handleNewSession]);
 
   const handleCardAction = useCallback((value: string) => {
     if (bridgeStatus !== 'connected') return;
@@ -561,12 +618,6 @@ export default function ChatView() {
     sendCardAction(value);
   }, [bridgeStatus, sendCardAction]);
 
-  const handleNewSession = useCallback(() => {
-    if (bridgeStatus !== 'connected') return;
-    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: '/new' }]);
-    bridgeSend('/new');
-    setDrawerOpen(false);
-  }, [bridgeStatus, bridgeSend]);
 
   const canSend = !!sessionKey && !loading && bridgeStatus === 'connected';
 
@@ -739,6 +790,8 @@ export default function ChatView() {
         )}
       </div>
 
+      {sessionError && <p role="alert" className="px-4 py-2 text-sm text-red-600">{sessionError}</p>}
+
       {/* Session drawer */}
       <SessionDrawer
         open={drawerOpen}
@@ -746,7 +799,7 @@ export default function ChatView() {
         sessions={sessions}
         currentSessionId={currentSession?.id || ''}
         onSelect={switchToSession}
-        onNewSession={handleNewSession}
+        onNewSession={() => void handleNewSession()}
       />
 
       {/* Command result panel */}

@@ -144,11 +144,13 @@ func (m *ManagementServer) handleRoles(w http.ResponseWriter, r *http.Request) {
 // bridgeRoles lists the panel's engines (bridge roles).
 func (m *ManagementServer) bridgeRoles(ctx context.Context) []RoleInfo {
 	m.mu.RLock()
+	orderedNames := m.orderedEngineNamesLocked()
 	engines := maps.Clone(m.engines)
 	m.mu.RUnlock()
 
-	roles := make([]RoleInfo, 0, len(engines))
-	for name, e := range engines {
+	roles := make([]RoleInfo, 0, len(orderedNames))
+	for _, name := range orderedNames {
+		e := engines[name]
 		// 1. Online status and per-platform readiness
 		online := false
 		var platforms []PlatformStatus
@@ -319,7 +321,15 @@ func (e *Engine) roleConversationModel() string {
 	if key == "" {
 		return ""
 	}
-	return displayModelName(e.conversationModel(key, session, true))
+	resolved := displayModelName(e.conversationModel(key, session, true))
+	if lower := strings.ToLower(strings.TrimSpace(resolved)); (lower == "auto" || lower == "auto-内部") && changedKey == "" && e.sessionModelFor(key) == "" {
+		if live := e.liveModelSession(key); live == nil || !live.Alive() {
+			if roleDefault := strings.TrimSpace(replyFooterModel(nil, e.agent)); roleDefault != "" && strings.ToLower(roleDefault) != "auto" && strings.ToLower(roleDefault) != "auto-内部" {
+				return ""
+			}
+		}
+	}
+	return resolved
 }
 
 func (m *ManagementServer) handleRoleRoutes(w http.ResponseWriter, r *http.Request) {

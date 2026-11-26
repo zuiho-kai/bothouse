@@ -262,6 +262,7 @@ var featureSwitches = []FeatureSwitch{
 // featureNotSwitch: booleans of config.toml that are deliberately not in the registry, and why.
 // Keys are toml paths; "projects." marks a [[projects]] field.
 var featureNotSwitch = map[string]string{
+	"team_remote.enabled":        "managed with the host, directory, and role selection on the global settings page",
 	"quiet":                      "legacy alias of [display]; the display switches cover it",
 	"management.enabled":         "the panel's own switch: turning it off from the panel locks the panel out",
 	"bridge.insecure":            "security flag (run without a token), not a feature",

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/chenhg5/cc-connect/config"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -22,6 +24,18 @@ func wireGlobalSettings(srv *core.ManagementServer) {
 	})
 	srv.SetSaveGlobalSettings(func(updates map[string]any) error {
 		u := config.GlobalSettingsUpdate{}
+		if raw, ok := updates["team_remote"]; ok {
+			if _, ok := raw.(map[string]any); !ok {
+				return fmt.Errorf("team_remote must be an object")
+			}
+			data, err := json.Marshal(raw)
+			if err != nil {
+				return fmt.Errorf("encode team_remote: %w", err)
+			}
+			if err := json.Unmarshal(data, &u.TeamRemote); err != nil {
+				return fmt.Errorf("decode team_remote: %w", err)
+			}
+		}
 		if v, ok := updates["language"].(string); ok {
 			u.Language = &v
 		}

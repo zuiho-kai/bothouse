@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,11 @@ type ProjectSettingsUpdate struct {
 	DisabledCommands     []string
 	WorkDir              *string
 	Mode                 *string
+	Model                *string
 	AgentType            *string
+	RemoteHost           *string
+	RelayHost            *string
+	SSHArgs              *[]string
 	ShowContextIndicator *bool
 	ShowWorkdirIndicator *bool
 	ReplyFooter          *bool
@@ -50,8 +55,9 @@ type ManagementServer struct {
 	roleEvents     *roleEventBroker
 	roleBindingsMu sync.Mutex
 
-	mu      sync.RWMutex
-	engines map[string]*Engine // project name → engine
+	mu          sync.RWMutex
+	engines     map[string]*Engine // project name → engine
+	engineOrder []string           // stable registration/config order for projects & roles
 
 	cronScheduler      *CronScheduler
 	wikiSubScript      string // sub-wiki.sh of the agent.closed hook, for the wizard (core/setup_wiki.go)
@@ -135,8 +141,33 @@ func (m *ManagementServer) SetHost(host string) { m.host = host }
 func (m *ManagementServer) RegisterEngine(name string, e *Engine) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, exists := m.engines[name]; !exists && !slices.Contains(m.engineOrder, name) {
+		m.engineOrder = append(m.engineOrder, name)
+	}
 	m.engines[name] = e
 	e.roleEvents.Store(m.roleEvents)
+}
+
+// orderedEngineNamesLocked returns registered engine names in deterministic
+// registration/config order (appending any directly inserted test engines
+// sorted alphabetically). Caller must hold m.mu (RLock or Lock).
+func (m *ManagementServer) orderedEngineNamesLocked() []string {
+	names := make([]string, 0, len(m.engines))
+	seen := make(map[string]bool, len(m.engines))
+	for _, name := range m.engineOrder {
+		if _, ok := m.engines[name]; ok && !seen[name] {
+			names = append(names, name)
+			seen[name] = true
+		}
+	}
+	var extra []string
+	for name := range m.engines {
+		if !seen[name] {
+			extra = append(extra, name)
+		}
+	}
+	slices.Sort(extra)
+	return append(names, extra...)
 }
 
 func (m *ManagementServer) SetCronScheduler(cs *CronScheduler)           { m.cronScheduler = cs }
@@ -344,6 +375,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 
 	// Projects
 	mux.HandleFunc(prefix+"/projects", m.wrap(m.handleProjects))
+	mux.HandleFunc(prefix+"/projects/remote-target", m.wrap(m.handleProjectsRemoteTarget))
 	mux.HandleFunc(prefix+"/projects/", m.wrap(m.handleProjectRoutes))
 
 	// 插件 (#150 第 b 项): the DSH profile's own bundles — list, add, switch on/off, remove
@@ -394,6 +426,9 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/cloudweb/test", m.wrap(m.handleSetupCloudWebTest))
 	mux.HandleFunc(prefix+"/setup/jev/test", m.wrap(m.handleSetupJevTest))
 	mux.HandleFunc(prefix+"/setup/jev/save", m.wrap(m.handleSetupJevSave))
+	mux.HandleFunc(prefix+"/setup/ssh/hosts", m.wrap(m.handleSetupSSHHosts))
+	mux.HandleFunc(prefix+"/setup/ssh/test", m.wrap(m.handleSetupSSHTest))
+	mux.HandleFunc(prefix+"/setup/models", m.wrap(m.handleSetupModels))
 	// 闸门设置页 (#217): 装好以后也能改谁在什么时候接话，以及闸门模型 API（jev）
 	mux.HandleFunc(prefix+"/forum", m.wrap(m.handleForum))
 	mux.HandleFunc(prefix+"/setup/gate", m.wrap(m.handleSetupGateSettings))
@@ -499,6 +534,9 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 		if urlPath == "" {
 			urlPath = "index.html"
 		}
+		if urlPath == "index.html" {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
 		if f, err := assets.Open(urlPath); err == nil {
 			f.Close()
 			http.FileServer(http.FS(assets)).ServeHTTP(w, r)
@@ -511,6 +549,7 @@ func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handle
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		_, _ = w.Write(indexData)
 	})
 }
@@ -844,8 +883,10 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	projects := make([]map[string]any, 0, len(m.engines))
-	for name, e := range m.engines {
+	orderedNames := m.orderedEngineNamesLocked()
+	projects := make([]map[string]any, 0, len(orderedNames))
+	for _, name := range orderedNames {
+		e := m.engines[name]
 		platNames := make([]string, len(e.platforms))
 		for i, p := range e.platforms {
 			platNames[i] = p.Name()
@@ -860,16 +901,150 @@ func (m *ManagementServer) handleProjects(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		projects = append(projects, map[string]any{
+		entry := map[string]any{
 			"name":              name,
 			"display_name":      e.DisplayName(),
 			"agent_type":        e.agent.Name(),
 			"platforms":         platNames,
 			"sessions_count":    sessCount,
 			"heartbeat_enabled": hbEnabled,
-		})
+		}
+		if rh, ok := e.agent.(interface{ GetRemoteHost() string }); ok {
+			if host := strings.TrimSpace(rh.GetRemoteHost()); host != "" {
+				entry["remote_host"] = host
+			}
+		}
+		if rl, ok := e.agent.(interface{ GetRelayHost() string }); ok {
+			if relay := strings.TrimSpace(rl.GetRelayHost()); relay != "" {
+				entry["relay_host"] = relay
+			}
+		}
+		if ms, ok := e.agent.(ModelSwitcher); ok {
+			if model := strings.TrimSpace(ms.GetModel()); model != "" {
+				entry["model"] = model
+			}
+		}
+		projects = append(projects, entry)
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (m *ManagementServer) handleProjectsRemoteTarget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		mgmtError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var body struct {
+		Projects   []string `json:"projects"`
+		RemoteHost string   `json:"remote_host"`
+		RelayHost  string   `json:"relay_host"`
+		SSHArgs    []string `json:"ssh_args"`
+		WorkDir    string   `json:"work_dir"`
+		Mode       string   `json:"mode"`
+		AgentType  string   `json:"agent_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if len(body.Projects) == 0 {
+		mgmtError(w, http.StatusBadRequest, "projects is required")
+		return
+	}
+	rh := strings.TrimSpace(body.RemoteHost)
+	rl := strings.TrimSpace(body.RelayHost)
+	wd := strings.TrimSpace(body.WorkDir)
+	mode := strings.TrimSpace(body.Mode)
+	at := strings.TrimSpace(body.AgentType)
+	if at != "" {
+		found := false
+		for _, a := range ListRegisteredAgents() {
+			if a == at {
+				found = true
+				break
+			}
+		}
+		if !found {
+			mgmtError(w, http.StatusBadRequest, fmt.Sprintf("unknown agent type %q", at))
+			return
+		}
+	}
+	if rh == "" && wd != "" {
+		validWD, err := validateProjectWorkDir(wd)
+		if err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		wd = validWD
+	}
+
+	restartRequired := false
+	updated := make([]string, 0, len(body.Projects))
+	for _, name := range body.Projects {
+		m.mu.RLock()
+		e, ok := m.engines[name]
+		m.mu.RUnlock()
+		if !ok {
+			mgmtError(w, http.StatusNotFound, fmt.Sprintf("project %q not found", name))
+			return
+		}
+		if at != "" && at != e.agent.Name() {
+			restartRequired = true
+		}
+		if rh != "" {
+			if bin, ok := e.agent.(interface{ CLIBinaryName() string }); ok {
+				b := bin.CLIBinaryName()
+				if strings.HasPrefix(b, "/Users/") || strings.HasPrefix(b, "/Applications/") {
+					restartRequired = true
+				}
+			}
+		}
+		if setter, ok := e.agent.(interface{ SetRemoteHost(string) }); ok {
+			setter.SetRemoteHost(rh)
+		}
+		if setter, ok := e.agent.(interface{ SetRelayHost(string) }); ok {
+			setter.SetRelayHost(rl)
+		}
+		if setter, ok := e.agent.(interface{ SetSSHArgs([]string) }); ok {
+			setter.SetSSHArgs(body.SSHArgs)
+		}
+		if wd != "" {
+			if switcher, ok := e.agent.(WorkDirSwitcher); ok {
+				switcher.SetWorkDir(wd)
+			}
+		}
+		if mode != "" {
+			if switcher, ok := e.agent.(ModeSwitcher); ok {
+				switcher.SetMode(mode)
+			}
+		}
+		if m.saveProjectSettings != nil {
+			patch := ProjectSettingsUpdate{
+				RemoteHost: &rh,
+				RelayHost:  &rl,
+				SSHArgs:    &body.SSHArgs,
+			}
+			if wd != "" {
+				patch.WorkDir = &wd
+			}
+			if mode != "" {
+				patch.Mode = &mode
+			}
+			if at != "" {
+				patch.AgentType = &at
+			}
+			if err := m.saveProjectSettings(name, patch); err != nil {
+				mgmtError(w, http.StatusInternalServerError, fmt.Sprintf("save %q: %v", name, err))
+				return
+			}
+		}
+		updated = append(updated, name)
+	}
+
+	mgmtJSON(w, http.StatusOK, map[string]any{
+		"updated":          updated,
+		"restart_required": restartRequired,
+	})
 }
 
 // handleProjectRoutes dispatches /api/v1/projects/{name}/...
@@ -1020,12 +1195,34 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 		if am, ok := e.agent.(interface{ GetMode() string }); ok {
 			agentMode = am.GetMode()
 		}
+		data["team_remote_active"] = e.TeamRemote
 		data["work_dir"] = workDir
 		data["agent_mode"] = agentMode
+		if ms, ok := e.agent.(ModelSwitcher); ok {
+			data["model"] = strings.TrimSpace(ms.GetModel())
+		}
+		if rh, ok := e.agent.(interface{ GetRemoteHost() string }); ok {
+			if host := strings.TrimSpace(rh.GetRemoteHost()); host != "" {
+				data["remote_host"] = host
+			}
+		}
+		if rl, ok := e.agent.(interface{ GetRelayHost() string }); ok {
+			if relay := strings.TrimSpace(rl.GetRelayHost()); relay != "" {
+				data["relay_host"] = relay
+			}
+		}
+		if sa, ok := e.agent.(interface{ GetSSHArgs() []string }); ok {
+			if args := sa.GetSSHArgs(); len(args) > 0 {
+				data["ssh_args"] = args
+			}
+		}
 
 		if m.getProjectConfig != nil {
 			if extra := m.getProjectConfig(name); extra != nil {
 				for k, v := range extra {
+					if e.TeamRemote && (k == "work_dir" || k == "remote_host" || k == "relay_host" || k == "ssh_args") {
+						continue
+					}
 					data[k] = v
 				}
 			}
@@ -1042,7 +1239,11 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			DisabledCommands     []string          `json:"disabled_commands"`
 			WorkDir              *string           `json:"work_dir"`
 			Mode                 *string           `json:"mode"`
+			Model                *string           `json:"model"`
 			AgentType            *string           `json:"agent_type"`
+			RemoteHost           *string           `json:"remote_host"`
+			RelayHost            *string           `json:"relay_host"`
+			SSHArgs              *[]string         `json:"ssh_args"`
 			DisplayName          *string           `json:"display_name"`
 			NameCustomized       *bool             `json:"name_customized"`
 			ShowContextIndicator *bool             `json:"show_context_indicator"`
@@ -1063,13 +1264,45 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			}
 			body.DisplayName = &value
 		}
+		if e.TeamRemote && (body.RemoteHost != nil || body.RelayHost != nil || body.SSHArgs != nil || body.WorkDir != nil) {
+			mgmtError(w, http.StatusBadRequest, "Edit shared SSH settings in System settings")
+			return
+		}
+		currentHost, currentRelay := "", ""
+		var currentArgs []string
+		if target, ok := e.agent.(interface {
+			GetRemoteHost() string
+			GetRelayHost() string
+			GetSSHArgs() []string
+		}); ok {
+			currentHost, currentRelay, currentArgs = target.GetRemoteHost(), target.GetRelayHost(), target.GetSSHArgs()
+		}
+		effectiveRemoteHost := currentHost
+		if body.RemoteHost != nil {
+			effectiveRemoteHost = strings.TrimSpace(*body.RemoteHost)
+			*body.RemoteHost = effectiveRemoteHost
+		}
+		if body.RelayHost != nil {
+			*body.RelayHost = strings.TrimSpace(*body.RelayHost)
+		}
+		restartRequired := effectiveRemoteHost != currentHost ||
+			(body.RelayHost != nil && *body.RelayHost != currentRelay) ||
+			(body.SSHArgs != nil && !slices.Equal(*body.SSHArgs, currentArgs))
+
 		if body.WorkDir != nil {
-			workDir, err := validateProjectWorkDir(*body.WorkDir)
-			if err != nil {
-				mgmtError(w, http.StatusBadRequest, err.Error())
-				return
+			if effectiveRemoteHost != "" {
+				*body.WorkDir = strings.TrimSpace(*body.WorkDir)
+				if wd, ok := e.agent.(WorkDirSwitcher); ok && *body.WorkDir != wd.GetWorkDir() {
+					restartRequired = true
+				}
+			} else {
+				workDir, err := validateProjectWorkDir(*body.WorkDir)
+				if err != nil {
+					mgmtError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				*body.WorkDir = workDir
 			}
-			*body.WorkDir = workDir
 		}
 
 		if body.Language != nil {
@@ -1092,7 +1325,7 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 		if body.DisabledCommands != nil {
 			e.SetDisabledCommands(body.DisabledCommands)
 		}
-		if body.WorkDir != nil {
+		if body.WorkDir != nil && !restartRequired {
 			if switcher, ok := e.agent.(WorkDirSwitcher); ok {
 				switcher.SetWorkDir(*body.WorkDir)
 			}
@@ -1100,6 +1333,27 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 		if body.Mode != nil {
 			if switcher, ok := e.agent.(ModeSwitcher); ok {
 				switcher.SetMode(*body.Mode)
+			}
+		}
+		if body.Model != nil {
+			mVal := strings.TrimSpace(*body.Model)
+			*body.Model = mVal
+			if ms, ok := e.agent.(ModelSwitcher); ok {
+				ms.SetModel(mVal)
+			}
+			// Clear stale historical LastModel on non-overridden idle sessions so
+			// overview/roles immediately reflect the newly configured default model.
+			if mVal != "" {
+				for _, sess := range e.sessions.AllSessions() {
+					if sess == nil || sess.Busy() {
+						continue
+					}
+					sess.mu.Lock()
+					if sess.LastModel != "" && sess.LastModel != mVal {
+						sess.LastModel = ""
+					}
+					sess.mu.Unlock()
+				}
 			}
 		}
 		if body.ShowContextIndicator != nil {
@@ -1115,7 +1369,6 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			e.SetInjectSender(*body.InjectSender)
 		}
 
-		restartRequired := false
 		if body.AgentType != nil && *body.AgentType != e.agent.Name() {
 			registered := ListRegisteredAgents()
 			found := false
@@ -1140,7 +1393,11 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 				DisabledCommands:     body.DisabledCommands,
 				WorkDir:              body.WorkDir,
 				Mode:                 body.Mode,
+				Model:                body.Model,
 				AgentType:            body.AgentType,
+				RemoteHost:           body.RemoteHost,
+				RelayHost:            body.RelayHost,
+				SSHArgs:              body.SSHArgs,
 				ShowContextIndicator: body.ShowContextIndicator,
 				ShowWorkdirIndicator: body.ShowWorkdirIndicator,
 				ReplyFooter:          body.ReplyFooter,
@@ -1373,6 +1630,7 @@ func (m *ManagementServer) handleProjectSessions(w http.ResponseWriter, r *http.
 		e.sessions.Save()
 
 		mgmtJSON(w, http.StatusOK, map[string]any{
+			"id":          s.ID,
 			"session_key": body.SessionKey,
 			"name":        s.GetName(),
 		})
@@ -1699,8 +1957,13 @@ func (m *ManagementServer) handleProjectModels(w http.ResponseWriter, r *http.Re
 		mgmtError(w, http.StatusBadRequest, "agent does not support model switching")
 		return
 	}
-	fetchCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	fetchCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
+	if r.URL.Query().Get("refresh") == "1" {
+		modelCacheMu.Lock()
+		modelCache = map[string]cachedModels{}
+		modelCacheMu.Unlock()
+	}
 	models := ms.AvailableModels(fetchCtx)
 	names := make([]string, len(models))
 	for i, m := range models {
@@ -1708,6 +1971,7 @@ func (m *ManagementServer) handleProjectModels(w http.ResponseWriter, r *http.Re
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"models":  names,
+		"options": encodeModelOptions(models),
 		"current": ms.GetModel(),
 	})
 }

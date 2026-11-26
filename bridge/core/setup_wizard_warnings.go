@@ -164,6 +164,8 @@ func cliLoginHow(lang, agentType string) string {
 			return "このマシンのターミナルで gemini を実行し、Login with Google を選んでログインしてください。"
 		case "opencode":
 			return "このマシンのターミナルで opencode auth login を実行し、表示に従ってログインしてください。"
+		case "zulu":
+			return "iDev でログインするか、ターミナルで zulu login を実行してください。"
 		}
 		return "この CLI の説明に従って、このマシンでログインしてください。"
 	}
@@ -188,6 +190,11 @@ func cliLoginHow(lang, agentType string) string {
 			return "在这台机器的终端运行 opencode auth login，按提示登录。"
 		}
 		return "On this machine run opencode auth login and follow the prompts."
+	case "zulu":
+		if zh {
+			return "在 iDev 客户端中登录账号，或在终端运行 zulu login；若使用远程开发机 SSH 模式，只需确保远端已通过 iDev Remote 登录。"
+		}
+		return "Sign in through iDev desktop or run zulu login; for remote SSH mode, ensure iDev Remote is logged in on the Linux dev machine."
 	}
 	if zh {
 		return "按这个 CLI 自己的说明在这台机器上登录。"

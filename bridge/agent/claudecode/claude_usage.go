@@ -48,7 +48,31 @@ type claudeUsageProbeState struct {
 	usageSentAt     time.Time
 }
 
+// SupportsUsageReporting implements core.UsageCapability.
+// ducc (Baidu's internal model proxy) and remote SSH sessions do not expose
+// Anthropic's local interactive `/usage` subscription quota window.
+func (a *Agent) SupportsUsageReporting() bool {
+	if a == nil {
+		return false
+	}
+	if strings.TrimSpace(a.remoteHost) != "" {
+		return false
+	}
+	if strings.EqualFold(filepath.Base(strings.TrimSpace(a.cmd)), "ducc") {
+		return false
+	}
+	if strings.TrimSpace(a.cmd) == "" {
+		if _, err := exec.LookPath("claude"); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *Agent) GetUsage(ctx context.Context) (*core.UsageReport, error) {
+	if !a.SupportsUsageReporting() {
+		return nil, core.ErrNotSupported
+	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		return nil, fmt.Errorf("claudecode: 'claude' CLI not found in PATH")
 	}

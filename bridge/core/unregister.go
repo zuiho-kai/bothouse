@@ -51,6 +51,12 @@ func (m *ManagementServer) UnregisterEngine(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.engines, name)
+	for i, n := range m.engineOrder {
+		if n == name {
+			m.engineOrder = append(m.engineOrder[:i], m.engineOrder[i+1:]...)
+			break
+		}
+	}
 }
 
 func (rm *RelayManager) UnregisterEngine(name string) {

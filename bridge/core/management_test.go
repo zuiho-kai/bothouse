@@ -3666,3 +3666,31 @@ func TestRollBackFailedRolesOnlyNewOnes(t *testing.T) {
 		t.Fatalf("removed = %v, left = %d", hl.Removed, left)
 	}
 }
+
+func TestMgmt_CreateIndependentWebSessionPreservesOldBinding(t *testing.T) {
+	_, ts, e := testManagementServer(t, "tok")
+	oldKey := "bridge:web-admin:test-project"
+	newKey := oldKey + "-new"
+	old := e.sessions.GetOrCreateActive(oldKey)
+	old.SetAgentSessionID("old-thread", "claudecode")
+	old.AddHistory("user", "old marker")
+
+	resp := mgmtPost(t, ts.URL+"/api/v1/projects/test-project/sessions", "tok", map[string]string{
+		"session_key": newKey,
+	})
+	var created struct {
+		ID string `json:"id"`
+	}
+	if !resp.OK {
+		t.Fatal("could not create the new web session")
+	}
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.ID == old.ID || e.sessions.ActiveSessionID(newKey) != created.ID {
+		t.Fatalf("new web session was not independently addressable: %+v", created)
+	}
+	if e.sessions.ActiveSessionID(oldKey) != old.ID || old.GetAgentSessionID() != "old-thread" || old.HistoryLen() != 1 {
+		t.Fatal("creating the new web session changed the old binding or history")
+	}
+}

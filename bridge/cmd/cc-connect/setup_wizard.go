@@ -55,7 +55,7 @@ func (bootstrapOnWriteStore) SetMemoryIndex(project, path string) (bool, error) 
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
 	out := core.WizardSnapshot{Projects: make([]core.WizardExistingProject, 0, len(ps))}
 	for _, p := range ps {
-		out.Projects = append(out.Projects, core.WizardExistingProject{Name: p.Name, AgentType: p.AgentType, WorkDir: p.WorkDir,
+		out.Projects = append(out.Projects, core.WizardExistingProject{Name: p.Name, AgentType: p.AgentType, WorkDir: p.WorkDir, RemoteHost: p.RemoteHost,
 			AgentCmd: p.AgentCmd, Platforms: p.Platforms, GateURL: p.GateURL, GateFallback: p.GateFallback,
 			DisplayName: p.TeamName, AdminFrom: p.AdminFrom})
 	}
@@ -180,6 +180,22 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetUsageLedger(usageLedger)
 	srv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 	srv.SetSetupFeishuSave(saveFeishuSetup)
+	srv.SetAddPlatformToProject(func(projectName, platType string, opts map[string]any, workDir, agentType string) error {
+		if opts == nil {
+			opts = map[string]any{}
+		}
+		return config.AddPlatformToProject(projectName, config.PlatformConfig{Type: platType, Options: opts}, workDir, agentType)
+	})
+	srv.SetSaveProjectSettings(func(name string, u core.ProjectSettingsUpdate) error {
+		return config.SaveProjectSettings(name, config.ProjectSettingsUpdate{
+			DisplayName: u.DisplayName, NameCustomized: u.NameCustomized,
+			Language: u.Language, AdminFrom: u.AdminFrom, DisabledCommands: u.DisabledCommands,
+			WorkDir: u.WorkDir, Mode: u.Mode, Model: u.Model, AgentType: u.AgentType,
+			RemoteHost: u.RemoteHost, RelayHost: u.RelayHost, SSHArgs: u.SSHArgs,
+			ShowContextIndicator: u.ShowContextIndicator, ShowWorkdirIndicator: u.ShowWorkdirIndicator,
+			ReplyFooter: u.ReplyFooter, InjectSender: u.InjectSender, PlatformAllowFrom: u.PlatformAllowFrom,
+		})
+	})
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
 	// The 系统 page belongs to the wizard and edits global settings (language, log level, …);
 	// without these two it answered 503 to every load and save on a fresh install (#1370).

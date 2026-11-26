@@ -5009,6 +5009,20 @@ func TestGetOrCreateWorkspaceAgent_InheritsSnapshotOptions(t *testing.T) {
 	if len(gotRunAsEnv) != 1 || gotRunAsEnv[0] != "SNAPSHOT_ONLY" {
 		t.Fatalf("workspace run_as_env = %#v, want snapshot value", wsAgent.opts["run_as_env"])
 	}
+
+	t.Run("keeps the Linux directory for a remote workspace", func(t *testing.T) {
+		globalAgent.opts["remote_host"] = "ssh-fixture"
+		globalAgent.opts["relay_host"] = "relay-fixture"
+		globalAgent.opts["work_dir"] = "/linux/repo"
+		clone, _, err := e.getOrCreateWorkspaceAgent(normalizeWorkspacePath(t.TempDir()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts := clone.(*namedStubWorkspaceOptionAgent).opts
+		if opts["remote_host"] != "ssh-fixture" || opts["relay_host"] != "relay-fixture" || opts["work_dir"] != "/linux/repo" {
+			t.Fatalf("remote workspace options: %v", opts)
+		}
+	})
 }
 
 func TestWorkspaceContext_PerChannelIndependence(t *testing.T) {

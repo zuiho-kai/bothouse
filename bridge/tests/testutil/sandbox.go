@@ -71,6 +71,7 @@ var SandboxClearedVars = []string{
 	"CURSOR_API_KEY", "KIMI_API_KEY", "WINDSURF_API_KEY", "SHENGSUANYUN_API_KEY",
 	"COPILOT_PROVIDER_API_KEY", "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_BEARER_TOKEN",
 	"MODEL_DISCOVERY_TOKEN", "CC_CONNECT_AGY_PERMISSION_TOKEN",
+	"ZULU_USERNAME",
 	// 平台凭据
 	"TUITUI_APP_ID", "TUITUI_APP_SECRET", "MATRIX_CROSS_SIGNING_PASSWORD",
 }
@@ -82,7 +83,7 @@ var SandboxClearedVars = []string{
 var SandboxStandIns = []string{
 	"claude", "codex", "gemini", "agy", "agent", "cursor-agent", "copilot",
 	"iflow", "kimi", "opencode", "pi", "qodercli", "devin", "reasonix", "dsh",
-	"security", "secret-tool",
+	"ducc", "zulu", "ssh", "security", "secret-tool",
 }
 
 // RunSandboxed 在临时 HOME 里跑测试并返回退出码。沙箱建不起来时不跑任何测试。

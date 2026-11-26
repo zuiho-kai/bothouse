@@ -231,6 +231,9 @@ func (t protoConvTarget) callUpstream(r *http.Request, req pcReq, ev *upstreamEv
 	if t.apiKey != "" {
 		hreq.Header.Set("Authorization", "Bearer "+t.apiKey)
 	}
+	if customHdr := r.Header.Get("comate_custom_header"); customHdr != "" {
+		hreq.Header.Set("comate_custom_header", customHdr)
+	}
 	resp, err := protoConvClient.Do(hreq)
 	if err != nil {
 		return http.StatusBadGateway, "upstream: " + err.Error()

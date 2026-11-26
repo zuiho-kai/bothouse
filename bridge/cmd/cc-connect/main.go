@@ -765,7 +765,11 @@ func runMain() {
 				DisabledCommands:     u.DisabledCommands,
 				WorkDir:              u.WorkDir,
 				Mode:                 u.Mode,
+				Model:                u.Model,
 				AgentType:            u.AgentType,
+				RemoteHost:           u.RemoteHost,
+				RelayHost:            u.RelayHost,
+				SSHArgs:              u.SSHArgs,
 				ShowContextIndicator: u.ShowContextIndicator,
 				ShowWorkdirIndicator: u.ShowWorkdirIndicator,
 				ReplyFooter:          u.ReplyFooter,
@@ -1035,6 +1039,11 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		slog.Info("project not started: all its platforms are disabled", "project", proj.Name)
 		return b, errSkipProject
 	}
+	teamRemote := cfg.TeamRemote.AppliesTo(proj)
+	proj = cfg.TeamRemote.Apply(proj)
+	if host, _ := proj.Agent.Options["remote_host"].(string); host != "" && proj.RunAsUser != "" {
+		return b, fmt.Errorf("project %q: local run_as_user cannot be used with SSH execution", proj.Name)
+	}
 	// Inject project-level run_as_user / run_as_env into the agent's
 	// opts map so agents that support isolation can pick them up
 	// without needing their own top-level config plumbing.
@@ -1078,9 +1087,17 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 
 	workDir, _ := proj.Agent.Options["work_dir"].(string)
 	projectState := core.NewProjectStateStore(projectStatePath(cfg.DataDir, proj.Name))
-	effectiveWorkDir := applyProjectStateOverride(proj.Name, agent, workDir, projectState)
+	effectiveWorkDir := workDir
+	sessionDir := workDir
+	if host, _ := proj.Agent.Options["remote_host"].(string); host != "" {
+		relay, _ := proj.Agent.Options["relay_host"].(string)
+		sessionDir = "ssh:" + relay + "\x00" + host + "\x00" + workDir
+	} else {
+		effectiveWorkDir = applyProjectStateOverride(proj.Name, agent, workDir, projectState)
+		sessionDir = effectiveWorkDir
+	}
 	startInitialRefreshIfReady(agent, providerWiring)
-	sessionFile := sessionStorePath(cfg.DataDir, proj.Name, effectiveWorkDir)
+	sessionFile := sessionStorePath(cfg.DataDir, proj.Name, sessionDir)
 
 	// Parse language setting
 	var lang core.Language
@@ -1100,6 +1117,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	}
 
 	engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
+	engine.TeamRemote = teamRemote
 	b.engine = engine
 	engine.SetBaseWorkDir(workDir)
 	engine.SetProjectStateStore(projectState)
@@ -1581,9 +1599,11 @@ func sessionStorePath(dataDir, name, workDir string) string {
 	if workDir == "" {
 		filename = name + ".json"
 	} else {
-		abs, err := filepath.Abs(workDir)
-		if err != nil {
-			abs = workDir
+		abs := workDir
+		if !strings.HasPrefix(workDir, "ssh:") {
+			if path, err := filepath.Abs(workDir); err == nil {
+				abs = path
+			}
 		}
 		h := sha256.Sum256([]byte(abs))
 		short := hex.EncodeToString(h[:4])

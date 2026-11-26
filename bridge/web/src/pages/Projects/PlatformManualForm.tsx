@@ -12,11 +12,15 @@ interface Props {
   projectName: string;
   workDir?: string;
   agentType?: string;
+  model?: string;
+  remoteHost?: string;
+  relayHost?: string;
+  sshArgs?: string[];
   onComplete: () => void;
   onCancel: () => void;
 }
 
-export default function PlatformManualForm({ platformType, projectName, workDir, agentType, onComplete, onCancel }: Props) {
+export default function PlatformManualForm({ platformType, projectName, workDir, agentType, model, remoteHost, relayHost, sshArgs, onComplete, onCancel }: Props) {
   const { t } = useTranslation();
   const meta = platformMeta[platformType];
   const [values, setValues] = useState<Record<string, any>>(() => {
@@ -83,7 +87,16 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
           opts[f.key] = v;
         }
       }
-      await addPlatformToProject(projectName, { type: platformType, options: opts, work_dir: workDir, agent_type: agentType });
+      await addPlatformToProject(projectName, {
+        type: platformType,
+        options: opts,
+        work_dir: workDir,
+        agent_type: agentType,
+        ...(model ? { model } : {}),
+        ...(remoteHost ? { remote_host: remoteHost } : {}),
+        ...(relayHost ? { relay_host: relayHost } : {}),
+        ...(sshArgs?.length ? { ssh_args: sshArgs } : {}),
+      });
       onComplete();
     } catch (e: any) {
       setError(e?.message || String(e));

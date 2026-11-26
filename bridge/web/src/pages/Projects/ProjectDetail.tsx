@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
+  ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play, Server,
   Trash2, Plus, Check, X, Clock, ExternalLink, Link2, UserRound, MessageSquare,
 } from 'lucide-react';
 import PersonaPanel from './PersonaPanel';
@@ -12,6 +12,8 @@ import SocialPanel from './SocialPanel';
 import QQSettingsPanel from './QQSettingsPanel';
 import QQBotSettingsPanel from './QQBotSettingsPanel';
 import { DSHLocalPlatformForm } from '@/components/dsh/DSHLocalPlatformForm';
+import AgentModelSelector from '@/components/AgentModelSelector';
+import ZuluRemoteFields, { supportsRemoteDevelopment, formatSSHArgs, parseSSHArgs } from '@/components/ZuluRemoteFields';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import { getProject, updateProject, deleteProject, listAgentTypes, shownName, type ProjectDetail as ProjectDetailType } from '@/api/projects';
 import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
@@ -89,6 +91,7 @@ const MODE_OPTIONS_BY_AGENT: Record<string, { value: string; label: string }[]> 
   qoder: GENERIC_YOLO_MODE_OPTIONS,
   opencode: GENERIC_YOLO_MODE_OPTIONS,
   kimi: GENERIC_YOLO_MODE_OPTIONS,
+  zulu: GENERIC_YOLO_MODE_OPTIONS,
   iflow: [
     { value: 'default', label: 'default' },
     { value: 'auto-edit', label: 'auto-edit' },
@@ -121,6 +124,10 @@ export default function ProjectDetail() {
   const [adminFrom, setAdminFrom] = useState('');
   const [disabledCmds, setDisabledCmds] = useState('');
   const [workDir, setWorkDir] = useState('');
+  const [agentModel, setAgentModel] = useState('');
+  const [remoteHost, setRemoteHost] = useState('');
+  const [relayHost, setRelayHost] = useState('');
+  const [sshArgsText, setSshArgsText] = useState('');
   const [agentMode, setAgentMode] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
@@ -222,6 +229,10 @@ export default function ProjectDetail() {
         setAdminFrom(proj.value.settings?.admin_from || '');
         setDisabledCmds(proj.value.settings?.disabled_commands?.join(', ') || '');
         setWorkDir(proj.value.work_dir || '');
+        setAgentModel(proj.value.model || '');
+        setRemoteHost(proj.value.remote_host || '');
+        setRelayHost(proj.value.relay_host || '');
+        setSshArgsText(formatSSHArgs(proj.value.ssh_args));
         setAgentMode(proj.value.agent_mode || 'default');
         setSelectedAgentType(proj.value.agent_type || '');
         setDisplayName(shownName(proj.value)); setNameTouched(false);
@@ -274,7 +285,11 @@ export default function ProjectDetail() {
         ...(nameTouched ? { display_name: displayName, name_customized: true } : {}),
         admin_from: adminFrom,
         disabled_commands: disabledCmds.split(',').map(s => s.trim()).filter(Boolean),
-        work_dir: workDir,
+        ...(!project?.team_remote_active ? { work_dir: workDir } : {}),
+        model: agentModel.trim(),
+        ...(!project?.team_remote_active && (supportsRemoteDevelopment(effectiveAgentType) || project?.remote_host || project?.relay_host)
+          ? { remote_host: remoteHost.trim(), relay_host: relayHost.trim(), ssh_args: parseSSHArgs(sshArgsText) }
+          : {}),
         mode: agentMode,
         ...(agentTypeChanged ? { agent_type: selectedAgentType } : {}),
         show_context_indicator: showCtxIndicator,
@@ -379,6 +394,36 @@ export default function ProjectDetail() {
               ))}
             </div>
           </Card>
+          {(project.remote_host || project.model) && (
+            <Card>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white inline-flex items-center gap-1.5">
+                  <Server size={14} className="text-accent" />
+                  {project.remote_host
+                    ? t('projects.remoteHost', '远程 Linux 开发机 (SSH)')
+                    : t('projects.agentSettings', 'Agent')}
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  {project.model && <Badge variant="outline">{project.model}</Badge>}
+                  {project.remote_host && <Badge variant="info">SSH</Badge>}
+                </div>
+              </div>
+              <div className="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+                {project.model && (
+                  <p>Model: <code className="font-mono text-gray-900 dark:text-gray-100">{project.model}</code></p>
+                )}
+                {project.remote_host && (
+                  <p>Host: <code className="font-mono text-gray-900 dark:text-gray-100">{project.remote_host}</code></p>
+                )}
+                {project.relay_host && (
+                  <p>Relay: <code className="font-mono text-gray-900 dark:text-gray-100">{project.relay_host}</code></p>
+                )}
+                {project.work_dir && (
+                  <p>{t('projects.workDir', '工作目录')}: <code className="font-mono text-gray-900 dark:text-gray-100">{project.work_dir}</code></p>
+                )}
+              </div>
+            </Card>
+          )}
           <Card>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">{t('sessions.title')}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -645,7 +690,40 @@ export default function ProjectDetail() {
                 <p className="text-[11px] text-amber-500 mt-1">{t('projects.agentTypeChangeHint', 'Changing agent type requires restart. Incompatible providers will be removed.')}</p>
               )}
             </div>
-            <Input label={t('projects.workDir', 'Working directory')} value={workDir} onChange={(e) => setWorkDir(e.target.value)} placeholder="/path/to/project" />
+            {project.team_remote_active ? (
+              <p className="text-sm text-ink-soft">{t('projects.teamRemoteActive', 'This role uses the shared SSH configuration in System settings.')}</p>
+            ) : !supportsRemoteDevelopment(effectiveAgentType) && <Input
+              label={t('projects.workDir', 'Working directory')}
+              value={workDir}
+              onChange={(e) => setWorkDir(e.target.value)}
+              placeholder="/path/to/project"
+            />}
+            {!project.team_remote_active && supportsRemoteDevelopment(effectiveAgentType) && (
+              <ZuluRemoteFields
+                agentType={effectiveAgentType === 'claudecode' ? 'claudecode' : 'zulu'}
+                remoteHost={remoteHost}
+                relayHost={relayHost}
+                sshArgsText={sshArgsText}
+                workDir={workDir}
+                showWorkDir
+                onChangeRemoteHost={setRemoteHost}
+                onChangeRelayHost={setRelayHost}
+                onChangeSSHArgsText={setSshArgsText}
+                onChangeWorkDir={setWorkDir}
+                testIdPrefix="project-detail-zulu"
+              />
+            )}
+            <AgentModelSelector
+              projectName={project.name}
+              useProjectEndpoint={effectiveAgentType === project.agent_type && remoteHost.trim() === (project.remote_host || '') && relayHost.trim() === (project.relay_host || '')}
+              agentType={effectiveAgentType}
+              remoteHost={supportsRemoteDevelopment(effectiveAgentType) ? remoteHost : ''}
+              relayHost={supportsRemoteDevelopment(effectiveAgentType) ? relayHost : ''}
+              sshArgs={supportsRemoteDevelopment(effectiveAgentType) ? parseSSHArgs(sshArgsText) : undefined}
+              value={agentModel}
+              onChange={setAgentModel}
+              testIdPrefix="project-detail-model"
+            />
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 {t('projects.agentMode', 'Permission mode')}

@@ -129,9 +129,16 @@ func cursorLogin(ctx context.Context, path string) string {
 // through to the child process): ~/.claude.json exists for logged-out users too and the OAuth token itself
 // lives in the macOS keychain, so the file is parsed and only the presence of the
 // "oauthAccount" key is checked; values are discarded and never logged or returned.
+func zuluLogin(h string) string {
+	if fileExists(filepath.Join(h, ".comate", "login-user")) || fileExists(filepath.Join(h, ".comate", "auth")) {
+		return "logged_in"
+	}
+	return "unknown"
+}
+
 var cliSpecs = []cliSpec{
-	{"claudecode", "Claude Code", []string{"claude"}, ProtocolAnthropic, func(h string) string {
-		return loginIf(claudeEnvLogin() || claudeFileLogin(h))
+	{"claudecode", "Claude Code", []string{"claude", "ducc"}, ProtocolAnthropic, func(h string) string {
+		return loginIf(claudeEnvLogin() || claudeFileLogin(h) || fileExists(filepath.Join(h, ".comate", "baidu-cc", "bin", "ducc")))
 	}, ""},
 	{"codex", "Codex", []string{"codex"}, ProtocolResponses, func(h string) string {
 		dir := os.Getenv("CODEX_HOME")
@@ -157,6 +164,7 @@ var cliSpecs = []cliSpec{
 	{"qoder", "Qoder", []string{"qodercli"}, "", nil, ""},
 	{"iflow", "iFlow", []string{"iflow"}, "", nil, ""},
 	{"pi", "Pi", []string{"pi"}, "", nil, ""},
+	{"zulu", "iDev Zulu", []string{"zulu"}, "", zuluLogin, ""},
 	{"", "WorkBuddy", []string{"workbuddy", "codebuddy"}, "", nil,
 		"bothouse 还没有 WorkBuddy 的适配器，装了只能显示，不能选 / no bothouse adapter yet"},
 }
@@ -177,12 +185,18 @@ func extraBinDirs() []string {
 		}
 		return dirs
 	}
-	return []string{
+	dirs := []string{
 		filepath.Join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin",
 		filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".bun", "bin"),
 		filepath.Join(home, ".cargo", "bin"), filepath.Join(home, "go", "bin"),
 		filepath.Join(home, ".claude", "local"), // Claude Code's local install (`claude migrate-installer`), Unix only
+		filepath.Join(home, ".comate", "baidu-cc", "bin"),
 	}
+	if runtime.GOOS == "darwin" && os.Getenv("CONEST_TEST_SANDBOX") == "" {
+		// The app bundle lives outside both PATH and the test sandbox's HOME.
+		dirs = append(dirs, "/Applications/iDev.app/Contents/Resources/app/extensions/baiducomate.comate/dist/zulu-cli/bin")
+	}
+	return dirs
 }
 
 // ExtraBinDirs returns the install dirs searched after PATH (see extraBinDirs). The role session

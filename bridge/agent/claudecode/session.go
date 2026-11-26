@@ -103,7 +103,13 @@ type claudeSession struct {
 	// Stop hook timeout. The wait ends as soon as the process exits,
 	// so typical shutdowns take seconds, not the full timeout.
 	gracefulStopTimeout time.Duration
-	ccHooks             *ccPermissionHookRunner // Claude Code PermissionRequest hook runner
+
+	remoteCfg        *remoteClaudeConfig
+	remoteTurnMu     sync.Mutex
+	remoteTurnCancel context.CancelFunc
+	remoteWg         sync.WaitGroup
+	remoteCloseOnce  sync.Once
+	ccHooks          *ccPermissionHookRunner // Claude Code PermissionRequest hook runner
 
 	// startupWarning holds a one-time message to surface to the IM user at
 	// session start (e.g. when a permission mode was silently downgraded).
@@ -1267,6 +1273,9 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 }
 
 func (cs *claudeSession) handleControlRequest(raw map[string]any) {
+	if cs.remoteCfg != nil {
+		return
+	}
 	requestID, _ := raw["request_id"].(string)
 	request, _ := raw["request"].(map[string]any)
 	if request == nil {
@@ -1354,6 +1363,12 @@ func (cs *claudeSession) handleControlRequest(raw map[string]any) {
 // Files are saved to local temp files and referenced in the text prompt
 // so Claude Code can read them with its built-in tools.
 func (cs *claudeSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
+	if cs.remoteCfg != nil {
+		if len(images) != 0 || len(files) != 0 {
+			return fmt.Errorf("remote Claude Code currently supports text messages only")
+		}
+		return cs.sendRemote(prompt)
+	}
 	if !cs.alive.Load() {
 		return fmt.Errorf("session process is not running")
 	}
@@ -1442,6 +1457,9 @@ func extFromMime(mime string) string {
 
 // RespondPermission writes a control_response to the Claude process stdin.
 func (cs *claudeSession) RespondPermission(requestID string, result core.PermissionResult) error {
+	if cs.remoteCfg != nil {
+		return nil
+	}
 	if !cs.alive.Load() {
 		return fmt.Errorf("session process is not running")
 	}
@@ -1488,6 +1506,9 @@ var _ core.AgentSessionCanceller = (*claudeSession)(nil)
 // turn with an error_during_execution result, which handleResult turns into one
 // EventError (core only logs it).
 func (cs *claudeSession) CancelTurn() error {
+	if cs.remoteCfg != nil {
+		return cs.cancelRemoteTurn()
+	}
 	if !cs.alive.Load() {
 		return fmt.Errorf("session process is not running")
 	}
@@ -1619,6 +1640,9 @@ func (cs *claudeSession) Alive() bool {
 }
 
 func (cs *claudeSession) Close() error {
+	if cs.remoteCfg != nil {
+		return cs.closeRemote()
+	}
 	return cs.stop(true)
 }
 
@@ -1629,6 +1653,9 @@ var _ core.AgentSessionRestartCloser = (*claudeSession)(nil)
 // it waits for the task: Close would spend the whole graceful timeout and end
 // in SIGTERM anyway, so the wait is skipped. Without one it is Close.
 func (cs *claudeSession) CloseForRestart() error {
+	if cs.remoteCfg != nil {
+		return cs.closeRemote()
+	}
 	return cs.stop(cs.bgTasks.Load() == 0)
 }
 
@@ -1703,6 +1730,9 @@ var _ core.AgentSessionForceKiller = (*claudeSession)(nil)
 // fork #618 K3). Engine.Stop calls it when Close runs past the shutdown
 // budget, so claude and its MCP children never outlive the bridge.
 func (cs *claudeSession) ForceKill() error {
+	if cs.remoteCfg != nil {
+		return cs.closeRemote()
+	}
 	cs.cancel()
 	return forceKillCmd(cs.cmd)
 }

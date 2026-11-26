@@ -120,3 +120,33 @@ describe('GlobalSettings review models', () => {
     act(() => root.unmount());
   });
 });
+
+it('saves the shared development host with the checked role IDs', async () => {
+  vi.mocked(getGlobalSettings).mockResolvedValue({
+    team_remote: { enabled: true, remote_host: 'njjs', relay_host: 'relay', work_dir: '/home/work/repo' },
+    team_remote_projects: [
+      { name: 'ducc', display_name: 'Claude' },
+      { name: 'zulu', display_name: 'Zulu' },
+    ],
+  } as never);
+  vi.mocked(listRoles).mockResolvedValue({ roles: [] });
+  vi.mocked(updateGlobalSettings).mockResolvedValue({} as never);
+  const container = document.createElement('div');
+  document.body.append(container);
+  containers.push(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<GlobalSettings hideHeader />); });
+
+  const checkboxes = container.querySelectorAll<HTMLInputElement>('fieldset input[type="checkbox"]');
+  expect(checkboxes).toHaveLength(2);
+  await act(async () => { checkboxes[0].click(); });
+  const save = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('common.save'))!;
+  await act(async () => { save.click(); });
+  expect(updateGlobalSettings).toHaveBeenCalledWith(expect.objectContaining({
+    team_remote: expect.objectContaining({
+      enabled: true, remote_host: 'njjs', relay_host: 'relay', work_dir: '/home/work/repo', projects: ['ducc'],
+    }),
+  }));
+  expect(container.textContent).toContain('Restart the bothouse service');
+  act(() => root.unmount());
+});

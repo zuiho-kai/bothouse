@@ -51,11 +51,11 @@ func UpsertWizardProject(o WizardProjectOptions) error {
 
 // WizardProjectSnapshot is one [[projects]] entry as it is in config.toml now.
 type WizardProjectSnapshot struct {
-	Name, AgentType, WorkDir, AgentCmd string
-	Platforms                          map[string]map[string]any // type → options of the first platform of that type
-	GateURL, GateFallback              string
-	TeamName                           string // the name shown for the project ("" = its name)
-	AdminFrom                          string // project-level admin_from
+	Name, AgentType, WorkDir, AgentCmd, RemoteHost string
+	Platforms                                      map[string]map[string]any // type → options of the first platform of that type
+	GateURL, GateFallback                          string
+	TeamName                                       string // the name shown for the project ("" = its name)
+	AdminFrom                                      string // project-level admin_from
 }
 
 // WizardSnapshot reads config.toml's projects (under the config lock, released on return).
@@ -74,7 +74,8 @@ func snapshotOf(cfg *Config) []WizardProjectSnapshot {
 	for _, p := range cfg.Projects {
 		wd, _ := p.Agent.Options["work_dir"].(string)
 		cmd, _ := p.Agent.Options["cmd"].(string)
-		ps := WizardProjectSnapshot{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd, AgentCmd: cmd,
+		remoteHost, _ := p.Agent.Options["remote_host"].(string)
+		ps := WizardProjectSnapshot{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd, AgentCmd: cmd, RemoteHost: remoteHost,
 			Platforms: map[string]map[string]any{}, GateURL: p.GateURL, GateFallback: p.GateFallback, TeamName: p.TeamName,
 			AdminFrom: p.AdminFrom}
 		for _, pl := range p.Platforms {

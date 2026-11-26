@@ -6,6 +6,8 @@ import { Bot, Check, CheckCircle2, Copy, ExternalLink, Globe, House, Loader2, Pu
 import { useThemeStore, DEFAULT_THEME } from '@/store/theme';
 import './setup.css';
 import { Badge, Button, Card, Input, Textarea } from '@/components/ui';
+import AgentModelSelector from '@/components/AgentModelSelector';
+import ZuluRemoteFields, { supportsRemoteDevelopment, parseSSHArgs } from '@/components/ZuluRemoteFields';
 import PlatformSetupQR from '@/pages/Projects/PlatformSetupQR';
 import { JevPreset, JEV_PRESET } from './JevPreset';
 import { restartSystem } from '@/api/status';
@@ -41,6 +43,10 @@ interface RoleDraft {
   acp_preset?: string;
   agent_cmd?: string;
   agent_env?: string;
+  model?: string;
+  remote_host?: string;
+  relay_host?: string;
+  ssh_args?: string;
   work_dir?: string;
   agentTouched?: boolean; // QQ: only an explicit CLI selection may replace an existing role's agent
   useProvider: boolean;
@@ -60,6 +66,7 @@ interface RoleDraft {
 // #1881: the CLIs a role can run on, with each one's own install and sign-in command (the agent types
 // core/setup_detect.go lists with a login check). 来源：各 CLI 官方安装说明的 npm 包名；DSH 沿用 core.DSHInstallHint。
 const PREREQ_CLIS = [
+  { agent_type: 'zulu', label: 'iDev Zulu', install: '安装 iDev 桌面端（内置 Zulu CLI）', login: 'zulu login' },
   { agent_type: 'claudecode', label: 'Claude Code', install: 'npm i -g @anthropic-ai/claude-code', login: 'claude' },
   { agent_type: 'codex', label: 'Codex', install: 'npm i -g @openai/codex', login: 'codex login' },
   { agent_type: 'gemini', label: 'Gemini CLI', install: 'npm i -g @google/gemini-cli', login: 'gemini' },
@@ -70,7 +77,7 @@ const PREREQ_CLIS = [
 // Same as core memoryFileOfAgent: the instruction file each CLI reads from its work_dir.
 const MEMORY_FILE: Record<string, string> = {
   claudecode: 'CLAUDE.md', codex: 'AGENTS.md', gemini: 'GEMINI.md', antigravity: 'GEMINI.md',
-  opencode: 'OPENCODE.md', iflow: 'IFLOW.md', reasonix: 'REASONIX.md',
+  opencode: 'OPENCODE.md', iflow: 'IFLOW.md', reasonix: 'REASONIX.md', zulu: 'AGENTS.md',
 };
 // Vendors without a default model need one typed in (core validateWizardProvider).
 
@@ -448,6 +455,13 @@ export default function SetupWizard() {
           ...(Object.keys(parseEnvLines(r.agent_env)).length ? { agent_env: parseEnvLines(r.agent_env) } : {}),
           ...((r.work_dir || '').trim() ? { work_dir: (r.work_dir || '').trim() } : {}),
         } : {}),
+        ...(supportsRemoteDevelopment(r.agent_type) && !r.reuse_project ? {
+          ...((r.remote_host || '').trim() ? { remote_host: (r.remote_host || '').trim() } : {}),
+          ...((r.relay_host || '').trim() ? { relay_host: (r.relay_host || '').trim() } : {}),
+          ...(parseSSHArgs(r.ssh_args).length ? { ssh_args: parseSSHArgs(r.ssh_args) } : {}),
+          ...((r.work_dir || '').trim() ? { work_dir: (r.work_dir || '').trim() } : {}),
+        } : {}),
+        ...(!r.reuse_project && (r.model || '').trim() ? { model: (r.model || '').trim() } : {}),
         ...(!r.reuse_project ? { persona: r.persona || undefined, reply_language: r.reply_language }
           : r.editPersona ? { persona: r.persona || undefined, reply_language: r.reply_language, edit_persona: true } : {}),
         ...(r.personaSlug !== undefined ? { persona_preset: r.personaSlug } : {}),
@@ -540,6 +554,8 @@ export default function SetupWizard() {
       if (!r.agent_type) return false;
       // acp has no CLI to detect: without its launch command the bridge cannot start the role
       if (r.agent_type === 'acp' && !r.reuse_project && !(r.agent_cmd || '').trim()) return false;
+      // Remote-only backends need an SSH host when the local CLI is unavailable.
+      if (supportsRemoteDevelopment(r.agent_type) && !r.reuse_project && !(clis || []).some((c) => c.agent_type === r.agent_type && c.supported) && !(r.remote_host || '').trim()) return false;
       // DSH with no key anywhere fails every turn (core dshModelSetup): its own login, or a provider with a key
       if (r.agent_type === 'dsh' && !r.reuse_project && !r.useProvider && dshNoLogin) return false;
       if (!r.useProvider) return true;
@@ -953,6 +969,15 @@ export default function SetupWizard() {
                         </button>
                       );
                     })}
+                    {!r.reuse_project && (['zulu', 'claudecode'] as const)
+                      .filter(type => !(clis || []).some(c => c.agent_type === type && c.supported))
+                      .map(type => (
+                        <button key={type} onClick={() => patchRole(r.key, { agent_type: type, agentTouched: true, useProvider: false })}
+                          data-testid={`cli-${idx}-${type}-remote`}
+                          className={`text-left p-2.5 rounded-lg border text-sm text-ink ${r.agent_type === type ? 'border-accent bg-accent/5' : 'border-hairline'}`}>
+                          {type === 'zulu' ? 'iDev Zulu' : 'Claude Code / ducc'} · SSH
+                        </button>
+                      ))}
                     {!r.reuse_project && (
                       <button onClick={() => patchRole(r.key, { agent_type: 'acp', acp_preset: '', agent_cmd: '', agentTouched: true, useProvider: false })}
                         data-testid={`cli-${idx}-acp`}
@@ -962,6 +987,34 @@ export default function SetupWizard() {
                       </button>
                     )}
                   </div>
+                  {supportsRemoteDevelopment(r.agent_type) && !r.reuse_project && (
+                    <ZuluRemoteFields
+                agentType={r.agent_type === 'claudecode' ? 'claudecode' : 'zulu'}
+                      remoteOnly={!(clis || []).some(c => c.agent_type === r.agent_type && c.supported)}
+                      remoteHost={r.remote_host || ''}
+                      relayHost={r.relay_host || ''}
+                      sshArgsText={r.ssh_args || ''}
+                      workDir={r.work_dir || ''}
+                      showWorkDir
+                      localWorkDirPlaceholder={`${state?.data_dir || '~/.bothouse'}/roles/${projectOf(r)}`}
+                      onChangeRemoteHost={(v) => patchRole(r.key, { remote_host: v })}
+                      onChangeRelayHost={(v) => patchRole(r.key, { relay_host: v })}
+                      onChangeSSHArgsText={(v) => patchRole(r.key, { ssh_args: v })}
+                      onChangeWorkDir={(v) => patchRole(r.key, { work_dir: v })}
+                      testIdPrefix={`zulu-${idx}`}
+                    />
+                  )}
+                  {supportsRemoteDevelopment(r.agent_type) && !r.reuse_project && !r.useProvider && (
+                    <AgentModelSelector
+                      agentType={r.agent_type}
+                      remoteHost={supportsRemoteDevelopment(r.agent_type) ? r.remote_host || '' : ''}
+                      relayHost={supportsRemoteDevelopment(r.agent_type) ? r.relay_host || '' : ''}
+                      sshArgs={supportsRemoteDevelopment(r.agent_type) ? parseSSHArgs(r.ssh_args) : undefined}
+                      value={r.model || ''}
+                      onChange={(m) => patchRole(r.key, { model: m })}
+                      testIdPrefix={`setup-model-${idx}`}
+                    />
+                  )}
                   {r.agent_type === 'acp' && !r.reuse_project && (
                     <div className="space-y-2" data-testid={`acp-form-${idx}`}>
                       {(() => {
@@ -1155,7 +1208,7 @@ export default function SetupWizard() {
                 <p className="text-sm text-gray-700 dark:text-gray-300">{T.reviewNote}</p>
                 <ul className="text-sm space-y-1">
                   {roles.map((r) => (
-                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{keptLang(r)
+                    <li key={r.key}>• {nameOf(r)} → {r.agent_type}{r.model?.trim() ? ` [${r.model.trim()}]` : ''}{r.remote_host?.trim() ? ` (SSH: ${r.remote_host.trim()}${r.relay_host?.trim() ? ` via ${r.relay_host.trim()}` : ''}${r.work_dir?.trim() ? `:${r.work_dir.trim()}` : ''})` : ''}{r.useProvider ? ` + ${r.provider.vendor}` : ''}{keptLang(r)
                       ? <span data-testid="review-reply-lang-kept"> · {T.replyLang}: {keptLangLabel(T, r.existingPersona)}{T.replyLangKept}</span>
                       : <span data-testid="review-reply-lang"> · {T.replyLang}: {langLabel(r.reply_language)}</span>}{!addMode && fallback === projectOf(r) && platform !== 'feishu' && roles.length > 1 ? <Badge variant="info">{T.fallbackTag}</Badge> : null}</li>
                   ))}

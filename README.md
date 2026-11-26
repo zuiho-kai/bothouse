@@ -81,6 +81,13 @@ On macOS, daemon install and restart allow a 30-second window for launchd to rem
 **Let an AI agent install it for you:** give Claude Code, Codex or any agent CLI this repo link and say "install bothouse and connect it to Discord". The agent-side steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord).
 
 
+### Shared Linux development host
+
+Open **System → Global Settings → Shared remote development host**, enter the SSH host, optional relay and Linux working directory, and check the Claude Code (`ducc`) and Zulu roles that should use them. Save and restart bothouse to apply the selection. Unchecking a role or turning off sharing restores its own execution settings after restart. For an individual role, use **Projects → Settings → Execution target**.
+
+The CLI and its login must be available on the Linux host. Remote Claude Code supports text turns and resumes through the remote CLI. Attachments and interactive approval cards are unavailable in this mode.
+
+
 <a id="how"></a>
 <a id="team-mode"></a>
 <a id="team"></a>

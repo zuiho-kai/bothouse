@@ -41,6 +41,8 @@ export interface WizardWiki { daily?: string; night?: string; split?: string }
 
 export interface WizardRole {
   name_customized?: boolean; keep_persona_name?: boolean; project?: string; name?: string; token?: string; reuse_project?: string; agent_type?: string; agent_cmd?: string; agent_env?: Record<string, string>;
+  model?: string;
+  remote_host?: string; relay_host?: string; ssh_args?: string[];
   work_dir?: string; persona?: string; edit_persona?: boolean; reply_language?: string;
   // #1498: DSH only — the output cap written into llm-deepseek (omitted = the server's own default)
   provider?: { vendor: string; base_url?: string; api_key?: string; model?: string; max_tokens?: number };
@@ -97,6 +99,42 @@ export interface CloudWebTest { ok: boolean; code: string; status?: number; mess
 export const getLocalHub = (lang: string) => api.get<LocalHubStatus>('/setup/cloudweb/local', { lang });
 export const startLocalHub = (lang: string) => api.post<LocalHubStatus>('/setup/cloudweb/start', { lang });
 export const testCloudWeb = (body: { url: string; token: string; lang: string }) => api.post<CloudWebTest>('/setup/cloudweb/test', body);
+
+export interface SSHTestResult {
+  ok: boolean;
+  ssh_ok: boolean;
+  zulu_path?: string;
+  zulu_version?: string;
+  ducc_path?: string;
+  ducc_version?: string;
+  work_dir_ok?: boolean;
+  error?: string;
+}
+export interface SSHDiscoveryResp {
+  hosts: string[];
+  relays?: string[];
+  recent_workspaces?: Record<string, string[]>;
+}
+export interface ModelOptionItem {
+  name: string;
+  desc?: string;
+}
+export interface SetupModelsResp {
+  models: string[];
+  options?: ModelOptionItem[];
+  source?: string;
+}
+export const getSSHHosts = () => api.get<SSHDiscoveryResp>('/setup/ssh/hosts');
+export const testSSHRemote = (body: { agent_type?: string; remote_host: string; relay_host?: string; ssh_args?: string[]; work_dir?: string }) =>
+  api.post<SSHTestResult>('/setup/ssh/test', body);
+export const getSetupModels = (params: { agent_type: string; remote_host?: string; relay_host?: string; ssh_args?: string[]; refresh?: boolean }) =>
+  api.get<SetupModelsResp>('/setup/models', {
+    agent_type: params.agent_type,
+    ...(params.remote_host ? { remote_host: params.remote_host } : {}),
+    ...(params.relay_host ? { relay_host: params.relay_host } : {}),
+    ...(params.ssh_args?.length ? { ssh_args: params.ssh_args.join(' ') } : {}),
+    ...(params.refresh ? { refresh: '1' } : {}),
+  });
 
 export const getSetupState = (lang: string, fallbackName = '') => api.get<SetupStateResp>('/setup/state', { lang, fallback_name: fallbackName });
 export const getCLIs = () => api.get<{ clis: LocalCLI[]; acp_presets?: ACPPreset[] }>('/setup/clis');

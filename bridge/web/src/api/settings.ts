@@ -1,6 +1,17 @@
 import api from './client';
 
+export interface TeamRemoteSettings {
+  enabled: boolean;
+  remote_host: string;
+  relay_host: string;
+  work_dir: string;
+  ssh_args?: string[];
+  projects?: string[];
+}
+
 export interface GlobalSettings {
+  team_remote?: TeamRemoteSettings;
+  team_remote_projects?: { name: string; display_name: string }[];
   language: string;
   attachment_send: string;
   log_level: string;
@@ -37,4 +48,4 @@ export interface ReviewModelNotice {
 }
 
 export const getGlobalSettings = () => api.get<GlobalSettings>('/settings');
-export const updateGlobalSettings = (body: Partial<GlobalSettings>) => api.patch<GlobalSettings>('/settings', body);
+export const updateGlobalSettings = (body: Partial<Omit<GlobalSettings, 'team_remote_projects'>>) => api.patch<GlobalSettings>('/settings', body);

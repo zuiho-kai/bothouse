@@ -38,6 +38,9 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
   onMessageRef.current = onMessage;
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState<BridgeStatus>('disconnected');
+  // The bridge replaces adapters with the same name. Keep one identity per
+  // open chat, stable across reconnects and independent of the session key.
+  const [connectionId] = useState(() => Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-'));
 
   const send = useCallback((data: Record<string, any>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -55,6 +58,8 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
       content,
       reply_ctx: sessionKey,
       project: projectName || '',
+      // The project picker already addresses this message to a specific role.
+      mentioned: Boolean(projectName),
     });
   }, [send, sessionKey, projectName]);
 
@@ -94,8 +99,8 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
         setStatus('registering');
         ws.send(JSON.stringify({
           type: 'register',
-          platform: platformName,
-          capabilities: ['text', 'card', 'buttons', 'typing', 'update_message', 'preview', 'reconstruct_reply'],
+          platform: `${platformName}-${connectionId}`,
+          capabilities: ['text', 'card', 'buttons', 'typing', 'update_message', 'delete_message', 'preview', 'reconstruct_reply'],
           metadata: { version: '1.0.0', description: 'Web Admin Dashboard' },
         }));
       };
@@ -142,7 +147,7 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
       }
       setStatus('disconnected');
     };
-  }, [bridgeCfg, platformName, send]);
+  }, [bridgeCfg, platformName, connectionId, send]);
 
   return { status, send, sendMessage, sendCardAction, sendPreviewAck };
 }

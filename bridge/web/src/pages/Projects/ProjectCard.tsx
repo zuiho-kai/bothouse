@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Check, ChevronRight, HeartPulse, MessageSquareText } from 'lucide-react';
+import { Check, ChevronRight, HeartPulse, MessageSquareText, Server } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { shownName, type ProjectSummary } from '@/api/projects';
+import { backendLabel } from '@/lib/roleIdentity';
 import { monogram } from './projectListModel';
 
 interface ProjectItemProps {
@@ -126,7 +127,20 @@ export function ProjectCard({ project, selected, onToggleSelect, onPreview }: Pr
           <Monogram name={name} />
           <div className="min-w-0 flex-1 pt-0.5">
             <h3 className="truncate text-[15px] font-semibold tracking-tight text-ink">{name}</h3>
-            <p className="mt-0.5 truncate text-[13px] text-ink-mute">{project.agent_type}</p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 truncate text-[13px] text-ink-mute">
+              <span className="truncate">{backendLabel(project.agent_type)}</span>
+              {project.model && (
+                <span className="inline-flex shrink-0 items-center rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-ink-soft ring-1 ring-hairline" title={project.model}>
+                  <span className="max-w-[140px] truncate">{project.model}</span>
+                </span>
+              )}
+              {project.remote_host && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent-wash px-1.5 py-0.5 text-[11px] text-accent-text" title={`SSH: ${project.remote_host}`}>
+                  <Server size={10} />
+                  <span className="max-w-[120px] truncate">{project.remote_host}</span>
+                </span>
+              )}
+            </p>
           </div>
         </div>
 
@@ -198,7 +212,20 @@ export function ProjectRow({ project, selected, onToggleSelect, onPreview }: Pro
         <Monogram name={name} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">{name}</span>
-          <span className="block truncate text-[13px] text-ink-mute">{project.agent_type}</span>
+          <span className="flex items-center gap-1.5 truncate text-[13px] text-ink-mute">
+            <span className="truncate">{backendLabel(project.agent_type)}</span>
+            {project.model && (
+              <span className="inline-flex shrink-0 items-center rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-ink-soft ring-1 ring-hairline">
+                <span className="max-w-[140px] truncate">{project.model}</span>
+              </span>
+            )}
+            {project.remote_host && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent-wash px-1.5 py-0.5 text-[11px] text-accent-text">
+                <Server size={10} />
+                <span className="max-w-[140px] truncate">{project.remote_host}</span>
+              </span>
+            )}
+          </span>
         </span>
         <span className="hidden shrink-0 items-center gap-1 sm:flex">
           <PlatformTags platforms={platforms} max={2} />

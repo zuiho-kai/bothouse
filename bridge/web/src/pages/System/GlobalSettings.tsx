@@ -3,13 +3,18 @@ import AutostartSettingCard from '@/components/Autostart/AutostartSettingCard';
 import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
 import { Card, Button, LoadingState, PageHeader } from '@/components/ui';
-import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS, type ReviewModelNotice } from '@/api/settings';
+import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS, type ReviewModelNotice, type TeamRemoteSettings } from '@/api/settings';
 import { listRoles, type RoleInfo } from '@/api/roles';
 import { listModels } from '@/api/providers';
 import { cn } from '@/lib/utils';
 import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
 import AvatarStyleSettingCard from '@/components/Avatar/AvatarStyleSettingCard';
 import TokenUnitSettingCard from '@/components/Usage/TokenUnitSettingCard';
+
+import ZuluRemoteFields, { parseSSHArgs, formatSSHArgs } from '@/components/ZuluRemoteFields';
+import { isZhLang } from '@/pages/Setup/texts';
+
+const EMPTY_REMOTE: TeamRemoteSettings = { enabled: false, remote_host: '', relay_host: '', work_dir: '' };
 
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
 const ATTACHMENT_OPTS = ['', 'on', 'off'];
@@ -75,10 +80,19 @@ function NumberInput({ value, onChange, label, hint, min, max }: { value: number
 }
 
 export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } = {}) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const zh = isZhLang(i18n?.language || 'en');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [teamRemote, setTeamRemote] = useState(EMPTY_REMOTE);
+  const [remoteProjects, setRemoteProjects] = useState<GS['team_remote_projects']>([]);
+  const [remoteArgs, setRemoteArgs] = useState('');
+  const [remoteDirty, setRemoteDirty] = useState(false);
+  const patchRemote = (patch: Partial<TeamRemoteSettings>) => {
+    setTeamRemote(current => ({ ...current, ...patch }));
+    setRemoteDirty(true);
+  };
 
   const [language, setLanguage] = useState('en');
   const [attachmentSend, setAttachmentSend] = useState('');
@@ -106,6 +120,9 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
     setLoading(true);
     try {
       const s = await getGlobalSettings();
+      setTeamRemote(s.team_remote ?? EMPTY_REMOTE);
+      setRemoteProjects(s.team_remote_projects ?? []);
+      setRemoteArgs(formatSSHArgs(s.team_remote?.ssh_args ?? []));
       setLanguage(s.language || 'en');
       setAttachmentSend(s.attachment_send || '');
       setLogLevel(s.log_level || 'info');
@@ -171,10 +188,15 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
   };
 
   const handleSave = async () => {
+    if (remoteDirty && teamRemote.enabled && (!teamRemote.remote_host.trim() || !teamRemote.work_dir.trim())) {
+      setMsg(zh ? '请填写 SSH 主机和工作目录。' : 'Enter the SSH host and working directory.');
+      return;
+    }
     setSaving(true);
     setMsg('');
     try {
       await updateGlobalSettings({
+        ...(remoteDirty ? { team_remote: { ...teamRemote, ssh_args: parseSSHArgs(remoteArgs) } } : {}),
         language,
         attachment_send: attachmentSend,
         log_level: logLevel,
@@ -192,7 +214,10 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
         review_simple_model: reviewSimple ? reviewSimpleModel : '',
         review_complex_model: reviewComplex ? reviewComplexModel : '',
       });
-      setMsg(t('common.success'));
+      setMsg(remoteDirty
+        ? (zh ? '已保存。重启 bothouse 服务后应用团队远程配置。' : 'Saved. Restart the bothouse service to apply shared SSH settings.')
+        : t('common.success'));
+      setRemoteDirty(false);
       setTimeout(() => setMsg(''), 3000);
     } catch (e: any) {
       setMsg(e.message || 'Error');
@@ -215,6 +240,34 @@ export default function GlobalSettings({ hideHeader }: { hideHeader?: boolean } 
       <ThemeSettingCard />
       <AvatarStyleSettingCard />
       <TokenUnitSettingCard />
+      <Card>
+        <div className="max-w-lg space-y-4">
+          <Toggle value={teamRemote.enabled} onChange={enabled => patchRemote({ enabled })}
+            label={zh ? '团队远程开发机' : 'Shared remote development host'}
+            hint={zh ? '勾选的角色共享 SSH 主机、跳板机和目录。保存后重启 bothouse 服务。' : 'Selected roles share the SSH host, relay and directory. Restart the bothouse service after saving.'} />
+          {teamRemote.enabled && <>
+            <ZuluRemoteFields remoteOnly showWorkDir testIdPrefix="team-remote"
+              remoteHost={teamRemote.remote_host} relayHost={teamRemote.relay_host}
+              workDir={teamRemote.work_dir} sshArgsText={remoteArgs}
+              onChangeRemoteHost={remote_host => patchRemote({ remote_host })}
+              onChangeRelayHost={relay_host => patchRemote({ relay_host })}
+              onChangeWorkDir={work_dir => patchRemote({ work_dir })}
+              onChangeSSHArgsText={value => { setRemoteArgs(value); setRemoteDirty(true); }} />
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-ink-soft">{zh ? '共享这台开发机的角色' : 'Roles using this host'}</legend>
+              {(remoteProjects ?? []).map(role => (
+                <label key={role.name} className="flex items-center gap-2 text-sm text-ink-soft">
+                  <input type="checkbox" checked={teamRemote.projects?.includes(role.name) ?? false}
+                    onChange={event => patchRemote({ projects: event.target.checked
+                      ? [...(teamRemote.projects ?? []), role.name]
+                      : teamRemote.projects?.filter(name => name !== role.name) })} />
+                  {role.display_name}
+                </label>
+              ))}
+            </fieldset>
+          </>}
+        </div>
+      </Card>
       {/* General */}
       <Card>
         <h3 className="mb-4 text-sm font-semibold text-ink">{t('settings.general', 'General')}</h3>

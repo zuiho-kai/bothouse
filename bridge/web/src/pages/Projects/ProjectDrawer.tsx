@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { ArrowRight, HeartPulse, Plug, X } from 'lucide-react';
+import { ArrowRight, HeartPulse, Plug, Server, X } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { getProject, shownName, type ProjectDetail, type ProjectSummary } from '@/api/projects';
+import { backendLabel } from '@/lib/roleIdentity';
 
 interface DrawerProps {
   project: ProjectSummary | null;
@@ -98,8 +99,26 @@ export function ProjectDrawer({ project, onClose }: DrawerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           <section className="divide-y divide-hairline">
             <Field label={t('projects.agent', 'Agent')}>
-              <span className="text-ink">{project.agent_type}</span>
+              <span className="text-ink">{backendLabel(project.agent_type)}</span>
             </Field>
+            {(detail?.model || project.model) && (
+              <Field label={t('projects.model', '模型')}>
+                <code className="font-mono text-xs text-ink">{detail?.model || project.model}</code>
+              </Field>
+            )}
+            {(detail?.remote_host || project.remote_host) && (
+              <Field label={t('projects.remoteHost', '远程 SSH')}>
+                <span className="inline-flex items-center gap-1 font-mono text-xs text-accent-text">
+                  <Server size={12} />
+                  {detail?.remote_host || project.remote_host}
+                </span>
+              </Field>
+            )}
+            {(detail?.relay_host || project.relay_host) && (
+              <Field label={t('projects.relayHost', '跳板机')}>
+                <code className="font-mono text-xs text-ink-soft">{detail?.relay_host || project.relay_host}</code>
+              </Field>
+            )}
             <Field label={t('nav.sessions', '会话')}>
               <span className="tabular-nums">{project.sessions_count ?? 0}</span>
             </Field>

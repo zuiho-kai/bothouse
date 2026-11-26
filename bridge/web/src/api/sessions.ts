@@ -37,7 +37,7 @@ export const getSessionModel = (project: string, sessionKey: string, sessionId: 
     ...(sessionId ? { session_id: sessionId } : {}),
   });
 export const createSession = (project: string, body: { session_key: string; name?: string }) =>
-  api.post(`/projects/${project}/sessions`, body);
+  api.post<{ id: string; session_key: string; name: string }>(`/projects/${project}/sessions`, body);
 export const deleteSession = (project: string, id: string) => api.delete(`/projects/${project}/sessions/${id}`);
 export const switchSession = (project: string, body: { session_key: string; session_id: string }) =>
   api.post(`/projects/${project}/sessions/switch`, body);

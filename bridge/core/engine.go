@@ -380,6 +380,7 @@ type RateLimitCfg struct {
 
 // Engine routes messages between platforms and the agent for a single project.
 type Engine struct {
+	TeamRemote             bool // immutable after the engine is registered
 	taskForumOff           atomic.Bool
 	mentionAssignerOn      atomic.Bool
 	mentionHumanGateOn     atomic.Bool
@@ -5561,8 +5562,12 @@ func (e *Engine) getOrCreateWorkspaceAgent(workspace string) (Agent, *SessionMan
 		}
 	}
 
-	// workspace-specific overrides always win
-	opts["work_dir"] = workspace
+	// Workspace bindings are local paths. A remote workspace agent still
+	// runs in the configured Linux directory, with its own native session.
+	remoteHost, _ := opts["remote_host"].(string)
+	if remoteHost == "" {
+		opts["work_dir"] = workspace
+	}
 
 	if e.projectState != nil {
 		if m := e.projectState.WorkspaceModelOverride(workspace); m != "" {
@@ -5620,8 +5625,12 @@ func (e *Engine) getOrCreateWorkspaceAgent(workspace string) (Agent, *SessionMan
 		}
 	}
 
-	// Create per-workspace session manager
-	h := sha256.Sum256([]byte(workspace))
+	// Create a per-workspace session manager scoped to the execution target.
+	workspaceID := workspace
+	if remoteHost != "" {
+		workspaceID += "\x00" + e.sessions.StorePath()
+	}
+	h := sha256.Sum256([]byte(workspaceID))
 	sessionFile := filepath.Join(filepath.Dir(e.sessions.StorePath()),
 		fmt.Sprintf("%s_ws_%s.json", e.name, hex.EncodeToString(h[:4])))
 	sessions := NewSessionManager(sessionFile)
@@ -11061,6 +11070,9 @@ func (e *Engine) diff2html(ctx context.Context, diff []byte, workDir, title stri
 // dirApply applies /dir mutations (same semantics as cmdDir). sessionKey is used for GetOrCreateActive.
 // On failure returns a non-empty errMsg; on success returns ("", successMsg) for plain-text replies.
 func (e *Engine) dirApply(agent Agent, sessions *SessionManager, interactiveKey, sessionKey string, args []string) (errMsg, successMsg string) {
+	if remote, ok := agent.(interface{ GetRemoteHost() string }); ok && remote.GetRemoteHost() != "" {
+		return e.i18n.T(MsgDirNotSupported), ""
+	}
 	switcher, ok := agent.(WorkDirSwitcher)
 	if !ok {
 		return e.i18n.T(MsgDirNotSupported), ""

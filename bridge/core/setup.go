@@ -23,23 +23,31 @@ const (
 // ── Request types for setup save callbacks ──────────────────
 
 type FeishuSetupSaveRequest struct {
-	ProjectName  string `json:"project"`
-	AppID        string `json:"app_id"`
-	AppSecret    string `json:"app_secret"`
-	PlatformType string `json:"platform_type"`
-	OwnerOpenID  string `json:"owner_open_id"`
-	WorkDir      string `json:"work_dir"`
-	AgentType    string `json:"agent_type"`
+	ProjectName  string   `json:"project"`
+	AppID        string   `json:"app_id"`
+	AppSecret    string   `json:"app_secret"`
+	PlatformType string   `json:"platform_type"`
+	OwnerOpenID  string   `json:"owner_open_id"`
+	WorkDir      string   `json:"work_dir"`
+	AgentType    string   `json:"agent_type"`
+	Model        string   `json:"model,omitempty"`
+	RemoteHost   string   `json:"remote_host,omitempty"`
+	RelayHost    string   `json:"relay_host,omitempty"`
+	SSHArgs      []string `json:"ssh_args,omitempty"`
 }
 
 type WeixinSetupSaveRequest struct {
-	ProjectName string `json:"project"`
-	Token       string `json:"token"`
-	BaseURL     string `json:"base_url"`
-	IlinkBotID  string `json:"ilink_bot_id"`
-	IlinkUserID string `json:"ilink_user_id"`
-	WorkDir     string `json:"work_dir"`
-	AgentType   string `json:"agent_type"`
+	ProjectName string   `json:"project"`
+	Token       string   `json:"token"`
+	BaseURL     string   `json:"base_url"`
+	IlinkBotID  string   `json:"ilink_bot_id"`
+	IlinkUserID string   `json:"ilink_user_id"`
+	WorkDir     string   `json:"work_dir"`
+	AgentType   string   `json:"agent_type"`
+	Model       string   `json:"model,omitempty"`
+	RemoteHost  string   `json:"remote_host,omitempty"`
+	RelayHost   string   `json:"relay_host,omitempty"`
+	SSHArgs     []string `json:"ssh_args,omitempty"`
 }
 
 // ── Feishu / Lark QR Setup ──────────────────────────────────
@@ -203,12 +211,16 @@ func (m *ManagementServer) handleSetupFeishuSave(w http.ResponseWriter, r *http.
 		mgmtError(w, http.StatusBadRequest, "project, app_id, app_secret required")
 		return
 	}
-	workDir, err := validateProjectWorkDir(req.WorkDir)
-	if err != nil {
-		mgmtError(w, http.StatusBadRequest, err.Error())
-		return
+	if strings.TrimSpace(req.RemoteHost) != "" {
+		req.WorkDir = strings.TrimSpace(req.WorkDir)
+	} else {
+		workDir, err := validateProjectWorkDir(req.WorkDir)
+		if err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.WorkDir = workDir
 	}
-	req.WorkDir = workDir
 	if m.setupFeishuSave == nil {
 		mgmtError(w, http.StatusServiceUnavailable, "feishu setup save not configured")
 		return
@@ -216,6 +228,27 @@ func (m *ManagementServer) handleSetupFeishuSave(w http.ResponseWriter, r *http.
 	if err := m.setupFeishuSave(req); err != nil {
 		mgmtError(w, http.StatusInternalServerError, "save: "+err.Error())
 		return
+	}
+	if (strings.TrimSpace(req.RemoteHost) != "" || strings.TrimSpace(req.RelayHost) != "" || strings.TrimSpace(req.Model) != "" || len(req.SSHArgs) > 0) && m.saveProjectSettings != nil {
+		u := ProjectSettingsUpdate{}
+		if rh := strings.TrimSpace(req.RemoteHost); rh != "" {
+			u.RemoteHost = &rh
+		}
+		if rl := strings.TrimSpace(req.RelayHost); rl != "" {
+			u.RelayHost = &rl
+		}
+		if mv := strings.TrimSpace(req.Model); mv != "" {
+			u.Model = &mv
+		}
+		if len(req.SSHArgs) > 0 {
+			sa := req.SSHArgs
+			u.SSHArgs = &sa
+		}
+		if err := m.saveProjectSettings(req.ProjectName, u); err != nil {
+			slog.Error("setup: save agent options", "project", req.ProjectName, "error", err)
+			mgmtError(w, http.StatusInternalServerError, "could not save the agent configuration")
+			return
+		}
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"message":          fmt.Sprintf("feishu platform configured for project %q", req.ProjectName),
@@ -447,12 +480,16 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 		mgmtError(w, http.StatusBadRequest, "project and token required")
 		return
 	}
-	workDir, err := validateProjectWorkDir(req.WorkDir)
-	if err != nil {
-		mgmtError(w, http.StatusBadRequest, err.Error())
-		return
+	if strings.TrimSpace(req.RemoteHost) != "" {
+		req.WorkDir = strings.TrimSpace(req.WorkDir)
+	} else {
+		workDir, err := validateProjectWorkDir(req.WorkDir)
+		if err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.WorkDir = workDir
 	}
-	req.WorkDir = workDir
 	if m.setupWeixinSave == nil {
 		mgmtError(w, http.StatusServiceUnavailable, "weixin setup save not configured")
 		return
@@ -460,6 +497,27 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 	if err := m.setupWeixinSave(req); err != nil {
 		mgmtError(w, http.StatusInternalServerError, "save: "+err.Error())
 		return
+	}
+	if (strings.TrimSpace(req.RemoteHost) != "" || strings.TrimSpace(req.RelayHost) != "" || strings.TrimSpace(req.Model) != "" || len(req.SSHArgs) > 0) && m.saveProjectSettings != nil {
+		u := ProjectSettingsUpdate{}
+		if rh := strings.TrimSpace(req.RemoteHost); rh != "" {
+			u.RemoteHost = &rh
+		}
+		if rl := strings.TrimSpace(req.RelayHost); rl != "" {
+			u.RelayHost = &rl
+		}
+		if mv := strings.TrimSpace(req.Model); mv != "" {
+			u.Model = &mv
+		}
+		if len(req.SSHArgs) > 0 {
+			sa := req.SSHArgs
+			u.SSHArgs = &sa
+		}
+		if err := m.saveProjectSettings(req.ProjectName, u); err != nil {
+			slog.Error("setup: save agent options", "project", req.ProjectName, "error", err)
+			mgmtError(w, http.StatusInternalServerError, "could not save the agent configuration")
+			return
+		}
 	}
 	mgmtJSON(w, http.StatusOK, map[string]any{
 		"message":          fmt.Sprintf("weixin platform configured for project %q", req.ProjectName),
@@ -473,10 +531,14 @@ func (m *ManagementServer) handleSetupWeixinSave(w http.ResponseWriter, r *http.
 var ErrACPCommandRequired = errors.New(`an ACP project needs its launch command (agent_type "acp:<command>")`)
 
 type AddPlatformRequest struct {
-	Type      string         `json:"type"`
-	Options   map[string]any `json:"options"`
-	WorkDir   string         `json:"work_dir"`
-	AgentType string         `json:"agent_type"`
+	Type       string         `json:"type"`
+	Options    map[string]any `json:"options"`
+	WorkDir    string         `json:"work_dir"`
+	AgentType  string         `json:"agent_type"`
+	Model      string         `json:"model,omitempty"`
+	RemoteHost string         `json:"remote_host,omitempty"`
+	RelayHost  string         `json:"relay_host,omitempty"`
+	SSHArgs    []string       `json:"ssh_args,omitempty"`
 }
 
 func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *http.Request, projectName string) {
@@ -493,12 +555,16 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		mgmtError(w, http.StatusBadRequest, "type is required")
 		return
 	}
-	workDir, err := validateProjectWorkDir(req.WorkDir)
-	if err != nil {
-		mgmtError(w, http.StatusBadRequest, err.Error())
-		return
+	if strings.TrimSpace(req.RemoteHost) != "" {
+		req.WorkDir = strings.TrimSpace(req.WorkDir)
+	} else {
+		workDir, err := validateProjectWorkDir(req.WorkDir)
+		if err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.WorkDir = workDir
 	}
-	req.WorkDir = workDir
 	if m.addPlatformToProject == nil {
 		mgmtError(w, http.StatusServiceUnavailable, "config persistence not available")
 		return
@@ -514,6 +580,27 @@ func (m *ManagementServer) handleProjectAddPlatform(w http.ResponseWriter, r *ht
 		slog.Error("add-platform: save config", "project", projectName, "platform", req.Type, "error", err)
 		mgmtError(w, http.StatusInternalServerError, "could not save the platform configuration")
 		return
+	}
+	if (strings.TrimSpace(req.RemoteHost) != "" || strings.TrimSpace(req.RelayHost) != "" || strings.TrimSpace(req.Model) != "" || len(req.SSHArgs) > 0) && m.saveProjectSettings != nil {
+		u := ProjectSettingsUpdate{}
+		if rh := strings.TrimSpace(req.RemoteHost); rh != "" {
+			u.RemoteHost = &rh
+		}
+		if rl := strings.TrimSpace(req.RelayHost); rl != "" {
+			u.RelayHost = &rl
+		}
+		if mv := strings.TrimSpace(req.Model); mv != "" {
+			u.Model = &mv
+		}
+		if len(req.SSHArgs) > 0 {
+			sa := req.SSHArgs
+			u.SSHArgs = &sa
+		}
+		if err := m.saveProjectSettings(projectName, u); err != nil {
+			slog.Error("setup: save agent options", "project", projectName, "error", err)
+			mgmtError(w, http.StatusInternalServerError, "could not save the agent configuration")
+			return
+		}
 	}
 	mgmtJSON(w, http.StatusCreated, map[string]any{
 		"message":          fmt.Sprintf("platform %q added to project %q", req.Type, projectName),

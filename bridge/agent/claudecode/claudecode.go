@@ -71,6 +71,10 @@ type Agent struct {
 	// customisation. Empty value falls back to os.TempDir.
 	ccDataDir string
 
+	remoteHost string
+	relayHost  string
+	sshArgs    []string
+
 	// spawnOpts controls OS-user isolation via run_as_user. Zero value
 	// means legacy spawn as the supervisor user. See core/runas.go.
 	spawnOpts core.SpawnOptions
@@ -132,8 +136,12 @@ func New(opts map[string]any) (core.Agent, error) {
 	if workDir == "" {
 		workDir = "."
 	}
-	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("claudecode: work_dir %q does not exist", workDir)
+	remoteHost, _ := opts["remote_host"].(string)
+	remoteHost = strings.TrimSpace(remoteHost)
+	if remoteHost == "" {
+		if _, err := os.Stat(workDir); os.IsNotExist(err) {
+			return nil, fmt.Errorf("claudecode: work_dir %q does not exist", workDir)
+		}
 	}
 	cmd, cliExtraArgs := core.ParseCmdOpts(opts, "claude")
 	voiceStream, _ := opts["voice_stream"].(bool)
@@ -209,6 +217,23 @@ func New(opts map[string]any) (core.Agent, error) {
 	routerURL, _ := opts["router_url"].(string)
 	routerAPIKey, _ := opts["router_api_key"].(string)
 
+	relayHost, _ := opts["relay_host"].(string)
+	relayHost = strings.TrimSpace(relayHost)
+	var sshArgs []string
+	if rawSSH, ok := opts["ssh_args"].([]any); ok {
+		for _, v := range rawSSH {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				sshArgs = append(sshArgs, strings.TrimSpace(s))
+			}
+		}
+	} else if rawSSH, ok := opts["ssh_args"].([]string); ok {
+		for _, s := range rawSSH {
+			if strings.TrimSpace(s) != "" {
+				sshArgs = append(sshArgs, strings.TrimSpace(s))
+			}
+		}
+	}
+
 	// run_as_user: optional OS-user isolation. Injected into opts from
 	// the project-level config field by cmd/cc-connect/main.go.
 	spawnOpts := core.SpawnOptions{}
@@ -223,10 +248,9 @@ func New(opts map[string]any) (core.Agent, error) {
 		spawnOpts.EnvAllowlist = append(spawnOpts.EnvAllowlist, env...)
 	}
 
-	// When run_as_user is set, the target user's PATH is what matters;
-	// skip the supervisor-side LookPath check and let spawn fail loudly
-	// at runtime if the target doesn't have claude installed.
-	if !spawnOpts.IsolationMode() {
+	// When run_as_user or remoteHost is set, the target machine's PATH is what matters;
+	// skip the supervisor-side LookPath check.
+	if !spawnOpts.IsolationMode() && remoteHost == "" {
 		// Not on PATH: also try the common install dirs and start the absolute path found there.
 		resolved, err := core.ResolveCLI(cmd)
 		if err != nil {
@@ -256,8 +280,10 @@ func New(opts map[string]any) (core.Agent, error) {
 	// newClaudeSession still covers content drift (cc-connect upgrades)
 	// and the empty-ccDataDir corner case. Failure here is non-fatal —
 	// the next spawn will retry and surface the error then.
-	if _, err := ensureSharedSystemPromptFile(ccDataDir, core.AgentSystemPrompt()); err != nil {
-		slog.Warn("claudecode: failed to write shared system prompt file at startup; will retry on first spawn", "err", err, "cc_data_dir", ccDataDir)
+	if remoteHost == "" {
+		if _, err := ensureSharedSystemPromptFile(ccDataDir, core.AgentSystemPrompt()); err != nil {
+			slog.Warn("claudecode: failed to write shared system prompt file at startup; will retry on first spawn", "err", err, "cc_data_dir", ccDataDir)
+		}
 	}
 
 	return &Agent{
@@ -278,6 +304,9 @@ func New(opts map[string]any) (core.Agent, error) {
 		activeIdx:        -1,
 		routerURL:        routerURL,
 		routerAPIKey:     routerAPIKey,
+		remoteHost:       remoteHost,
+		relayHost:        relayHost,
+		sshArgs:          sshArgs,
 		spawnOpts:        spawnOpts,
 		ccDataDir:        ccDataDir,
 
@@ -380,12 +409,45 @@ func (a *Agent) configuredModels() []core.ModelOption {
 	return core.GetProviderModels(a.providers, a.activeIdx)
 }
 
+func (a *Agent) GetRemoteHost() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.remoteHost
+}
+
+func (a *Agent) GetRelayHost() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.relayHost
+}
+
+func (a *Agent) GetSSHArgs() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return append([]string(nil), a.sshArgs...)
+}
+
 func (a *Agent) AvailableModels(ctx context.Context) []core.ModelOption {
 	if models := a.configuredModels(); len(models) > 0 {
 		return models
 	}
 	if models := a.fetchModelsFromAPI(ctx); len(models) > 0 {
 		return models
+	}
+	a.mu.RLock()
+	remoteHost := a.remoteHost
+	relayHost := a.relayHost
+	sshArgs := append([]string(nil), a.sshArgs...)
+	cmdPath := a.cmd
+	a.mu.RUnlock()
+	if remoteHost != "" {
+		if models := core.FetchRemoteDuccModels(ctx, cmdPath, remoteHost, relayHost, sshArgs, false); len(models) > 0 {
+			return models
+		}
+	} else if filepath.Base(cmdPath) == "ducc" {
+		if models := core.FetchDuccModels(ctx, cmdPath, false); len(models) > 0 {
+			return models
+		}
 	}
 	return []core.ModelOption{
 		{Name: "sonnet", Desc: "Claude Sonnet (balanced)"},
@@ -477,13 +539,18 @@ func (a *Agent) ValidateSessionID(_ context.Context, sessionID string) bool {
 	if sessionID == "" {
 		return false
 	}
+	a.mu.RLock()
+	workDir, remoteHost := a.workDir, a.remoteHost
+	a.mu.RUnlock()
+	if remoteHost != "" {
+		// The CLI validates --resume on its host. The supervisor's local store
+		// cannot decide whether a remote session ID exists.
+		return true
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return false
 	}
-	a.mu.RLock()
-	workDir := a.workDir
-	a.mu.RUnlock()
 	return validateSessionIDInProject(homeDir, workDir, sessionID)
 }
 
@@ -566,14 +633,23 @@ func (a *Agent) startSessionWithEnv(ctx context.Context, sessionID string, voice
 	// When router_url is set, --verbose conflicts with --output-format stream-json
 	// (verbose emits non-JSON text to stdout that corrupts the JSON stream).
 	disableVerbose := a.routerURL != ""
+	remoteHost := a.remoteHost
+	relayHost := a.relayHost
+	sshArgs := append([]string(nil), a.sshArgs...)
 	a.mu.Unlock()
 
 	model, effort = core.SessionModelAndEffort(ctx, model, effort)
 
+	if remoteHost != "" {
+		return newRemoteClaudeSession(ctx, remoteHost, relayHost, sshArgs, workDir, a.cmd, a.cliExtraArgs, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, disableVerbose, maxTok, a.voiceStream), nil
+	}
 	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, disableVerbose, a.spawnOpts, maxTok, a.ccDataDir, a.voiceStream)
 }
 
 func (a *Agent) ListSessions(ctx context.Context) ([]core.AgentSessionInfo, error) {
+	if a.GetRemoteHost() != "" {
+		return nil, nil
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: cannot determine home dir: %w", err)
@@ -631,6 +707,9 @@ func (a *Agent) ListSessions(ctx context.Context) ([]core.AgentSessionInfo, erro
 }
 
 func (a *Agent) DeleteSession(_ context.Context, sessionID string) error {
+	if a.GetRemoteHost() != "" {
+		return fmt.Errorf("claudecode: remote session deletion is unavailable")
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("claudecode: cannot determine home dir: %w", err)
@@ -735,6 +814,9 @@ func stripXMLTags(s string) string {
 
 // GetSessionHistory reads the Claude Code JSONL transcript and returns user/assistant messages.
 func (a *Agent) GetSessionHistory(_ context.Context, sessionID string, limit int) ([]core.HistoryEntry, error) {
+	if a.GetRemoteHost() != "" {
+		return nil, fmt.Errorf("claudecode: remote session history is unavailable")
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -938,6 +1020,12 @@ func (a *Agent) WorkspaceAgentOptions() map[string]any {
 	}
 	if len(a.pluginDirs) > 0 {
 		opts["plugin_dir"] = stringsToAny(a.pluginDirs)
+	}
+	if a.remoteHost != "" {
+		opts["remote_host"] = a.remoteHost
+		opts["relay_host"] = a.relayHost
+		opts["ssh_args"] = append([]string(nil), a.sshArgs...)
+		opts["work_dir"] = a.workDir
 	}
 	return opts
 }
