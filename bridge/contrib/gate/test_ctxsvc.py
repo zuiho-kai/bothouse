@@ -443,8 +443,8 @@ class T(unittest.TestCase):
             self.assertNotIn("【旧】", texts[0])
             self.assertIn("【旧】", texts[1])
 
-    def test_selected_rows_need_current_topic_without_backfill(self):
-        # 历史词可参与找页，但选定页里的旧话题行不应继续推；主库、角色库用同一选择规则。
+    def test_old_topic_rows_left_to_relevance_check(self):
+        # 历史词参与找页；旧话题行由 need 的相关度判定标 weak（占名额不推），不再按本句稀有词删行（#2031 回放：删行把命中砍到 28%）。
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             notes = root / "notes"
@@ -453,26 +453,30 @@ class T(unittest.TestCase):
             texts = {
                 "history": "- deployment pipeline history release workflow",
                 "current": "- astronomy telescope guidance",
-                "spare": "- astronomy observation guidance with additional context for a longer entry",
             }
             for name, text in texts.items():
                 (notes / (name + ".md")).write_text(text, encoding="utf-8")
-            with patch.object(ctxsvc, "FORUM", None):
+            with patch.object(ctxsvc, "FORUM", None), patch.object(ctxsvc, "RERANK_URL", ""):
                 ctxsvc.WIKI, ctxsvc._idx = root, {}
                 expanded = "deployment pipeline history release workflow astronomy telescope"
-                unfiltered = ctxsvc.match_wiki(expanded, k=2, prepared=True)
-                self.assertEqual([Path(p["path"]).stem for p in unfiltered], ["history", "current"])
-                for own in (False, True):
-                    with self.subTest(role_wiki=own):
-                        if own:
-                            ctxsvc.WIKI = root / "absent-main"
-                        # rare_toks uses the shared vocabulary, as in context() on both roots.
-                        with patch.object(ctxsvc, "rare_toks", return_value="astronomy telescope"):
-                            got = ctxsvc.match_wiki(expanded, k=2, root=root, prepared=True,
-                                                    focus="astronomy telescope")
-                        self.assertEqual([Path(p["path"]).stem for p in got], ["current"])
-                        self.assertNotIn("deployment", got[0]["desc"])
-                        self.assertEqual(got[0]["rows"], unfiltered[1]["rows"])
+                got = ctxsvc.match_wiki(expanded, k=2, prepared=True, focus="astronomy telescope",
+                                        need="astronomy telescope")
+                weak = {Path(p["path"]).stem: [r.get("weak", False) for r in p["rows"]] for p in got}
+                self.assertEqual(weak, {"history": [True], "current": [False]})
+                pushed = ctxsvc._cap_pages(got, ())
+                self.assertEqual([Path(p["path"]).stem for p in pushed], ["current"])
+
+    def test_refs_record_cross_page_and_headless_rows(self):
+        # #2031：别的页的楼写成「| 路径:行号: 」、页头为空时第一行前没有「| 」，推送记录原来漏记这两类。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.md").write_text("- alpha line\n", encoding="utf-8")
+            (root / "b.md").write_text("x\n- beta line\n", encoding="utf-8")
+            ctxsvc.WIKI = root
+            base = ctxsvc._shown(".").removesuffix("/.") + "/"
+            items = [{"path": base + "a.md", "desc": "1: alpha line | " + base + "b.md:2: beta line"}]
+            got = ctxsvc._refs(items)
+            self.assertEqual([g.split("#")[0] for g in got], ["a.md:1", "b.md:2"])
 
     def test_short_focus_without_content_keeps_history(self):
         with tempfile.TemporaryDirectory() as d:
