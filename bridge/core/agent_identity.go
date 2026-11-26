@@ -36,6 +36,7 @@ func (e *Engine) SetAgentIdentityEnabled(on bool) { e.skipAgentIdentity.Store(!o
 func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot bool, p Platform, sessionKey string, session *Session, agent Agent) string {
 	e.checkRulesContext(session, agent)
 	rules := e.contextRules(e.teamLayer().WithRoleDuty(e.rulesForSession(e.channelDispatchMode(p, sessionKey), sessionKey), sessionKey), session, agent)
+	e.noticeHouseRulesOver(sessionKey, fromBot)
 	prompt = e.withStandingBlocks(rules, prompt, userID, fromBot, session, agent)
 	if provider, ok := p.(ChannelReplyGuidanceProvider); ok {
 		if guidance := e.injectBlock(session, "channel_reply_guidance", provider.ChannelReplyGuidance()); guidance != "" {

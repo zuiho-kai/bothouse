@@ -253,6 +253,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"setup":        runSetup,
 	"module":       runModule,
 	"features":     runFeatures,
+	"rules":        runRules,
 }
 
 func main() {
