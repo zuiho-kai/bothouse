@@ -409,6 +409,9 @@ RERANK_URL = "" if RERANK_URL.lower() == "off" else RERANK_URL
 RERANK_MIN = 0.2  # #2031：拿「这句+前两轮」问重排（Qwen3-Reranker-0.6B 的 P(yes)），241 题公平标签回放定的线，见 gen-memory/logs/rr-thresh-2031.txt
 # 原 0.005 只拿这一句问：口语短问（「为什么要训」「颗粒度那么粗吗」）本身没话题，对的行只得 0.01、字面撞词的壁纸行反倒 0.03，门槛等于没有
 RERANK_Q = 1500  # 问重排时这句+前两轮最多取这么多字
+# 门槛跟模型走：重排服务答话里带 model（rerank_svc.py），表里有的用表里的线，没有（旧服务不带 model）用 RERANK_MIN。
+# 4B 的 0.5 同样来自 241 题回放：前 5 命中 97.1%、推出行里无关的 6%（0.6B 在 0.2 是 15%），见 gen-memory/logs/rr-thresh-2031.txt
+RERANK_MIN_OF = {"Qwen3-Reranker-4B": 0.5}
 RERANK_WAIT = 2  # 秒；同推送判定的 2 秒限时，超了按词法判
 
 
@@ -423,9 +426,10 @@ def weak_lines(need, lines, topic=""):
             req = urllib.request.Request(RERANK_URL, json.dumps({"q": (topic or need)[:RERANK_Q], "docs": docs}).encode(),
                                          {"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
-                ps = json.loads(r.read())["p"]
+                got = json.loads(r.read())
+            ps, lo = got["p"], RERANK_MIN_OF.get(str(got.get("model") or ""), RERANK_MIN)
             if len(ps) == len(docs):
-                return [p < RERANK_MIN for p in ps]
+                return [p < lo for p in ps]
         except Exception:  # 服务没起是立刻连接被拒，不等；卡住的最多等 RERANK_WAIT
             pass
     nt = set(search.toks(need))
