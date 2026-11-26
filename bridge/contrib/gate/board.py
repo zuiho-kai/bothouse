@@ -132,7 +132,7 @@ def _read(name="board.jsonl"):
 def _read_locked(name="board.jsonl"):
     """Read a snapshot while the caller holds board.lock."""
     try:
-        lines = _path(name).read_text().splitlines()
+        lines = _path(name).read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         return []
     out = []
@@ -199,9 +199,7 @@ def _write(items, name="board.jsonl"):
         mode = _default_file_mode()
     fd, tmp = tempfile.mkstemp(prefix=name + ".", suffix=".tmp", dir=str(DIR))
     try:
-        # 不写死 encoding：和原来 Path.write_text 一样按解释器默认编码（board.cmd 带 -X utf8），
-        # 别让「写 utf-8、读默认编码」在非 UTF-8 模式的 Windows 上变成乱码
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
         if os.name == "posix" and mode is not None:
             with suppress(OSError):
@@ -1936,7 +1934,7 @@ def done(nid, rework=None, why=None):
             return False
         _write([i for i in cur if i["id"] != nid])
         tid = hit.pop("guard", None)  # 交回了：撤兜底
-        with open(_path("board-done.jsonl"), "a") as f:
+        with open(_path("board-done.jsonl"), "a", encoding="utf-8") as f:
             rec = {**hit, "status": "已完成", "done_at": _now()}  # #597 N3：结束记录不带着原来的「进行中」
             session = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
             if hit.get("returned_at") or (hit.get("chat") and session == hit["chat"]):
@@ -2245,7 +2243,7 @@ def auto_prune(dry=False, now=None, check_pr=True, skip=()):
         hits = [i for i in cur if i["id"] in why]
         if not hits:
             return []
-        with open(_path("board-done.jsonl"), "a") as f:
+        with open(_path("board-done.jsonl"), "a", encoding="utf-8") as f:
             for i in hits:
                 f.write(json.dumps({**i, "done_at": _now(), "auto_pruned": why[i["id"]]}, ensure_ascii=False) + "\n")
                 out.append((i, why[i["id"]]))

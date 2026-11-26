@@ -112,6 +112,61 @@ class WindowsCompat(unittest.TestCase):
         self.assertEqual(len(rows), n, lines)
         self.assertEqual(len(set(ids)), n, ids)
 
+    def test_board_utf8_without_interpreter_flag(self):
+        code = textwrap.dedent("""\
+            import sys
+            sys.path.insert(0, sys.argv[1])
+            import board
+
+            nid = board.add("核对来源", "notes.md", "在做", "测试")
+            assert board.items()[0]["what"] == "核对来源"
+            board.done(nid)
+            assert board.done_records()[0]["what"] == "核对来源"
+        """)
+        r = subprocess.run([sys.executable, "-I", "-c", code, str(HERE)], env=_env(self.tmp),
+                           capture_output=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
+        history = self.tmp / "team" / "board-done.jsonl"
+        self.assertEqual(json.loads(history.read_text(encoding="utf-8"))["what"], "核对来源")
+
+    def test_detached_handoff_reads_utf8_task_history(self):
+        team = self.tmp / "team"
+        team.mkdir()
+        history = team / "board-done.jsonl"
+        finished = {"id": 41, "what": "核对来源"}
+        history.write_text(json.dumps(finished, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        notes = self.tmp / "handoff.md"
+        notes.write_text(
+            "# 用户原话\n- 核对来源\n# 总目标\n# 范围\n改：测试\n不改：无\n"
+            "# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n"
+            "# 规矩\n# 参照实现\n无（新建）\n", encoding="utf-8")
+
+        # Use Python as the fake bridge. Its subcommand names are scripts in cwd.
+        (self.tmp / "identity").write_text("print('{}')\n", encoding="utf-8")
+        (self.tmp / "report").write_text("raise SystemExit(1)\n", encoding="utf-8")
+        (self.tmp / "timer").write_text("print('Timer created: t1')\n", encoding="utf-8")
+        gate_team = self.tmp / "gate-team.json"
+        gate_team.write_text('{"lead":{"name":"Lead"},"subs":{}}\n', encoding="utf-8")
+        env = _env(self.tmp)
+        env.update(CC_BIN=sys.executable, CC_PROJECT="lead-test", CC_SESSION_KEY="test:100",
+                   WS_CHANNEL="test:900", WS_HANDOFF_INLINE="", WS_HANDOFF_WORKER="", GATE_DIR=str(HERE),
+                   GATE_TEAM=str(gate_team), WIKI_BIN=str(self.tmp / "wiki"),
+                   RECALL_SESSIONS=str(self.tmp / "sessions.py"))
+        handoff = HERE.parent / "lead" / "ws-handoff"
+        # Isolate the test runner from Windows console signals during the worker's error path.
+        group = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        r = subprocess.run([sys.executable, "-X", "utf8", "-I", str(handoff), str(notes),
+                            "核对新闻来源", "--short", "核对来源"], env=env, cwd=self.tmp,
+                           capture_output=True, encoding="utf-8", timeout=60, creationflags=group)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("任务板 #42", r.stderr)
+        self.assertTrue(r.stdout.startswith("Timer created: t1"), r.stdout)
+        rows = [json.loads(line) for line in (team / "board.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(row["id"], row["what"]) for row in rows], [(42, "核对新闻来源")])
+        self.assertEqual(json.loads(history.read_text(encoding="utf-8")), finished)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
