@@ -40,11 +40,11 @@ PLATFORMS := \
 #
 # You can also exclude specific ones:
 #
-#   make build EXCLUDE=discord,dingtalk,qq,qqbot,line
+#   make build EXCLUDE=discord,qq,qqbot
 # ---------------------------------------------------------------------------
 
 ALL_AGENTS    := acp antigravity claudecode codex copilot cursor devin gemini iflow kimi opencode pi qoder reasonix tmux
-ALL_PLATFORMS := feishu telegram discord slack dingtalk wecom weixin qq qqbot line weibo max matrix webex cloud_web tuitui googlechat
+ALL_PLATFORMS := feishu telegram discord slack wecom weixin qq qqbot cloud_web
 ALL_EXTRAS    := web
 
 COMMA := ,

@@ -22,7 +22,7 @@ bothouse 是接入 [cc-connect](https://github.com/chenhg5/cc-connect)、DSH 等
 
 - `bridge/assets/sponsors/`、`bridge/assets/banners/`、`bridge/docs/images/sponsors/` 中的标识归各自所有者。
 - `experiments/` 运行时下载的模型和权重。
-- 第三方依赖按各自许可使用，不随本仓库重新授权；直接依赖的许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。例如 `maunium.net/go/mautrix` 为 MPL-2.0。
+- 第三方依赖按各自许可使用，不随本仓库重新授权；直接依赖的许可见 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)。
 
 ## 贡献
 

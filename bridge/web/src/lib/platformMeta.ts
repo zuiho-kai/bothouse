@@ -45,15 +45,6 @@ export const platformMeta: Record<string, PlatformMeta> = {
       { key: 'share_session_in_channel', labelKey: 'fields.sharedChannelSession', type: 'boolean', group: 'advanced' },
     ],
   },
-  dingtalk: {
-    label: 'DingTalk',
-    fields: [
-      { key: 'client_id', labelKey: 'fields.clientId', required: true },
-      { key: 'client_secret', labelKey: 'fields.clientSecret', required: true, type: 'password' },
-      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
-      { key: 'share_session_in_channel', labelKey: 'fields.sharedGroupSession', type: 'boolean', group: 'advanced' },
-    ],
-  },
   wecom: {
     label: 'WeChat Work',
     fields: [
@@ -85,46 +76,6 @@ export const platformMeta: Record<string, PlatformMeta> = {
       { key: 'sandbox', labelKey: 'fields.sandboxMode', type: 'boolean', group: 'advanced' },
       { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
       { key: 'share_session_in_channel', labelKey: 'fields.sharedGroupSession', type: 'boolean', group: 'advanced' },
-    ],
-  },
-  yuanbao: {
-    label: 'Yuanbao (腾讯元宝)',
-    fields: [
-      { key: 'bot_token', labelKey: 'fields.botToken', required: true, type: 'password', placeholder: 'app_key:app_secret' },
-      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
-    ],
-  },
-  line: {
-    label: 'LINE',
-    fields: [
-      { key: 'channel_secret', labelKey: 'fields.channelSecret', required: true, type: 'password' },
-      { key: 'channel_token', labelKey: 'fields.channelToken', required: true, type: 'password' },
-      { key: 'port', labelKey: 'fields.port', required: true, placeholder: '8080' },
-      { key: 'callback_path', labelKey: 'fields.callbackPath', placeholder: '/callback', group: 'advanced' },
-      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
-    ],
-  },
-  weibo: {
-    label: 'Weibo (微博)',
-    fields: [
-      { key: 'app_id', labelKey: 'fields.appId', required: true, placeholder: '1234567890' },
-      { key: 'app_secret', labelKey: 'fields.appSecret', required: true, type: 'password' },
-      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
-    ],
-  },
-  tuitui: {
-    label: 'TuiTui (推推)',
-    fields: [
-      { key: 'app_id', labelKey: 'fields.appId', required: true },
-      { key: 'app_secret', labelKey: 'fields.appSecret', required: true, type: 'password' },
-      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
-      { key: 'group_allow_from', labelKey: 'fields.groupAllowFrom', group: 'advanced' },
-      { key: 'group_policy', labelKey: 'fields.groupPolicy', type: 'select', options: ['allowlist', 'open', 'disabled'], group: 'advanced' },
-      { key: 'require_mention', labelKey: 'fields.requireMention', type: 'boolean', group: 'advanced' },
-      { key: 'history_limit', labelKey: 'fields.historyLimit', type: 'number', placeholder: '50', group: 'advanced' },
-      { key: 'share_session_in_channel', labelKey: 'fields.sharedGroupSession', type: 'boolean', group: 'advanced' },
-      { key: 'api_base', labelKey: 'fields.apiBaseUrl', placeholder: 'https://im.live.360.cn:8282', group: 'advanced' },
-      { key: 'ws_base', labelKey: 'fields.wsUrl', placeholder: 'wss://im.live.360.cn:8282', group: 'advanced' },
     ],
   },
   cloud_web: {
