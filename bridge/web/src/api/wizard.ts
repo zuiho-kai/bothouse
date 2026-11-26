@@ -23,7 +23,7 @@ export interface DiscordBotInfo {
 export interface ExistingBot { project: string; agent_type: string; work_dir?: string; bot_id?: string; guild_id?: string; username?: string; error?: string }
 export interface JevTest { reachable: boolean; logprobs: boolean; latency_ms: number; error?: string }
 export interface SetupStateResp {
-  system_language: string; hardware: boolean; data_dir: string; has_projects: boolean; gate_enabled?: boolean; gate_modes?: Record<string, 'smart' | 'addressed' | 'off'>; projects?: string[]; project_display_names?: string[];
+  system_language: string; data_dir: string; has_projects: boolean; gate_enabled?: boolean; gate_modes?: Record<string, 'smart' | 'addressed' | 'off'>; projects?: string[]; project_display_names?: string[];
   /** platform types already in config.toml (lark counts as feishu) */
   configured_platforms?: Record<string, boolean>;
   setup: { platform?: string; guild_id?: string; channel_id?: string; fallback_role?: string; team?: { project: string; name: string }[];
@@ -81,7 +81,7 @@ export interface WizardResult {
     reply_language?: string; reply_language_name?: string; reply_language_from?: string }[];
   cloud_web?: CloudWebTest;
   qq?: { code: string; message: string; fix?: string; user_id?: string; nickname?: string };
-  fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; hardware: boolean; restart_required: boolean; config_backup?: string;
+  fallback_role?: string; jev_test?: JevTest; jev_ok: boolean; jev_reason?: string; jev_in_use?: string; jev_hint: string; restart_required: boolean; config_backup?: string;
   // the running service started the roles this save added: projects_added are online, projects_failed says why one is not
   // projects_removed: failed roles taken back out of config.toml; restart_keys / reload_error: why the running roles still need a restart
   hot_load?: { projects_added: string[]; projects_failed?: Record<string, string>; hot_load_error?: string; projects_removed?: string[]; rollback_error?: string; restart_keys?: string[]; reload_error?: string };

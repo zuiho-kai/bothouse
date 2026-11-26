@@ -65,9 +65,19 @@ SOP = """你在给一位用户的 AI 个人助手团队写「懂你」画像。�
 
 A. 上一版画像：
 {old}
-
+{fix_part}
 B. TRANSCRIPT：
 """
+# 主人那页多给一份「近几天他纠正助手的原话」（#1902，夜间标注 tags.jsonl 里判成纠正的那句）：模型给每行记对得上的 K 编号，
+# 程序数次数、节内按次数排先后，次数只标进角色说明（to_roles），不进页（lossless 整行比对）
+FIX_RULE = """
+9. 每行（沿用的旧行也要）再填 fix：C 里哪几句纠正的正是这行说的事（助手没照这行做才挨的那句），写 K 编号列表，如 "fix": ["K0"]；
+   一句纠正只记到最对得上的那一行，哪行都对不上就不记。fix 只用来给行排先后，不影响这行写不写、留不留。
+
+C. 近 {days} 天他纠正助手的原话：
+{fixes}
+"""
+COUNTS = {}  # 这次重写数出来的 {key: {现状行（去掉帖标注）: 近几天被纠正次数}}，to_roles 标在行尾
 
 
 def store():
@@ -169,7 +179,7 @@ def as_list(v):
 
 
 def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None, n=PROFILE_LINES,
-            head_lines=None):
+            head_lines=None, fixes=None, days=7):
     """One person's page from `transcript` (his USER lines). `ask(prompt)` answers JSON. Returns (说明, 写了的文件)
     (说明 "" = not written). A rewrite keeps the old page unless at least half its lines (≥ 1) come back good."""
     rel = rel or page_rel(key, repo)
@@ -177,10 +187,12 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     old_text = page.read_text(encoding="utf-8") if page.exists() else ""
     cur, hist = read_page(old_text)
     old = "\n".join(f"P{i}: [{s}] {TAG.sub('', l[2:])}" for i, (s, l) in enumerate(cur)) or "（暂无，第一次写）"
-    head = (sop or SOP).format(n=n, old=old, name=name)
+    fix_part = "" if fixes is None else FIX_RULE.format(
+        days=days, fixes="\n".join(f"K{i}: {t}" for i, t in enumerate(fixes)) or "（没有）")
+    head = (sop or SOP).format(n=n, old=old, name=name, fix_part=fix_part)
     room = MAX_CHARS - len(head)
     ans = ask(head + (transcript[-room:] if len(transcript) > room else transcript))
-    good, seen = [], set()
+    good, seen, hits = [], set(), {}  # hits: {行: 对得上的 K 编号}
     for x in as_list(ans.get("lines") if isinstance(ans, dict) else None):
         if not isinstance(x, dict) or str(x.get("section")) not in SECTIONS:
             continue
@@ -201,6 +213,9 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
         if line not in seen:
             seen.add(line)
             good.append((sec, line))
+        if fixes:  # 次数由程序数：只认 C 里真有的编号，同一句不重复算；模型没填、填错就是 0
+            ks = {int(k) for k in (str(v).strip().lstrip("Kk") for v in as_list(x.get("fix"))) if k.isdigit()}
+            hits.setdefault(line, set()).update(k for k in ks if k < len(fixes))
     need = min(n // 2, max(1, len(cur) // 2))
     if len(good) < need:
         log(f"profile {key}: only {len(good)} good lines (need {need}), last version kept")
@@ -217,9 +232,14 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     # （11-06 夜主人那页就这样没提交上）；哪天重写看 log.md
     out += ["夜间 dream 只从他自己的原话重写，新说法替掉旧说法，旧行原样挪进「历史」；他发消息的会话推「现状」一节。",
             "", "## 现状"]
-    for sec in SECTIONS:
-        rows = [l for s, l in good if s == sec]
-        out += ([f"### {sec}"] + rows) if rows else []
+    # 只排先后（#1902）：节内按次数降序，节按节里最高次数降序；sorted 稳定，没给 fixes 或全 0 时照原来的先后
+    n_of = {l: len(hits.get(l, ())) for _, l in good}
+    rows_of = {sec: sorted((l for s, l in good if s == sec), key=lambda l: -n_of[l]) for sec in SECTIONS}
+    for sec in sorted(SECTIONS, key=lambda s: -max((n_of[l] for l in rows_of[s]), default=0)):
+        out += ([f"### {sec}"] + rows_of[sec]) if rows_of[sec] else []
+    if fixes is not None:
+        COUNTS[key] = {TAG.sub("", l): k for l, k in n_of.items()}
+        log(f"profile {key}: 近 {days} 天纠正 {len(fixes)} 句，对上 {sum(1 for k in n_of.values() if k)}/{len(n_of)} 行")
     hist_all = list(dict.fromkeys(gone + hist))
     # 兜底：旧页哪行在新页里都找不到（lossless.lost，同 pre-commit 的判法），原样补进「历史」再写（11-18 反思）
     lost = lossless.lost(old_text, "\n".join(out + hist_all), rel)
@@ -238,9 +258,10 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
     return f"{len(good)} lines, {len(gone)} replaced", files
 
 
-def run(repo, lo, hi, ask, log, skip=(), deadline=None, root=None):
+def run(repo, lo, hi, ask, log, skip=(), deadline=None, root=None, fixes_for=None, days=7):
     """Rewrite the page of each person (not in `skip`) who said something in [lo, hi). Returns {key: 说明} and the
-    files written (the caller commits them with log.md)."""
+    files written (the caller commits them with log.md). `fixes_for(key)`: that person's recent corrections (list) to
+    rank lines by (#1902), None = not ranked."""
     done, files = {}, []
     for key, (name, rows) in people_words(lo, hi, root).items():
         if key in skip:
@@ -250,7 +271,8 @@ def run(repo, lo, hi, ask, log, skip=(), deadline=None, root=None):
             break
         cites = {}
         try:
-            what, fs = rewrite(repo, key, name, transcript_of(rows, cites), cites, ask, log)
+            what, fs = rewrite(repo, key, name, transcript_of(rows, cites), cites, ask, log,
+                               fixes=fixes_for(key) if fixes_for else None, days=days)
         except Exception as e:  # noqa: BLE001 — one person's failed call does not stop the others
             log(f"profile {key} failed: {type(e).__name__}: {e}")
             continue

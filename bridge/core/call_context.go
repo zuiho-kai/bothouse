@@ -26,26 +26,24 @@ func (e *Engine) heard() *gateRuntime {
 }
 
 // heardSnapshot copies what interactiveKey has heard, transcripts marked as speech (#215).
-func (rt *gateRuntime) heardSnapshot(interactiveKey string) ([]string, []backlogTarget) {
+func (rt *gateRuntime) heardSnapshot(interactiveKey string) []string {
 	rt.mu.Lock()
 	buffered := append([]string(nil), rt.buf[interactiveKey]...)
 	voice := append([]bool(nil), rt.bufVoice[interactiveKey]...)
-	targets := append([]backlogTarget(nil), rt.bufTarget[interactiveKey]...)
 	rt.mu.Unlock()
 	for i := range buffered {
 		if i < len(voice) && voice[i] {
 			buffered[i] = withBufferedVoiceNote(buffered[i])
 		}
 	}
-	return buffered, targets
+	return buffered
 }
 
 // withCallContext puts what this role has not seen yet above content and marks content as the
 // newest message: the channel record when the platform can read it (it also covers restarts and
 // messages the bridge never got), else the heard entries in buffered. It marks msg seen. The
 // caller drops the len(buffered) entries it passed from the heard buffer.
-func (e *Engine) withCallContext(p Platform, msg *Message, session *Session, content string, buffered []string, targets []backlogTarget) string {
-	usedBacklog := false
+func (e *Engine) withCallContext(p Platform, msg *Message, session *Session, content string, buffered []string) string {
 	session.backfillMu.Lock() // read and mark seen as one step (Session.backfillMu)
 	if back, images, ok := e.channelBackfill(p, msg, session); ok {
 		if back != "" {
@@ -56,20 +54,12 @@ func (e *Engine) withCallContext(p Platform, msg *Message, session *Session, con
 		// The images of those posts go first, in channel order, before this message's own.
 		msg.Images = append(images, msg.Images...)
 	} else if len(buffered) > 0 {
-		usedBacklog = true
 		content = bufferedBacklogNote + "\n" + strings.Join(buffered, "\n") + "\n\n" + withLatestMark(content)
 	} else {
 		content = withLatestMark(content)
 	}
 	markSeen(p, session, msg)
 	session.backfillMu.Unlock()
-	if usedBacklog {
-		if target, ok := singleSenderBacklogTarget(targets, msg); ok {
-			if marker, ok := p.(BacklogReplyTargetMarker); ok {
-				msg.ReplyCtx = marker.MarkBacklogReplyTarget(msg.ReplyCtx, target.messageID, target.senderID)
-			}
-		}
-	}
 	return content
 }
 
@@ -77,8 +67,8 @@ func (e *Engine) withCallContext(p Platform, msg *Message, session *Session, con
 // context and the heard entries it took are dropped.
 func (e *Engine) withHeardContext(p Platform, msg *Message, session *Session, interactiveKey string) {
 	rt := e.heard()
-	buffered, targets := rt.heardSnapshot(interactiveKey)
-	msg.Content = e.withCallContext(p, msg, session, msg.Content, buffered, targets)
+	buffered := rt.heardSnapshot(interactiveKey)
+	msg.Content = e.withCallContext(p, msg, session, msg.Content, buffered)
 	rt.mu.Lock()
 	rt.dropBuffered(interactiveKey, len(buffered))
 	rt.mu.Unlock()

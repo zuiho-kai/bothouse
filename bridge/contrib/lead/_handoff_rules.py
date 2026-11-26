@@ -10,7 +10,12 @@ RULES = Path(__file__).resolve().parent / "handoff-rules.json"
 STRICT = RULES.with_name("handoff-rules.strict.json")
 # 本机叠加：<数据目录>/collaboration/handoff-rules.local.json（不进发布包）。{"profile": "strict"} 叠加严格档；
 # "checks" 按 id 覆盖或追加；"flags" 给 ws-handoff 的额外关卡（require_short、cli_gate）。
-LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL") or RULES.parent.parent / "handoff-rules.local.json")
+# 脚本装在 <数据目录>/collaboration/runtime/lead（桥内嵌版，唯一一份），
+# 找的是 <数据目录>/collaboration/handoff-rules.local.json。原来只认「上上级」，内嵌版找到的是 runtime/ 下那个
+# 不存在的文件，本机叠加的严格档和开关全没了也不报错（#2051）。
+LOCAL = Path(os.environ.get("HANDOFF_RULES_LOCAL") or next(
+    (d / "handoff-rules.local.json" for d in (RULES.parent.parent, RULES.parent.parent.parent)
+     if (d / "handoff-rules.local.json").is_file()), RULES.parent.parent / "handoff-rules.local.json"))
 
 
 def _read(path):
@@ -155,7 +160,61 @@ def _check(c, lines, lead, key="msg"):
         if gone:
             return c["missing_msg"].replace("{items}", "、".join(gone))
         return None if have else c[key].replace("{links}", "、".join(links[:3]))
+    if t == "ref_source":  # #1897 照参考做的活：原件节逐行写原件是什么料、我们用什么料、证据；料对不上要写放行理由
+        return ref_source(c, lines, lead)
     raise RuntimeError(f"交接规则文件里有不认识的检查类型：{t}")
+
+
+def _kind(c, field):
+    """field 里最早出现的料（kinds 的键）；认不出返回 None。"""
+    best = None
+    for k, rx in c["kinds"].items():
+        m = re.search(rx, field, re.I)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), k)
+    return best and best[1]
+
+
+def ref_source(c, lines, lead):
+    """#1897：用户原话/总目标要照参考做（或交接自己写了原件节）时，原件节每行：
+    「<东西>：原件=<料>；我们=<料>；证据=<本地路径>」。料按 kinds 归类，两边不同类要有「放行：<理由>」；证据路径要真存在。"""
+    trig = re.compile(c["trigger_re"])
+    secs = _sections(lines, c["section"], lead)
+    triggered = any(trig.search(x) for s in c["trigger_sections"] for seg in _sections(lines, s, lead) for x in seg[1:])
+    if not triggered and not secs:
+        return None
+    rows = [x.strip().lstrip(lead).strip() for seg in secs for x in seg[1:] if x.strip().lstrip(lead).strip()]
+    row = re.compile(c["row_re"])
+    hits = [(r, row.search(r)) for r in rows]
+    hits = [(r, m) for r, m in hits if m]
+    if not hits:
+        return c["msg"]
+    errs, ok = [], re.compile(c["pass_re"])
+    for r, m in hits:
+        a, b, ev = m.group("orig"), m.group("ours"), m.group("ev")
+        ka, kb = _kind(c, a), _kind(c, b)
+        if not ka or not kb:
+            errs.append(c["kind_msg"].replace("{row}", r).replace("{kinds}", "、".join(c["kinds"])))
+            continue
+        if ka != kb and not ok.search(r):
+            errs.append(c["mismatch_msg"].replace("{row}", r).replace("{a}", ka).replace("{b}", kb))
+        if ka in c.get("timed_kinds", []):  # #1912 会随时间变的原件：要写原片哪一段、附那段的逐字/逐秒动作表
+            tm = re.search(c["table_re"], r)
+            if not re.search(c["seg_re"], r) or not tm:
+                errs.append(c["seg_msg"].replace("{row}", r).replace("{a}", ka))
+            else:
+                tp = Path(re.sub(r":[0-9][0-9,-]*$", "", tm.group("path").rstrip(".,;:：，。；）)"))).expanduser()
+                head = tp.read_text(encoding="utf-8", errors="replace")[:2000] if tp.is_file() else None
+                miss = [] if head is None else [k for k in c["table_cols"] if k not in head]
+                if head is None or miss:
+                    why = f"文件不存在：{tp}" if head is None else "表头缺：" + "、".join(miss)
+                    errs.append(c["table_msg"].replace("{row}", r).replace("{why}", why))
+        paths = [re.sub(r":[0-9][0-9,-]*$", "", p.rstrip(".,;:：，。；）)")) for p in re.findall(c["path_re"], ev)]
+        if not paths:
+            errs.append(c["ev_msg"].replace("{row}", r))
+        elif not all(Path(p).expanduser().exists() for p in paths):
+            errs.append(c["ev_msg"].replace("{row}", r) + "（不存在：" + "、".join(p for p in paths if not Path(p).expanduser().exists()) + "）")
+    return "\n".join(errs) or None
 
 
 def ref_rule(rules=None):

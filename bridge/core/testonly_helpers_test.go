@@ -226,15 +226,6 @@ func renderTeamBoard(files []teamFile, chat string) string {
 	return renderTeamBoardMembers(files, chat, nil)
 }
 
-func (p *voiceSessionPool) count() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.entries)
-}
-
-// rest is the public text after the published sentences, for final handling.
-func (s *voiceSentenceSplitter) rest() string { return s.text[s.done:] }
-
 func scanDSHWebURL(path string) string {
 	f, err := os.Open(path)
 	if err != nil {

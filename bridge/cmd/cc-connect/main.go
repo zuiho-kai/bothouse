@@ -231,7 +231,6 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"workspace":    runWorkspace,
 	"channel":      runChannel,
 	"ctx":          runCtx,
-	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"vent":         runVent,
 	"secret":       runSecret,
@@ -893,17 +892,6 @@ func runMain() {
 			}
 		}
 		relayMgr.SetVisibility(cfg.Relay.Visibility)
-		if cfg.Relay.VoiceResident != nil {
-			idle := 10 * time.Minute // 来源：调研 A 3.5 空闲 TTL 10 分钟。
-			turns := 30              // 来源：调研 A 3.5 累计 30 轮回收。
-			if cfg.Relay.VoiceResidentIdleSecs != nil && *cfg.Relay.VoiceResidentIdleSecs > 0 {
-				idle = time.Duration(*cfg.Relay.VoiceResidentIdleSecs) * time.Second
-			}
-			if cfg.Relay.VoiceResidentMaxTurns != nil && *cfg.Relay.VoiceResidentMaxTurns > 0 {
-				turns = *cfg.Relay.VoiceResidentMaxTurns
-			}
-			relayMgr.SetVoiceResident(*cfg.Relay.VoiceResident, idle, turns)
-		}
 		apiSrv.SetRelayManager(relayMgr)
 
 		// Create shared DirHistory for all engines
@@ -2069,7 +2057,6 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
 	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
-	engine.SetVoiceDesk(proj.VoiceDesk)
 }
 
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {

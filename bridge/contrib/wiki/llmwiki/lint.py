@@ -306,8 +306,7 @@ def check(root=None):
 if __name__ == "__main__":
     root = Path(sys.argv[sys.argv.index("--root") + 1]).resolve() if "--root" in sys.argv[:-1] else None
     if "--wrap" in sys.argv:
-        for rel in wrap_pages(root):
-            print(f"wrapped over-long lines: {rel}", file=sys.stderr)
+        print("\n".join(wrap_pages(root)) or "no long lines")
     errs, stats, warns = check(root)
     if root is None and (WIKI / "rules/house-rules.toml").exists():  # 家规各处块和规则源一致（bin/rules.py check）
         r = __import__("subprocess").run([sys.executable, "-I", str(WIKI / "bin/rules.py"), "check"], capture_output=True, text=True)

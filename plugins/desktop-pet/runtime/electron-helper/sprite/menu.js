@@ -64,11 +64,19 @@ Object.assign(PetSprite.prototype, {
       else tools.push({ label: '睡觉', action: 'sleep', hint: S.SLEEP_HOTKEY_HINT });
     }
     // 动作树之后是维护类：显示位置 → 重载配置 → 回到初始位置。
+    const displayBranch = S.displayMenuBranch();
+    if (OPEN_TARGET === 'standalone') {
+      // 独立模式没有网页端：选「仅网页」会让宠物从桌面消失却哪里都不出现，「两者」与「仅桌面」
+      // 在视觉上完全等价。bothouse 桌宠正是独立模式运行，右键只保留有实际去向的「仅桌面 / 都不」。
+      displayBranch.children = displayBranch.children.filter(
+        (child) => child.display === 'desktop' || child.display === 'none',
+      );
+    }
     const tail = [
       // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置，由宿主重载生效。
       // 与浏览器端注入同一份子菜单，两端文案与取值不会漂移。不就地开关窗：窗口是进程启动时按
       // DSH_PET_PETS 一次性建的，就地增删既改不了磁盘配置也改不了窗口数量。
-      S.displayMenuBranch(),
+      displayBranch,
       // bothouse fork（#549）：每只自己的大小，写回这只所在的配置层（POST /pet-size），由宿主重载生效。
       {
         label: '大小',

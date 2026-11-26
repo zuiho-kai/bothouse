@@ -221,7 +221,7 @@ func chatIdentityBlock(msg *Message) string {
 	}
 	name := strings.TrimSpace(msg.ChatName)
 	if name == "" || name == chatID {
-		return fmt.Sprintf("[Chat identity: type=group platform=%s chat_id=%s; the group display name is unavailable, but this chat is not named after the project or repository]", msg.Platform, chatID)
+		return fmt.Sprintf("[Chat identity: type=group platform=%s chat_id=%s; the group display name is unavailable]", msg.Platform, chatID)
 	}
 	safeName := strings.NewReplacer(`"`, `'`, "\n", " ", "\r", "").Replace(name)
 	return fmt.Sprintf("[Chat identity: type=group platform=%s chat_name=\"%s\" chat_id=%s; refer to this chat by this name, not by the project or repository name]", msg.Platform, safeName, chatID)

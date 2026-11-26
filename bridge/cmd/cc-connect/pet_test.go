@@ -48,7 +48,8 @@ func TestPetRelayFollowsOnlyBoundRoles(t *testing.T) {
 		"",
 	}, "\n")
 	_ = r.readSSE(strings.NewReader(sse))
-	want := []string{"main||橘", "main|thinking|橘", "main|working|橘", "main|speech|做完了", "main|success|橘", "main|error|橘"}
+	// No name rides along with the state (11-26 21:34: no name bubble over the pet); speech still does.
+	want := []string{"main||", "main|thinking|", "main|working|", "main|speech|做完了", "main|success|", "main|error|"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -79,7 +80,7 @@ func TestPetRelayOnePetPerRole(t *testing.T) {
 		"",
 	}, "\n")
 	_ = r.readSSE(strings.NewReader(sse))
-	want := []string{"bh-bridge-deep|working|肥鱼", "main||", "main|thinking|C酱", "main|speech|好了"}
+	want := []string{"bh-bridge-deep|working|", "main||", "main|thinking|", "main|speech|好了"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -120,7 +121,7 @@ func TestPetRelayRebindToIdleRoleClearsPet(t *testing.T) {
 	petRebind(r, map[string]string{"bridge:cj": ""})
 	got = nil
 	petRebind(r, map[string]string{"bridge:deep": ""})
-	want := []string{"main||肥鱼"}
+	want := []string{"main||"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
@@ -198,13 +199,49 @@ func TestPetSkinReportsDownloadedPack(t *testing.T) {
 	if got := get("?pet=bh-bridge-deep"); got["role"] != "deep" || got["pack"] != "dsh1" || got["packDir"] != filepath.Join(root, "dsh1") {
 		t.Fatalf("deep: %v", got)
 	}
-	if got := get("?pet=bh-bridge-gjiang"); got["role"] != "gjiang" || got["pack"] != nil || got["packDir"] != nil {
-		t.Fatalf("gemini not downloaded must not be reported: %v", got)
+	if got := get("?pet=bh-bridge-gjiang"); got["role"] != "gjiang" || got["pack"] != nil || got["packDir"] != nil || got["skin"] != "gemini" {
+		t.Fatalf("a look that is no downloaded pack is handed over as a skin id: %v", got)
 	}
 	if got := get(""); got["role"] != "cj" || got["packDir"] != nil {
 		t.Fatalf("main: %v", got)
 	}
 	if petPackDir(root, "../dsh1") != "" || petPackDir(root, ".") != "" {
 		t.Fatal("pack name must not leave the pets folder")
+	}
+}
+
+// 11-26: `bothouse pet skin` writes the look into the same role binding the plugin page uses, keeps other
+// plugins' entries, and "-" clears it.
+func TestPetSkinCmd(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "plugins", "role-bindings.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"bindings":{"bridge:deep":[{"plugin_id":"journal","enabled":true},{"plugin_id":"dsh-pet","enabled":true,"avatar_pack":"dsh1"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for _, args := range [][]string{{"deep", "dsh-pet-whale"}, {"bridge:gjiang", "caihongmao"}, {"cjiang", "maomao"}, {"cjiang", "-"}} {
+		if err := petSkinCmd(&out, file, args); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := petSkinCmd(&out, file, []string{"deep", "../x"}); err == nil {
+		t.Fatal("a look must not leave its folder")
+	}
+	raw, _ := os.ReadFile(file)
+	var doc struct {
+		Bindings map[string][]petBinding `json:"bindings"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := petBoundRoles(doc.Bindings)
+	if got["bridge:deep"] != "dsh-pet-whale" || got["bridge:gjiang"] != "caihongmao" || got["bridge:cjiang"] != "" || len(doc.Bindings["bridge:deep"]) != 2 {
+		t.Fatalf("bindings: %s", raw)
+	}
+	out.Reset()
+	if err := petSkinCmd(&out, file, nil); err != nil || !strings.Contains(out.String(), "bridge:deep\tdsh-pet-whale") {
+		t.Fatalf("list: %v %q", err, out.String())
 	}
 }

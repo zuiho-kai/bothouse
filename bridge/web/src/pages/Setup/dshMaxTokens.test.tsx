@@ -25,7 +25,7 @@ vi.mock('@/api/wizard', async (original) => ({
   applyWizard: async (req: WizardRequest) => {
     sent.reqs.push(req);
     return { ok: true, dry_run: !!req.dry_run, saved: !req.dry_run, steps: [], roles: [], jev_ok: false, jev_hint: '',
-      hardware: false, restart_required: !req.dry_run };
+      restart_required: !req.dry_run };
   },
 }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

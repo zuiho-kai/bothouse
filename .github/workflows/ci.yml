@@ -158,6 +158,7 @@ jobs:
       - run: python3 -I contrib/wiki/llmwiki/test_claude_model.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_block_contract.py
+      - run: python3 -I contrib/wiki/llmwiki/test_consolidate_pinned.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/wiki/llmwiki/test_pending_round.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
@@ -211,6 +212,11 @@ jobs:
       - run: python3 -I contrib/gate/test_board_review.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: python3 -I contrib/gate/test_deliver.py
+        if: ${{ !cancelled() && env.RUN_GO == 'true' }}
+      - run: |
+          python3 -I contrib/lead/test_handoff_rules.py
+          python3 -I contrib/lead/test_ref_source.py
+          python3 -I contrib/lead/test_added_judge.py
         if: ${{ !cancelled() && env.RUN_GO == 'true' }}
       - run: |
           python3 -I contrib/lead/test_ws_pass_compare.py

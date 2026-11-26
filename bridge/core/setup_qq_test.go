@@ -56,7 +56,7 @@ func TestTestQQCodes(t *testing.T) {
 // #812: QQ through the wizard, added next to an existing Discord bot: the QQ project gets the
 // NapCat options, the Discord bot and the wizard state of Discord stay as they were.
 func TestApplyWizardQQAddsPlatform(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	ws := fakeNapCat(t, "napcat-secret")
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
@@ -142,7 +142,7 @@ func TestApplyWizardQQAddsPlatform(t *testing.T) {
 
 // #1407: blank preserves a stored token; explicit clearing tests and saves without it.
 func TestApplyWizardQQClearingToken(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	ws := fakeNapCat(t, "") // accepts any token
 	store := newMemStore()
 	env := WizardEnv{Store: store, DataDir: t.TempDir(), CLIs: testCLIs}

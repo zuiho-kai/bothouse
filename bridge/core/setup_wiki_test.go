@@ -155,7 +155,7 @@ func TestSubWikiCommandShell(t *testing.T) {
 }
 
 func TestApplyWizardAddsWikiCron(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	wiki := fakeWiki(t, "")
 	if err := os.WriteFile(filepath.Join(wiki, mainWikiMark), []byte("juzi\n"), 0o644); err != nil { // one the wizard made
 		t.Fatal(err)

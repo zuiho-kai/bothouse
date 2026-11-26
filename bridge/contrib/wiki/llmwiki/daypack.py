@@ -486,12 +486,64 @@ def detour_part(signals):
     return lines + (["- 无"] if len(lines) == 1 else [])
 
 
-def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True, reply_chars=None, codex_root=None):
+# 交付后用户的话（#1447）：弯路信号只看助手自己的轨迹，被骂的做法多半只在用户事后的反应里（11-11 归类：没提醒到的 68 件
+# 里 63 件干活时没有相关信号）。每份交付带上任务板编号和跑过那件活 board 命令的会话，单独一段、单独上限，不和弯路信号
+# 抢那 60 行。用户的话写 U 编号（同「用户的话」一节，脚本回填原话），摘录截到 DETOUR_CHARS。
+REACT_PER = 3  # 每份交付最多摘几句用户的话；来源：影子回放 reacts[:4] 取到第 3 句已基本是下一件事
+BOARD_DIR = Path(os.environ.get("BOARD_DIR") or Path.home() / ".bothouse" / "team")  # 任务板（board.py 同一环境变量）
+
+
+def board_ids(titles, d=None):
+    """{📬 标题: 任务板编号}：标题对上条目的 short（ws-handoff --short），否则是 what 的开头；在做和已完成的都找。"""
+    d = Path(d or BOARD_DIR)
+    rows = []
+    for name in ("board.jsonl", "board-done.jsonl"):
+        try:
+            rows += [json.loads(l) for l in open(d / name, errors="ignore") if l.strip()]
+        except (OSError, ValueError):
+            continue
+    out = {}
+    for t in titles:
+        hit = [r for r in rows if r.get("short") == t] or [r for r in rows if t and str(r.get("what", "")).startswith(t)]
+        if hit:
+            out[t] = str(hit[-1].get("id"))
+    return out
+
+
+def react_part(rows, tasks=None, board=None):
+    """rows: [{ts, name, who, title, mail, reacts: [(ts, U 编号, text)]}]（ingest 从频道读出、编好 U 号）；tasks:
+    session_tasks() 的 {sid: Counter(编号)}，用来找出跑过那件活的会话（工作区）。"""
+    lines = ["## 交付后用户的话（频道里 📬 交付汇报之后，同频道 3 小时内、下一份交付之前用户说的，和直接回复这份交付的；"
+             "是认可、纠正、否决、打回还是新要求由你判断）"]
+    board = board_ids({r["title"] for r in rows}) if board is None else board
+    keep, n = [], 0
+    for r in sorted(rows, key=lambda r: -sum(len(x[2]) for x in r["reacts"][:REACT_PER])):  # 话多的在前，同弯路信号
+        k = 2 + min(len(r["reacts"]), REACT_PER)
+        if n + k > DETOUR_LINES:
+            continue
+        keep.append(r)
+        n += k
+    for r in sorted(keep, key=lambda r: r["ts"]):
+        no = board.get(r["title"])
+        sids = ([(0, x) for x in r["sids"]] if r.get("sids")  # a replay names its session itself
+                else sorted(((c[no], sid) for sid, c in (tasks or {}).items() if no and c.get(no)), reverse=True)[:3])
+        lines.append(f"=== 交付 [{hm(r['ts'])}] 📬「{r['title']}」"
+                     + (f" 任务 #{no}" if no else " 任务编号未对上")
+                     + (" 会话 " + "、".join(f"{sid[:8]}" for _, sid in sids) if sids else "")
+                     + f" | {r['name']}" + (f" | 交付人 {r['who']}" if r.get("who") else ""))
+        lines.append(f"- 汇报开头：『{one_line(r['mail'].split(chr(10), 1)[-1].strip(), DETOUR_CHARS)}』")
+        lines += [f"- [{hm(t)}] {key}：{one_line(text, DETOUR_CHARS)}" for t, key, text in r["reacts"][:REACT_PER]]
+    return lines + (["- 无"] if len(lines) == 1 else [])
+
+
+def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True, reply_chars=None, codex_root=None,
+          reacts=None):
     """(pack text, totals or None) for [start, end). usage False: read only the selected sessions' native Codex
     measurements when available; never show 橘's Claude Code figures for another wiki.
-    reply_chars: ingest passes DREAM_REPLY_CHARS (dream's cut of an assistant reply); None = uncut."""
+    reply_chars: ingest passes DREAM_REPLY_CHARS (dream's cut of an assistant reply); None = uncut.
+    reacts: ingest passes the day's 📬 deliveries the user reacted to (react_part); None = no such section."""
     head = [f"=== 当天数据包（脚本生成，{hm(start)} ~ {hm(end)}）==="]
-    T = None
+    T, tasks = None, {}
     if usage:
         tasks = session_tasks(start, end, root)
         cost, T = cost_part(per_session(usage_calls(start, end, root)), slow_commands(start, end, root), tasks)
@@ -499,7 +551,8 @@ def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True
         import codex_daypack
         cost, T = codex_daypack.part(start, end, sessions, **({"root": codex_root} if codex_root else {}))
     detour = detour_part(detour_signals(start, end, root)) if usage else []
-    body = head + cost + detour + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
+    react = react_part(reacts, tasks) if reacts is not None else []
+    body = head + cost + detour + react + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
     return "\n".join(body) + "\n", T
 
 

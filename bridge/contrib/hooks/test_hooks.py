@@ -25,7 +25,7 @@ class Hooks(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         cls.hooks = os.path.join(cls.tmp, "hooks")  # an installed copy, as "bothouse setup hooks on" makes
         shutil.copytree(HERE, cls.hooks)
-        for f in ("ctxsvc.py", "wiki_search.py"):
+        for f in ("ctxsvc.py", "standing_limits.json", "wiki_search.py", "datadir.py"):  # embed.go AgentHookFiles 带的 gate 文件
             shutil.copy(os.path.join(GATE, f), cls.hooks)
         cls.env = dict(os.environ, HOME=cls.tmp, DSH_HOME=os.path.join(cls.tmp, "dsh"), GATE_WIKI="off")
         for k in ("CC_PROJECT", "HOOK_PROXY", "HOOK_FREE_DIRS", "HOOK_REVIEWS_DIR", "HOOK_RESEARCHER_DIRS",

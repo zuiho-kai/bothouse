@@ -10,7 +10,7 @@ var ConfigExampleTOML string
 
 // AgentHookFiles: the Claude Code / DSH hooks (contrib/hooks), the Claude Code subagent type bash-guard pairs with
 // (contrib/hooks/agents), the code map directory's README (contrib/hooks/codemaps) and the gate's wiki lookup
-// wiki-context reuses, installed by "cc-connect setup hooks" and the setup wizard (core/agent_hooks.go).
+// wiki-context reuses, plus contrib/gate/datadir.py (the one place Python reads the data directory and its files, #2051), installed by "cc-connect setup hooks" and the setup wizard (core/agent_hooks.go).
 //
-//go:embed contrib/hooks/*.py contrib/hooks/*.json contrib/hooks/rules/*.md contrib/hooks/agents/*.md contrib/hooks/codemaps/*.md contrib/gate/ctxsvc.py contrib/gate/wiki_search.py contrib/gate/forum_scores.py
+//go:embed contrib/hooks/*.py contrib/hooks/*.json contrib/hooks/rules/*.md contrib/hooks/agents/*.md contrib/hooks/codemaps/*.md contrib/gate/ctxsvc.py contrib/gate/standing_limits.json contrib/gate/wiki_search.py contrib/gate/forum_scores.py contrib/gate/datadir.py
 var AgentHookFiles embed.FS

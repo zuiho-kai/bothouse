@@ -48,7 +48,7 @@ func TestCanonicalAgentTypeMapsBinaryNames(t *testing.T) {
 func TestApplyWizardClaudeBinaryNameWritesClaudecode(t *testing.T) {
 	useRepoHooks(t)
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	data := t.TempDir()
@@ -78,7 +78,7 @@ func TestApplyWizardClaudeBinaryNameWritesClaudecode(t *testing.T) {
 }
 
 func TestApplyWizardUnknownAgentTypeWritesNothing(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	for _, dry := range []bool{false, true} {

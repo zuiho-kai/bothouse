@@ -21,7 +21,7 @@ func TestResumeWaitingExternalStopsOnConfigError(t *testing.T) {
 		e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
 		t.Cleanup(e.cancel)
 		e.SetDataDir(t.TempDir())
-		lead := filepath.Join(e.dataDir, "collaboration", "lead")
+		lead := filepath.Join(e.dataDir, "collaboration", "runtime", "lead")
 		if err := os.MkdirAll(lead, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -74,4 +74,33 @@ func TestGuardVerdict(t *testing.T) {
 		}
 	}
 	_ = time.Second
+}
+
+func TestGuardSkipsReturnedTaskWithStaleBoard(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	const chat, workspace = "cloud_web:room-1", "cloud_web:room-1000000"
+	writeReviewBoard(t, e, teamTaskBoardItem{ID: 1, What: "Research", Chat: chat, WS: workspace})
+	job := &TimerJob{Guard: true, SessionKey: chat, Description: "兜底 #1：工作区 30m 没交回就查"}
+	for _, step := range []struct {
+		state TeamTaskState
+		want  string
+	}{
+		{TeamTaskDispatched, ""},
+		{TeamTaskWorking, ""},
+		{TeamTaskReturned, "done"},
+		{TeamTaskClosed, "done"},
+	} {
+		teamWorkspaceStore.mu.Lock()
+		_, err := transitionTeamTaskLocked(e.dataDir, teamTaskEvent{ID: 1, To: step.state, WS: workspace, Chat: chat}, time.Now())
+		teamWorkspaceStore.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := e.guardVerdict(job); got != step.want {
+			t.Errorf("task %s with a stale board: verdict %q, want %q", step.state, got, step.want)
+		}
+	}
 }

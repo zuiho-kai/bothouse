@@ -20,6 +20,8 @@ import datetime, json, os, re, subprocess, sys
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.join(os.path.dirname(HERE), "gate"))  # 数据目录只认 datadir（#2051）：装好后和钩子平铺同目录，仓库里直跑在 ../gate
+import datadir  # noqa: E402
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 NOTES_DIR = os.path.join(os.getcwd(), "notes")  # 写方案、交接稿不拦
 REVIEWS = os.path.expanduser(os.environ.get("HOOK_REVIEWS_DIR") or os.path.join(HOME, ".claude", "reviews"))
@@ -245,11 +247,6 @@ def doc_tagged(session, path):
 SMALL_EDIT_LINES = 10
 
 
-def _data_dir():
-    return os.path.expanduser(os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR")
-                              or os.path.join(HOME, ".bothouse"))
-
-
 def in_workspace():
     """工作区就是干活的地方：工作区会话直接改代码，不再开子任务、不再问授权。
     作者 2026-10-28「复杂长程任务，就交回给那个工作区啊……这种我不都已经授权过了吗？为什么还要…问我」。
@@ -261,10 +258,7 @@ def in_workspace():
         chan = key.split(":")[1]
     if not chan:
         return False
-    try:
-        st = json.load(open(os.path.join(_data_dir(), "team_workspaces.json"), encoding="utf-8"))
-    except Exception:
-        return False
+    st = datadir.team_workspaces()
     ids = {w.get("id") for ws in (st.get("parents") or {}).values() for w in (ws or []) if isinstance(w, dict)}
     ids |= {k.split(":")[1] if ":" in k else k for k in (st.get("handoffs") or {})}
     return chan in ids

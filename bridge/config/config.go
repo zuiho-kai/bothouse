@@ -350,16 +350,6 @@ type RoleConfig struct {
 type RelayConfig struct {
 	TimeoutSecs *int   `toml:"timeout_secs"`         // max seconds to wait for relay response; 0 = disabled; default 120
 	Visibility  string `toml:"visibility,omitempty"` // "full" (default), "summary", or "none" for group visibility echoes
-	// VoiceResident reuses one live ACP voice session per relay key instead of
-	// spawning a session per turn. Off by default so it can be rolled out to one
-	// device first; measured saving is in notes/voice-latency-plan-a-20261028.md 3.5.
-	VoiceResident *bool `toml:"voice_resident,omitempty"`
-	// VoiceResidentIdleSecs closes an idle resident session; 0 keeps the default
-	// (600, from the same research section's 10-minute TTL).
-	VoiceResidentIdleSecs *int `toml:"voice_resident_idle_secs,omitempty"`
-	// VoiceResidentMaxTurns recycles a resident session after this many turns; 0
-	// keeps the default (30, from the same research section).
-	VoiceResidentMaxTurns *int `toml:"voice_resident_max_turns,omitempty"`
 }
 
 // SpeechConfig configures speech-to-text for voice messages.
@@ -781,9 +771,6 @@ type ProjectConfig struct {
 	// subtasks), "team" (only other members), "mixed" (whoever fits; default). User 2026-10-24
 	// 01:25 「单模型多进程，完全团队模式，混合模式……默认混合模型」; same names as DSH's channel setting.
 	DispatchMode string `toml:"dispatch_mode,omitempty"`
-	// VoiceDesk (maomao fork): voice turns see every teammate's progress and may hand an explicitly
-	// confirmed instruction to a teammate in its channel (core/voice_desk.go). Default off.
-	VoiceDesk bool `toml:"voice_desk,omitempty"`
 	// RunAsUser, when set, causes the agent command for this project to be
 	// spawned under a different Unix user via `sudo -n -iu <user> --`. This
 	// provides OS-level file-system isolation from the supervisor user who
