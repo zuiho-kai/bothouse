@@ -181,7 +181,7 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual(self.timers(), [], "技术词转发不该发出任何消息")
         r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", key="test:100")
         self.assertNotEqual(r.returncode, 0)  # 不写大白话也不行：原文不再原样发
-        plain = "Grok 每小时那条定时消息老是超时，原因是电脑上一个网络工具的记录写太多卡住了。可以把那份记录关掉，或者先不管。我推荐关掉，不影响别的。"
+        plain = "Grok 每小时那条定时消息老是超时。\n原因是电脑上一个网络工具的记录写太多卡住了。\n可以把那份记录关掉，或者先不管。\n我推荐关掉，不影响别的。"
         r = self.run_tool("ws-forward", "--id", "7", "--ask-user", "权限", plain, key="test:100")
         self.assertEqual(r.returncode, 0, r.stderr)
         send = next(c for c in self.timers() if c[0] == "send")
@@ -192,7 +192,7 @@ class WsUpTest(unittest.TestCase):
         self.assertEqual((team / "asks" / "7.md").read_text(encoding="utf-8").strip(), plain)
         self.assertIn("proxy log", (team / "asks" / "7.raw.md").read_text(encoding="utf-8"))
         row = json.loads((team / "board.jsonl").read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(row["ask"]["title"], "Grok 每小时那条定时消息老是超时，原因是电脑上一个网络工具的记录写太多卡住了。")
+        self.assertEqual(row["ask"]["title"], "Grok 每小时那条定时消息老是超时。")
 
     def test_internal_ask_goes_to_lead_never_user(self):
         """#1827：任务状态转不过去（paused → failed）这类桥内部问题只给主角色处理，转用户被拒。"""
@@ -250,10 +250,10 @@ class WsUpTest(unittest.TestCase):
         argv = self.timers()[0]
         self.assertEqual(argv[argv.index("-s") + 1], "test:100")
 
-    def test_image_goes_to_source_chat(self):  # #1154：截图按交接记的来源聊天频道发，不手写 send -s
+    def test_image_goes_to_source_chat(self):  # #1154：--direct 截图按交接记的来源聊天频道发，不手写 send -s
         img = self.tmp / "shot.png"; img.write_bytes(b"png")
         self.write_last({"/n/a.md": {"channel": "900", "chat": "test:100", "task": "A"}})
-        r = self.run_tool("ws-up", "首屏截图", "--image", str(img), key="test:900")
+        r = self.run_tool("ws-up", "首屏截图", "--direct", "--image", str(img), key="test:900")
         self.assertEqual(r.returncode, 0, r.stderr)
         sent = [t for t in self.timers() if t[:1] == ["send"] and "--image" in t]
         self.assertEqual(len(sent), 1)
@@ -452,6 +452,71 @@ elif a[1] == "park":
     save(); print(json.dumps({"freed": not w["open"]}))
 """
 
+
+class ReviewGateTest(unittest.TestCase):
+    """#1223：ws-up 带图先到主角色会话（用户未见），主角色 ws-pass 发给用户；有参考时要附并排图。全在临时 HOME 里跑，桥是假脚本。"""
+    run_tool, timers, write_last = WsUpTest.run_tool, WsUpTest.timers, WsUpTest.write_last
+
+    # 参考材料怎么认由本机规则文件定（产品规则里没有 ref_local），这里叠加一份本机同款
+    REF_LOCAL = {'id': 'ref_local', 'type': 'ref_local', 'tier': 'fact', '_doc': '#1223 用户 11-08「整个参考信息全给他」：交接里有参考链接，就要有落地到 ~/work/ref/ 的本地图或视频（文件真存在），不让接手方只拿链接。', 'skip_heading_re': '程序', 'link_re': 'https?://(?:[A-Za-z0-9-]+\\.)*(?:x\\.com|twitter\\.com|bilibili\\.com|b23\\.tv|youtube\\.com|youtu\\.be|pixiv\\.net|pximg\\.net)(?:/[^\\s<>()（）「」"\'`，,、；;]*)?|https?://[^\\s<>()（）「」"\'`，,、；;]+?\\.(?:png|jpe?g|webp|gif|avif|mp4|mov|webm|mkv)(?:\\?[^\\s<>()（）「」"\'`，,、；;]*)?(?=$|[\\s<>()（）「」"\'`，,、；;])', 'hint_re': '参考图|参考视频|风格参考|参考片', 'url_re': 'https?://[^\\s<>()（）「」"\'`，,、；;]+', 'local_re': '(?:~|/Users/[^/\\s]+)/work/ref/[^\\s<>()（）「」"\'`，,、；;]+', 'media_re': '\\.(png|jpe?g|webp|gif|avif|mp4|mov|webm|mkv)$', 'msg': "交接里有参考链接（{links}），但没有落地的本地参考图或视频：接手方不一定会打开链接，打开了也可能拿不到。先下载到 ~/work/ref/<活名>/，交接里写完整本地路径（文件要真存在）再交。做法：\n- 图片/视频直链：curl -L -x http://127.0.0.1:7890 -o ~/work/ref/<活名>/ref.png '<链接>'\n- X 帖子：curl -s -x http://127.0.0.1:7890 https://api.fxtwitter.com/<用户名>/status/<帖子号> 取 JSON，tweet.media.photos[].url / tweet.media.videos[].url 是原图、原视频，再用上一行下载\n- B 站/YouTube 视频：yt-dlp --proxy http://127.0.0.1:7890 -o ~/work/ref/<活名>/ref.mp4 '<链接>'\n- 视频要抽帧：ffmpeg -i ref.mp4 -vf fps=1 ~/work/ref/<活名>/frame%d.png，挑能看出画法的帧写进交接\n示例：\n## 参考图\n- https://x.com/a/status/1 → ~/work/ref/crayon-ref/frame2.png", 'missing_msg': '交接里写的本地参考路径不存在：{items}。先下载落地再交（做法同上：curl -x 代理、api.fxtwitter.com 取 X 媒体、视频用 ffmpeg 抽帧）。'}
+
+    def setUp(self):
+        WsUpTest.setUp(self)
+        rules = self.tmp / "handoff-rules.local.json"
+        rules.write_text(json.dumps({"checks": [self.REF_LOCAL]}, ensure_ascii=False), encoding="utf-8")
+        self.env["HANDOFF_RULES_LOCAL"] = str(rules)
+        self.ref = self.tmp / "work" / "ref" / "t"
+        self.ref.mkdir(parents=True)
+        (self.ref / "frame.png").write_bytes(b"x")
+        self.shot = self.tmp / "shot.png"
+        self.shot.write_bytes(b"y")
+        self.side = self.tmp / "side.png"
+        self.side.write_bytes(b"z")
+        self.plain = self.tmp / "plain.md"
+        self.plain.write_text("## 用户原话\n- 「改个按钮」\n", encoding="utf-8")
+        self.refd = self.tmp / "ref.md"
+        self.refd.write_text("## 用户原话\n- 「照这个画」\n## 参考图\n- https://x.com/a/status/1 → ~/work/ref/t/frame.png\n",
+                             encoding="utf-8")
+
+    def task(self, notes):
+        self.write_last({str(notes): {"channel": "900", "chat": "test:100", "task": "画表盘皮肤", "file": str(notes)}})
+
+    def sends(self):
+        return [a for a in self.timers() if a and a[0] == "send" and a[a.index("-s") + 1] == "test:100"]
+
+    def test_image_goes_to_lead_not_user(self):
+        self.task(self.refd)
+        r = self.run_tool("ws-up", "--image", str(self.shot), "两款皮肤并排", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.sends(), [])  # 没往用户频道发附件
+        tm = [a for a in self.timers() if a[:2] == ["timer", "add"]]
+        self.assertEqual(len(tm), 1)
+        self.assertEqual(tm[0][tm[0].index("-s") + 1], "test:100")
+        prompt = tm[0][tm[0].index("--prompt") + 1]
+        self.assertTrue(prompt.startswith("【待主角色验收，用户未见】"))
+        self.assertIn(str(self.shot), prompt)
+        self.assertIn(str(self.ref / "frame.png"), prompt)
+        self.assertIn("ws-pass", prompt)
+        self.assertIn("ws-forward", prompt)
+
+    def test_direct_allowed_without_refs(self):
+        self.task(self.plain)
+        r = self.run_tool("ws-up", "--direct", "--image", str(self.shot), "进度截图", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.sends()), 1)
+
+    def test_direct_blocked_with_refs(self):
+        self.task(self.refd)
+        r = self.run_tool("ws-up", "--direct", "--image", str(self.shot), "进度截图", key="test:900")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("参考材料", r.stderr)
+        self.assertEqual(self.sends(), [])
+
+    def test_text_only_unchanged(self):
+        self.task(self.plain)
+        r = self.run_tool("ws-up", "进度一半", key="test:900")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.timers(), [a for a in self.timers() if a and a[0] == "send" and a[a.index("-s") + 1] == "test:900"])
 
 class WsPoolTest(unittest.TestCase):
     """没配 WS_CHANNEL：走桥的共享池（list/claim/new/park），假桥把池子记在 JSON 里。"""
