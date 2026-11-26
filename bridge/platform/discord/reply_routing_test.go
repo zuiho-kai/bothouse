@@ -307,11 +307,16 @@ func TestReplyRouting_CalledBotSeesItsMention(t *testing.T) {
 		t.Errorf("sub reply text changed: %+v", got)
 	}
 
-	bare := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "bare", GuildID: "guild", ChannelID: "channel",
-		Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Content: "<@&210>"}}
-	got := run("200", bare)
-	if got == nil || !got.Mentioned || !strings.Contains(got.Content, "用户 @ 了你，在等你回复") {
-		t.Fatalf("bare @ must reach the bot as a call it has to answer: %+v", got)
+	for _, target := range []struct{ id, mention string }{
+		{id: "100", mention: "<@&110>"},
+		{id: "200", mention: "<@&210>"},
+	} {
+		bare := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "bare", GuildID: "guild", ChannelID: "channel",
+			Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Content: target.mention}}
+		got := run(target.id, bare)
+		if got == nil || !got.Mentioned || !got.BackfillOnCall || got.Content != core.MentionOnlyPrompt {
+			t.Fatalf("bare @ must reach bot %s as a call with history: %+v", target.id, got)
+		}
 	}
 }
 

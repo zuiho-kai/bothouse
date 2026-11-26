@@ -1009,13 +1009,14 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 	images, files, audio, missed := classifyAttachments(m.Attachments, downloadURL)
 	m.Content = core.WithMissedAttachments(m.Content, missed...)
 
-	if m.Content == "" && len(images) == 0 && len(files) == 0 && audio == nil && m.ReferencedMessage == nil {
+	bareMention := m.Content == "" && len(images) == 0 && len(files) == 0 && audio == nil && m.ReferencedMessage == nil
+	if bareMention {
 		if !mentioned || fromBot {
 			return
 		}
 		// maomao fork: a bare @ means "look at what's going on" — keep it so the
 		// turn starts and the channel backfill shows the context.
-		m.Content = "（用户 @ 了你，在等你回复：看上面的频道消息判断要你做什么；看不出来就问）"
+		m.Content = core.MentionOnlyPrompt
 	}
 
 	// Capture the human's addressee before adding quoted content (core addresseeOf decides).
@@ -1035,6 +1036,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		UserID:    m.Author.ID, UserName: m.Author.Username,
 		Content: m.Content, Images: images, Files: files, Audio: audio, ReplyCtx: rctx,
 		Mentioned: mentioned || selfCalledByName, FromBot: fromBot, Direct: direct,
+		BackfillOnCall: bareMention && m.GuildID != "",
 	}
 	msg.PrivateRoom = !fromBot && p.privateRoom(s, m.GuildID, m.ChannelID, m.Author.ID)
 	msg.AddressedOther = !msg.Mentioned && otherCalled
