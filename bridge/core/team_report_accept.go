@@ -145,7 +145,7 @@ func (e *Engine) holdReportForLead(ctx context.Context, p Platform, parent, ws, 
 // report falls short of what the user asked it sends the next round itself instead of closing it to its
 // own handoff (user 11-25 「我让你自己根据意见迭代，你没迭代，直接停了」).
 const dispatcherAcceptNote = "（这件活是你派的：验收归派活人，也就是你。照用户原话验，不照你写的交接验；" +
-	"用户原话要的结果没做到就退回或接着派下一轮，不要停在这份交回。放行或退回都由你来。）\n"
+	"用户原话要的结果没做到就退回或接着派下一轮，不要停在这份交回。结论里写「没看完」「没过关」「等谁定」，系统会拒绝放行。放行或退回都由你来。）\n"
 
 // postUncheckedNow posts a report whose record could not be saved, marked unchecked.
 func (e *Engine) postUncheckedNow(ctx context.Context, p Platform, rec *pendingReport, item *teamTaskBoardItem) {
@@ -283,10 +283,11 @@ func leadAcceptPrompt(dataDir, wsLabel, bot, body string, hid int, notes, doubt,
 	now := time.Now()
 	// #1888: #1885's lead spent 26 minutes on a 35-second clip (sprite-sheet json, rebuilt montages)
 	// and the report went out unchecked at minute 10. User 11-23: 「他看多少就验收多少，或者不用完全看完」.
-	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了。看多少判多少，不必看完，到 %s 前定（现在 %s）："+
-		"先读四段，再看随交回的附件（视频抽一张帧拼图就够）；不翻工作区的中间产物、不自己重做拼图或重渲，没看的部分在 verdict 里写一句。二选一：\n"+
+	fmt.Fprintf(&b, "\n逐条对照交接里的用户原话、总目标和验收，看汇报说的是不是真做到了。看多少判多少，但没看到的不能放行：到 %s 前定（现在 %s）。"+
+		"先读四段，再看随交回的附件（视频抽一张帧拼图就够）；不翻工作区的中间产物、不自己重做拼图或重渲。"+
+		"结论必须说清用户原话要的目标做到没有：只核数字、文件在不在不算。结论里写「没看完」「没过关」「等谁定/等用户定」，系统会拒绝放行。二选一：\n"+
 		"- 合格：ws-pass%s --verdict \"逐条：哪条做到、证据是什么\"（不带附件也行：工作区随交回带上的文件和图片，系统跟在文字后面一并贴出，汇报里有链接的文档不发；「要你做的」要用户审或看东西、却既没有随交回的文件也没有链接时，放行会报错，带上成品放行或打回让工作区补；另带附件放行时这份文字一并放行，不用再跑一次），系统照原文贴给用户。\n"+
-		"- 不合格：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工。\n"+
+		"- 不合格或没看完：ws-forward%s \"打回：哪条没做到、要补什么\"，汇报不贴，活回到工作区返工；要用户定就先 bothouse send --ask-user 把问题发出去，不能写完「等谁定」就放行。\n"+
 		"%d 分钟内两样都没做，系统会照原文贴出并注明「%s」。放行后用户在聊天频道看到的就是这份汇报原文，你再讲一遍，他同一件事要读两遍：放行后回 NO_REPLY。"+
 		"只有你查到汇报里没写的事（和汇报对不上、还没上线、要用户动手）才说，最多两句，只说对不上的那一点。\n",
 		now.Add(5*time.Minute).Format("15:04"), now.Format("15:04"), notesArg, notesArg, int(leadAcceptTimeout/time.Minute), leadUncheckedMark)
