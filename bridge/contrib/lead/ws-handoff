@@ -724,7 +724,14 @@ def auto_notes(task: str) -> str:
     return str(path)
 
 
+def wants_help(argv):
+    return any(a in ("-h", "--help") for a in argv)
+
+
 def main(argv):
+    if wants_help(argv):
+        print(USAGE)
+        return 0
     if argv[:1] == ["--drain"]:  # 排队表 11-24 拿掉；桥放回工作区后还调（core/team_workspace_one.go），留成空操作
         return 0
     if "--resume" in argv:
@@ -967,6 +974,8 @@ def worker(argv):
 
 def run(argv):
     # --resume 也有模型直接调（续办暂停的活、ws-forward 转），同样会被回合结束杀掉，一起放后台；--drain 只由桥在后台调
+    if wants_help(argv):
+        return main(argv)
     if os.environ.get(WORKER) or os.environ.get("WS_HANDOFF_INLINE") or argv[:1] == ["--drain"]:
         return worker(argv) if os.environ.get(WORKER) else main(argv)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
