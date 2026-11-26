@@ -7193,8 +7193,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	e.ensureSubTaskTable(turn.state, turn.sessionKey)
 	turn.subReporter, turn.hasSubReporter = turn.agentSession.(SubTaskReporter)
 	retrier, _ := turn.agentSession.(APIRetryReporter)
-	if turn.cp.Active() && turn.cp.minUpdateInterval > 0 { // #2042: also for the "在等模型" line
-		t := time.NewTicker(turn.cp.minUpdateInterval)
+	if turn.cp.Active() { // #2042: also for the "在等模型" line
+		every := turn.cp.minUpdateInterval
+		if every <= 0 { // platforms with no edit throttle of their own
+			every = waitLineEvery
+		}
+		t := time.NewTicker(every)
 		defer t.Stop()
 		turn.subWaitTick = t.C
 	}

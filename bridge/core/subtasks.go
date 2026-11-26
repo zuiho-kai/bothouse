@@ -164,6 +164,10 @@ func subAgentWaitText(zh bool, t SubTask) string {
 // the progress card says so (#2042); same as slowAgentFirstEvent.
 const modelWaitAfter = slowAgentFirstEvent
 
+// waitLineEvery refreshes the wait line on platforms that set no progress
+// edit interval of their own (Discord edits every 2s, Feishu its own).
+const waitLineEvery = 3 * time.Second
+
 // modelWaitText is the progress-card line shown while the turn waits on the
 // model (#2042, user 11-26 「进度条直接显示『在等模型』，你一眼就能看到卡在哪」):
 // "" when nothing is worth showing. lastType is the last event the turn got
