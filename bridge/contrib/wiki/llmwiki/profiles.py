@@ -21,6 +21,7 @@ Now each person a bridge has heard has a page, rewritten nightly from that perso
   to_roles(page, key, personas, state)   the owner's 「现状」 into each role's instruction file
 """
 import calendar, json, os, re, time
+import lossless  # 无损兜底：重写漏的旧行原样补进「历史」（11-18 反思）
 from pathlib import Path
 
 PROFILE_DIR = "tooling/workflow/workflow/preferences"  # same as the gate's GATE_PROFILE (bridge/core/gate_proc.go)
@@ -152,8 +153,9 @@ def read_page(text):
             sec = ln[4:].strip()
         elif part == "现状" and LINE.match(ln):
             cur.append((sec, ln))
-        elif part and ln.startswith("- "):
+        elif part and (ln.startswith("- ") or ln.startswith("  ")):
             # 历史行；也收现状里对不上格式的行、别人加的其他「##」节的行——重写时不丢（11-15 被 lossless 拒提交）
+            # 缩进的子条目原样收（11-17 夜主人那页漏了 2 行子条目，整页被拒）
             hist.append(ln)
     return cur, hist
 
@@ -219,6 +221,11 @@ def rewrite(repo, key, name, transcript, citations, ask, log, rel=None, sop=None
         rows = [l for s, l in good if s == sec]
         out += ([f"### {sec}"] + rows) if rows else []
     hist_all = list(dict.fromkeys(gone + hist))
+    # 兜底：旧页哪行在新页里都找不到（lossless.lost，同 pre-commit 的判法），原样补进「历史」再写（11-18 反思）
+    lost = lossless.lost(old_text, "\n".join(out + hist_all), rel)
+    if lost:
+        log(f"profile {key}: {len(lost)} old line(s) not kept by the rewrite, moved to 历史 verbatim")
+        hist_all += lost
     out += (["", "## " + HISTORY] + hist_all) if hist_all else []
     page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text("\n".join(out) + "\n", encoding="utf-8")
@@ -265,13 +272,18 @@ ROLE_MARKS = ("<!-- owner-profile:start -->", "<!-- owner-profile:end -->")
 ROLE_STATE = "owner-profile.json"
 
 
-def to_roles(page, key, personas, state):
-    """`page`（主人 `key` 那页）的「现状」→ `personas` {角色: 说明文件} 里要它的那些；名单写进 `state`。返回带上了的角色。"""
+def to_roles(page, key, personas, state, counts=None, days=7):
+    """`page`（主人 `key` 那页）的「现状」→ `personas` {角色: 说明文件} 里要它的那些；名单写进 `state`。返回带上了的角色。
+    `counts` {行: 近 `days` 天被纠正的次数}（#1902，ingest.profile_pass 数的）：给了就在行尾标次数（0 次不标）、开头说明
+    一句排法；行序照页里的（页已按次数排好）。次数只标在角色这份里，不进 wiki 页（lossless 整行比对）。"""
     text = Path(page).read_text(encoding="utf-8")
     cur = re.search(r"^## 现状\n(.*?)(?=^## |\Z)", text, re.S | re.M).group(1)
     name = re.search(r"^# 懂你：(.+)$", text, re.M).group(1).strip()
-    body = (f"## 主人画像：{name}\n\n夜间从他自己的原话重写，括号里是他的原话。照这些懂他，说话做事贴他的判断和口味。\n\n"
-            + "\n".join(TAG.sub("", ln) for ln in cur.strip().split("\n")) + "\n")
+    counts = counts or {}
+    mark = lambda ln: ln + (f"〔近{days}天被纠正 {counts[ln]} 次〕" if counts.get(ln) else "")
+    order = f"每节里近 {days} 天被纠正最多的排最前，行尾标次数，先照这些改。" if any(counts.values()) else ""
+    body = (f"## 主人画像：{name}\n\n夜间从他自己的原话重写，括号里是他的原话。照这些懂他，说话做事贴他的判断和口味。{order}\n\n"
+            + "\n".join(mark(TAG.sub("", ln)) for ln in cur.strip().split("\n")) + "\n")
     start, end = ROLE_MARKS
     carried = []
     for role, f in personas.items():

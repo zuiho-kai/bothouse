@@ -137,6 +137,18 @@ def per_session(calls):
     return S
 
 
+# 会话中途被结束（桥重启、回合被杀）的调用：结果是下次续会话时才补记的，「发出到结果」量的是停摆时长，不是命令慢。
+# 出处：11-24 反思把 0a85c927 的 bothouse vent 记成「卡 18.5 分钟」——实为 13:12:14 桥重启砍了回合，13:30:59 续会话才补记。
+INTERRUPTED = "[Tool call interrupted"
+
+
+def interrupted(block):
+    c = block.get("content")
+    if isinstance(c, list):
+        c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+    return isinstance(c, str) and c.lstrip().startswith(INTERRUPTED)
+
+
 def slow_commands(start, end=None, root=CC, over=SLOW):
     """Bash calls sent in [start, end) that took longer than `over` seconds from tool_use to tool_result, slowest
     first: (seconds, sid, sub-agent?, command)."""
@@ -144,7 +156,7 @@ def slow_commands(start, end=None, root=CC, over=SLOW):
     for f in glob.glob(str(root / "*" / "**" / "*.jsonl"), recursive=True):
         if os.path.getmtime(f) < start:
             continue
-        sent = {}
+        sent, last = {}, 0  # last：本文件上一条结果的时间。同一条消息里并发发出的几条，排在后面的从上一条结果起算，不重复计等待
         for line in open(f, errors="ignore"):
             if '"tool_use"' not in line and '"tool_result"' not in line:
                 continue
@@ -164,8 +176,11 @@ def slow_commands(start, end=None, root=CC, over=SLOW):
                     sent[b.get("id")] = (t, (b.get("input") or {}).get("command") or "", d.get("sessionId", "?"))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in sent:
                     t0, cmd, sid = sent.pop(b["tool_use_id"])
-                    if t0 >= start and (not end or t0 < end) and t - t0 > over:
-                        out.append((t - t0, sid, "/subagents/" in f, cmd))
+                    took, last = t - max(t0, last), max(last, t)
+                    if interrupted(b):
+                        continue
+                    if t0 >= start and (not end or t0 < end) and took > over:
+                        out.append((took, sid, "/subagents/" in f, cmd))
     return sorted(out, reverse=True)
 
 
@@ -254,13 +269,16 @@ def task_part(S, tasks, n=TASK_TOP, root=CC):
         by[k]["rewrite_cost"] += v["rewrite_cost"]
         by[k]["sessions"] += 1
         by[k]["calls"] += v["calls"]  # 迭代轮次只认得到调用次数（反思 11-14 a 类）：日志里没有「第几轮」
+        by[k]["over"] += v["over_ctx"]  # 反思 11-17 a 类：过 300k 的调用按任务汇总，反思直接对照
     if not by:
         return []
     lines = [f"按任务编号（会话里跑得最多的 board 命令编号；没跑过的取开工消息里的「任务板 #编号」，再没有按会话标题或首条用户话记「未标·标题」，"
              f"两样都没有的归「未标任务」，按开销前 {n} 项）："]
     for k, v in sorted(by.items(), key=lambda x: -x[1]["cost"])[:n]:
         lines.append(f"- {k} ${v['cost']:.1f}（主会话 ${v['cost'] - v['sub']:.1f}，子 agent ${v['sub']:.1f}，"
-                     f"疑似过期重写 ${v['rewrite_cost']:.1f}）会话 {v['sessions']} 个，调用 {v['calls']} 次")
+                     f"疑似过期重写 ${v['rewrite_cost']:.1f}）会话 {v['sessions']} 个，调用 {v['calls']} 次，过 {BIG_CTX // 1000}k {v['over']} 次")
+    over = [(k, v["over"]) for k, v in sorted(by.items(), key=lambda x: -x[1]["over"])[:n] if v["over"]]
+    lines.append(f"- 过 {BIG_CTX // 1000}k 的调用按任务（前 {n} 项）：" + ("、".join(f"{k} {c} 次" for k, c in over) or "无"))
     return lines
 
 

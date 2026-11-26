@@ -37,19 +37,31 @@ MDLINK = re.compile(r"(\]\()([^)\s]+)(\))")
 HEAD = re.compile(r"## (.+)$")
 
 
+def git(root, *args):
+    return subprocess.run(["git", "-c", "core.quotepath=off", *args], cwd=root, capture_output=True, text=True)
+
+
+# profiles.py PROFILE_DIR / PAGE（gate 的 GATE_PROFILE 同路径）；不 import profiles：本文件也以 --root 给队友 wiki 用
+PROFILE_DIR, PROFILE_GLOB = "tooling/workflow/workflow/preferences", "profile-*.md"
+
+
 def pinned(root):
-    """Wiki-relative pages under `root` that the bridge config names as a role's life_page (橘's 小日子页 etc.): the
+    """Wiki-relative pages under `root` the bridge reads at a fixed path: a role's life_page (橘's 小日子页 etc.) from the
+    bridge config, and every person's 画像页 PROFILE_DIR/profile-*.md (gate GATE_PROFILE): the
     bridge reads that exact path every turn, so no restructure may move, merge or split it (#1578: split_pass cut
     maomao-days.md into maomao-days/ on 11-13 and the bridge injected an empty template). `root` may be ingest's
     worktree (<wiki>/.ingest-work), whose pages stand for <wiki>'s. python 3.9: no tomllib, a regex reads the lines."""
+    root = Path(root).resolve()
+    # 画像页同理：gate 每轮按固定路径 <PROFILE_DIR>/profile-<平台>-<id>.md 读（GATE_PROFILE, bridge/core/gate_proc.go），
+    # dream 也按这条路径重写（profiles.py page()）。11-18 split_pass 把 profile-discord-1498889779377602672.md 拆进同名
+    # 子目录，11-19 dream 在原路径只写了新行，旧画像全留在子目录、gate 读不到，lint 报同名两页。
+    out = {p.relative_to(root).as_posix() for p in (root / PROFILE_DIR).glob(PROFILE_GLOB)}
     cfg = Path(os.path.expanduser(os.environ.get("WIKI_BRIDGE_CONFIG", "~/.bothouse/config.toml")))
     try:
         text = cfg.read_text()
     except OSError:
-        return set()
-    root = Path(root).resolve()
+        return out
     bases = [root] + ([root.parent] if root.name == ".ingest-work" else [])
-    out = set()
     for a, b in re.findall(r"""(?m)^\s*life_page\s*=\s*(?:"([^"\n]+)"|'([^'\n]+)')""", text):
         page = Path(os.path.expanduser(a or b)).resolve()
         for base in bases:
