@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 import _ask  # noqa: E402
+import _local  # noqa: E402  本机自己加的关卡（<数据目录>/collaboration/local/hooks.py，没有就跳过）
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 import _source  # noqa: E402  聊天频道新原话补导、转话文本（_source.py）
 
@@ -138,6 +139,7 @@ def reject_held_report(path: str, summary: str, nid=None):
         return
     if r.returncode == 0:
         print(f"ws-forward: #{nid} 的文字汇报已打回，不会贴给用户", file=sys.stderr)
+        _local.call("on_reject", nid, summary)
     elif r.returncode != 3:  # 3：没有扣着的汇报
         print(f"ws-forward: 打回 #{nid} 的待验收汇报失败：{(r.stderr or r.stdout).strip()[:200]}", file=sys.stderr)
 
@@ -329,6 +331,9 @@ def main(argv):
     board.refuse_foreign([nid] if nid else last.get("board") or [], "ws-forward")  # 别的频道派的活不在这里转、不打回（#836）
     if to_user:
         return ask_user(last, nid, to_user, plain)
+    blocked = _local.call("forward_block", last.get("file") or "")
+    if blocked:
+        sys.exit(f"ws-forward: {blocked}")
     live = find_live(last)
     task = (board.workspace_state().get("tasks") or {}).get(str(live["id"]), {}) if live else {}
     if task.get("state") == "closed":

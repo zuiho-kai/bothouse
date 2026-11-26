@@ -2,6 +2,14 @@
 # 那个文件不存在、或没写某个函数，就什么都不做（返回 None）；写了就按固定几个点调：
 #   report_block(notes, draft, failed) -> 退回的话或 None   ws-up --report 过了 report check 之后
 #   on_ask(chat, notes, text)                               ws-up --ask 提问发出去之前（出错不挡提问）
+#   pass_gate(rec, notes, have, shots, rng) -> (并排图, 拦下理由)  ws-pass 发成品前（写了它就不再要 --compare）
+#   pass_block(rec, notes, shots) -> 退回的话或 None          ws-pass 发成品前
+#   override_err(rec, nid, shots, quote) -> 拒绝理由或 None   ws-pass --override 放行被拦下的成品时核原话
+#   on_blocked(nid, files, verdict, block, chat)             ws-pass 被拦下（没 --override）时
+#   forward_block(notes) -> 退回的话或 None                   ws-forward 转话前
+#   on_reject(nid, summary)                                  ws-forward 打回扣着的汇报时
+#   pick_model(notes, task) -> 模型 id 或 None                ws-handoff 没写 --model 时
+#   kickoff_line(notes) -> 开工提示里加的一句或 None           ws-handoff 写开工提示时
 # 开关照旧放 <数据目录>/collaboration/handoff-rules.local.json，代码放它隔壁的 local/，线上脚本不用再手改。
 import importlib.util, os, sys
 from pathlib import Path

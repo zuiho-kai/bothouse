@@ -58,7 +58,7 @@ class ForwardRecipientTest(unittest.TestCase):
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
             forward_forbid=lambda text: "",
-            _model=_model, _source=_source,
+            _model=_model, _source=_source, _local=types.SimpleNamespace(call=lambda *a, **k: None),
         ))
 
     def forward(self, *args):
@@ -281,7 +281,7 @@ class ForwardRecipientTest(unittest.TestCase):
         ns = functions("ws-handoff", {"timer_cmd"}, dict(
             _team=self.team, cc_bin=lambda: "bothouse", KICKOFF="", KICKOFF_DELAY="5s",
             kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", kickoff_long=lambda: "", Path=Path, re=re, SOURCE="source", _QUOTE_SEC="quote",
-            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton", _source=_source,
+            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton", _source=_source, _local=types.SimpleNamespace(call=lambda *a, **k: None),
         ))
         cmd = ns["timer_cmd"]("discord:ws3", self.notes, "task", 362, project="deep")
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")
