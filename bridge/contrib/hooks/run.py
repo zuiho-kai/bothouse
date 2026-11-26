@@ -467,7 +467,7 @@ LEGACY_SWITCH = os.path.join(".claude", "conest-hooks.json")
 
 def hook_names():
     return sorted(f[:-3] for f in os.listdir(HERE)
-                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py", "accept.py")
+                  if f.endswith(".py") and f not in ("run.py", "doc-ok.py", "dshlog.py", "dsh-cc-compat.py", "codex-compat.py", "lessons.py", "ctxsvc.py", "wiki_search.py", "datadir.py", "accept.py")
                   and not f.startswith("test_"))
 
 

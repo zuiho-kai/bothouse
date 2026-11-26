@@ -66,7 +66,7 @@ func reportFileFrequencyCommand(args []string, out io.Writer) error {
 	opts := reportFileFrequencyOptions{
 		Source:     string(core.ReadFrequencySourceAuto),
 		ClaudeDir:  filepath.Join(home, ".claude", "projects"),
-		SmallChars: core.DefaultReadFrequencySmallChars,
+		SmallChars: core.DefaultReadFrequencySmallChars(),
 		LargeBytes: core.DefaultReadFrequencyLargeBytes,
 		MinReads:   core.DefaultReadFrequencyMinReads,
 		Top:        core.DefaultReadFrequencyTop,
@@ -300,7 +300,7 @@ Flags:
   --format NAME        markdown (default) or json
   --json-out PATH      also write the JSON report to PATH
   --wiki PATH          wiki directory holding STANDING.md (default: $GATE_WIKI or ~/wiki; off disables)
-`, core.DefaultReadFrequencySmallChars, core.DefaultReadFrequencyLargeBytes, core.DefaultReadFrequencyMinReads, core.DefaultReadFrequencyTop)
+`, core.DefaultReadFrequencySmallChars(), core.DefaultReadFrequencyLargeBytes, core.DefaultReadFrequencyMinReads, core.DefaultReadFrequencyTop)
 }
 
 // reportCheckCommand: `bothouse report check --notes <交接文件> [<草稿文件>|-]`. Exit 0 when the

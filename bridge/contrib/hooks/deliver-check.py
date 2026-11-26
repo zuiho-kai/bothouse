@@ -35,6 +35,8 @@ import sys
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(os.path.dirname(HERE), "gate"))  # 数据目录只认 datadir（#2051）：装好后和钩子平铺同目录，仓库里直跑在 ../gate
+import datadir  # noqa: E402
 READABLE = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf", ".svg", ".txt", ".md", ".html", ".htm",
             ".csv", ".json", ".py", ".js", ".ts", ".css", ".xml", ".yaml", ".yml", ".log", ".tsv", ".ipynb"}
 PREVIEW = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".pdf"}
@@ -462,7 +464,7 @@ def accept_targets(command):
 
 
 def data_dir():
-    return os.path.expanduser(os.environ.get("CC_DATA_DIR") or os.environ.get("BOTHOUSE_DATA_DIR") or "~/.bothouse")
+    return str(datadir.data_dir())
 
 
 def held_reports():
@@ -488,7 +490,7 @@ def held_reports():
 def board_ids_for_notes(notes):
     """交接文件在任务板上的编号（where 栏）。"""
     real = os.path.realpath(os.path.expanduser(notes))
-    bdir = os.environ.get("BOARD_DIR") or os.path.join(data_dir(), "team")
+    bdir = str(datadir.board_dir())
     ids = set()
     try:
         with open(os.path.join(bdir, "board.jsonl"), encoding="utf-8") as f:

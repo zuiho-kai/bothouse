@@ -9,7 +9,10 @@ import (
 )
 
 // The gate scripts bothouse releases into <data_dir>/gate and runs (core/gate_proc.go).
-func init() { core.GateScriptFS = ccconnect.GateFiles }
+func init() {
+	core.GateScriptFS = ccconnect.GateFiles
+	core.StandingLimitsJSON = ccconnect.StandingLimitsJSON
+}
 
 // startGate starts the supervisor of the local gate; it runs the gate while some project's
 // gate_url points at it or DSH-native members are set up (they have no project, so a config with
