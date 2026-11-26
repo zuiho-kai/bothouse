@@ -23,7 +23,7 @@ vi.mock('@/api/wizard', async (original) => ({
     const qq = sent.qqFail
       ? { code: 'unreachable', message: '连不上 ws://127.0.0.1:3001', fix: '先启动 NapCat 并登录 QQ，在网络配置里开一个 WebSocket 服务器（默认端口 3001），地址填这里' }
       : { code: 'ok', message: '已连上 NapCat，QQ 3889000001（肥鱼）', user_id: '3889000001', nickname: '肥鱼' };
-    return { ok: !sent.error && !sent.qqFail, error: sent.qqFail ? qq.message + '; ' + qq.fix : (sent.error || undefined), dry_run: !!req.dry_run, saved: !req.dry_run && !sent.error && !sent.qqFail, steps: [], roles: sent.reuse ? [{ project: 'existing', name: 'Existing QQ', agent_type: 'gemini', work_dir: '/existing', reused: true }] : [], jev_ok: false, jev_hint: '', hardware: false, restart_required: !req.dry_run,
+    return { ok: !sent.error && !sent.qqFail, error: sent.qqFail ? qq.message + '; ' + qq.fix : (sent.error || undefined), dry_run: !!req.dry_run, saved: !req.dry_run && !sent.error && !sent.qqFail, steps: [], roles: sent.reuse ? [{ project: 'existing', name: 'Existing QQ', agent_type: 'gemini', work_dir: '/existing', reused: true }] : [], jev_ok: false, jev_hint: '', restart_required: !req.dry_run,
       qq };
   },
 }));

@@ -165,7 +165,7 @@ func dshWizardReq(p *WizardProvider) WizardRequest {
 
 func TestApplyWizardDSHRole(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, script, node := fakeDSH(t)
 	real, _ := filepath.EvalSymlinks(script)
@@ -260,7 +260,7 @@ func TestApplyWizardDSHRole(t *testing.T) {
 
 func TestApplyWizardDSHOwnSetupAndFailures(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, _, _ := fakeDSH(t)
 	t.Setenv("DSH_HOME", t.TempDir())

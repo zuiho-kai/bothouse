@@ -542,3 +542,15 @@ func (e *Engine) setDynamicTeamLead(lead bool) {
 		e.SetTeamWorkspaces(false)
 	}
 }
+
+// selfMention is how teammates address this project's bot (first platform that knows it).
+func (e *Engine) selfMention() string {
+	for _, p := range e.platforms {
+		if m, ok := p.(SelfMentioner); ok {
+			if s := m.SelfMention(); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}

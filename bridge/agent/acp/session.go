@@ -63,7 +63,6 @@ type acpSession struct {
 	inputGuard     bool // suppress replay and notifications outside a strict prompt
 	inputActive    bool
 	inputErr       error
-	requireEndTurn bool // set before publishing a voice session; immutable thereafter
 	strictResume   bool // immutable: cold start must never fall back to session/new
 
 	cursorStreamErrors bool                 // Cursor ACP streams backend errors as assistant text
@@ -999,7 +998,7 @@ func (s *acpSession) sendLocked(prompt string, messageID string, images []core.I
 		}
 		s.inputMu.Unlock()
 	}
-	if (strict || s.requireEndTurn) && err == nil && (!validResult || result.StopReason != "end_turn") {
+	if strict && err == nil && (!validResult || result.StopReason != "end_turn") {
 		err = fmt.Errorf("acp: prompt did not complete successfully (%s)", result.StopReason)
 	}
 	if err != nil {

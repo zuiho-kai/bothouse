@@ -86,7 +86,7 @@ func TestDiscordGet429IsBounded(t *testing.T) {
 
 // The whole apply survives a 429 burst, and a lasting one says so in the request's language.
 func TestApplyWizardSurvivesRateLimit(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	recordSleeps(t)
 	t1 := fakeToken("111")
 	srv := fakeDiscord(t, map[string]string{t1: "Juzi"})
@@ -119,7 +119,7 @@ func TestApplyWizardSurvivesRateLimit(t *testing.T) {
 // rc5: on the Japanese UI the jev hint, the saved page's step lines and the token error were
 // English or zh/en. Now every line of the result follows the request language.
 func TestApplyWizardStepsFollowLanguage(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	for lang, want := range map[string][]string{
@@ -162,7 +162,7 @@ func (freshMemStore) IsFreshConfig() bool { return true }
 
 // rc5: the web token check showed the zh/en error on the Japanese UI.
 func TestSetupDiscordCheckErrorFollowsLang(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{})
 	m := NewManagementServer(0, "tok", nil)
 	m.SetWizard(newMemStore(), t.TempDir())
@@ -223,7 +223,7 @@ func TestPersonaReplyLanguage(t *testing.T) {
 }
 
 func TestApplyWizardExistingBotReportsPersonaLanguage(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()

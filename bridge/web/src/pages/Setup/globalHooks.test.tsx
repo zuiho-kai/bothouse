@@ -19,7 +19,7 @@ vi.mock('@/api/wizard', async (original) => ({
   getMatrix: async () => ({ vendors: [], matrix: [] }), getExistingBots: async () => ({ bots: [] }),
   applyWizard: async (req: WizardRequest) => {
     sent.reqs.push(req);
-    return { ok: true, dry_run: !!req.dry_run, saved: !req.dry_run, steps: [], roles: [], jev_ok: false, jev_hint: '', hardware: false, restart_required: !req.dry_run,
+    return { ok: true, dry_run: !!req.dry_run, saved: !req.dry_run, steps: [], roles: [], jev_ok: false, jev_hint: '', restart_required: !req.dry_run,
       qq: { code: 'ok', message: '已连上 NapCat', user_id: '1', nickname: 'Q' } };
   },
 }));

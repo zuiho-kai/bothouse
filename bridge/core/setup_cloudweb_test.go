@@ -133,7 +133,7 @@ func cloudWebReq(url, token string, roles ...WizardRole) WizardRequest {
 
 // dry-run 规划出 cloud_web options，不写任何东西；真跑写进去的就是这些。
 func TestApplyWizardCloudWebDryRunPlansOptions(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -192,7 +192,7 @@ func TestApplyWizardCloudWebDryRunPlansOptions(t *testing.T) {
 
 // 缺项报错：没地址/token（本机也没有向导起的平台）、token 错（401）都什么都不写；平台暂时不在线就存下并阻塞提醒。
 func TestApplyWizardCloudWebMissingAndErrors(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	env := func(s *memStore) WizardEnv { return WizardEnv{Store: s, DataDir: t.TempDir(), CLIs: testCLIs} }
@@ -224,7 +224,7 @@ func TestApplyWizardCloudWebMissingAndErrors(t *testing.T) {
 
 // 同名 bot 不重复：再跑一次同一个名字，更新原来的项目，不会出现 juzi-2。
 func TestApplyWizardCloudWebSameNameNotDuplicated(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -252,7 +252,7 @@ func TestApplyWizardCloudWebSameNameNotDuplicated(t *testing.T) {
 
 // 本机自动发现：向导起过的 hub（有 hub.json）地址和 token 都自动填；别人起在 8790 的只填地址。
 func TestLocalHubDiscovery(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	dir := t.TempDir()
@@ -332,7 +332,7 @@ func TestSetupCloudWebHTTP(t *testing.T) {
 // M1: a Discord run between two cloud_web runs keeps the cloud_web team, so the third run still
 // wires the new role as a sub (gate_url ?bot=, context) next to the earlier lead.
 func TestApplyWizardCloudWebTeamSurvivesDiscordRun(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	t1 := fakeToken("111")
@@ -458,7 +458,7 @@ func TestTestCloudWebRedirect(t *testing.T) {
 // L4: the web wizard names the fallback by display name; a re-run that reuses an existing member
 // of that name still picks it (the page guessed "a-2").
 func TestApplyWizardCloudWebFallbackByName(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -496,7 +496,7 @@ func TestCloudWebLocalhostIsLocal(t *testing.T) {
 // A team saved by the previous wizard (no mention_id, no team_lead_bot): adding a role upgrades the
 // earlier members — each gets a mention_id, the sub names the lead — and the ids stay the same on re-runs.
 func TestApplyWizardCloudWebTeamIDsUpgradeAndStable(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -543,7 +543,7 @@ func TestApplyWizardCloudWebTeamIDsUpgradeAndStable(t *testing.T) {
 // replaces the line instead of adding another; a hand-written persona without a wizard marker is
 // left alone.
 func TestApplyWizardCloudWebTeamPersonaLine(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -580,7 +580,7 @@ func TestApplyWizardCloudWebTeamPersonaLine(t *testing.T) {
 //	L-b an earlier member's id comes from its ws_url in config.toml before the wizard's record;
 //	L-c adding a missing mention_id appends just that parameter; names lose line breaks.
 func TestApplyWizardCloudWebTeamFollowups(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -641,7 +641,7 @@ func TestApplyWizardCloudWebTeamFollowups(t *testing.T) {
 }
 
 func TestApplyWizardCloudWebTeamLeadIDChangeUpdatesEarlierMembers(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()

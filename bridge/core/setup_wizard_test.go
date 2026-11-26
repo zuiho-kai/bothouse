@@ -265,12 +265,10 @@ func (s *memStore) ApplyProjects(plan func(WizardSnapshot) ([]WizardProjectWrite
 
 var testCLIs = []LocalCLI{{AgentType: "codex", Supported: true, Login: "not_logged_in"}, {AgentType: "claudecode", Supported: true, Login: "logged_in"}}
 
-func noHardware(t *testing.T) {
-	old := roleHouseholdAddr
-	roleHouseholdAddr = "127.0.0.1:1" // nothing listens on port 1
+func noLocalGate(t *testing.T) {
 	oldGate := gateAddr
-	gateAddr = freeGateAddr(t) // no gate either, whatever runs on this machine's 9930
-	t.Cleanup(func() { roleHouseholdAddr = old; gateAddr = oldGate })
+	gateAddr = freeGateAddr(t) // no gate, whatever runs on this machine's 9930
+	t.Cleanup(func() { gateAddr = oldGate })
 }
 
 // ── tests ──────────────────────────────────────────────────────
@@ -361,7 +359,7 @@ func TestJevEndpointLogprobs(t *testing.T) {
 }
 
 func TestApplyWizardDiscordTeam(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	model := fakeModel(t, false, 0) // no logprobs: test runs, save still happens
@@ -461,7 +459,7 @@ func TestApplyWizardDiscordTeam(t *testing.T) {
 }
 
 func TestApplyWizardDryRunAndErrors(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()
@@ -498,7 +496,7 @@ func TestApplyWizardDryRunAndErrors(t *testing.T) {
 }
 
 func TestApplyWizardReuseAndFeishu(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()
@@ -626,16 +624,12 @@ func TestWithReplyLanguageIdempotent(t *testing.T) {
 	}
 }
 
-func TestJevHintByHardware(t *testing.T) {
-	no := JevHint("zh", false, false, "橘")
+func TestJevHint(t *testing.T) {
+	no := JevHint("zh", false, "橘")
 	if no != "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色「橘」回。" {
-		t.Errorf("no hardware: %s", no)
+		t.Errorf("unset: %s", no)
 	}
-	hw := JevHint("zh", false, true, "橘")
-	if !strings.Contains(hw, "主角色「橘」") || !strings.Contains(hw, "选频道按读音匹配") {
-		t.Errorf("hardware: %s", hw)
-	}
-	if ok := JevHint("en", true, false, "Ju"); strings.Contains(ok, "fallback") {
+	if ok := JevHint("en", true, "Ju"); strings.Contains(ok, "fallback") {
 		t.Errorf("usable jev should not talk about fallback: %s", ok)
 	}
 	if r := JevFailReason("zh", JevTestResult{Reachable: true}); !strings.HasPrefix(r, "这个模型不给概率，存了也不会被用上。") || !strings.Contains(r, "Qwen3.5-4B") {
@@ -655,7 +649,7 @@ func TestJevHintByHardware(t *testing.T) {
 }
 
 func TestApplyWizardSavesUsableJevOnly(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	good := fakeModel(t, true, 0)
@@ -684,7 +678,7 @@ func TestApplyWizardSavesUsableJevOnly(t *testing.T) {
 }
 
 func TestSetupHTTPEndpoints(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	store := newMemStore()
@@ -832,7 +826,7 @@ func TestDetectLocalCLIsIdentityAndExtraDirs(t *testing.T) {
 
 // H2 / H3.2 / H3.3 / H3.4 / L2 on top of an existing config.
 func TestApplyWizardReviewRound2(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2, t3 := fakeToken("111"), fakeToken("222"), fakeToken("333")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale", t3: "Whale"}) // two different bots both called Whale
 	dir := t.TempDir()
@@ -891,7 +885,7 @@ func TestApplyWizardReviewRound2(t *testing.T) {
 
 // jev via apply: empty base_url removes; a failing new one keeps the old one and says so.
 func TestApplyWizardJevKeepAndClear(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	good, bad := fakeModel(t, true, 0), fakeModel(t, false, 0)
@@ -944,7 +938,7 @@ func TestJevEndpointNeedsOptionLetters(t *testing.T) {
 
 // H2: the web wizard names the fallback bot by its ID, so a renamed project still matches.
 func TestApplyWizardFallbackByBotID(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	store := newMemStore()
@@ -960,7 +954,7 @@ func TestApplyWizardFallbackByBotID(t *testing.T) {
 // expand the variable for the Discord calls, keep the placeholder in config, and leave a
 // team wired by hand per the docs as it is (no group_reply_all next to group_reply_all_guilds).
 func TestApplyWizardReuseEnvTokensHandMadeTeam(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Lead", t2: "Sub"})
 	t.Setenv("CONEST_TEST_TOK_LEAD", t1)
@@ -1005,7 +999,7 @@ func TestApplyWizardReuseEnvTokensHandMadeTeam(t *testing.T) {
 // Round 3 #1: an existing bot (by reuse_project, or its token pasted again) keeps its persona file
 // unless edit_persona is set, even when a persona is sent.
 func TestApplyWizardExistingPersonaNeedsEditFlag(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Juzi"})
 	dir := t.TempDir()
@@ -1028,7 +1022,7 @@ func TestApplyWizardExistingPersonaNeedsEditFlag(t *testing.T) {
 
 // Round 3 #3: the command-line entry always writes the detected absolute path; an existing cmd stays.
 func TestApplyWizardAlwaysWriteCmd(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	clis := []LocalCLI{{AgentType: "claudecode", Supported: true, Login: "logged_in", Path: "/usr/local/bin/claude", InPath: true}}
@@ -1112,7 +1106,7 @@ func TestJevFailReasonByStatus(t *testing.T) {
 // cb1da6b review #2: with an existing bot whose ${VAR} token can't be read, a pasted token is
 // refused (it might be that bot) instead of creating a duplicate with a plain-text token.
 func TestApplyWizardUnreadableExistingTokenRefusesNewToken(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1 := fakeToken("111")
 	fakeDiscord(t, map[string]string{t1: "Lead"})
 	for _, tc := range []struct{ name, set, want string }{
@@ -1138,7 +1132,7 @@ func TestApplyWizardUnreadableExistingTokenRefusesNewToken(t *testing.T) {
 // Discord team: the gate is on unless the request turns it off (an old request without the gate
 // field = on); off clears only what the wizard wrote; a hand-written gate_url is kept either way.
 func TestApplyWizardDiscordGateToggle(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
 	gateAddr = freeGateAddr(t) // nothing listens: never the gate running on this machine
@@ -1220,7 +1214,7 @@ func TestApplyWizardDiscordGateToggle(t *testing.T) {
 // *string reader.
 func wizardGateTestEnv(t *testing.T) func(*string) string {
 	t.Helper()
-	noHardware(t)
+	noLocalGate(t)
 	oldAddr, oldFind := gateAddr, findPythonForGate
 	t.Cleanup(func() { gateAddr, findPythonForGate = oldAddr, oldFind })
 	gateAddr = freeGateAddr(t) // nothing listens: never the gate running on this machine

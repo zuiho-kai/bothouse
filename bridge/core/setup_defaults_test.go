@@ -29,7 +29,7 @@ func TestWithDiary(t *testing.T) {
 }
 
 func TestApplyWizardNewRoleHasDiary(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Dsh"})
 	store := newMemStore()

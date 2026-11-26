@@ -337,7 +337,7 @@ func (m *ManagementServer) handleSetupGateSettings(w http.ResponseWriter, r *htt
 		out.Jev = &GateJevInfo{URL: j.URL, Model: j.Model, HasKey: j.APIKey != ""}
 	}
 	_, usable := activeJev(m.wizardDataDir)
-	out.JevHint = JevHint(lang, usable, HardwarePresent(), leadName)
+	out.JevHint = JevHint(lang, usable, leadName)
 	mgmtJSON(w, http.StatusOK, out)
 }
 

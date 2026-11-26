@@ -263,7 +263,6 @@ type Engine struct {
 	experienceDir                string                          // team memory folder for personal agents' lessons (team_experience.go; "" = off)
 	personalAgents               []string                        // bot IDs of personal agents (team_experience.go)
 	lifePage                     string                          // life_page: "how she is now" file put before every turn (lifepage.go; "" = off)
-	voiceDesk                    voiceDeskState                  // maomao fork: voice desk (voice_desk.go)
 	dirHistory                   *DirHistory
 	baseWorkDir                  string
 	projectState                 *ProjectStateStore

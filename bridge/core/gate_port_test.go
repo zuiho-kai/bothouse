@@ -78,7 +78,7 @@ func TestPickFreePortSkipsTakenPort(t *testing.T) {
 // different port into config and every gate_url (role-2 too), the wizard still owns those URLs,
 // and the supervisor starts this data dir's own gate on the new port.
 func TestApplyWizardMovesOffTakenGatePort(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	dataDir := setupFakeGate(t, false)
 	taken := localGateAddr()
 	whoamiServer(t, taken, t.TempDir()) // the first install's gate
@@ -182,7 +182,7 @@ func TestApplyWizardGateWithoutWhoami(t *testing.T) {
 		existing bool
 	}{{"existing install keeps the port", true}, {"fresh install moves", false}} {
 		t.Run(tc.name, func(t *testing.T) {
-			noHardware(t)
+			noLocalGate(t)
 			dataDir := setupFakeGate(t, false)
 			taken := localGateAddr()
 			oldGateServer(t, taken)
