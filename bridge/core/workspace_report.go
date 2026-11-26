@@ -106,6 +106,16 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		valid = true
 	}
+	// Nothing to hand back from here: the task went on in another workspace, or this workspace
+	// is back in the pool (a report would have no chat to go to).
+	if !valid && e.workspaceTaskMovedAway(key) {
+		valid = true
+	}
+	if !valid {
+		if free, err := e.teamWorkspaceFree(key); err == nil && free {
+			valid = true
+		}
+	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]
 	if r == nil {
