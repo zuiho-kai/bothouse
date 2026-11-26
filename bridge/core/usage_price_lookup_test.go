@@ -12,10 +12,13 @@ func TestLookupPrice(t *testing.T) {
 		{"claude-opus-5-5", 4.0, true},      // exact hit
 		{"xiao/gpt-6-astra", 10.0, true},    // provider prefix trimmed
 		{"dx/gpt-6-astra", 10.0, true},      // same model, other provider
-		{"gemini-4-argon-trial", 2.0, true}, // trial suffix trimmed
-		{"gemini-3.8-flash-n", 0.75, true},  // variant suffix trimmed
-		{"deepseek-v4.1-flash", 0.3, true},  // added from the official price page
-		{"unknown-model-xyz", 0, false},     // stays unpriced
+		{"gemini-4-argon-trial", 4.0, true}, // trial suffix trimmed
+		{"gemini-4-neon-xhigh", 3.0, true},  // agy effort tier on Gemini 4 (#2024)
+		{"gemini-4-hydrogen-medium", 1.5, true},
+		{"gemini-4-carbon-high", 4.0, true},
+		{"gemini-3.8-flash-n", 0.75, true}, // variant suffix trimmed
+		{"deepseek-v4.1-flash", 0.3, true}, // added from the official price page
+		{"unknown-model-xyz", 0, false},    // stays unpriced
 		// #2071: the Devin CLI catalog appends an effort tier to the base model id;
 		// a devin turn on swe-2-max used to fall back to the table's highest rate
 		// and hit the $5/turn cap in ~80s.
