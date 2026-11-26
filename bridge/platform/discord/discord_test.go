@@ -413,8 +413,8 @@ func TestSendWithButtons_UsesFollowupComponents(t *testing.T) {
 				t.Fatalf("original content = %#v, want choose mode", payload["content"])
 			}
 		case strings.Contains(r.URL.Path, "/webhooks/app-1/token-1"):
-			if payload["content"] != "choose mode" {
-				t.Fatalf("followup content = %#v, want choose mode", payload["content"])
+			if c, _ := payload["content"].(string); c != "" {
+				t.Fatalf("followup content = %#v, want empty (text already sent in the original response, #2232)", payload["content"])
 			}
 			components, ok := payload["components"].([]any)
 			if !ok || len(components) != 1 {
