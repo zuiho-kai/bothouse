@@ -86,7 +86,7 @@ DSH 的成员在向导「角色和模型」一步配，可以直接使用 DeepSe
 - **wiki 记忆**：角色共用、自己会长的记忆。见[记忆和分流手动配置](ccm-and-wiki.md) 第 4 步。
 - **全局安装（默认关）**：向导最后一步有两个勾选项，让你在终端里开的 Claude Code 也用上 bothouse 的记忆 hook 和守门 hook。
   命令行是 `bothouse setup hooks on|off --global memory|guards`。机器人自己的会话会跳过全局那份，不会跑两遍。见 [hooks 说明](../bridge/contrib/hooks/README.md)「全局安装」。
-- **语音**：电脑语音伙伴是独立扩展（`companion/`），现状见 [MULTI_VOICE.md](MULTI_VOICE.md)。
+- **语音**：电脑语音伙伴（`companion/`）已移出主线，代码存档在 tag `archive/companion`。
 
 ## 术语
 

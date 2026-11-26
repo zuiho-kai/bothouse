@@ -16,7 +16,7 @@
 
 ## 当前门禁与职责
 
-GitHub 的 main 保护已启用：必须通过 PR，最新提交的 bridge 和 companion 检查都成功（来自 fork 的 PR 看 bridge-fork 和 companion-fork 两项检查），分支与 main 同步，审核讨论已解决。规则包含管理员；禁止强制推送和删除 main，只允许 squash 合并形成线性历史。合并后保留任务分支，不自动删除。
+GitHub 的 main 保护已启用：必须通过 PR，最新提交的 bridge 检查成功（来自 fork 的 PR 看 bridge-fork），分支与 main 同步，审核讨论已解决。规则包含管理员；禁止强制推送和删除 main，只允许 squash 合并形成线性历史。合并后保留任务分支，不自动删除。
 
 当前维护者人数有限，所需批准数为 0，不强制第二人 Approved。审核仍要逐项核对 Issue 的验收、差异、测试与风险，并在 PR 留下结论；同一 Agent 的自查要如实标注。独立审核或真人批准未发生时不能声称已发生；引入独立维护者后再启用至少一份批准。
 
