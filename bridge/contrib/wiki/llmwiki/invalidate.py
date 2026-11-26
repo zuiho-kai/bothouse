@@ -20,10 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lossless
 
-# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
-# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
-WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
-    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 HISTORY = "历史"  # 同 ingest.HISTORY / lint.SECTIONS
 MAX_CHARS = 240_000  # 沿用 ingest.py MAX_CHARS：每次模型调用的输入上限
 BULLET = re.compile(r"^(\s*)[-*+] \S")

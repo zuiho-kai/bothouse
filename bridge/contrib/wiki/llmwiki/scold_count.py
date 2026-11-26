@@ -23,10 +23,9 @@ MODEL = os.environ.get("SCOLD_MODEL", "haiku")  # 便宜模型够用；一天一
 # 沿用 _added_judge.py 的 ADDED_JUDGE_TIMEOUT 默认值（同一种无工具 claude -p 调用）；实测近十天话最多的一天
 # （11-17，161 句 19681 字）haiku 一次 38 秒、$0.010（notes/runs/1904/scold-timing.md）
 TIMEOUT = int(os.environ.get("SCOLD_TIMEOUT", "90"))
-# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
-# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
-WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
-    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 LEDGER_REL = "rules/scold-counts.tsv"
 PAGE_NAME = "scold-counts.md"
 PAGE_REL = "tooling/workflow/rules/reflection/" + PAGE_NAME

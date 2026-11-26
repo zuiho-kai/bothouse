@@ -19,10 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import invalidate, lint, lossless  # noqa: E402
 
-# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
-# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
-WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
-    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 STATE = ".restate.json"  # 页 → 上次跑完时的内容哈希（同 ingest split_pass「unchanged since last split → skip」）
 HISTORY = invalidate.HISTORY
 TOP = re.compile(r"^[-*+] \S")  # 只合顶格条目；子行跟着父行一起挪（invalidate.block）

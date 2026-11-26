@@ -7,13 +7,12 @@
   lint.py --wrap   first split every body line over BODY_LINE in place, verbatim (wrap()), then check
   lint.py --root DIR   check the wiki at DIR (a teammate's wiki: its bin/lint.py runs this file this way)
 """
-import os, re, sys
+import re, sys
 from pathlib import Path
 
-# run as a script: the wiki whose bin/ holds it (a link there counts: absolute, not resolve); imported (by ingest.py,
-# which sets WIKI_DIR): that wiki, not wherever the shared copy is installed
-WIKI = Path(__file__).absolute().parent.parent if __name__ == "__main__" else \
-    Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 SHARED_TOOL = 1  # marker: this lint.py takes --root; teammate/ shims refuse a tool without it
 MAX_DOMAINS, INDEX_LINE = 8, 80
 MAX_TOPICS, README_LINE = 15, 120
