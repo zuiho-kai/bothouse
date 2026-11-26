@@ -62,7 +62,7 @@ class BoardUtf8Test(unittest.TestCase):
         notes = self.tmp / "notes.md"
         notes.write_text("# 用户原话\n- 做\n# 总目标\n# 范围\n改：测试\n不改：无\n# 已查过什么\n无（没查过）\n# 进度\n# 相关改动\n冲突：无\n# 规矩\n# 参照实现\n无（新建）\n", encoding="utf-8")
         r = subprocess.run([sys.executable, "-I", str(HERE / "ws-handoff"), str(notes), "测一件中文活 ✅", "--short", "中文活名"],
-                           capture_output=True, env={**self.env, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")},
+                           capture_output=True, env={**self.env, "CC_BIN": str(fake), "PATH": os.pathsep.join([str(bindir), "/usr/bin", "/bin"])},
                            text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("任务板 #6", r.stderr, "应接着完成历史编号 5 分配 #6，说明历史读对了")
