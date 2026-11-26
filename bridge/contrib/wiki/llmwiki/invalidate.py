@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lossless
 
-WIKI = Path(__file__).resolve().parent.parent
+WIKI = Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)  # ingest.py sets WIKI_DIR; run alone: the wiki whose bin/ holds this (a link there counts)
 HISTORY = "历史"  # 同 ingest.HISTORY / lint.SECTIONS
 MAX_CHARS = 240_000  # 沿用 ingest.py MAX_CHARS：每次模型调用的输入上限
 BULLET = re.compile(r"^(\s*)[-*+] \S")

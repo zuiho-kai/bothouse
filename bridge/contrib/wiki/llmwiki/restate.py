@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import invalidate, lint, lossless  # noqa: E402
 
-WIKI = Path(__file__).resolve().parent.parent
+WIKI = Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)  # ingest.py sets WIKI_DIR; run alone: the wiki whose bin/ holds this (a link there counts)
 STATE = ".restate.json"  # 页 → 上次跑完时的内容哈希（同 ingest split_pass「unchanged since last split → skip」）
 HISTORY = invalidate.HISTORY
 TOP = re.compile(r"^[-*+] \S")  # 只合顶格条目；子行跟着父行一起挪（invalidate.block）

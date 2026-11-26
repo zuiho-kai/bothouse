@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir; lint.py lives next to us
+os.environ.setdefault("WIKI_DIR", str(Path.home() / "wiki"))  # the modules below take the wiki from here, not from where they sit
 import filelock  # exclusive file lock on Mac/Linux/Windows
 import codex_retry
 import budget  # the scheduler's deadline; WIKI_STOP_AT stays a between-batch stop

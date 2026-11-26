@@ -18,10 +18,10 @@ The four credibility markers at a line's end — （推论）（推断）（判�
 tag: they are stripped from both sides before comparing, so tagging an old line or correcting its tag is not a loss;
 any other change of the wording still is.
 """
-import re, subprocess, sys
+import os, re, subprocess, sys
 from pathlib import Path
 
-WIKI = Path(__file__).resolve().parent.parent
+WIKI = Path(os.environ.get("WIKI_DIR") or Path(__file__).absolute().parent.parent)  # ingest.py sets WIKI_DIR; run alone: the wiki whose bin/ holds this (a link there counts)
 SHARED_TOOL = 1  # marker: this lossless.py takes --root; teammate/ shims refuse a tool without it
 SHOW = 20  # 沿用已有配置：ingest.py compress_check / review_check 报错只列 lost[:20]
 ROOT_FILES = {"MEMORY.md", "log.md", "CLAUDE.md"}  # wiki-root files, not memory pages

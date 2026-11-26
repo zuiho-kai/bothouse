@@ -155,7 +155,25 @@ def _page():
         req = urllib.request.Request(url, headers={"Authorization": f"Bot {tok}", "User-Agent": "bothouse-wiki/1.0"})
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read().decode("utf-8"))
-    return SimpleNamespace(get=get)
+
+    def fetch(channel, start, end, tok):
+        """The channel's messages with start <= timestamp < end, oldest first (pages of 100 after a snowflake)."""
+        after, out = str((int(start.timestamp() * 1000) - 1 - DISCORD_EPOCH) << 22), []
+        while True:
+            batch = get(f"{API}/channels/{channel}/messages?limit=100&after={after}", tok)  # 100: Discord's page cap
+            if not batch:
+                return out
+            batch.sort(key=lambda m: int(m["id"]))
+            for m in batch:
+                ts = datetime.fromisoformat(m["timestamp"])
+                if ts >= end:
+                    return out
+                if ts >= start:
+                    out.append(m)
+            if len(batch) < 100:
+                return out
+            after = batch[-1]["id"]
+    return SimpleNamespace(get=get, fetch=fetch)
 
 
 def _get(path, tok, data=None):
