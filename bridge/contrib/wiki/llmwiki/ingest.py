@@ -783,7 +783,7 @@ ALERT_STREAK = 3
 
 DISCORD_SOURCE = bool(CFG.get("discord_source", False))
 
-QUOTE = re.compile(r"(\d{2}-\d{2} (?:[0-9a-f]{8}|\d{2}:\d{2} [^\s「」]+))「([^」]+)」")
+QUOTE = re.compile(r"(\d{2}-\d{2} (?:[0-9a-f]{8}|\d{2}:\d{2} [^\s「」『』]+))「([^」]+)」")
 
 SOP_REFLECT_JSON = SOP_REFLECT.split("## SOP")[0].replace("R5 只改", "R5（脚本代写，你不改文件）只改") + """
 ## 交付（只交内容，不改任何文件；读文件可以用 cat、rg 这类只读命令；页面、待办、日志、篇幅都由脚本写）
@@ -4208,7 +4208,7 @@ def day_sessions(start, end):
 RENDERED = {}
 
 
-def pack_misquotes(pack, base="HEAD", logical=RENDERED):
+def pack_misquotes(pack, base="HEAD", logical=RENDERED, drop=None):
     """The 今日反思 lines added must take their numbers and 『sentences』 from the data pack verbatim (SOP_REFLECT R2):
     a $ amount not in the pack, or a 『』 not in it, is made up. `logical` (from reflect_render): a page line wrap()
     cut from a longer one is judged as that whole line — its 「改法 」「明早待办」 exemption and a $12.34 split over two
@@ -4233,12 +4233,36 @@ def pack_misquotes(pack, base="HEAD", logical=RENDERED):
             continue
         if line[1:].strip() in old_lines:
             continue
-        bad += [b for b in pack_bad(logical.get(line[1:].strip(), line), page, pack)
-                if flat(b.strip("『』")) not in old_flat]
+        b_ = [b for b in pack_bad(logical.get(line[1:].strip(), line), page, pack)
+              if flat(b.strip("『』")) not in old_flat]
+        bad += b_
+        if b_ and drop is not None:
+            drop.setdefault(page, []).append((line[1:], b_))
+    if drop is not None:
+        return ""
     if bad:
         return ("numbers / 『sentences』 not in the day's data pack (copy them from it exactly, no arithmetic or "
                 "rounding; or drop them): " + "; ".join(dict.fromkeys(bad)))
     return ""
+
+
+def pack_prune(pack, label, base="HEAD", logical=RENDERED):
+    """After the fix round: the added lines pack_misquotes still rejects are removed from their pages (each logged),
+    the rest of the night is written (用户 11-20「修一下，以后问题你自己修」: one sentence no longer reverts the night).
+    Returns how many lines were removed."""
+    drop = {}
+    pack_misquotes(pack, base, logical, drop)
+    n = 0
+    for page, lines in drop.items():
+        f = WIKI / page
+        text = f.read_text().split("\n")
+        for line, bad in lines:
+            if line in text:
+                text.remove(line)
+                n += 1
+                log(f"{label}: line dropped, not in pack ({'; '.join(bad)}): {page}: {line.strip()}")
+        f.write_text("\n".join(text))
+    return n
 
 
 def reflect_check(pack, said, known, day):
