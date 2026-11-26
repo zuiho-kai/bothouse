@@ -426,7 +426,8 @@ func (a *petAPI) handleTodos(w http.ResponseWriter, r *http.Request) {
 
 // handleSkin tells a pet whose look to wear. Without ?pet= (or for "main") it is the first bound role (by
 // key, same order as chatTarget and petPlan); with ?pet=<pet id> it is the role that pet belongs to (#549,
-// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases).
+// one pet per role). The pet maps the role to its built-in skin (assets/roles, skins.json aliases) only
+// when the binding names no look.
 // #609: when that role picked an avatar pack on the plugin page and the pack is downloaded, packDir is its
 // folder and the pet wears it instead (plugins/desktop-pet/src/host/skin-pack.ts).
 func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
@@ -452,6 +453,14 @@ func (a *petAPI) handleSkin(w http.ResponseWriter, r *http.Request) {
 	if dir := petPackDir(a.packs, pack); dir != "" {
 		out["pack"] = pack
 		out["packDir"] = dir
+	} else if pack != "" {
+		// Not a downloaded pack: it names one of the pet's own skins (built-in or installed recommended,
+		// e.g. dsh-pet-whale), set with `bothouse pet skin`. The pet wears it if it has it.
+		out["skin"] = pack
+	} else if pack != "" {
+		// Not a downloaded pack: the binding names one of the pet's own skins (橘, 龙娘, 彩虹猫, an installed
+		// recommended skin…), set with `bothouse pet skin`. The pet wears it instead of guessing by aliases.
+		out["skin"] = pack
 	}
 	petAPIJSON(w, out)
 }
