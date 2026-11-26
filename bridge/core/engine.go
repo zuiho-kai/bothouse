@@ -2723,6 +2723,14 @@ func (e *Engine) executeTimerShell(p Platform, replyCtx any, job *TimerJob) erro
 	}
 	if workDir == "" {
 		workDir, _ = os.Getwd()
+	} else if st, err := os.Stat(workDir); err != nil || !st.IsDir() {
+		// Remote SSH projects store a remote Linux path in work_dir; local shell
+		// timer commands must fall back to an existing local directory.
+		if e.dataDir != "" {
+			workDir = e.dataDir
+		} else {
+			workDir, _ = os.Getwd()
+		}
 	}
 
 	cmdLabel := truncateStr(job.Exec, 60)
@@ -2910,6 +2918,14 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 	}
 	if workDir == "" {
 		workDir, _ = os.Getwd()
+	} else if st, err := os.Stat(workDir); err != nil || !st.IsDir() {
+		// Remote SSH projects store a remote Linux path in work_dir; local shell
+		// cron commands must fall back to an existing local directory.
+		if e.dataDir != "" {
+			workDir = e.dataDir
+		} else {
+			workDir, _ = os.Getwd()
+		}
 	}
 
 	cmdLabel := truncateStr(job.Exec, 60)
