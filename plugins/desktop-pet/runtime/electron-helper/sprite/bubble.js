@@ -49,12 +49,35 @@ Object.assign(PetSprite.prototype, {
     this.tip.classList.toggle('is-on', this.tipOn);
     window.__dshPetDebug.tooltipOn = this.tipOn;
   },
+  /**
+   * 按气泡当前真实高度调整窗口顶部余量。
+   *
+   * 顶部余量原本按「两行文本 + 一张配图」的静态上限预留；长句超过这个上限时，气泡内容仍在，
+   * 只是顶部探出了透明窗口而被系统裁掉。这里量渲染后的气泡盒子：窗口上缘只负责让气泡不被裁，
+   * 不限制气泡本身的高度；气泡收起后回到原来的静态余量。
+   */
+  syncBubbleWindow() {
+    let required = Math.max(
+      this.size * WINDOW_MARGIN_RATIO,
+      S.bubbleTopMarginPx(this.font, this.size),
+      S.todoPanelTopMarginPx(this.font, this.size),
+    );
+    if (this.bubble.childNodes.length > 0) {
+      const height = this.bubble.getBoundingClientRect().height;
+      required = Math.max(required, Math.ceil(height - this.size * S.BUBBLE_OVERLAP_RATIO));
+    }
+    if (!Number.isFinite(required) || required === this.margin.t) return;
+    this.margin.t = required;
+    this.sendBounds(this.pos.x, this.pos.y);
+  },
+
   renderBubble() {
     // 待办面板占气泡槽且优先级最高：它是用户主动打开的窗口，其余气泡一律让位。
     // 面板是外部塞进来的 DOM，重建 innerHTML 会把它自己抹掉，所以这一段只补显隐与让位。
     this.bubble.classList.toggle('dsh-pet-todo-bubble', this.todoOpen);
     if (this.todoOpen) {
       this.bubble.classList.remove('is-whisper', 'is-clickable', 'is-expanded', S.MEME_BUBBLE_CLASS);
+      this.syncBubbleWindow();
       this.bubble.classList.add('is-on');
       window.__dshPetDebug.lastBubbleTitle = '待办事项';
       this.syncInputBusy();
@@ -96,6 +119,8 @@ Object.assign(PetSprite.prototype, {
     if (slot === 'none') {
       // 三者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
       this.bubble.classList.remove('is-on');
+      this.bubble.innerHTML = '';
+      this.syncBubbleWindow();
       window.__dshPetDebug.lastBubbleTitle = '';
       this.syncInputBusy(); // 气泡没了 → 撤销它的控件矩形与 busy 标记（否则整窗还留着可点区域）
       return;
@@ -228,6 +253,7 @@ Object.assign(PetSprite.prototype, {
         }
       }
     }
+    this.syncBubbleWindow();
     this.bubble.classList.add('is-on');
     window.__dshPetDebug.lastBubbleTitle = this.bubble.textContent.slice(0, 60);
     // 气泡内容/尺寸变了 → 重报控件矩形并同步 busy 标记。这里是所有显隐与换内容的汇聚点。

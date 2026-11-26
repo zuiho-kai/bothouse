@@ -222,7 +222,7 @@ export const ru: Record<Key, string> = {
   fontFollowToggleHint:
     'Включено (по умолчанию): при увеличении питомца шрифт растёт пропорционально, при ширине 462 это ровно заданный выше размер; выключено: размер фиксирован и не зависит от размера питомца.',
   invalidFont: 'Проверьте настройки шрифта: семейство должно быть в списке, размер — числом от 4 до 200.',
-  'font.candy': 'Мармеладный (встроенный)',
+  'font.notoserif': 'Noto Serif SC (built-in)',
   'font.yahei': 'Microsoft YaHei / PingFang',
   'font.youyuan': 'YouYuan',
   'font.kaiti': 'KaiTi',

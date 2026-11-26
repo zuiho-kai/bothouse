@@ -15,13 +15,13 @@ export interface FontPreset {
 }
 
 /** 字体预设清单：顺序即设置页下拉框的显示顺序（第一项为默认）。
- *  candy 是唯一随包发布的字体，CSS 名 "ShangshouSoftCandy" 由我们自己起，改名须同步两端的 @font-face。
+ *  notoserif 是唯一随包发布的字体（Noto Serif SC，SIL OFL 1.1），CSS 名 "Noto Serif SC"，改名须同步两端的 @font-face。
  *  其余都是系统字体，机器上没装时由字体栈后面的兜底自然回退，不报错也不空白。 */
 export const FONT_PRESETS: FontPreset[] = [
   {
-    id: 'candy',
+    id: 'notoserif',
     stack:
-      '"ShangshouSoftCandy","Yuanti SC","YouYuan","幼圆","Comic Sans MS","PingFang SC","Microsoft YaHei",sans-serif',
+      '"Noto Serif SC","Songti SC","SimSun",serif',
   },
   { id: 'yahei', stack: '"Microsoft YaHei","PingFang SC",sans-serif' },
   { id: 'youyuan', stack: '"YouYuan","Yuanti SC",sans-serif' },
@@ -38,12 +38,12 @@ export const FONT_SIZE_MAX = 200;
 /** font 段默认值（与内置 config.jsonc 的 font 段一致）：462 宽宠物的气泡 21px，且随宠物大小缩放。
  *  不含 font 字段的配置因此仍按既有观感渲染。 */
 export const DEFAULT_FONT: FontConfig = {
-  family: 'candy',
+  family: 'notoserif',
   size: 21,
   followPet: true,
 };
 
-/** 按 id 取字体栈；id 非法或缺失回退清单首项（软糖体），渲染层不再自行兜底。 */
+/** 按 id 取字体栈；id 非法或缺失回退清单首项（Noto 宋体），渲染层不再自行兜底。 */
 export function fontStackOf(id: string): string {
   return (FONT_PRESETS.find((p) => p.id === id) ?? FONT_PRESETS[0]).stack;
 }

@@ -61,6 +61,7 @@
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
 | plugins/desktop-pet/ | [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) c25386848f70（fork） | MIT（原文见 plugins/desktop-pet/LICENSE）；它的 npm 依赖见该目录 package.json |
+| plugins/desktop-pet/assets/fonts/NotoSerifSC-Regular.woff2 | [google/fonts](https://github.com/google/fonts/tree/main/ofl/notoserifsc) / [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) 985fa52c81c1 | SIL Open Font License 1.1（原文随包见 plugins/desktop-pet/assets/fonts/NotoSerifSC-OFL.txt）；OFL 明确允许随软件捆绑、嵌入和再分发，包括商业用途 |
 
 ## 尚未列出
 
