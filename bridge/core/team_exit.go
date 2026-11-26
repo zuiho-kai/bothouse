@@ -331,7 +331,11 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
 	}
-	rc = e.recordReplyTask(p, rc, hid)
+	// A missing or unknown ID is not evidence that the reply belongs to the newest occupant of this
+	// workspace: only a task still on the board gets the reply tied to it.
+	if item != nil {
+		rc = e.recordReplyTask(p, rc, item.ID)
+	}
 	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
