@@ -969,7 +969,8 @@ def run(argv):
     stem = RUNS_DIR / f"{datetime.now().strftime('%m%d-%H%M%S')}-{os.getpid()}"
     out, err = stem.with_suffix(".out"), stem.with_suffix(".err")
     with open(out, "w") as fo, open(err, "w") as fe:
-        p = subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), *argv], stdin=subprocess.DEVNULL,
+        # -X utf8（#2261）：后台这份不再继承前台的 UTF-8 模式，Windows 代码页（CP936/CP1252）下读任务板历史会把 UTF-8 中文当默认编码解码而崩
+        p = subprocess.Popen([sys.executable, "-I", "-X", "utf8", os.path.abspath(__file__), *argv], stdin=subprocess.DEVNULL,
                              stdout=fo, stderr=fe, start_new_session=True,
                              env=dict(os.environ, **{WORKER: str(os.getpid())}))
     print(f"ws-handoff: 回执 {err}；本命令被打断也会在后台交完，没交成会在本频道补一句。"
