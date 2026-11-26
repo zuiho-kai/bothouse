@@ -509,7 +509,11 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 			e.teamNoteTurn(msg, session)
 			// #1856: no gate still records what was seen, so restart catch-up knows where
 			// the posts made while the bridge was down begin (missed_catchup.go).
-			if g == nil && !msg.BackfillOnCall && msg.MessageID != "" {
+			// #2254: with a gate installed this branch is only the owner-DM fast path
+			// (IsPermissionResponse is excluded above), which also hands the message to
+			// a turn — without the mark the DM watermark never moved and every restart
+			// catch-up re-answered the owner's newest private message.
+			if !msg.BackfillOnCall && msg.MessageID != "" {
 				markSeen(p, session, msg)
 			}
 			if g != nil || !msg.BackfillOnCall {

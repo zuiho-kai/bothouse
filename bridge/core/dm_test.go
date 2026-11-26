@@ -112,6 +112,42 @@ func TestGateSkipsOwnerDirectMessage(t *testing.T) {
 	}
 }
 
+// #2254: the owner-DM fast path (gate installed, bot idle) hands the message to a turn,
+// so it must also advance the session's last-seen mark. Before the fix the mark was only
+// recorded for gate-less engines, the DM watermark never moved, and every restart catch-up
+// re-answered the owner's newest private message.
+func TestGateOwnerDMFastPathMarksSeen(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(gateResponse{Action: "reply"})
+	}))
+	defer srv.Close()
+	e := newTestEngine()
+	e.SetGate(srv.URL, 2000, "context")
+	e.SetAdminFrom("u1")
+	s := &Session{}
+	msg := &Message{SessionKey: "discord:dm-chan:u1", UserID: "u1", Content: "在吗", Direct: true, MessageID: "123456789012345678"}
+	if e.applyGate(nil, msg, s, "k") {
+		t.Fatal("a direct message must go on to a normal turn")
+	}
+	if got := s.GetLastSeenMsgID(); got != "123456789012345678" {
+		t.Fatalf("last-seen mark = %q, want the DM's message id", got)
+	}
+}
+
+// The same fast path stays monotonic: an older or equal id must not move the mark back.
+func TestGateOwnerDMFastPathMarkSeenMonotonic(t *testing.T) {
+	e := newTestEngine()
+	e.SetGate("http://127.0.0.1:1", 200, "context")
+	e.SetAdminFrom("u1")
+	s := &Session{}
+	s.SetLastSeenMsgID("123456789012345678")
+	msg := &Message{SessionKey: "discord:dm-chan:u1", UserID: "u1", Content: "在吗", Direct: true, MessageID: "123456789012345670"}
+	e.applyGate(nil, msg, s, "k")
+	if got := s.GetLastSeenMsgID(); got != "123456789012345678" {
+		t.Fatalf("last-seen mark = %q, want it unchanged for an older id", got)
+	}
+}
+
 // A DM from anyone who is not named in admin_from (including when admin_from is "*") goes
 // through the gate like any other message.
 func TestGateChecksNonOwnerDirectMessage(t *testing.T) {
