@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-CC-Connect is a bridge that connects AI coding agents (Claude Code, Codex, Gemini CLI, Cursor, etc.) with messaging platforms (Feishu/Lark, Telegram, Discord, Slack, DingTalk, WeChat Work, QQ, LINE). Users interact with their coding agent through their preferred messaging app.
+CC-Connect is a bridge that connects AI coding agents (Claude Code, Codex, Gemini CLI, Cursor, etc.) with messaging platforms (Feishu/Lark, Telegram, Discord, Slack, WeChat Work, QQ). Users interact with their coding agent through their preferred messaging app.
 
 ## Architecture
 
@@ -20,12 +20,10 @@ CC-Connect is a bridge that connects AI coding agents (Claude Code, Codex, Gemin
 │  ├── codex/          │  ├── telegram/           │
 │  ├── cursor/         │  ├── discord/            │
 │  ├── gemini/         │  ├── slack/              │
-│  ├── iflow/          │  ├── dingtalk/           │
-│  ├── opencode/       │  ├── wecom/              │
+│  ├── iflow/          │  ├── wecom/              │
+│  ├── opencode/       │  ├── weixin/             │
 │  ├── acp/            │  ├── qq/                 │
-│  └── qoder/          │  ├── qqbot/              │
-│                      │  ├── line/               │
-│                      │  └── weibo/              │
+│  └── qoder/          │  └── qqbot/              │
 ├──────────────────────┴──────────────────────────┤
 │                     daemon/                     │  ← systemd/launchd service
 └─────────────────────────────────────────────────┘
@@ -193,19 +191,18 @@ make build AGENTS=claudecode,codex PLATFORMS_INCLUDE=feishu,telegram,discord
 
 ```bash
 # Exclude some platforms you don't need
-make build EXCLUDE=discord,dingtalk,qq,qqbot,line
+make build EXCLUDE=discord,qq,qqbot
 ```
 
 ### Direct build tag usage (without Make)
 
 ```bash
-go build -tags 'no_discord no_dingtalk no_qq no_qqbot no_line' ./cmd/cc-connect
+go build -tags 'no_discord no_qq no_qqbot' ./cmd/cc-connect
 ```
 
 Available tags: `no_acp`, `no_claudecode`, `no_codex`, `no_cursor`, `no_gemini`,
 `no_iflow`, `no_opencode`, `no_qoder`, `no_feishu`, `no_telegram`,
-`no_discord`, `no_slack`, `no_dingtalk`, `no_wecom`, `no_weixin`, `no_qq`, `no_qqbot`,
-`no_line`, `no_weibo`, `no_matrix`, `no_webex`, `no_tuitui`.
+`no_discord`, `no_slack`, `no_wecom`, `no_weixin`, `no_qq`, `no_qqbot`, `no_cloud_web`.
 
 ## Pre-Commit Checklist
 

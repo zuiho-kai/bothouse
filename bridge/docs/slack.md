@@ -319,8 +319,6 @@ Make sure:
 ## See Also
 
 - [Feishu Setup](./feishu.md)
-- [DingTalk Setup](./dingtalk.md)
-- [Weibo Setup](./weibo.md)
 - [Telegram Setup](./telegram.md)
 - [Discord Setup](./discord.md)
 - [Back to README](../README.md)

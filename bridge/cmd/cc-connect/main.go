@@ -244,9 +244,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"agent-sid":    runAgentSID,
 	"daemon":       runDaemon,
 	"feishu":       runFeishu,
-	"tuitui":       runTuiTui,
 	"weixin":       runWeixin,
-	"yuanbao":      runYuanbao,
 	"doctor":       runDoctor,
 	"web":          runWeb,
 	"pet":          runPet,
@@ -1713,7 +1711,7 @@ func printUsage() {
 
   Bridge your messaging platforms to local AI coding agents.
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
-  Platforms: Feishu, TuiTui, Telegram, Slack, DingTalk, Discord, LINE, WeChat Work, Weixin, QQ, QQ Bot
+  Platforms: Feishu, Telegram, Slack, Discord, WeChat Work, Weixin, QQ, QQ Bot
 
   bothouse: https://github.com/zuiho-kai/bothouse (docs/GETTING_STARTED.md)
 
@@ -1798,12 +1796,6 @@ Commands:
     new              Force QR onboarding to create a new bot
     bind             Bind existing app_id/app_secret
 
-  tuitui             Access TuiTui history, posts, and attachments
-    messages         Read chat history
-    search           Search chat history
-    post             Post a channel message
-    download         Download a message attachment
-
   weixin             Setup Weixin personal (ilink) via QR or token
     setup            QR login, or bind when --token is provided
     new              Force QR login
@@ -1828,7 +1820,6 @@ Examples:
   bothouse cron list                List all scheduled tasks
   bothouse feishu setup             Setup Feishu/Lark bot credentials
   bothouse weixin setup             Setup Weixin (ilink) with QR or --token
-  bothouse yuanbao setup            Setup Yuanbao bot with --token app_key:app_secret
   bothouse update                   Update to the latest version
   bothouse config format            Format the config file
   bothouse config example > c.toml  Save example config to a file

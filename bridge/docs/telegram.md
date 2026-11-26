@@ -302,8 +302,6 @@ Make sure Group Privacy mode is disabled. In BotFather: `/mybots` → select bot
 ## See Also
 
 - [Feishu Setup](./feishu.md)
-- [DingTalk Setup](./dingtalk.md)
-- [Weibo Setup](./weibo.md)
 - [Slack Setup](./slack.md)
 - [Discord Setup](./discord.md)
 - [Back to README](../README.md)

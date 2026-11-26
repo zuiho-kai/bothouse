@@ -561,7 +561,7 @@ Options:
       --audio <path>       Send an audio attachment (repeatable)
       --video <path>       Send a video attachment (repeatable)
       --stdin              Read message from stdin (best for long/special-char messages)
-      --at-users <ids>     @ user IDs, comma-separated (DingTalk, QQ, QQBot)
+      --at-users <ids>     @ user IDs, comma-separated (QQ, QQBot)
       --at-all             @ everyone (platform permissions and limits apply)
       --reply-to <id>      Native quoted text reply to a message in this conversation (QQ)
       --mention-assigner <id>  Open the message with an @ of whoever set task board item <id> (ws-pass; off unless the lead project sets mention_assigner)

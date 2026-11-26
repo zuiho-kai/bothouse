@@ -10,6 +10,7 @@ package main
 // JSON. Without flags it still means "turn this platform back on".
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -354,4 +355,10 @@ func moduleList() error {
 		fmt.Printf("%s %s\n", label, strings.Join(parts, "; "))
 	}
 	return nil
+}
+
+func printJSON(value any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(value)
 }

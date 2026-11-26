@@ -326,8 +326,6 @@ Check:
 ## See Also
 
 - [Feishu Setup](./feishu.md)
-- [DingTalk Setup](./dingtalk.md)
-- [Weibo Setup](./weibo.md)
 - [Telegram Setup](./telegram.md)
 - [Slack Setup](./slack.md)
 - [Back to README](../README.md)
