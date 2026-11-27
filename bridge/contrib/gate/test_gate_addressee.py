@@ -709,41 +709,41 @@ allow_from = "*"
 
 
 class CoMention(unittest.TestCase):
-    """同一条消息同时 @ 主角色和队友：主角色回 context 等队友交回（core/gate_comention_test.go 期望 context）。"""
-    LEAD_AT = "@橘(你) "  # core 把被问的 bot 自己的 @ 换成「@名字(你)」，其余 @ 保留 <@id>
+    """When a message @-mentions multiple team members including the lead, every mentioned member replies directly."""
+    LEAD_AT = "@橘(你) "
 
     def lead(self, **req):
         return gate._decide_lead(req, "", model=False)[0]
 
-    def test_single_message(self):
-        self.assertEqual(self.lead(content=self.LEAD_AT + f"<@{IDS['longniang']}> 帮我算", mentioned=True), "context")
+    def test_single_message_lead_and_sub_both_reply(self):
+        self.assertEqual(self.lead(content=self.LEAD_AT + f"<@{IDS['longniang']}> 帮我算", mentioned=True), "reply")
+        self.assertEqual(gate.decide_sub({"content": f"@龙娘(你) <@{IDS['']}> 帮我算", "mentioned": True}, "longniang")[0], "reply")
 
     def test_lead_only(self):
         self.assertEqual(self.lead(content=self.LEAD_AT + "帮我算", mentioned=True), "reply")
 
-    def test_bot_mentions_lead(self):  # 队友交回 @ 主角色、顺带 @ 别人：是叫主角色本人
+    def test_bot_mentions_lead(self):
         self.assertEqual(self.lead(content=f"【龙娘】好了 <@{IDS['jingyu']}>", mentioned=True, from_bot=True), "reply")
 
-    def test_reply_to_lead(self):  # 回复主角色的消息时同时 @ 队友：在跟主角色说
+    def test_reply_to_lead(self):
         c = f"[replying to Claude橘: 要不要做]\n{self.LEAD_AT}<@{IDS['caihongmao']}> 做"
         self.assertEqual(self.lead(content=c, mentioned=True), "reply")
 
-    def test_burst_parts(self):  # 合并连发：@ 了主角色的每一条都同时 @ 队友才算；有一条只 @ 主角色就是叫她本人
+    def test_burst_parts(self):
         both = {"content": self.LEAD_AT + f"<@{IDS['longniang']}> 写个 X", "mentioned": True}
         sub_only = {"content": f"<@{IDS['longniang']}> 快点"}
-        self.assertEqual(self.lead(content="x", mentioned=True, parts=[both, sub_only]), "context")
+        self.assertEqual(self.lead(content="x", mentioned=True, parts=[both, sub_only]), "reply")
         lead_only = {"content": "你盯一下", "mentioned": True}
         self.assertEqual(self.lead(content="x", mentioned=True, parts=[sub_only, lead_only]), "reply")
 
-    def test_switched_lead(self):  # 主角色换成龙娘：@ 橘也算「别的成员」
-        self.assertTrue(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['']}> 一起看", "mentioned": True}, "longniang"))
-        self.assertFalse(gate.co_mention({"content": "@龙娘(你) " + f"<@{IDS['longniang']}> 看", "mentioned": True}, "longniang"))
+    def test_switched_lead_co_mention_replies(self):
+        self.assertEqual(gate._decide_lead({"content": f"<@{IDS['caihongmao']}> 一起看", "mentioned": True}, "jingyu", model=False)[0], "reply")
+        self.assertEqual(gate.decide_sub({"content": f"<@{IDS['jingyu']}> 一起看", "mentioned": True}, "caihongmao")[0], "reply")
 
-    def test_no_ids_configured(self):  # 团队文件没写 id：不做同时 @ 判定，认不出的 <@id> 当没 @ 队友，照原规则 reply
+    def test_no_ids_configured(self):
         saved = dict(gate.lead.ID)
         gate.lead.ID.clear()
         try:
-            self.assertIsNone(gate._other_mention(""))
             self.assertEqual(self.lead(content=self.LEAD_AT + "<@42> 帮我算", mentioned=True), "reply")
             self.assertEqual(self.lead(content=self.LEAD_AT + "帮我算", mentioned=True), "reply")
         finally:

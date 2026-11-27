@@ -82,8 +82,8 @@ func TestMergeInjectedReplyKeepsLead(t *testing.T) {
 	}
 }
 
-// Which turns are the lead's to get back: the lead @-ing this sub, and (issue #182) a person's
-// message that @-s this sub and the lead together — the sub answers, the lead checks when @-ed back.
+// Which turns are the lead's to get back: only when the lead bot itself @-s this sub.
+// When a person co-mentions the lead and a sub, both answer directly.
 func TestDispatchedBy(t *testing.T) {
 	p := &Platform{botID: "S", teamLead: "L"}
 	cases := []struct {
@@ -96,8 +96,8 @@ func TestDispatchedBy(t *testing.T) {
 		{"lead not @ sub", true, false, "L", "我看看", ""},
 		{"other bot @ sub", true, true, "J", "你来", ""},
 		{"person @ sub", false, true, "U", "你来", ""},
-		{"person @ sub and lead", false, true, "U", "<@L> 帮我算 17×23，龙娘算，橘核对", "L"},
-		{"person @ sub and lead (nick form)", false, true, "U", "<@!L> 帮我算", "L"},
+		{"person @ sub and lead", false, true, "U", "<@L> 帮我算 17×23，龙娘算，橘核对", ""},
+		{"person @ sub and lead (nick form)", false, true, "U", "<@!L> 帮我算", ""},
 		{"person @ lead only", false, false, "U", "<@L> 你看看", ""},
 		{"other bot @ sub and lead", true, true, "J", "<@L> 你来", ""},
 	}
@@ -112,9 +112,9 @@ func TestDispatchedBy(t *testing.T) {
 	}
 }
 
-// Issue #184: Discord lets a person @ a bot through its managed role (<@&roleID>, gate.jsonl
-// 2026-10-13/16). A teammate's role mention reads as its user mention, so "@ the lead and this sub
-// together" is recognised either way (and the gate sees <@id> too).
+// Discord lets a person @ a bot through its managed role (<@&roleID>). A teammate's role mention
+// reads as its user mention so the gate and agent see <@id>; a human co-mention does not chain
+// back to the lead through dispatchedBy.
 func TestDispatchedBy_LeadRoleMention(t *testing.T) {
 	lead := &Platform{botID: "L"}
 	lead.botRoleIDs.Store("g", "RL")
@@ -128,8 +128,11 @@ func TestDispatchedBy_LeadRoleMention(t *testing.T) {
 	if content != "<@L> 帮我算 17×23，龙娘算，橘核对" {
 		t.Fatalf("lead's role mention not turned into its user mention: %q", content)
 	}
-	if got := sub.dispatchedBy(false, true, "user", content); got != "L" {
-		t.Fatalf("dispatchedBy = %q, want L", got)
+	if got := sub.dispatchedBy(false, true, "user", content); got != "" {
+		t.Fatalf("human co-mention dispatchedBy = %q, want empty", got)
+	}
+	if got := sub.dispatchedBy(true, true, "L", content); got != "L" {
+		t.Fatalf("bot lead dispatch dispatchedBy = %q, want L", got)
 	}
 	// its own role is left to the existing strip / markSelfMention; other guilds and plain text untouched
 	if got := teamRoleMentions("<@&RS> <@&RL>", "g", "S"); got != "<@&RS> <@L>" {

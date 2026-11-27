@@ -39,6 +39,9 @@ func TestMarkSelfMention(t *testing.T) {
 			t.Errorf("markSelfMention(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+	if got := markSelfMention("<@111> <@222> 看看", "111", "", ""); got != "<@222> 看看" {
+		t.Errorf("empty bot name fallback = %q, want %q", got, "<@222> 看看")
+	}
 }
 
 func TestNameCalled(t *testing.T) {

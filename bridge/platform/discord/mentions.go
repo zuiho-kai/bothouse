@@ -134,7 +134,7 @@ var otherMentionRe = regexp.MustCompile(`<@[!&]?\d+>|@everyone|@here`)
 // that @-ed two bots read as "@ the other one" and the agent stayed silent (maomao fork).
 func markSelfMention(text, botID, botRoleID, name string) string {
 	stripped := stripDiscordMentionWithRole(text, botID, botRoleID)
-	if !otherMentionRe.MatchString(stripped) {
+	if name == "" || !otherMentionRe.MatchString(stripped) {
 		return stripped
 	}
 	return labelSelfMention(text, botID, botRoleID, name)

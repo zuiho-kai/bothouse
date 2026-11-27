@@ -274,7 +274,7 @@ bothouse feishu setup --project <你的 project 名>
 飞书入站消息和 Discord 一样会标出「这句 @ 了我」和「是 bot 发的」。组队的两个选项键名和含义也和 Discord 相同（见附录 A），写在每个 bot 的 `[projects.platforms.options]` 里：
 
 - `allow_bots`：队友 bot 的 ID，逗号分隔。队友 @ 我才开一轮；不列的 bot 的消息全忽略，列了但没 @ 我的也忽略。
-- `team_lead_bot`：主 bot 的 ID，用来分出主和 sub。主 bot @ 队员派的活（或用户同时 @ 队员和主 bot），队员的最终回复自动带上 @主 bot。
+- `team_lead_bot`：主 bot 的 ID，用来分出主和 sub。主 bot @ 队员派的活，队员的最终回复自动带上 @主 bot。
 
 和 Discord 不同的地方：
 

@@ -910,10 +910,6 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 		return
 	}
 	approvalContent := strings.TrimSpace(stripDiscordMention(m.Content, p.selfID()))
-	// bodySelf: the text itself @-s this bot (user, nickname or managed-role mention), as opposed to
-	// being addressed only as the reply target or by @everyone.
-	bodySelf := strings.Contains(m.Content, "<@"+p.selfID()+">") || strings.Contains(m.Content, "<@!"+p.selfID()+">") ||
-		(botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">"))
 	humanReply := !fromBot && m.GuildID != "" && m.Type == discordgo.MessageTypeReply
 	m.Content = teamRoleMentions(m.Content, m.GuildID, p.selfID()) // maomao fork: <@&teammate role> → <@teammate>
 	replyAll := false
@@ -947,7 +943,7 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 			// the bot did not see it was called (2026-10-22, 彩虹猫 stayed silent).
 			m.Content = labelSelfMention(m.Content, p.selfID(), botRoleID, p.botName)
 		} else {
-			m.Content = stripDiscordMentionWithRole(m.Content, p.selfID(), botRoleID)
+			m.Content = markSelfMention(m.Content, p.selfID(), botRoleID, p.botName)
 		}
 		if m.MentionEveryone {
 			m.Content = stripEveryoneHere(m.Content)
@@ -984,13 +980,6 @@ func (p *Platform) handleIncoming(s *discordgo.Session, m *discordgo.MessageCrea
 	// later bot-message branch also marks it Mentioned, but by then this context is set.
 	calledByName := fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.selfID())...)
 	rctx.lead = p.dispatchedBy(fromBot, mentioned || calledByName, m.Author.ID, m.Content)
-	// A person's message hands this sub's answer back to the lead only when the text @-s this sub
-	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
-	// together"; replying to the lead is talking to her, so she answers herself (gate.py co_mention
-	// says the same) instead of answering once now and again on the sub's @.
-	if !fromBot && (!bodySelf || (m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == p.lead())) {
-		rctx.lead = ""
-	}
 
 	images, files, audio, missed := classifyAttachments(m.Attachments, downloadURL)
 	m.Content = core.WithMissedAttachments(m.Content, missed...)
