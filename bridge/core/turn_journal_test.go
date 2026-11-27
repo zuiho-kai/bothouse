@@ -395,7 +395,7 @@ func TestTurnJournalPromptTooLongRerunSupersedesEntry(t *testing.T) {
 // journaled) begins its own entry; it is removed when the turn ends.
 func TestTurnJournalChainedAfterInputTurnIsDeleted(t *testing.T) {
 	api, e, a, p, s := inputFixture(t)
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if code, _ := inputPost(api, inputReq("voice-chain", "voice words")); code != 202 {
 		t.Fatal(code)
 	}

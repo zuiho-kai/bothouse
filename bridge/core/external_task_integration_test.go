@@ -12,7 +12,7 @@ import (
 func externalEngineFixture(t *testing.T) (*APIServer, *Engine, *inputTestAgent, *Session, ExternalTaskEvent) {
 	t.Helper()
 	api, e, a, p, s := inputFixture(t)
-	e.dataDir = t.TempDir()
+	inputDataDir(t, e)
 	t.Cleanup(func() { e.cancel(); _ = e.Stop() })
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)

@@ -177,7 +177,7 @@ func TestPublicProgressAPIRejectsMalformedAndWrongProject(t *testing.T) {
 	_, e, _, _, _ := inputFixture(t)
 	p := newProgressPlatform()
 	e.platforms = []Platform{p}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestPublicProgressVoiceKeepsOnlyExplicitReceipt(t *testing.T) {
 	api, e, a, _, s := inputFixture(t)
 	p := newProgressPlatform()
 	e.platforms = []Platform{p}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestPublicProgressLongVoiceReceiptPreservesCaveat(t *testing.T) {
 	_, e, _, _, _ := inputFixture(t)
 	platform := newProgressPlatform()
 	e.platforms = []Platform{platform}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
