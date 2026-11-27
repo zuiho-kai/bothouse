@@ -46,7 +46,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import sys
 from aiohttp import WSCloseCode, WSMsgType, web
 
 from .errors import Conflict, WorkspaceError
@@ -496,8 +495,8 @@ class CloudWeb:
             msg, _ = self.hub.create(room, {"author_kind": "role", "author": bot.id, "name": bot.name,
                                             "text": text, "status": "done"}, MAX_BOT_CHARS,
                                      from_turn=d.get("agent") is True)
-        except Conflict:   # 频道刚被归档（rh/hub.py 多频道）：这条进不了频道，连接不断；记一笔，丢了有人知道
-            print(f"[cloudweb] {bot.id} 的回复没进频道 {room}（频道已归档），{len(text)} 字", file=sys.stderr, flush=True)
+        except Conflict:   # 频道刚被归档（rh/hub.py 多频道）：这条进不了频道，连接不断；在开着的频道里报一句（#2065）
+            await self.hub.tell_undelivered(room, bot.name, text)
             return
         await self.hub.broadcast({"type": "message", "message": msg}, room)
         await self.hub.notify_new(msg)

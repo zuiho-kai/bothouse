@@ -185,6 +185,8 @@ test('desk: 板事件超过一页时只留最近的一页', () => {
   const replay = deskReplay({ store, boardDir: dir, from: '2026-11-03T04:00:00Z', to: '2026-11-03T06:00:00Z' });
   assert.equal(replay.events.length, REPLAY_MAX);
   assert.equal(replay.events.at(-1).id, String(REPLAY_MAX + 19));
+  assert.equal(replay.truncated, true);
+  assert.equal(replay.total, REPLAY_MAX + 20); // 页面写「共 X 条，只回放最近 N 条」的 X（#2065）
 });
 
 test('desk: readBoardEvents 对缺失目录返回空，不抛', () => {

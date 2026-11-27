@@ -122,8 +122,12 @@ export function deskReplay({ store, boardDir, from, to }) {
   merged.sort((a, b) => a.ts - b.ts);
   if (merged.length > REPLAY_MAX) truncated = true;
   const kept = truncated ? merged.slice(-REPLAY_MAX) : merged;
-  // truncated: the window held more than REPLAY_MAX; the page says only the latest ones are shown (#2047 item 20).
-  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event), truncated };
+  // total: every event in the window, kept or not. When truncated the page keeps
+  // 「共 X 条，只回放最近 N 条」 beside the replay bar (#2047 item 20, #2065).
+  const total = merged.length - rows.length + (truncated
+    ? store.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE deleted = 0 AND created_at >= ? AND created_at <= ?').get(fromMs / 1000, toMs / 1000).n
+    : rows.length);
+  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event), truncated, total };
 }
 
 /**

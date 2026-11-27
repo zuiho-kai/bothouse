@@ -1057,6 +1057,9 @@ type gateContextResponse struct {
 		Path string `json:"path"`
 		Desc string `json:"desc"`
 	} `json:"wiki"`
+	// Notice: lines for the people in this chat, not the agent (ctxsvc: the decision block went over
+	// its warn line and was still sent whole, #2065). Posted like the house-rules notice (#2271).
+	Notice []string `json:"notice"`
 }
 
 // bot returns the gate URL's ?bot= value ("" for the main bot).
@@ -1129,6 +1132,14 @@ func (e *Engine) turnContext(session *Session, sessionKey, text, sender string) 
 	if err := g.post(ctx, "/context", req, &out); err != nil {
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
+	}
+	if len(out.Notice) > 0 {
+		text := strings.Join(out.Notice, "\n")
+		go func() {
+			if err := e.sendNoticeOrOwnerDM(sessionKey, text); err != nil {
+				slog.Error("gate: context notice not sent", "session", sessionKey, "error", err, "notice", text)
+			}
+		}()
 	}
 	var wiki []string
 	for _, w := range out.Wiki {
