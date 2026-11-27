@@ -207,7 +207,8 @@ def channel_hits(kws, before):
             continue
         if stamp > cutoff:
             continue
-        label = "用户原话" if speaker.startswith("用户:") else "队友原话"
+        # 「用户」是 chanlog 给最新那条（桥没带名字）的署名，「用户:名字」是频道里别的真人；原先只认后者，最新那条被标成队友（#2089）
+        label = "用户原话" if speaker.startswith("用户") else "队友原话"
         for line in text.splitlines():
             if any(noise in line for noise in NOISE):
                 continue

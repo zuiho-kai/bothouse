@@ -27,10 +27,13 @@ _STAMP = re.compile(r"(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d)([\dxX])")
 
 
 def _window_start(text):
-    """时间窗起点：用户原话那节里最早的「MM-DD HH:MM」（10:2x 按 10:20）往前 10 分钟；没有或早于 3 天前，取交活前 3 小时。"""
+    """时间窗起点：用户原话那节里最早的「MM-DD HH:MM」（10:2x 按 10:20）往前 10 分钟；没有或早于 3 天前，取交活前 3 小时。
+    原话节找法和交活检查、交回骨架同一个（_handoff_rules._sections，几级标题都认）：原先只认「## 用户原话」，
+    写成「# 用户原话」的交接时间窗一律退成交活前 3 小时，11-25 停活通知那件因此漏了用户 01:08「通过更多状态去管理」（#2089）。"""
     import datetime as dt
     now = dt.datetime.now().astimezone()
-    body = text.split(f"## {_QUOTE_SEC}", 1)[1].split("\n## ", 1)[0] if f"## {_QUOTE_SEC}" in text else ""
+    body = "\n".join(l for seg in _handoff_rules._sections(text.splitlines(), _QUOTE_SEC, _handoff_rules.load().get("lead", ""))
+                     for l in seg)
     got = []
     for m in _STAMP.finditer(body):
         mo, d, h, t, u = m.groups()
