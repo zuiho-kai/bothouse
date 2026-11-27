@@ -142,6 +142,14 @@ class TestJiuwenFeishuV36(unittest.TestCase):
         self.assertNotIn('"tag": "action"', card_dump)
         self.assertIn("令牌桶", card_dump)
 
+        # Citations use the page#hash id the BotHouse forum page reads, so one vote store serves both.
+        votes = [
+            json.loads(line)
+            for line in (Path(self.tmp.name) / "votes.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertTrue(any(v.get("by") == "self" and "#" in str(v.get("id")) for v in votes))
+
         task_id = need_res["task_id"]
 
         # 3. Start task -> opens topic + main-group Progress Card; work logs stay in topic

@@ -330,11 +330,16 @@ def create_need_card(
             "title": th["title"],
             "rule": th["top_rule"],
             "score": th["score"],
+            "page": th["page"],
         }
         for th in threads
     ]
     if memory_rules:
-        forum_memory.cite_rules([r["cid"] for r in memory_rules], voter=agent_id or "team", session_id=chat_id)
+        forum_memory.cite_rules(
+            [f"{r['page']}#{r['cid']}" for r in memory_rules],
+            voter=agent_id or "team",
+            session_id=chat_id,
+        )
 
     task_id = f"task_{uuid.uuid4().hex[:8]}"
     task: dict[str, Any] = {

@@ -67,3 +67,5 @@ export BOTHOUSE_TEAM_MEMORY_DIR=~/.bothouse/gate-exp      # 论坛页读的 vote
 ~~~
 
 不设时用 JiuwenSwarm 数据目录下的 `bothouse/team-memory/`，同一台机器上的所有九问同事仍然共用这一份。
+
+两边共用时，票里的编号是「页#行哈希」，和论坛页读的 `page#hash` 一样；论坛页那侧读票的目录由 `FORUM_SCORES`（分数文件）所在目录决定，指向同一个目录就能在页上看到这里记的赞踩。

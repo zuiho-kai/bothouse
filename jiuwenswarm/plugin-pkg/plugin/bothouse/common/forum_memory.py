@@ -280,10 +280,21 @@ def search_forum(
     return [item[1] for item in scored[:limit]]
 
 
+def _qualified_cid(clean: str, threads: list[dict[str, Any]]) -> str:
+    """Use the page#hash id the BotHouse forum page also uses, so one vote store serves both."""
+    if "#" in clean:
+        return clean
+    for th in threads:
+        if th.get("top_cid") == clean or any(f.get("cid") == clean for f in th.get("floors") or []):
+            return f"{th.get('page', '')}#{clean}"
+    return clean
+
+
 def cite_rules(cids: list[str], *, voter: str = "team", session_id: str = "", mem_root: Path | None = None) -> int:
     """Record self-citations for memory items used in this turn (memvote cite semantics)."""
     mroot = mem_root or team_memory_root()
     now = time.strftime("%Y-%m-%d %H:%M:%S")
+    threads = scan_forum_threads(mem_root=mroot)
     count = 0
     for cid in cids:
         clean = str(cid).strip().lstrip("#")
@@ -294,7 +305,7 @@ def cite_rules(cids: list[str], *, voter: str = "team", session_id: str = "", me
             {
                 "t": now,
                 "voter": voter,
-                "id": clean,
+                "id": _qualified_cid(clean, threads),
                 "vote": 1,
                 "by": "self",
                 "key": session_id,
@@ -356,10 +367,14 @@ def record_correction(
     _append_jsonl(mroot / "corrections.jsonl", entry)
 
     # Downvote any cited rule that led to a correction
+    threads = scan_forum_threads(mem_root=mroot)
     for cid in cited_cids or []:
+        clean = str(cid).strip().lstrip("#")
+        if not clean:
+            continue
         _append_jsonl(
             mroot / "votes.jsonl",
-            {"t": now, "voter": actor, "id": str(cid).lstrip("#"), "vote": -1, "by": "outcome", "key": source},
+            {"t": now, "voter": actor, "id": _qualified_cid(clean, threads), "vote": -1, "by": "outcome", "key": source},
         )
 
     promoted_check = None
