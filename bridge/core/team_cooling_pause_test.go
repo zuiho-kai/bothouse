@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/team"
 )
 
 var jst = time.FixedZone("JST", 9*3600)
@@ -200,4 +202,82 @@ func TestTimerHoldOfHandoffLeavesQuotaMark(t *testing.T) {
 	if !ok || len(held) != 1 || h.Until.Sub(h.At) < 50*time.Minute {
 		t.Fatalf("only the held handoff is marked, until the cooldown ends: %+v", held)
 	}
+}
+
+// When the cooldown ends, the held handoff job and the wait's retry both come due for the same
+// task. The task is handed back once: by the retry (the item is 「等外部」, no longer in the
+// workspace the job was set for); the held job is dropped (#2095, lead's check 11-27 19:57).
+func TestCooledHandoffHandedBackOnce2095(t *testing.T) {
+	e := NewEngine("lead", &stubAgent{}, reviewTestPlatforms(), "", LangChinese)
+	t.Cleanup(e.cancel)
+	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true)
+	ws := "discord:ws8"
+
+	// cooling: the handoff job is held and leaves the mark
+	store, err := NewTimerStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler := NewTimerScheduler(store)
+	t.Cleanup(func() {
+		scheduler.mu.RLock()
+		for _, tm := range scheduler.timers {
+			tm.Stop()
+		}
+		scheduler.mu.RUnlock()
+	})
+	cooling := &Engine{name: "lead", team: &teamState{dir: e.team.dir}}
+	cooling.quotaCoolingUntil("RESOURCE_EXHAUSTED quota reached. Resets in 1h")
+	scheduler.RegisterEngine("lead", cooling)
+	job := &TimerJob{ID: "handoff", Project: "lead", SessionKey: ws, Handoff: true, ScheduledAt: time.Now(), Prompt: "工作区开工", CreatedAt: time.Now()}
+	if err := store.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.executeJob(job.ID)
+	h, ok := readQuotaHeld(quotaHeldPath(e))[ws]
+	if !ok {
+		t.Fatal("setup: the held handoff leaves its mark")
+	}
+
+	// the lead pauses it while cooling: recorded as a wait until the cooldown ends
+	now := h.At.Add(time.Minute)
+	it := teamTaskBoardItem{ID: 2086, What: "Delphi", Chat: "room:main", Dispatcher: "lead", WSWas: ws,
+		Paused: now.Format("01-02 15:04"), PausedAt: now.UTC().Format(time.RFC3339Nano), PauseWhy: "Claude 额度耗尽；工作区派不进去"}
+	old := coolingWaitRun
+	t.Cleanup(func() { coolingWaitRun = old })
+	var mins int
+	coolingWaitRun = func(_ *Engine, _ string, _ int, _ string, m int) error { mins = m; return nil }
+	if !e.parkCoolingPauses([]teamTaskBoardItem{it}, now) {
+		t.Fatal("setup: the pause is recorded as a wait")
+	}
+
+	// the cooldown is over: the held job comes due and is dropped, not run in its old workspace
+	scheduler.RegisterEngine("lead", e)
+	scheduler.executeJob(job.ID)
+	if got := store.Get(job.ID); got == nil || !got.Fired || !strings.Contains(got.LastError, "#2086") {
+		t.Fatalf("held job dropped for #2086: %+v", got)
+	}
+	if len(readQuotaHeld(quotaHeldPath(e))) != 0 {
+		t.Fatal("mark dropped once the held job came due")
+	}
+
+	// the wait's retry hands it back, once
+	w := newHandoffWatch(e)
+	w.engines = func() []*Engine { return []*Engine{e} }
+	it.PauseWhy = team.WaitExternalWhy + "额度冷却到 " + h.Until.Format("15:04") + "：" + it.PauseWhy
+	kind := "external"
+	it.WaitKind, it.WaitUntil = &kind, now.Unix()+int64(mins)*60
+	writeReviewBoard(t, e, it)
+	var back []int
+	origResume := resumeWaitingExternalFn
+	resumeWaitingExternalFn = func(_ *Engine, it teamTaskBoardItem) { back = append(back, it.ID) }
+	t.Cleanup(func() { resumeWaitingExternalFn = origResume })
+	due := time.Unix(it.WaitUntil, 0).Add(time.Second)
+	w.retryWaitingExternal(due)
+	w.retryWaitingExternal(due.Add(time.Minute))
+	if len(back) != 1 || back[0] != 2086 {
+		t.Fatalf("handed back once by the retry: %v", back)
+	}
+	t.Logf("handed back: timer dropped (%s), retry %v", store.Get(job.ID).LastError, back)
 }

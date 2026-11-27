@@ -575,7 +575,11 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 			return
 		}
 		if job.Handoff {
-			clearHandoffQuotaHeld(engine, job.SessionKey)
+			if id := clearHandoffQuotaHeld(engine, job.SessionKey); id > 0 {
+				slog.Info("timer: held handoff dropped; its task waits for the cooldown and its wait retry hands it back", "id", jobID, "board", id, "session", job.SessionKey)
+				ts.store.MarkFired(jobID, fmt.Errorf("task #%d is handed back by its wait retry", id))
+				return
+			}
 		}
 	}
 
