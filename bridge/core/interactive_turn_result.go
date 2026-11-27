@@ -31,8 +31,9 @@ type interactiveResult struct {
 	resolveRichCardMarkdown func(markdown string, final bool) string
 	buildResolvedRichCard   func(status CardStatus, title string, steps []ToolStep, markdown string, streaming bool, statusFooter string) string
 
-	fullResponse  string // settle: the turn's answer; compose: the same with the ctx marker and silent marker removed
-	terminalReply bool   // settle: the result event itself carried the answer (not the stream ledger)
+	fullResponse    string           // settle: the turn's answer; compose: the same with the ctx marker and silent marker removed
+	terminalReply   bool             // settle: the result event itself carried the answer (not the stream ledger)
+	injectedReplies []*injectedReply // settle: mid-turn inputs detached when the turn completed
 
 	baseResponse       string   // compose: what history, hooks and the handback see
 	isSilent           bool     // compose: a NO_REPLY turn, nothing is delivered
@@ -110,6 +111,7 @@ func (e *Engine) settleTurnResult(turn *interactiveTurn, r *interactiveResult) b
 	injected := turn.state.injectedReplyCtxs // maomao fork: messages injected mid-turn (gate.go)
 	turn.state.injectedReplyCtxs = nil
 	turn.state.mu.Unlock()
+	r.injectedReplies = injected
 	turn.replyCtx = mergeInjectedReplies(p, turn.replyCtx, injected)
 
 	withhold, replace := turn.state.stopHold()
@@ -474,12 +476,16 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		}
 		slog.Info("silent reply suppressed", "session", turn.session.ID)
 	} else if hasRichCard {
+		if len(r.injectedReplies) > 0 {
+			if target, ok := p.(RichCardContinuationTarget); ok && trimRichCardPrefix(fullResponse, turn.textParts) != "" {
+				turn.continueRichCardFrom(p, target, buildResolvedRichCard, r.injectedReplies)
+			}
+		}
 		cardResponse := fullResponse
 		if turn.richCardTextStart > 0 {
 			// The full answer still belongs in history. Only the display drops
 			// the prefix already committed to earlier cards in this turn.
-			prefix := strings.TrimSpace(strings.Join(turn.textParts[:turn.richCardTextStart], ""))
-			cardResponse = strings.TrimLeft(strings.TrimPrefix(cardResponse, prefix), "\r\n")
+			cardResponse = trimRichCardPrefix(cardResponse, turn.textParts[:turn.richCardTextStart])
 		}
 		parts := []string{cardResponse}
 		if splitter, ok := p.(MarkdownTableSplitter); ok && cardResponse != "" {

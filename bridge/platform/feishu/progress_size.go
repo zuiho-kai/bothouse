@@ -10,11 +10,13 @@ import (
 	"github.com/chenhg5/cc-connect/core/model"
 )
 
-// Keep the turn's progress history by default and fit visible details into the card.
+// Keep enough recent progress entries to fill the Details panel (up to 100
+// entries, each pairing at most one ToolUse and one ToolResult) while bounding
+// serialized progress payloads on long turns.
 const (
-	feishuProgressKeepAllEntries = 1 << 20
 	feishuProgressDetailBytes    = maxRichCardJSONBytes - 4000
 	feishuProgressDetailElements = 100
+	feishuProgressKeepAllEntries = feishuProgressDetailElements * 2
 	feishuProgressBriefRunes     = 80
 )
 
