@@ -18,7 +18,8 @@ import (
 // (noteHandoffQuotaHeld, kept in the team dir so a restart does not lose it); a pause of an item
 // bound to that workspace after the mark, while the cooldown runs, is recorded the way any wait
 // with a time is (board wait: 「等外部」 with wait_until at the reset). The board shows it 在等 with
-// the time and retryWaitingExternal hands it back once the cooldown is over. Only that mark counts,
+// the time and retryWaitingExternal hands it back once the cooldown is over; the held job itself is
+// dropped when it comes due, so the task is handed back once. Only that mark counts,
 // not the words of the pause reason nor a cooldown of some role at pause time: a stop made for its
 // own sake (10-28 #684 「橘额度死了…用户要求不在工作区搞，鲸鱼娘在本频道自己做」) has no held
 // handoff and stays a stop.
@@ -29,6 +30,10 @@ const quotaHeldFile = "quota-held.json"
 type quotaHeld struct {
 	At    time.Time `json:"at"`    // when the timer held the handoff
 	Until time.Time `json:"until"` // when the cooldown ends (the held job runs then)
+	// Parked: the board item whose pause was recorded as a wait until Until. retryWaitingExternal
+	// hands that item back; the held job is then dropped when it comes due, so the task is handed
+	// back once, not by both (#2095).
+	Parked int `json:"parked,omitempty"`
 }
 
 var quotaHeldMu sync.Mutex
@@ -81,8 +86,36 @@ func noteHandoffQuotaHeld(e *Engine, ws string, now time.Time, wait time.Duratio
 	setQuotaHeld(e, ws, &quotaHeld{At: now, Until: now.Add(wait)})
 }
 
-// clearHandoffQuotaHeld: the handoff of workspace ws runs; it is no longer held.
-func clearHandoffQuotaHeld(e *Engine, ws string) { setQuotaHeld(e, ws, nil) }
+// clearHandoffQuotaHeld: the held handoff of workspace ws comes due and is no longer held. It
+// returns the board item whose pause was recorded as a wait meanwhile (0: none): the wait's retry
+// hands that item back, so the held job is not to run as well.
+func clearHandoffQuotaHeld(e *Engine, ws string) int {
+	path := quotaHeldPath(e)
+	if path == "" || ws == "" {
+		return 0
+	}
+	quotaHeldMu.Lock()
+	parked := readQuotaHeld(path)[ws].Parked
+	quotaHeldMu.Unlock()
+	setQuotaHeld(e, ws, nil)
+	return parked
+}
+
+// markQuotaHeldParked notes on the mark of workspace ws that item id now waits for the cooldown.
+func markQuotaHeldParked(e *Engine, ws string, id int) {
+	path := quotaHeldPath(e)
+	if path == "" || ws == "" {
+		return
+	}
+	quotaHeldMu.Lock()
+	h, ok := readQuotaHeld(path)[ws]
+	quotaHeldMu.Unlock()
+	if !ok {
+		return
+	}
+	h.Parked = id
+	setQuotaHeld(e, ws, &h)
+}
 
 // coolingWaitRun runs board.py wait for item id; a variable so tests need no Python.
 var coolingWaitRun = func(e *Engine, chat string, id int, why string, minutes int) error {
@@ -102,11 +135,7 @@ func coolingPauseHeld(it teamTaskBoardItem, held map[string]quotaHeld, now time.
 	if state, _ := teamTaskBoardStateOf(it, now); state != teamTaskPaused {
 		return time.Time{}
 	}
-	ws := it.WSWas
-	if ws == "" {
-		ws = it.WS
-	}
-	h, ok := held[ws]
+	h, ok := held[coolingPauseWS(it)]
 	if !ok || !h.Until.After(now) {
 		return time.Time{}
 	}
@@ -114,6 +143,14 @@ func coolingPauseHeld(it teamTaskBoardItem, held map[string]quotaHeld, now time.
 		return time.Time{}
 	}
 	return h.Until
+}
+
+// coolingPauseWS: the workspace the paused item was bound to.
+func coolingPauseWS(it teamTaskBoardItem) string {
+	if it.WSWas != "" {
+		return it.WSWas
+	}
+	return it.WS
 }
 
 // parkCoolingPauses records each pause of a handoff held for a quota cooldown as a wait until the
@@ -150,6 +187,7 @@ func (e *Engine) parkCoolingPauses(items []teamTaskBoardItem, now time.Time) boo
 		mins := int(until.Sub(now)/time.Minute) + 1
 		if coolingWaitRun(e, it.Chat, it.ID, why, mins) == nil {
 			slog.Info("team task: handoff held for the quota cooldown was paused, recorded as a wait until it ends", "board_item", it.ID, "until", until)
+			markQuotaHeldParked(e, coolingPauseWS(it), it.ID)
 			done = true
 		}
 	}
