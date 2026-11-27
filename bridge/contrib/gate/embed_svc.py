@@ -27,13 +27,17 @@ import gc, json, os, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+# 本文件和 gate 放在一个目录，gate 的 filelock.py 会顶掉 transformers 要的同名库（11-27 实测 ImportError）：先把本目录移出导入路径
+_HERE = Path(__file__).resolve().parent
+sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _HERE]
+
 import numpy as np
 import torch
 from transformers import AutoModel, AutoTokenizer
 
 MODEL = os.environ.get("EMBED_MODEL") or "Qwen/Qwen3-Embedding-0.6B"  # 来源：用户 11-27 认可「换成 0.6B 效果没掉」
 PORT = int(os.environ.get("EMBED_PORT") or 9931)  # 来源：沿用 gate 默认 9930（gate.py），取紧挨着的下一个；同 config [gate] vector_url 默认
-DIR = Path(os.environ.get("EMBED_DIR") or Path(__file__).resolve().parent / "vec")
+DIR = Path(os.environ.get("EMBED_DIR") or _HERE / "vec")
 # 模型卡要求按任务写一句说明，加在查询前；被检索的行不加（同离线实验 run.py）
 INS = "Instruct: Given a user request to an AI assistant, retrieve memory notes that help answer it\nQuery: "
 BATCH, MAX_TOK, Q_CHARS = 64, 2048, 2000  # 来源：离线实验 run.py 的同名设置
