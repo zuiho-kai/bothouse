@@ -18,10 +18,12 @@ func TestQuotaRetryGateStillRestoresLead(t *testing.T) {
 	t.Cleanup(e.cancel)
 	e.SetRelayManager(NewRelayManager(e.dataDir))
 
-	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", time.Now().Add(-time.Hour)); err != nil {
+	// One clock read: the restore only unwinds a selection whose At matches the
+	// takeover's, so seeding from a second time.Now() fails when a second ticks between them.
+	now := time.Now().Truncate(time.Second)
+	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", now.Add(-time.Hour)); err != nil {
 		t.Fatalf("seed lead selection: %v", err)
 	}
-	now := time.Now().Truncate(time.Second)
 	probes := 0
 	e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) {
 		probes++
@@ -63,10 +65,12 @@ func TestQuotaUnknownProbeRestoresLead(t *testing.T) {
 	t.Cleanup(e.cancel)
 	e.SetRelayManager(NewRelayManager(e.dataDir))
 
-	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", time.Now().Add(-time.Hour)); err != nil {
+	// One clock read: the restore only unwinds a selection whose At matches the
+	// takeover's, so seeding from a second time.Now() fails when a second ticks between them.
+	now := time.Now().Truncate(time.Second)
+	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", now.Add(-time.Hour)); err != nil {
 		t.Fatalf("seed lead selection: %v", err)
 	}
-	now := time.Now().Truncate(time.Second)
 	expiry := now.Add(-time.Minute)
 	e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) {
 		return false, 0, errors.New("usage panel timed out")
@@ -100,10 +104,12 @@ func TestQuotaExhaustedProbeKeepsLead(t *testing.T) {
 	t.Cleanup(e.cancel)
 	e.SetRelayManager(NewRelayManager(e.dataDir))
 
-	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", time.Now().Add(-time.Hour)); err != nil {
+	// One clock read: the restore only unwinds a selection whose At matches the
+	// takeover's, so seeding from a second time.Now() fails when a second ticks between them.
+	now := time.Now().Truncate(time.Second)
+	if err := writeLeadSelectionFile(e.dataDir, "stand-in", "Stand-in", now.Add(-time.Hour)); err != nil {
 		t.Fatalf("seed lead selection: %v", err)
 	}
-	now := time.Now().Truncate(time.Second)
 	e.quotaProbeFn = func(context.Context) (bool, time.Duration, error) {
 		return false, 5 * time.Minute, nil
 	}

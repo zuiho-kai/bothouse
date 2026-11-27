@@ -32,7 +32,7 @@ func TestCUJ_Progress2_PinnedIndexLifecycle(t *testing.T) {
 	allChatsAreWorkspaces(e)
 	p := &indexedProgressPlatform{progressTestPlatform: newProgressPlatform()}
 	e.platforms = []Platform{p}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
