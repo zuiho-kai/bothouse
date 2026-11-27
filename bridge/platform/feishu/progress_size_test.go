@@ -30,10 +30,10 @@ func TestFeishuProgressCardSizeOptions(t *testing.T) {
 	if p.ProgressUpdateInterval() != feishuProgressUpdateInterval {
 		t.Fatalf("interval = %v", p.ProgressUpdateInterval())
 	}
-	// By default keep the turn's entries and let the card cap the displayed details.
+	// By default keep enough entries to fill the Details panel without unbounded payload growth.
 	d := newOptionsPlatform(t, map[string]any{"progress_card_entries": "x", "progress_line_len": int64(-3)})
-	if d.ProgressCardEntries() != feishuProgressKeepAllEntries || d.ProgressCardLineLen() != 0 || d.ProgressCardHideThinking() {
-		t.Fatalf("defaults = %d %d %v", d.ProgressCardEntries(), d.ProgressCardLineLen(), d.ProgressCardHideThinking())
+	if d.ProgressCardEntries() != feishuProgressKeepAllEntries || d.ProgressCardEntries() > feishuProgressDetailElements*2 || d.ProgressCardLineLen() != 0 || d.ProgressCardHideThinking() {
+		t.Fatalf("defaults = %d %d %v (want <= %d)", d.ProgressCardEntries(), d.ProgressCardLineLen(), d.ProgressCardHideThinking(), feishuProgressDetailElements*2)
 	}
 }
 

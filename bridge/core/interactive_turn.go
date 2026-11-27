@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-func (turn *interactiveTurn) continueRichCard(p Platform, target RichCardContinuationTarget, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string) {
+func (turn *interactiveTurn) continueRichCard(p Platform, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string) {
+	target, ok := p.(RichCardContinuationTarget)
+	if !ok {
+		return
+	}
 	var continued bool
 	turn.state.mu.Lock()
 	for _, input := range turn.state.injectedReplyCtxs {
@@ -25,7 +29,28 @@ func (turn *interactiveTurn) continueRichCard(p Platform, target RichCardContinu
 	if !continued || turn.cardMessageID == nil {
 		return
 	}
+	turn.closeRichCardForContinuation(p, target, buildCard)
+}
 
+func (turn *interactiveTurn) continueRichCardFrom(p Platform, target RichCardContinuationTarget, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string, injected []*injectedReply) {
+	var continued bool
+	for _, input := range injected {
+		if input.cardBoundaryRead {
+			continue
+		}
+		input.cardBoundaryRead = true
+		if reply, ok := target.RichCardContinuationReply(turn.replyCtx, input.ctx); ok {
+			turn.replyCtx = reply
+			continued = true
+		}
+	}
+	if !continued || turn.cardMessageID == nil {
+		return
+	}
+	turn.closeRichCardForContinuation(p, target, buildCard)
+}
+
+func (turn *interactiveTurn) closeRichCardForContinuation(p Platform, target RichCardContinuationTarget, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string) {
 	previousCard := turn.cardMessageID
 	turn.cardMessageID = nil
 	turn.lastRichCardUpdate = time.Time{}
@@ -49,6 +74,27 @@ func (turn *interactiveTurn) continueRichCard(p Platform, target RichCardContinu
 	turn.richCardTextStart = len(turn.textParts)
 	turn.segmentStart = turn.richCardTextStart
 	turn.silentHold = false
+}
+
+func trimRichCardPrefix(fullResponse string, committedParts []string) string {
+	rawPrefix := strings.Join(committedParts, "")
+	if rawPrefix == "" {
+		return fullResponse
+	}
+	if rest, ok := strings.CutPrefix(fullResponse, rawPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	trimmedPrefix := strings.TrimSpace(rawPrefix)
+	if trimmedPrefix == "" {
+		return fullResponse
+	}
+	if rest, ok := strings.CutPrefix(fullResponse, trimmedPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	if rest, ok := strings.CutPrefix(strings.TrimLeft(fullResponse, " \t\r\n"), trimmedPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	return fullResponse
 }
 
 func (turn *interactiveTurn) restoreRichToolCall(name string) {
