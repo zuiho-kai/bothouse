@@ -244,12 +244,12 @@ def build_need_card(task: dict[str, Any]) -> dict[str, Any]:
         "config": {"wide_screen_mode": True, "update_multi": True},
         "header": {
             "template": "blue",
-            "title": {"tag": "plain_text", "content": f"📋 需求分析卡：{task.get('title', '')}"},
+            "title": {"tag": "plain_text", "content": f"📋 需求分析 · {task.get('title', '')}"},
         },
         "elements": [
-            {"tag": "markdown", "content": "**一、群里原话**\n" + "\n".join(quotes_lines)},
+            {"tag": "markdown", "content": "**一、原话（已带进任务，后面每一步都对照它）**\n" + "\n".join(quotes_lines)},
             {"tag": "hr"},
-            {"tag": "markdown", "content": "**二、团队项目记忆 · 以前定过的**\n" + "\n".join(mem_lines)},
+            {"tag": "markdown", "content": "**二、以前定过的（团队项目记忆）**\n" + "\n".join(mem_lines)},
             {"tag": "hr"},
             {"tag": "markdown", "content": "**三、验收标准**\n" + "\n".join(criteria_lines)},
             {"tag": "hr"},
@@ -259,6 +259,15 @@ def build_need_card(task: dict[str, Any]) -> dict[str, Any]:
                     {
                         "tag": "plain_text",
                         "content": "回复「开工」确认，或直接说要改哪里",
+                    }
+                ],
+            },
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": "bothouse · 基于 openJiuwen 开发",
                     }
                 ],
             },
