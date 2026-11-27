@@ -42,7 +42,6 @@ type teamState struct {
 	dynamicLead       *bool // nil until a channel host reports its current primary role
 	mu                sync.Mutex
 	seen              map[string]*teamSession // sessionKey → state
-	nextRelay         uint64                  // process-local status identity; never a task/run token
 }
 
 // leadSelection is the small cross-process contract shared by the bridge,
@@ -198,7 +197,6 @@ func (e *Engine) SetTeam(dir, name string, inject bool) {
 	if old != nil { // config reload: keep what we know
 		old.mu.Lock()
 		t.seen = old.seen
-		t.nextRelay = old.nextRelay
 		t.board = old.board
 		t.boardEnabled = old.boardEnabled
 		t.boardGen = old.boardGen

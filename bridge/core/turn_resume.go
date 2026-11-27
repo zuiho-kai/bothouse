@@ -751,8 +751,10 @@ func (e *Engine) retryFreshOnResumeError(p Platform, msg Message, errMsg string,
 // ---- relay sessions (#8: sessions a relay starts are closed on stop too) ----
 
 type relaySessionSet struct {
-	mu   sync.Mutex
-	list []AgentSession
+	mu       sync.Mutex
+	list     []AgentSession
+	nextWork uint64
+	work     map[string]struct{}
 }
 
 // trackRelaySession registers an agent session a relay started itself (it is

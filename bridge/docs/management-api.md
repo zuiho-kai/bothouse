@@ -192,6 +192,38 @@ Returns system status and summary.
 
 ---
 
+#### GET /api/v1/activity
+
+Returns a snapshot of running bridge sessions, delegated relay work, and active DSH channels. The response uses the existing management authentication and includes `Cache-Control: no-store`. It contains activity metadata only.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "projects": [
+      {
+        "name": "review",
+        "display_name": "Review team",
+        "sessions": [
+          {"key": "turn:project:s1", "name": "Code review", "platform": "discord", "session_id": "s1"}
+        ]
+      }
+    ],
+    "dsh": {"status": "running"},
+    "dsh_channels": [
+      {"key": "3", "name": "planning", "members": ["Reviewer"]}
+    ]
+  }
+}
+```
+
+- `projects` includes projects with busy sessions or active relay jobs. A session row has an opaque `key`, a `name` that may be empty, and an optional `platform`. `session_id` is present when the project session detail endpoint can resolve the session. Relay rows have `relay: true`.
+- `dsh_channels` includes channels with online members currently working. Its `key` is the DSH channel ID, and `members` contains display names. Local bridge bots are represented on the bridge side.
+- `dsh.status` is `running`, `stopped`, or `error`. When DSH cannot be read, `dsh_channels` is empty and bridge activity is still returned. An error may include `dsh.error`.
+- Both arrays are empty when their respective source has no running work. The snapshot is based on busy state at request time, and rows leave the snapshot when execution ends.
+
+---
+
 #### POST /api/v1/restart
 
 Triggers a graceful restart. The process will shut down cleanly and exec itself. A "restart successful" message may be sent to the session that initiated the restart (if applicable).
