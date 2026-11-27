@@ -1018,7 +1018,10 @@ func (e *Engine) canInjectInto(agent Agent, interactiveKey string) bool {
 
 // injectedReply is one message injected into the running turn (interactiveState.injectedReplyCtxs);
 // a pointer so a failed Send removes exactly its own entry.
-type injectedReply struct{ ctx any }
+type injectedReply struct {
+	ctx              any
+	cardBoundaryRead bool // guarded by interactiveState.mu
+}
 
 // deadTurnAfter is how long a running turn may go without agent events before
 // mid-turn inserts are refused (matches the stuck-turn watchdog).

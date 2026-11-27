@@ -6495,6 +6495,9 @@ func buildRichCardJSONBytes(status core.CardStatus, steps []core.ToolStep, markd
 	case core.CardStatusDone:
 		headerTemplate = "green"
 		headerTitle = "Done"
+	case core.CardStatusContinued:
+		headerTemplate = "grey"
+		headerTitle = "Continued"
 	case core.CardStatusError:
 		headerTemplate = "red"
 		headerTitle = "Error"

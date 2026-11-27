@@ -474,9 +474,16 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 		}
 		slog.Info("silent reply suppressed", "session", turn.session.ID)
 	} else if hasRichCard {
-		parts := []string{fullResponse}
-		if splitter, ok := p.(MarkdownTableSplitter); ok {
-			parts = splitter.SplitMarkdownByTables(fullResponse, 5)
+		cardResponse := fullResponse
+		if turn.richCardTextStart > 0 {
+			// The full answer still belongs in history. Only the display drops
+			// the prefix already committed to earlier cards in this turn.
+			prefix := strings.TrimSpace(strings.Join(turn.textParts[:turn.richCardTextStart], ""))
+			cardResponse = strings.TrimLeft(strings.TrimPrefix(cardResponse, prefix), "\r\n")
+		}
+		parts := []string{cardResponse}
+		if splitter, ok := p.(MarkdownTableSplitter); ok && cardResponse != "" {
+			parts = splitter.SplitMarkdownByTables(cardResponse, 5)
 		}
 		richStatusFooter := e.composeRichStatusFooter(false, turn.turnStart, e.agent, turn.agentSession, turn.state.workspaceDir)
 		if legacyStatusFooter != "" {
@@ -505,7 +512,7 @@ func (e *Engine) deliverTurnResult(turn *interactiveTurn, r *interactiveResult) 
 					}
 				}
 			}
-		} else {
+		} else if cardResponse != "" || len(turn.toolSteps) > 0 {
 			if err := authorizedOutput(turn.outputCtx, func() error { return p.Send(turn.outputCtx, markFinalReply(p, turn.replyCtx, turn.session), finalCard) }); err != nil {
 				slog.Error("failed to send rich card reply", "error", err)
 				return false
@@ -892,6 +899,8 @@ func (e *Engine) chainQueuedTurn(turn *interactiveTurn) turnFlow {
 		// turn's cardID, overwriting that card's body with the new turn's
 		// content. Same risk for partialText/toolSteps leaking across turns.
 		turn.cardMessageID = nil
+		turn.richCardTextStart = 0
+		turn.pendingRichTools = nil
 		turn.toolSteps = nil
 		turn.partialText = ""
 		turn.lastRichCardUpdate = time.Time{}
