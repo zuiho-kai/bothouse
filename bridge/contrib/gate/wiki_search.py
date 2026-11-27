@@ -92,6 +92,10 @@ class Index:
 
     def search(self, query, k=TOP):
         """前 k 行：(相对 wiki 的路径, 行号（从 1 起）, 原文)。"""
+        return [self.lines[i][:3] for i in self.rank(query, k)]
+
+    def rank(self, query, k=TOP):
+        """前 k 行在 self.lines 里的下标（向量合并要按行对上两路名单，vector_search.py）。"""
         sc = collections.defaultdict(float)
         for t in set(toks(query)):
             for i, c in self.inv.get(t, ()):
@@ -99,8 +103,7 @@ class Index:
                 sc[i] += self.idf[t] * c * (K1 + 1) / (c + K1 * (1 - B + B * dl / self.avg))
         for i in sc:
             sc[i] *= self.decay[i]
-        top = sorted(sc.items(), key=lambda x: -x[1])[:k]
-        return [self.lines[i][:3] for i, _ in top]
+        return [i for i, _ in sorted(sc.items(), key=lambda x: -x[1])[:k]]
 
 
 if __name__ == "__main__":

@@ -159,6 +159,11 @@ var featureSwitches = []FeatureSwitch{
 	g("bridge.enabled", false, true, "外接适配器通道", "网页聊天和外部平台适配器接进来的通道。要有令牌才起得来。",
 		"Adapter bridge", "The WebSocket channel web chat and external adapters connect to. Needs a token.",
 		func(c *Config) **bool { return &c.Bridge.Enabled }),
+	{Key: "gate.vector", Scope: FeatureScopeGlobal, Restart: true, Name: "记忆推送加向量一路", Desc: "记忆推送除了关键词，再按意思找一路合并。要先起向量服务（embed_svc.py），没起就只用关键词。",
+		NameEN: "Vector search in the memory push", DescEN: "Also search memory by meaning and merge both lists. Needs the embedding service (embed_svc.py); without it the push stays keyword-only.",
+		def: always(false),
+		get: func(c *Config, _ *ProjectConfig) bool { return c.Gate.Vector },
+		set: func(c *Config, _ *ProjectConfig, on bool) { c.Gate.Vector = on }},
 
 	// ── per project ──
 	p("heartbeat.enabled", false, true, "心跳", "隔一段时间自动叫醒角色看一眼。要先填好发到哪个会话。",

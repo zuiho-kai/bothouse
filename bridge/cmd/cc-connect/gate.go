@@ -31,6 +31,7 @@ func startGate(cfg *config.Config) *core.GateSupervisor {
 	if sub := subWikiScript(cfg); sub != "" { // the role wikis' bots.json sits next to the user's sub-wiki.py
 		gs.SetRoleWikiDir(filepath.Dir(sub))
 	}
+	gs.SetVectorURL(cfg.Gate.GateVectorURL())
 	core.SetActiveGateSupervisor(gs)
 	gs.Run(want)
 	return gs

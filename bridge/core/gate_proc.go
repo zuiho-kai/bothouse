@@ -201,6 +201,7 @@ type GateSupervisor struct {
 	dataDir  string
 	dir      string // <data_dir>/gate
 	roleWiki string // the directory of the role wikis' bots.json (SetRoleWikiDir); "" = RoleWikiDir(dataDir)
+	vector   string // embedding service for the memory push's vector search (SetVectorURL); "" = off
 
 	op           sync.Mutex // one step / stop at a time: a gate being stopped is never seen as someone else's
 	mu           sync.Mutex
@@ -234,6 +235,14 @@ func NewGateSupervisor(dataDir string) *GateSupervisor {
 func (g *GateSupervisor) SetRoleWikiDir(dir string) {
 	g.mu.Lock()
 	g.roleWiki = dir
+	g.mu.Unlock()
+}
+
+// SetVectorURL turns on the memory push's vector search ([gate] vector): the gate gets GATE_VECTOR=url and merges
+// the embedding service's list with the keyword list (contrib/gate/vector_search.py). "" = off. Set before Run.
+func (g *GateSupervisor) SetVectorURL(url string) {
+	g.mu.Lock()
+	g.vector = url
 	g.mu.Unlock()
 }
 
@@ -517,6 +526,9 @@ func (g *GateSupervisor) startLocked(python string) error {
 		"GATE_PORT="+gatePort(),
 		"GATE_LOG="+filepath.Join(g.dataDir, "gate.jsonl"),
 		"PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
+	if g.vector != "" { // g.mu is held (startLocked)
+		cmd.Env = append(cmd.Env, "GATE_VECTOR="+g.vector)
+	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	hideWindow(cmd)
 	in, err := cmd.StdinPipe()
