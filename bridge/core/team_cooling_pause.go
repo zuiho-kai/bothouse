@@ -1,30 +1,88 @@
 package core
 
 import (
+	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// A pause made while the role that carries the item is cooling down after quota exhaustion is a
-// wait with a set end, not a stop (#2095: #2086 was paused 16:32 「Claude 额度耗尽到 18:40；工作区派
-// 不进去…」 and the user got 「②停了」). The bridge knows when the cooldown ends, so the pause is
-// recorded the way any wait with a time is (board wait: 「等外部」 with wait_until at the reset): the
-// board shows it 在等 with the time, and retryWaitingExternal hands it to a workspace once the
-// cooldown is over (it skips while still cooling). Recorded from the cooldown itself, not from the
-// words of the pause reason (user 11-27「是要更好的一个状态，不是说增加状态吗」).
+// A pause of a handoff that the bridge itself could not hand to its workspace because the quota is
+// cooling is a wait with a set end, not a stop (#2095: #2086 was handed over 16:15, the handoff job
+// was held until the 18:40 reset, the lead paused it 16:32 「Claude 额度耗尽到 18:40；工作区派不进去…」
+// and the user got 「②停了」). The timer leaves a mark when it holds a handoff for a cooldown
+// (noteHandoffQuotaHeld, kept in the team dir so a restart does not lose it); a pause of an item
+// bound to that workspace after the mark, while the cooldown runs, is recorded the way any wait
+// with a time is (board wait: 「等外部」 with wait_until at the reset). The board shows it 在等 with
+// the time and retryWaitingExternal hands it back once the cooldown is over. Only that mark counts,
+// not the words of the pause reason nor a cooldown of some role at pause time: a stop made for its
+// own sake (10-28 #684 「橘额度死了…用户要求不在工作区搞，鲸鱼娘在本频道自己做」) has no held
+// handoff and stays a stop.
 
-// coolingPauseFresh: only a pause this young is taken as made because of the cooldown. The board
-// pass runs every teamBoardInterval, so it is caught before chatStopSettle would make it a ②; an
-// older pause was a stop before the cooldown began and stays one.
-const coolingPauseFresh = chatStopSettle
+// quotaHeldFile: per workspace session key, the handoff the timer held for a quota cooldown.
+const quotaHeldFile = "quota-held.json"
+
+type quotaHeld struct {
+	At    time.Time `json:"at"`    // when the timer held the handoff
+	Until time.Time `json:"until"` // when the cooldown ends (the held job runs then)
+}
+
+var quotaHeldMu sync.Mutex
 
 var coolingPauseTried = struct {
 	sync.Mutex
 	at map[string]bool
 }{at: map[string]bool{}}
+
+func quotaHeldPath(e *Engine) string {
+	if e == nil || e.team == nil || e.team.dir == "" {
+		return ""
+	}
+	return filepath.Join(e.team.dir, quotaHeldFile)
+}
+
+func readQuotaHeld(path string) map[string]quotaHeld {
+	m := map[string]quotaHeld{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+// setQuotaHeld writes (held != nil) or drops the mark of workspace ws.
+func setQuotaHeld(e *Engine, ws string, held *quotaHeld) {
+	path := quotaHeldPath(e)
+	if path == "" || ws == "" {
+		return
+	}
+	quotaHeldMu.Lock()
+	defer quotaHeldMu.Unlock()
+	m := readQuotaHeld(path)
+	if held == nil {
+		if _, ok := m[ws]; !ok {
+			return
+		}
+		delete(m, ws)
+	} else {
+		m[ws] = *held
+	}
+	b, _ := json.Marshal(m)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		slog.Warn("team task: write quota-held mark failed", "workspace", ws, "error", err)
+	}
+}
+
+// noteHandoffQuotaHeld: the timer held the handoff of workspace ws until the cooldown ends.
+func noteHandoffQuotaHeld(e *Engine, ws string, now time.Time, wait time.Duration) {
+	setQuotaHeld(e, ws, &quotaHeld{At: now, Until: now.Add(wait)})
+}
+
+// clearHandoffQuotaHeld: the handoff of workspace ws runs; it is no longer held.
+func clearHandoffQuotaHeld(e *Engine, ws string) { setQuotaHeld(e, ws, nil) }
 
 // coolingWaitRun runs board.py wait for item id; a variable so tests need no Python.
 var coolingWaitRun = func(e *Engine, chat string, id int, why string, minutes int) error {
@@ -35,57 +93,45 @@ var coolingWaitRun = func(e *Engine, chat string, id int, why string, minutes in
 	return err
 }
 
-// taskCoolingUntil: when the quota cooldown of the role that dispatched item it ends (zero = not
-// cooling). The dispatcher's engine, else this one.
-func taskCoolingUntil(e *Engine, it teamTaskBoardItem, now time.Time) time.Time {
-	x := e
-	for _, peer := range e.watchEngines() {
-		if peer != nil && peer.name == it.Dispatcher {
-			x = peer
-			break
-		}
-	}
-	if x.agent == nil {
+// coolingPauseHeld: the cooldown end when item it is a plain pause (counted as a ② stop) of a
+// handoff the timer held for that cooldown before the pause; zero otherwise.
+func coolingPauseHeld(it teamTaskBoardItem, held map[string]quotaHeld, now time.Time) time.Time {
+	if it.Paused == "" || it.Backlog != "" || it.Probe || it.waitsAnswer() {
 		return time.Time{}
 	}
-	chat := it.Chat
-	if chat != "" && !strings.Contains(chat, ":") {
-		chat = "discord:" + chat
-	}
-	model := x.sessionModelFor(chat)
-	if model == "" {
-		model = modelOf(x.agent)
-	}
-	until := x.quotaCoolingForAt(x.quotaScopeFor(x.agent, model), now)
-	x.capMu.Lock()
-	if x.capUntil.After(until) && x.capUntil.After(now) {
-		until = x.capUntil
-	}
-	x.capMu.Unlock()
-	return until
-}
-
-// coolingPauseCandidate: a plain pause (counted as a ② stop) of a role, fresh.
-func coolingPauseCandidate(it teamTaskBoardItem, now time.Time) bool {
-	if it.Paused == "" || it.Backlog != "" || it.Probe || it.waitsAnswer() || strings.HasPrefix(strings.TrimSpace(it.PauseWhy), "用户") {
-		return false
-	}
 	if state, _ := teamTaskBoardStateOf(it, now); state != teamTaskPaused {
-		return false
+		return time.Time{}
 	}
-	at, ok := teamTaskTableAsked(it, now)
-	return ok && now.Sub(at) < coolingPauseFresh
+	ws := it.WSWas
+	if ws == "" {
+		ws = it.WS
+	}
+	h, ok := held[ws]
+	if !ok || !h.Until.After(now) {
+		return time.Time{}
+	}
+	if at, ok := teamTaskTableAsked(it, now); !ok || at.Before(h.At) {
+		return time.Time{}
+	}
+	return h.Until
 }
 
-// parkCoolingPauses records each fresh pause made during its dispatcher's quota cooldown as a wait
-// until the cooldown ends; true when one was recorded (the board is to be read again).
+// parkCoolingPauses records each pause of a handoff held for a quota cooldown as a wait until the
+// cooldown ends; true when one was recorded (the board is to be read again).
 func (e *Engine) parkCoolingPauses(items []teamTaskBoardItem, now time.Time) bool {
+	path := quotaHeldPath(e)
+	if path == "" {
+		return false
+	}
+	quotaHeldMu.Lock()
+	held := readQuotaHeld(path)
+	quotaHeldMu.Unlock()
+	if len(held) == 0 {
+		return false
+	}
 	done := false
 	for _, it := range items {
-		if !coolingPauseCandidate(it, now) {
-			continue
-		}
-		until := taskCoolingUntil(e, it, now)
+		until := coolingPauseHeld(it, held, now)
 		if until.IsZero() {
 			continue
 		}
@@ -103,7 +149,7 @@ func (e *Engine) parkCoolingPauses(items []teamTaskBoardItem, now time.Time) boo
 		}
 		mins := int(until.Sub(now)/time.Minute) + 1
 		if coolingWaitRun(e, it.Chat, it.ID, why, mins) == nil {
-			slog.Info("team task: paused during quota cooldown, recorded as a wait until it ends", "board_item", it.ID, "until", until)
+			slog.Info("team task: handoff held for the quota cooldown was paused, recorded as a wait until it ends", "board_item", it.ID, "until", until)
 			done = true
 		}
 	}
