@@ -16,8 +16,9 @@ func TestQuotaExpiryWithoutUsageReporterRestoresLead(t *testing.T) {
 	t.Cleanup(e.cancel)
 	e.SetRelayManager(NewRelayManager(e.dataDir))
 
-	at := time.Now().Add(-time.Hour).Format(time.RFC3339)
-	if err := writeLeadSelectionFile(e.dataDir, "other", "Other", time.Now().Add(-time.Hour)); err != nil {
+	seeded := time.Now().Add(-time.Hour)
+	at := seeded.Format(time.RFC3339)
+	if err := writeLeadSelectionFile(e.dataDir, "other", "Other", seeded); err != nil {
 		t.Fatalf("seed lead selection: %v", err)
 	}
 	scope := e.quotaScopeFor(a, modelOf(a))
