@@ -37,7 +37,7 @@ var coolingWaitRun = func(e *Engine, chat string, id int, why string, minutes in
 
 // taskCoolingUntil: when the quota cooldown of the role that dispatched item it ends (zero = not
 // cooling). The dispatcher's engine, else this one.
-func (e *Engine) taskCoolingUntil(it teamTaskBoardItem, now time.Time) time.Time {
+func taskCoolingUntil(e *Engine, it teamTaskBoardItem, now time.Time) time.Time {
 	x := e
 	for _, peer := range e.watchEngines() {
 		if peer != nil && peer.name == it.Dispatcher {
@@ -85,7 +85,7 @@ func (e *Engine) parkCoolingPauses(items []teamTaskBoardItem, now time.Time) boo
 		if !coolingPauseCandidate(it, now) {
 			continue
 		}
-		until := e.taskCoolingUntil(it, now)
+		until := taskCoolingUntil(e, it, now)
 		if until.IsZero() {
 			continue
 		}
