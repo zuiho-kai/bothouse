@@ -242,7 +242,7 @@ func TestOnMessageMarksLeadDispatch(t *testing.T) {
 	}{
 		{"lead bot @-s this sub", "ou_lead", teamGroupEvent("bot", "ou_lead", "ou_self"), "ou_lead"},
 		{"another allowed bot @-s this sub", "ou_lead", teamGroupEvent("bot", "ou_other", "ou_self"), ""},
-		{"person @-s this sub and the lead", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), "ou_lead"},
+		{"person @-s this sub and the lead", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), ""},
 		{"person @-s this sub only", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self"), ""},
 		{"no team_lead_bot", "", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), ""},
 		{"this bot is the lead", "ou_self", teamGroupEvent("bot", "ou_other", "ou_self"), ""},
