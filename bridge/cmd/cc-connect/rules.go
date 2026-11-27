@@ -1,11 +1,13 @@
 package main
 
-// `bothouse rules check [file]` measures the house rules file against the bridge's one warn line
+// `bothouse rules check [file]` measures the house rules files against the bridge's one warn line
 // (core.HouseRulesWarnBytes), so the rules generator gates on the same number the bridge warns at
 // instead of keeping its own copy (#2048).
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,9 +18,10 @@ import (
 func printRulesUsage() {
 	fmt.Println(`Usage: bothouse rules check [file]
 
-Measures the house rules file (default: <data dir>/rules/house.md, data dir $CC_DATA_DIR or
-~/.bothouse) against the bridge's warn line. Prints "<bytes>/<line> <path>" and exits 1 when the
-file is over the line. The bridge sends the file whole either way and warns in chat once per
+Measures house rules files against the bridge's warn line. With no file: <data dir>/rules/house.md
+(data dir $CC_DATA_DIR or ~/.bothouse) and the per-session copies house.lead.md,
+house.workspace.md, house.member.md that exist. Prints "<bytes>/<line> <path>" per file and exits
+1 when any is over the line. The bridge sends a file whole either way and warns in chat once per
 version when it is over.`)
 }
 
@@ -30,9 +33,10 @@ func runRules(args []string) {
 		}
 		return
 	}
-	path := ""
+	var paths []string
+	optional := map[string]bool{}
 	if len(args) == 2 {
-		path = args[1]
+		paths = []string{args[1]}
 	} else {
 		dir := strings.TrimSpace(os.Getenv("CC_DATA_DIR"))
 		if dir == "" {
@@ -43,15 +47,27 @@ func runRules(args []string) {
 			}
 			dir = filepath.Join(home, ".bothouse")
 		}
-		path = core.HouseRulesPath(dir)
+		paths = []string{core.HouseRulesPath(dir)}
+		for _, a := range core.HouseAudiences { // #2082: one copy per kind of session, each under the line
+			p := core.HouseRulesPathFor(dir, a)
+			paths = append(paths, p)
+			optional[p] = true
+		}
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(2)
+	over := false
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			if optional[path] && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(2)
+		}
+		fmt.Printf("%d/%d %s\n", len(b), core.HouseRulesWarnBytes, path)
+		over = over || len(b) > core.HouseRulesWarnBytes
 	}
-	fmt.Printf("%d/%d %s\n", len(b), core.HouseRulesWarnBytes, path)
-	if len(b) > core.HouseRulesWarnBytes {
+	if over {
 		os.Exit(1)
 	}
 }

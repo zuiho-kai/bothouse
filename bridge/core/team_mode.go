@@ -116,11 +116,11 @@ func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!o
 // not take AgentSystemPrompt natively (Codex, Gemini, DSH, Antigravity, ACP…), so every CLI reads the
 // same bridge instructions as Claude (send files back, cron, NO_REPLY, `bothouse about`…). The house file is read on every delivery; teamRulesOnce hashes the whole text,
 // so an edited file reaches each role on its next turn.
-func (e *Engine) contextRules(rules string, session *Session, agent Agent) string {
+func (e *Engine) contextRules(rules, sessionKey string, session *Session, agent Agent) string {
 	if e.skipTeamModeRules.Load() {
 		rules = ""
 	}
-	if house := readHouseRules(e.dataDir); house != "" {
+	if house := readHouseRules(e.dataDir, houseRulesAudience(e, sessionKey)); house != "" {
 		if rules == "" {
 			rules = house
 		} else {
@@ -153,8 +153,47 @@ const HouseRulesWarnBytes = 4000
 const houseRulesHead = "本机守则（和上面冲突时照这里）："
 
 // HouseRulesPath is the local house rules file under the bridge data dir, generated from the
-// owner's single rule source.
+// owner's single rule source. It holds every sentence (the union) and is the fallback.
 func HouseRulesPath(dataDir string) string { return filepath.Join(dataDir, "rules", "house.md") }
+
+// House rules audiences (#2082). One text sent to every session carried sentences only one kind of
+// session uses, and one of them contradicted the workspace rules (「写的人不验收…交给另一个成员」
+// against workspaceRulesText「不另找人验收」) under a heading that says the house rules win. The
+// generator now also writes rules/house.<audience>.md; each session gets its own, house.md when
+// that file is missing or empty, so an older generator or a hand-written house.md still reaches
+// every role.
+const (
+	HouseAudienceLead      = "lead"      // the lead in a chat channel
+	HouseAudienceWorkspace = "workspace" // any role in a workspace channel
+	HouseAudienceMember    = "member"    // a non-lead role in a chat channel
+)
+
+// HouseAudiences lists the audience files `bothouse rules check` measures.
+var HouseAudiences = []string{HouseAudienceLead, HouseAudienceWorkspace, HouseAudienceMember}
+
+// HouseRulesPathFor is the audience file, or house.md for "".
+func HouseRulesPathFor(dataDir, audience string) string {
+	if audience == "" {
+		return HouseRulesPath(dataDir)
+	}
+	return filepath.Join(dataDir, "rules", "house."+audience+".md")
+}
+
+// houseRulesAudience follows the session the way the rules above it do: a workspace channel gets
+// the workspace rules whoever the role is (rulesForSession), otherwise the position from
+// configuration picks lead or member (RoleDutyLayer). Outside a team: "" (house.md).
+func houseRulesAudience(e *Engine, sessionKey string) string {
+	switch {
+	case sessionKey != "" && e.isTeamWorkspaceChat(sessionKey):
+		return HouseAudienceWorkspace
+	case !(teamHost{e}).InTeam():
+		return ""
+	case e.isTeamLead():
+		return HouseAudienceLead
+	default:
+		return HouseAudienceMember
+	}
+}
 
 // houseRulesOver remembers, per house file, the over-line version already logged and the one
 // already announced in a chat, so six roles and many sessions in one process warn once per version.
@@ -163,22 +202,12 @@ var houseRulesOver = struct {
 	logged, noticed map[string]string // path -> content hash
 }{logged: map[string]string{}, noticed: map[string]string{}}
 
-// readHouseRules returns the house rules with their heading, or "" when the data dir is unset or the
-// file is missing or empty. A file over HouseRulesWarnBytes is still returned whole.
-func readHouseRules(dataDir string) string {
-	if dataDir == "" {
-		return ""
-	}
-	path := HouseRulesPath(dataDir)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			slog.Warn("house rules: read failed", "path", path, "error", err)
-		}
-		return ""
-	}
-	text := strings.TrimSpace(string(b))
-	if text == "" {
+// readHouseRules returns the house rules for audience with their heading, or "" when the data dir
+// is unset or no file has text. The audience file is used when it has text, else house.md. A file
+// over HouseRulesWarnBytes is still returned whole.
+func readHouseRules(dataDir, audience string) string {
+	path, b := houseRulesFile(dataDir, audience)
+	if path == "" {
 		return ""
 	}
 	if len(b) > HouseRulesWarnBytes {
@@ -188,7 +217,32 @@ func readHouseRules(dataDir string) string {
 	} else {
 		forgetHouseRulesOver(path)
 	}
-	return houseRulesHead + "\n" + text
+	return houseRulesHead + "\n" + strings.TrimSpace(string(b))
+}
+
+// houseRulesFile picks the file readHouseRules sends: the audience file when it has text, else
+// house.md; ("", nil) when neither has.
+func houseRulesFile(dataDir, audience string) (string, []byte) {
+	if dataDir == "" {
+		return "", nil
+	}
+	paths := []string{HouseRulesPath(dataDir)}
+	if audience != "" {
+		paths = append([]string{HouseRulesPathFor(dataDir, audience)}, paths...)
+	}
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				slog.Warn("house rules: read failed", "path", path, "error", err)
+			}
+			continue
+		}
+		if strings.TrimSpace(string(b)) != "" {
+			return path, b
+		}
+	}
+	return "", nil
 }
 
 func houseRulesHash(b []byte) string {
@@ -222,9 +276,8 @@ func (e *Engine) noticeHouseRulesOver(sessionKey string, fromBot bool) {
 	if fromBot || e.dataDir == "" || sessionKey == "" {
 		return
 	}
-	path := HouseRulesPath(e.dataDir)
-	b, err := os.ReadFile(path)
-	if err != nil || len(b) <= HouseRulesWarnBytes || strings.TrimSpace(string(b)) == "" {
+	path, b := houseRulesFile(e.dataDir, houseRulesAudience(e, sessionKey))
+	if path == "" || len(b) <= HouseRulesWarnBytes {
 		return
 	}
 	h := houseRulesHash(b)
