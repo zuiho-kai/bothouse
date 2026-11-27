@@ -71,3 +71,42 @@ func TestSessionReportsModelSetWithSetModel(t *testing.T) {
 		t.Fatalf("session reports %q, want b", s.GetModel())
 	}
 }
+
+// #2071: DSH advertises a model route as ["provider","model"]. The catalog id is the model id,
+// and the opaque pair has to go back on session/set_config_option.
+func TestSessionSendsOpaqueModelRouteForCatalogID(t *testing.T) {
+	s, responses, requests := newTestSession(t, nil)
+	var advertised []acpConfigOption
+	if err := json.Unmarshal([]byte(`[{"id":"model","category":"model",
+	 "currentValue":"[\"deepseek-official\",\"deepseek-v4.1-flash\"]",
+	 "options":[{"group":"deepseek-official","name":"DeepSeek","options":[{"value":"[\"deepseek-official\",\"deepseek-v4.1-flash\"]","name":"DeepSeek V4.1 Flash"}]}]}]`), &advertised); err != nil {
+		t.Fatal(err)
+	}
+	s.absorbModelInfo(nil, advertised)
+	if s.GetModel() != "deepseek-v4.1-flash" {
+		t.Fatalf("handshake reports %q, want the model id", s.GetModel())
+	}
+	got := make(chan string, 1)
+	go func() {
+		var req struct {
+			ID     json.RawMessage
+			Method string
+			Params struct{ ConfigID, Value string }
+		}
+		if json.NewDecoder(requests).Decode(&req) != nil || req.Method != "session/set_config_option" {
+			got <- ""
+			return
+		}
+		got <- req.Params.Value
+		_ = json.NewEncoder(responses).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"configOptions": []any{
+			map[string]any{"id": "model", "category": "model", "currentValue": `["deepseek-official","deepseek-v4.1-flash"]`},
+		}}})
+	}()
+	s.applyModel("deepseek-v4.1-flash")
+	if v := <-got; v != `["deepseek-official","deepseek-v4.1-flash"]` {
+		t.Fatalf("set_config_option value = %q, want the advertised route", v)
+	}
+	if s.GetModel() != "deepseek-v4.1-flash" {
+		t.Fatalf("after the switch the session reports %q", s.GetModel())
+	}
+}
