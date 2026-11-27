@@ -106,6 +106,16 @@ func (e *Engine) finishWorkspaceReportTurn(key, text string) bool {
 	case TeamTaskReturned, TeamTaskFailed, TeamTaskClosed:
 		valid = true
 	}
+	// Nothing to hand back from here: the task went on in another workspace, or this workspace
+	// is back in the pool (a report would have no chat to go to).
+	if !valid && e != nil && workspaceTaskMovedAway(e.dataDir, key) {
+		valid = true
+	}
+	if !valid {
+		if free, err := e.teamWorkspaceFree(key); err == nil && free {
+			valid = true
+		}
+	}
 	e.pendingResetMu.Lock()
 	r := e.workspaceReports[key]
 	if r == nil {
@@ -197,7 +207,7 @@ func (e *Engine) selfPauseFallback(key string, id int, why, text string) {
 	}
 	posted := false
 	if p != nil {
-		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, id, false, "")
+		posted = e.wakeChatLeadContext(e.ctx, p, chatID, sessionChannel(key), e.exitBotName(), team.ExitKindReport, body, key, e.boardItemByID(id), false, "")
 	}
 	slog.Warn("workspace self-pause: no report after the wakes; last words handed to the chat lead", "session", key, "board_item", id, "handed", posted)
 	chat := parent

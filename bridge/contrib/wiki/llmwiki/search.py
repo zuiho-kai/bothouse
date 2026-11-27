@@ -4,8 +4,10 @@
   python3 ~/wiki/bin/search.py <query>
   python3 ~/wiki/bin/search.py --root DIR <query>   search the wiki at DIR (a teammate's bin/search.py does this)
 
-Prints the top lines as `path:line  text` plus that page's description. Hits come from any domain or
-subdomain in one call, so finding a fact does not walk MEMORY.md → README → page.
+Prints the top pages as `path:line  text` (the page's best line) plus its description, how many of its lines hit,
+and the other pages of its family it folded in (SOP v2: a page shows once, a prefix family X.md/X-*.md once, so the
+first hits are different things, not slices of one page). Hits come from any domain or subdomain in one call, so
+finding a fact does not walk MEMORY.md → README → page.
 Indexed: every page under a directory that has README.md (domains, subdomains at any depth).
 Skipped: MEMORY.md / log.md / CLAUDE.md at the root, README.md, hidden dirs, bin/, frontmatter, and data
 dirs without README.md (e.g. refs/media/, written by a script).
@@ -23,13 +25,15 @@ def _bare(s):
 
 
 def _load_scores():
-    """Load the one shared forum ranker in a source checkout or a bothouse data directory."""
+    """Load the one shared forum ranker: WIKI_GATE_DIR, else a forum_scores.py next to this file (a wiki that keeps its
+    own ranker in bin/), else the source checkout's gate/, else a bothouse data directory's gate/."""
     configured = os.environ.get("WIKI_GATE_DIR")
-    source = Path(__file__).resolve().parents[2] / "gate" / "forum_scores.py"
-    path = Path(configured).expanduser() / "forum_scores.py" if configured else source
-    if not path.exists():
-        path = Path.home() / ".bothouse" / "gate" / "forum_scores.py"
-    if not path.exists():
+    here = Path(__file__).resolve()
+    paths = [Path(configured).expanduser() / "forum_scores.py"] if configured else [
+        here.parent / "forum_scores.py", here.parents[2] / "gate" / "forum_scores.py",
+        Path.home() / ".bothouse" / "gate" / "forum_scores.py"]
+    path = next((p for p in paths if p.exists()), None)
+    if path is None:
         return None
     spec = importlib.util.spec_from_file_location("forum_scores", path)
     module = importlib.util.module_from_spec(spec)
@@ -41,7 +45,7 @@ forum_scores = _load_scores()
 
 WIKI = Path.home() / "wiki"
 SHARED_TOOL = 1  # marker: this search.py takes --root; teammate/ shims refuse a tool without it
-TOP = 10  # 来源：report.md 测的是「前 10 行含目标页」（46%），所以输出前 10 行
+TOP = 10  # 来源：report.md 测的是「前 10 行含目标页」（46%），所以输出前 10 行（按页折叠后为前 10 页/族）
 MIN_LINE = 6  # 沿用 report 的 bm25.py：短于 6 字的行（空行、标题碎片）不进索引
 K1, B = 1.2, 0.75  # 沿用 report 的 bm25.py（BM25 常用默认值）
 

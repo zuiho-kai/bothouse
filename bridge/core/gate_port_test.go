@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -78,7 +79,7 @@ func TestPickFreePortSkipsTakenPort(t *testing.T) {
 // different port into config and every gate_url (role-2 too), the wizard still owns those URLs,
 // and the supervisor starts this data dir's own gate on the new port.
 func TestApplyWizardMovesOffTakenGatePort(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	dataDir := setupFakeGate(t, false)
 	taken := localGateAddr()
 	whoamiServer(t, taken, t.TempDir()) // the first install's gate
@@ -125,11 +126,10 @@ func TestRoleEnvLeadGateURL(t *testing.T) {
 	old := gateAddr
 	t.Cleanup(func() { gateAddr = old })
 	SetLocalGatePort(19733)
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/collaboration/lead", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	e := &Engine{name: "p", dataDir: dir}
+	prev := LeadToolFS
+	LeadToolFS = fstest.MapFS{"contrib/lead/board": {Data: []byte("board\n")}}
+	t.Cleanup(func() { LeadToolFS = prev })
+	e := &Engine{name: "p", dataDir: t.TempDir()}
 	found := false
 	for _, kv := range e.roleSessionEnv("k") {
 		if kv == "LEAD_GATE_URL=http://127.0.0.1:19733/lead" {
@@ -182,7 +182,7 @@ func TestApplyWizardGateWithoutWhoami(t *testing.T) {
 		existing bool
 	}{{"existing install keeps the port", true}, {"fresh install moves", false}} {
 		t.Run(tc.name, func(t *testing.T) {
-			noHardware(t)
+			noLocalGate(t)
 			dataDir := setupFakeGate(t, false)
 			taken := localGateAddr()
 			oldGateServer(t, taken)

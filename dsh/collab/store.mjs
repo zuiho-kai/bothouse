@@ -7,6 +7,8 @@ import { dirname } from 'node:path';
 
 
 export const MAX_TEXT = 128 * 1024;
+// Longest member / room name, one value for roster, the bridge gateway and DM rooms (was 32, 64, 32: #2047 item 19).
+export const MAX_NAME = 64;
 // Per chat channel dispatch mode (user 2026-10-24 01:25: 单模型多进程 / 完全团队 / 混合,
 // 「默认混合模型」); the same names as the bridge's dispatch_mode config.
 export const DISPATCH_MODES = ['solo', 'team', 'mixed'];
@@ -393,7 +395,7 @@ export class Store {
         this.db.prepare('UPDATE rooms SET dm_hidden = 0 WHERE id = ?').run(found.id); // #155: reopening shows a closed chat again.
         return { ...this.q.room.get(found.id), dm_member: memberId };
       }
-      const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, 32) || memberId);
+      const created = this.q.createRoom.get(String(name || memberId).replace(/\s+/g, '').slice(0, MAX_NAME) || memberId);
       this.db.prepare('UPDATE rooms SET dm_member = ? WHERE id = ?').run(memberId, created.id);
       return { ...created, dm_member: memberId };
     });

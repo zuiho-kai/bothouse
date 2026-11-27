@@ -5,3 +5,4 @@
 - `for … sleep … break` 轮询和 `caffeinate -w` 也算前台干等。合并 PR 前，merge-gate 会查真实入口验证的登记；名单里的团队聊天频道不发测试消息。
 
 - 其他 CLI 不套用 Claude 的 long-task 缓存承诺：预计超过 5 分钟的命令直接用原生后台，附日志/任务 ID 后结束本轮。DSH 用 run_in_background（timeoutMs 到期可转后台），grok 用 block_until_ms=0，Gemini 用 is_background，Codex 用 exec_command 返回的 session ID；不要挂着 wait/sleep 轮询。DSH 子任务的超长 timeoutMs 会被拦并给出压到 290000 的重试参数，grok 子任务的 block_until_ms 会被压到 290000。
+- 数字（{{HOOKS}}/bash-guard.py 顶上定义）：连续 3 步单步只读查询后，第 4 步起拦（SERIAL_MAX，用户 2026-10-22「这个你自己搞就行了」）；聊天频道主会话真人派来的这一轮执行满 8 步还没交出、没回话，只读查询拦下（CHAT_STEPS_MAX，按「预计超过 10 分钟交工作区」倒推）。

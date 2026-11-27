@@ -103,7 +103,7 @@ func TestWithWiki(t *testing.T) {
 // A new user (no ~/wiki): the wizard makes the main wiki, every new role's own wiki, the hook and the cron jobs.
 func TestApplyWizardRoleWikis(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
@@ -207,7 +207,7 @@ func TestApplyWizardRoleWikis(t *testing.T) {
 // A role whose wiki is not made gets no memory_index, and the result says so; one already set is kept.
 func TestApplyWizardMemoryIndexNoWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	t.Setenv("WIKI_DIR", filepath.Join(t.TempDir(), "wiki"))
@@ -314,7 +314,7 @@ func assertMainWikiLead(t *testing.T, data, mainWiki, want string) {
 // juzi, reading her transcripts (else her sessions would silently stop going in).
 func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -348,7 +348,7 @@ func TestApplyWizardMainWikiNoNewRole(t *testing.T) {
 // made again is nobody's and reads no sessions; she keeps her own role wiki.
 func TestApplyWizardMainWikiNoNewRoleOldLead(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -377,7 +377,7 @@ func TestApplyWizardMainWikiNoNewRoleOldLead(t *testing.T) {
 // roles, but bots.json sends her sessions to the main wiki, so the one made again is hers.
 func TestApplyWizardAppendTeammateRemakesLeadMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	t1, t2 := fakeToken("111"), fakeToken("222")
 	fakeDiscord(t, map[string]string{t1: "Juzi", t2: "Whale"})
 	req := WizardRequest{Platform: "discord", Language: "en", Roles: []WizardRole{{Token: t1}}}
@@ -447,7 +447,7 @@ func snapshotDir(t *testing.T, dir string) map[string]string {
 // first run (new role) or a rerun (reused role). --main runs only when FindWiki fails.
 func TestApplyWizardKeepsExistingMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -485,7 +485,7 @@ func TestApplyWizardKeepsExistingMainWiki(t *testing.T) {
 
 // When the wiki step cannot run, the result says why instead of leaving it out.
 func TestApplyWizardWikiSkippedReason(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	old := RoleWikiFS
 	RoleWikiFS = nil // a build without the wiki programs embedded
 	t.Cleanup(func() { RoleWikiFS = old })
@@ -504,7 +504,7 @@ func TestApplyWizardWikiSkippedReason(t *testing.T) {
 // With no new role, a failure making the main wiki (no git, no Python, setup_wiki.py) is reported, not dropped.
 func TestApplyWizardMainWikiFailureNoNewRole(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -545,7 +545,7 @@ func readBotsJSON(t *testing.T, data string) map[string]map[string]any {
 // config.json reads her transcripts with her persona as the rule file, and her persona searches it by --root.
 func TestApplyWizardSingleRoleWritesMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -591,7 +591,7 @@ func TestApplyWizardSingleRoleWritesMainWiki(t *testing.T) {
 // indexes it. Nothing in it changes, bots.json does not point her at it, the step says it was not taken over.
 func TestApplyWizardLeadLeavesUserMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -666,7 +666,7 @@ func realPath(p string) string {
 // wiki, so --main runs; setup_wiki.py must refuse it (no .bothouse-main) and leave every file as it was.
 func TestApplyWizardKeepsUserWikiWithoutIngest(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -709,7 +709,7 @@ func TestApplyWizardKeepsUserWikiWithoutIngest(t *testing.T) {
 // cloudWebWikiSession) and the session-end export hook, with no wiki field in the request.
 func TestApplyWizardCloudWebWikiCron(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
@@ -768,7 +768,7 @@ func TestApplyWizardCloudWebWikiCron(t *testing.T) {
 // A main wiki the user had (no mark): the cron jobs never run its ingest.py, only the role wikis' sub-wiki.py.
 func TestApplyWizardWikiCronSkipsUserMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	mainWiki := filepath.Join(t.TempDir(), "wiki")
 	t.Setenv("WIKI_DIR", mainWiki)
@@ -821,7 +821,7 @@ func TestApplyWizardWikiCronUserMainWikiNoSub(t *testing.T) {
 // wizard do not go into its config.json, and the directory is byte-for-byte the same afterwards (G16).
 func TestApplyWizardUserWikiModelsNotWritten(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	req := oneRoleRequest(t)
 	req.Wiki = &WizardWiki{Daily: "haiku", Night: "sonnet", Split: "opus"}
 	home := t.TempDir()

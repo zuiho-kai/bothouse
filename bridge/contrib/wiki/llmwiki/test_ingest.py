@@ -29,6 +29,12 @@ I.ROLES_TOML.write_text('[[roles]]\nname = "橘"\n[[roles]]\nname = "龙娘"\n[[
 I.LOG = Path(_LOG_DIR) / "ingest.log"
 
 
+def put_lint(bin_dir):
+    """A wiki's bin/ with the shared lint.py and the wikiroot.py it imports (setup_wiki.py copies every llmwiki/*.py)."""
+    for f in ("lint.py", "wikiroot.py"):
+        (Path(bin_dir) / f).write_text((Path(__file__).resolve().parent / f).read_text())
+
+
 def tearDownModule():
     subprocess.run(["rm", "-rf", _LOG_DIR])
 
@@ -858,7 +864,7 @@ class ReviewScope(Fake):
         err = I.review_check(self.shas)
         self.assertIn("REVIEW 3b: 2 line(s)", err)
         self.assertIn("旧待办甲", err)
-        self.assertIn("只有 TRANSCRIPT 写明它已不成立时才移到 log.md", err)  # 3c's wording for the fix round
+        self.assertIn("只有 TRANSCRIPT 写明它已不成立时才原样挪到同页「## 历史」", err)  # 3c's wording for the fix round
         self.assertNotIn("当天写的行", err)
 
     def test_old_lines_moved_to_log_pass(self):
@@ -981,7 +987,7 @@ class Split(Fake):
 
     def test_split_pass_merges_family_first(self):  # SOP v2: X-*.md folds into X.md before any split
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [a](a.md) — 甲\n- [a-b](a-b.md) — 甲的切片\n")
         self.page("tooling/a.md", "- 甲主页事实")
         self.page("tooling/a-b.md", "- 甲切片事实")
@@ -998,7 +1004,7 @@ class Split(Fake):
 
     def test_split_pass_skips_page_at_max_depth(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         d = "tooling/" + "/".join(f"s{i}" for i in range(I.MAX_DEPTH - 1))
         parent = "tooling"
         for part in d.split("/")[1:]:
@@ -1022,7 +1028,7 @@ class Split(Fake):
 
     def test_write_over_budget_is_accepted_then_split(self):  # 不遗忘: crossing the budget never rejects the write
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [big](big.md) — x\n")
         old = [f"- 旧事实 {i}" for i in range(120)]  # below the split line: split_pass leaves it
         self.page("tooling/big.md", "## 关键事实\n" + "\n".join(old))
@@ -1048,7 +1054,7 @@ class Split(Fake):
 
     def test_split_pass_takes_over_budget_page(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("- [big](big.md) — x\n")
         self.page("tooling/big.md", "\n".join(f"- fact {i}" for i in range(lint.PAGE_LINES + 10)))
         self.commit("base")
@@ -1069,7 +1075,7 @@ class Split(Fake):
 
     def test_split_pass_fingerprints_full_path(self):
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("- [big](big:v2.md) — x\n")
         self.page("tooling/big:v2.md", "\n".join(f"- fact {i}" for i in range(lint.PAGE_LINES + 10)))
         self.commit("base")
@@ -1131,7 +1137,7 @@ class Tree(Fake):
     def test_split_pass_sees_subdomain_pages(self):
         self.build()
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         self.commit("base")
         I.STATE = self.tmp / "s.sqlite"
         seen = []
@@ -1193,7 +1199,7 @@ class DomainBase(Fake):
         I.WORK, I.STATE, I.SPLIT_ENGINE = self.w / ".ingest-work", self.tmp / "s.sqlite", "fake"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         names = [f"p{i}" for i in range(13)] + ["a.b", "c:d"]
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n规则见 CLAUDE.md。\n\n" +
                                                       "".join(f"- [{n}]({n}.md) — 页 {n}\n" for n in names))
@@ -1543,7 +1549,7 @@ class CrashedCheck(Fake):
         I.WORK = self.w / ".ingest-work"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`")
         self.base = self.commit("base")
@@ -1591,7 +1597,8 @@ class CrashedCheck(Fake):
         fails = dict(db.execute("select id, n from fails").fetchall())
         self.assertEqual(fails, {"sess0001x": 1, "sess0002x": 1})
         self.assertEqual(db.execute("select count(*) from ingested").fetchone()[0], 0)
-        self.assertEqual(len(self.sent), 1, self.sent)  # once a day per error type
+        sends = [c for c in self.sent if c[1] == "send"]  # the second same-reason batch also starts a self-fix (timer)
+        self.assertEqual(len(sends), 1, self.sent)  # once a day per error type
         self.assertIn("脚本出错（FileNotFoundError", self.sent[0][-1])
         self.assertEqual(self.sent[0][:6], ["cc-connect", "send", "-p", "maomao", "-s", "discord:1"])
         log = I.LOG.read_text()
@@ -1656,7 +1663,7 @@ class LintBaseline(Fake):
     def setUp(self):
         super().setUp()
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling\n\n- [a](a.md) — 甲\n- [b](b.md) — 乙\n")
         self.page("tooling/a.md", "- 旧事实，不声称已上线")
         self.page("tooling/b.md", "- 乙事实")
@@ -1697,7 +1704,7 @@ class Deliver(Fake):
         I.WORK = self.w / ".ingest-work"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`\n- 乙 `b1`")
         self.commit("base")
@@ -1964,7 +1971,7 @@ class GaveUp(Fake):
         I.WORK, I.USAGE = self.w / ".ingest-work", self.tmp / "usage.tsv"
         (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text((Path(lint.__file__)).read_text())
+        put_lint(self.w / "bin")
         (self.w / "tooling" / "README.md").write_text("# tooling — 工具\n\n- [big](big.md) — 大页\n")
         self.page("tooling/big.md", "- 甲 `a1`")
         self.base = self.commit("base")
@@ -2383,6 +2390,102 @@ class TeammateShims(unittest.TestCase):
             r = subprocess.run([sys.executable, "-I", str(w / "bin" / "search.py"), "外出频道"], capture_output=True,
                                text=True, env={**os.environ, "WIKI_BIN": str(self.SHIMS.parent)})
             self.assertIn(f"{w.resolve()}/x/p.md:7  - 龙娘的外出频道编号", r.stdout, r.stderr)
+
+
+class SelfFix(Fake):
+    """#1263 (user 2026-11-09 「以后这种问自己兜底啊，为啥还要报出来？…同一原因还要跑三次啊，这种不应该马上你去触发
+    介入去修吗」): a reason rejecting SELF_FIX_STREAK batches in a row, or a session failing MAX_FAILS times, pauses those
+    sessions and starts one self-fix (a `cc-connect timer add` model turn, mocked) — no `cc-connect send` alert."""
+    LINT = "lint: tooling/README.md:12: link to missing page x.md"
+
+    def setUp(self):
+        super().setUp()
+        self.sent, self.keep2 = [], (I.HOME, I.DREAM_NOTIFY, I.model_pass, I.MAX_FAILS, I.subprocess.run, I.candidates_note)
+        I.HOME, I.DREAM_NOTIFY, I.MAX_FAILS = self.w, "maomao discord:1", 99  # REPO is HOME: a real timer (mocked)
+        I.candidates_note = lambda text: ""
+        real = self.keep2[4]  # git and the rest run for real; only the bridge's timer is faked
+        I.subprocess.run = lambda cmd, **k: (self.sent.append(cmd) or subprocess.CompletedProcess(cmd, 0, "timer added", "")
+                                             if cmd[0] == "cc-connect" else real(cmd, **k))
+        self.n, self.runs = 0, []
+
+    def tearDown(self):
+        I.HOME, I.DREAM_NOTIFY, I.model_pass, I.MAX_FAILS, I.subprocess.run, I.candidates_note = self.keep2
+        super().tearDown()
+
+    def batch(self, *errs, sid=None):
+        """One failed batch of one session (a new one unless sid) whose engine passes are rejected with errs."""
+        def fake(label, prompt, **k):
+            self.runs.append(label)
+            for e in errs:
+                I.REJECT_REASONS.append(e)
+            return False
+        I.model_pass = fake
+        self.n += 1
+        I.ingest_batches(I.state(), [{"id": sid or f"sess{self.n:04d}x", "end": 1, "path": "x.jsonl", "title": "t",
+                                       "cwd": "/", "date": "2026-11-09", "text": "USER: hi"}], ["haiku"])
+
+    def timers(self):
+        return [c for c in self.sent if c[:3] == ["cc-connect", "timer", "add"]]
+
+    def test_same_reason_twice_starts_self_fix_not_alert(self):
+        self.batch(self.LINT)
+        self.assertEqual(self.sent, [])
+        self.batch(self.LINT.replace("12", "13"))  # moved a line: same reason
+        self.assertEqual(len(self.timers()), 1, self.sent)
+        self.assertFalse([c for c in self.sent if c[1] == "send"])  # no plain-text channel alert any more
+        cmd = self.timers()[0]
+        self.assertEqual(cmd[3:9], ["--delay", "1m", "-p", "maomao", "-s", "discord:1"])
+        prompt = cmd[cmd.index("--prompt") + 1]
+        self.assertIn("【wiki 整理自修】", prompt)
+        self.assertIn("link to missing page", prompt)
+        self.assertIn("--selffix-done", prompt)
+        self.assertEqual(I.paused_ids(I.state()), {"sess0002x"})  # the batch that hit the streak
+
+    def test_paused_session_is_not_rerun_until_done(self):
+        self.batch(self.LINT, sid="stuckaaa")
+        self.batch(self.LINT, sid="stuckaaa")
+        self.assertEqual(len(self.runs), 2)
+        self.batch(self.LINT, sid="stuckaaa")  # paused: no model call, no second timer
+        self.assertEqual(len(self.runs), 2)
+        self.assertEqual(len(self.timers()), 1)
+        self.assertIn("paused for self-fix", I.LOG.read_text())
+        self.assertEqual(I.selffix_done(I.state()), (1, 1))
+        self.batch(sid="stuckaaa")  # after the fix: re-run
+        self.assertEqual(len(self.runs), 3)
+
+    def test_open_self_fix_takes_more_sessions_once(self):
+        for _ in range(4):
+            self.batch(self.LINT)
+        self.assertEqual(len(self.timers()), 1)
+        self.assertEqual(I.paused_ids(I.state()), {"sess0002x", "sess0003x", "sess0004x"})
+
+    def test_streak_broken_by_other_reason(self):
+        self.batch(self.LINT)
+        self.batch("model failed")
+        self.batch(self.LINT)
+        self.assertEqual(self.sent, [])
+
+    def test_max_fails_pauses_instead_of_giving_up(self):
+        I.MAX_FAILS = 1
+        self.batch("model failed")
+        self.assertEqual(len(self.timers()), 1)
+        self.assertIn("连续失败 1 次", self.timers()[0][-1])
+        self.assertIsNone(I.state().execute("select 1 from ingested where id='sess0001x'").fetchone())  # not given up
+        self.assertEqual(I.paused_ids(I.state()), {"sess0001x"})
+
+    def test_failed_timer_only_logs_and_retries(self):
+        I.subprocess.run = lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, "", "no active session")
+        for _ in range(2):
+            self.batch(self.LINT)
+        self.assertIn("FAILED no active session", I.LOG.read_text())
+        self.assertEqual(I.paused_ids(I.state()), set())  # nothing paused: the next failing batch tries again
+
+    def test_trial_copy_only_logs(self):
+        I.HOME = self.tmp / "elsewhere"
+        for _ in range(2):
+            self.batch(self.LINT)
+        self.assertEqual(self.sent, [])
+        self.assertIn("self-fix skipped (trial copy", I.LOG.read_text())
 
 
 if __name__ == "__main__":

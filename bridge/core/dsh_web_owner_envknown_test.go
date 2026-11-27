@@ -93,8 +93,9 @@ func TestDSHWebSelfHealUnknownEnvRequiresBridgeRecord(t *testing.T) {
 	if after := readStateRaw(t); string(after) != string(before) {
 		t.Fatalf("unrecorded host rewrote bridge state: %s", after)
 	}
-	if fake.logins.Load() == 0 {
-		t.Fatal("the host never accepted its launch token; ownership was not exercised")
+	// Ownership is decided before any request (#2078): an unrecorded host gets no token probe at all.
+	if n := fake.logins.Load(); n != 0 {
+		t.Fatalf("an unrecorded host received %d token probes, want 0 (ownership comes first)", n)
 	}
 	t.Log("GET /dsh/collab/api/state: unrecorded host refused with 503; state unchanged")
 

@@ -4,13 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestBuildDiscordProgressDescription_OneLineBar(t *testing.T) {
 	payload := &core.ProgressCardPayload{
 		Lang: "zh", State: core.ProgressCardStateRunning, Steps: 12, ElapsedSec: 200, Truncated: true,
-		Items: []core.ProgressCardEntry{{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "go test"}},
+		Items: []model.ProgressCardEntry{{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "go test"}},
 	}
 	got := buildDiscordProgressDescription(payload)
 	if strings.Contains(got, "\n") || !strings.HasPrefix(got, "第 12 步 · 3分20秒 · 🔧 Bash") {

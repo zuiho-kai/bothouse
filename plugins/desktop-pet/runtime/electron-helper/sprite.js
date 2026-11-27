@@ -93,15 +93,19 @@ class PetSprite {
     this.assetRoot = pet.assetRoot || pet.id;
     this.assetBase = BASE + '/thumb/' + encodeURIComponent(this.assetRoot) + '/';
 
+    // 配图加载完成会撑高气泡； ResizeObserver 把这次后续排版也接进窗口余量同步。
+    this.bubbleResize = new ResizeObserver(() => this.syncBubbleWindow());
     this.initPlayback(pet);
     this.initMotion();
     this.initPanels();
     this.buildDom();
+    this.bubbleResize.observe(this.bubble);
     this.bindEvents();
   }
 
   dispose() {
     this.ac.abort();
+    this.bubbleResize.disconnect();
     this.inputRegionMutation.disconnect();
     this.inputRegionResize.disconnect();
     this.inputRegionElements.clear();

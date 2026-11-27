@@ -25,7 +25,10 @@ import datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys,
 from pathlib import Path
 
 EXP = Path(os.environ.get("MEMVOTE_DIR") or Path(__file__).resolve().parent)
-DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import datadir  # noqa: E402  桥数据文件只在 datadir.py 解析
+
+DATA = datadir.data_dir()
 HOME = Path.home()
 WIKI = Path(os.environ.get("GATE_WIKI", "~/wiki")).expanduser()
 PUSH = EXP / "push.jsonl"
@@ -40,7 +43,7 @@ CLAUDE_PROJECTS = Path(os.environ.get("CLAUDE_PROJECTS_DIR", HOME / ".claude" / 
 FILL_SCRIPT = Path(os.environ.get("CODEMAP_FILL_SCRIPT") or DATA / "hooks" / "codemap-fill.py").expanduser()
 # 推了但这轮没说话：等到同角色同频道下一次推送，或过了一天交给 score_night 夜里兜底（它每天 05:30 跑一次）
 GIVE_UP = 24 * 3600
-MAX_CHARS = 240_000  # 沿用 score_night.MAX_CHARS（~/wiki/bin/ingest.py）：每次 model 调用的输入上限
+from score_night import MAX_CHARS  # noqa: E402  每次 model 调用的输入上限，gate 里只在 score_night.py 定义
 PATHLINE = re.compile(r"[\w./~-]+\.(?:go|py|ts|tsx|js|md|sh|toml|json|kicad_\w+|c|h|cpp|swift|rs)(?::\d+)")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -187,11 +190,7 @@ def running(proj, key):
 
 
 def workspaces():
-    try:
-        d = json.loads((DATA / "team_workspaces.json").read_text())
-    except (OSError, ValueError):
-        return set()
-    return {"discord:" + w["id"] for ws in (d.get("parents") or {}).values() for w in ws if w.get("id")}
+    return datadir.workspace_keys()
 
 
 def load_push():

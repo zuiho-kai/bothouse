@@ -148,6 +148,9 @@ type teamFile struct {
 	Project  string         `json:"project"`
 	Name     string         `json:"name"`
 	Updated  time.Time      `json:"updated"`
+	// StaleAfterMs: readers (DSH collab team-status.mjs) treat the file as gone once Updated is older than this;
+	// the writer owns the number, readers do not keep a copy (#2051).
+	StaleAfterMs int64 `json:"stale_after_ms,omitempty"`
 	Sessions []teamEntry    `json:"sessions"`
 	Tasks    []teamTaskLink `json:"tasks,omitempty"`
 	// CoolingUntil (maomao fork): the bot's model is cooling down after "at
@@ -294,7 +297,7 @@ func (e *Engine) runTeamWriter() {
 			continue
 		}
 		now := time.Now()
-		f := teamFile{Project: e.name, Name: t.name, Mention: e.selfMention()}
+		f := teamFile{Project: e.name, Name: t.name, Mention: e.selfMention(), StaleAfterMs: teamStaleAfter.Milliseconds()}
 		t.mu.Lock()
 		for key, ts := range t.seen {
 			if ts.relay != nil {
@@ -541,4 +544,16 @@ func (e *Engine) setDynamicTeamLead(lead bool) {
 	} else {
 		e.SetTeamWorkspaces(false)
 	}
+}
+
+// selfMention is how teammates address this project's bot (first platform that knows it).
+func (e *Engine) selfMention() string {
+	for _, p := range e.platforms {
+		if m, ok := p.(SelfMentioner); ok {
+			if s := m.SelfMention(); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }

@@ -481,7 +481,7 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string, admission
 	// Bound in the card's channel (the source workspace, or the workspace
 	// holding a chat-channel source's card) and, when set, in the execution
 	// workspace (the target runs there).
-	for _, session := range taskReporterSessions(r.record.Task.cardSessionKey(), req.Workspace) {
+	for _, session := range taskReporterSessions(taskCardSessionKey(r.record.Task), req.Workspace) {
 		if _, err := p.taskReporter(req.To, r.record.Platform, session, r.publisher); err != nil {
 			return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 		}

@@ -306,19 +306,6 @@ func SetTeamReviewModels(simple, complex string) {
 	teamReviewModels.Store(&[2]string{strings.TrimSpace(simple), strings.TrimSpace(complex)})
 }
 
-// taskReviewTierModel: the model reviewer runs it on; only the tier's own role, since a model ID
-// belongs to that role's agent.
-func taskReviewTierModel(it teamTaskBoardItem, reviewer string) string {
-	m := teamReviewModels.Load()
-	if m == nil || reviewer == "" || reviewer != taskReviewTierRole(it) {
-		return ""
-	}
-	if taskReviewComplex(it) {
-		return m[1]
-	}
-	return m[0]
-}
-
 func taskReviewComplex(it teamTaskBoardItem) bool {
 	return strings.EqualFold(strings.TrimSpace(it.ReviewTier), "complex") || strings.TrimSpace(it.ReviewTier) == "复杂"
 }

@@ -46,7 +46,8 @@ func TestChatStopWakesLeadOnce(t *testing.T) {
 	f := &fakeNotePoster{}
 	e.announceChatStops(f, st, chat, items, now)
 	e.announceChatStops(f, st, chat, items, now)
-	if len(f.sent) != 3 {
+	// #2087: the timed wait is 在等 (it carries on by itself), not a ②: two stops, each posted once
+	if len(f.sent) != 2 || strings.Contains(strings.Join(f.sent, "\n"), "#1146") {
 		t.Fatalf("each stop posted once, got %q", f.sent)
 	}
 	if len(*calls) != 1 {

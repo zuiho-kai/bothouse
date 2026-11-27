@@ -635,7 +635,7 @@ func (p *Platform) Reply(ctx context.Context, replyCtx any, content string) erro
 	return p.sendRecorded(ctx, rc, frame)
 }
 
-// replyRefSeq numbers the ref_id of recorded reply frames.
+// replyRefSeq numbers the ref_id of recorded replies and file receipts.
 var replyRefSeq atomic.Uint64
 
 // RecordSentMessages implements core.SentMessageRecorder: record gets the gateway id of every
@@ -902,17 +902,40 @@ func (p *Platform) SendFile(ctx context.Context, replyCtx any, file core.FileAtt
 	if err != nil {
 		return err
 	}
-	if !p.hasCap(capFile) {
+	caps := p.caps()
+	if !caps[capFile] {
 		return core.ErrNotSupported
 	}
-	return p.sendWire(ctx, map[string]any{
+	frame := map[string]any{
 		"type":        "file",
 		"session_key": rc.SessionKey,
 		"reply_ctx":   rc.ReplyCtx,
 		"data":        base64.StdEncoding.EncodeToString(file.Data),
 		"mime_type":   file.MimeType,
 		"file_name":   file.FileName,
-	})
+	}
+	if !caps[capFileReceipt] {
+		return p.sendWire(ctx, frame)
+	}
+	waiter, ok := p.tp.(previewWaiter)
+	if !ok {
+		return fmt.Errorf("cloud_web: transport does not support file receipts")
+	}
+	refID := fmt.Sprintf("file-%d", replyRefSeq.Add(1))
+	frame["ref_id"] = refID
+	wait := waiter.expectPreviewAck(refID)
+	if err := p.sendWire(ctx, frame); err != nil {
+		_, _ = wait(0) // release the registered waiter
+		return err
+	}
+	id, err := wait(10 * time.Second)
+	if err != nil {
+		return fmt.Errorf("cloud_web: file delivery unconfirmed: %w", err)
+	}
+	if id == "" {
+		return fmt.Errorf("cloud_web: gateway rejected file")
+	}
+	return nil
 }
 
 func (p *Platform) SendAudio(ctx context.Context, replyCtx any, audio []byte, format string) error {

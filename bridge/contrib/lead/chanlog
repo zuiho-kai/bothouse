@@ -7,7 +7,7 @@
   chanlog 架构图 -n 20 -C 400       最多 20 条，每条前后各给 400 字
   chanlog 架构图 --full             整条原文
 
-来源：bothouse 给每个 bot 存的会话记录 <data_dir>/sessions/<项目>_*.json 的 history。
+来源：bothouse 给每个 bot 存的会话记录 <data_dir>/sessions/<项目>_*.json 的 history，和 11-15 起挪出去的 <项目>_*.history/<会话>.jsonl。
   - assistant 消息 = 这个 bot 自己说的话（原文）。
   - user 消息 = 用户的话，以及桥塞进来的「频道里你上次看到之后的消息」，里面是一行行
     「[时:分，…] 名字: 话」，按行头认出是谁说的。
@@ -25,7 +25,12 @@ import sys
 from pathlib import Path
 
 DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
-NAMES = {"maomao": "橘", "longniang": "龙娘", "jingyu": "鲸鱼娘", "caihongmao": "彩虹猫", "grok": "grok娘"}
+sys.path.insert(0, str(Path(os.environ.get("GATE_DIR") or Path(__file__).resolve().parent.parent / "gate").expanduser()))
+import datadir  # noqa: E402  gate/datadir.py：config.toml 只解析这一处
+# 项目名 → 群里叫的名字：config.toml 每个 [[projects]] 的 team_name（没写就用项目名）。原来写死作者的五个角色（#2047 第 8 条）
+NAMES = {p["name"]: str(p.get("team_name") or p["name"]) for p in datadir.projects() if p.get("name")}
+MARK = "（最新，回这条）"
+INSERTED = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\][^\[]*\[回复 ([^：:\]]{1,40})[：:](.*)\]\s*↪ 已插入")
 LINE = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\]\s*([^:：\n]{1,40})[:：]\s?")
 
 
@@ -104,13 +109,30 @@ def _hidden_private(files):
     return out
 
 
+def _history_file(path):
+    """#1945：11-15 起桥把每个会话的 history 挪到 <项目>_<号>.history/<会话>.jsonl（一行一条），json 里不再有；两处都读。"""
+    out = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for ln in f:
+                try:
+                    out.append(json.loads(ln))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
 def records():
-    files = []
+    files, src_of = [], {}
     for f in sorted(glob.glob(str(DATA / "sessions" / "*_*.json"))):
         proj = Path(f).name.split("_")[0]
         try:
             with open(f, encoding="utf-8") as source:
-                files.append((proj, json.load(source)))
+                d = json.load(source)
+            files.append((proj, d))
+            src_of[id(d)] = f
         except Exception:  # noqa: BLE001
             continue
     hidden = _hidden_private(files)
@@ -119,19 +141,35 @@ def records():
         for key, ids in (d.get("user_sessions") or {}).items():
             for sid in ids:
                 chan[sid] = key
+        hist_dir = Path(src_of[id(d)]).with_suffix(".history")
         for sid, s in (d.get("sessions") or {}).items():
             where = chan.get(sid, s.get("name") or sid)
             if (proj, chan.get(sid, "")) in hidden:
                 continue
-            for m in s.get("history") or []:
+            for m in (s.get("history") or []) + _history_file(hist_dir / f"{sid}.jsonl"):
                 c = m.get("content") or ""
                 ts = m.get("timestamp") or ""
                 if m.get("role") == "assistant":
                     yield ts, NAMES.get(proj, proj), c, where, f"{proj}/{sid}"
                     continue
                 # user 消息：拆成频道里的一行行发言；拆不出来的部分算「用户/系统」
+                # #1945：「（最新，回这条）」之后是直接发给这个 bot 的那条（去掉「（…）」提示行和 [replying to …] 引用），
+                # 原来会被并进前一个说话人（常是 bot 自己），用户直接 @ 的话搜不到。
+                k = c.rfind(MARK)
+                if k >= 0:
+                    c, own = c[:k], c[k + len(MARK):]
+                    r = own.rfind("[replying to ")
+                    if r >= 0:
+                        e = own.find("]\n", r)
+                        own = own[e + 2:] if e > r else ""
+                    own = "\n".join(l for l in own.splitlines() if not l.strip().startswith("（")).strip()
+                    if own and not re.match(r"【[^】]{1,6}】", own):
+                        yield ts, "用户", own, where, f"{proj}/{sid}"
                 cur_who, buf, head = None, [], []
                 for ln in c.split("\n"):
+                    ins = INSERTED.match(ln)
+                    if ins and speaker_alias(ins.group(2)).startswith("用户"):  # bot 回显的「[回复 某人：原话] ↪ 已插入」
+                        yield ts, speaker_alias(ins.group(2)), f"[{ins.group(1)}] " + ins.group(3), where, f"{proj}/{sid}"
                     mm = LINE.match(ln)
                     if mm:
                         if cur_who is not None:
@@ -184,7 +222,9 @@ def main():
         else:
             i = text.lower().find(a.words[0].lower())
             snip = ("…" if i > a.C else "") + text[max(0, i - a.C): i + a.C] + ("…" if i + a.C < len(text) else "")
-        print(f"== {ts[:16].replace('T', ' ')}  {sp}  @{where}  ({src})")
+        got = ts[:16].replace('T', ' ')
+        t = re.match(r"\[(\d{1,2}:\d{2})", text)   # 11-26 #2022：抬头时间是收进这份会话的时间，频道里贴出的时间是正文开头的 [HH:MM]
+        print(f"== 贴出 {t.group(1)}（收进 {got}）  {sp}  @{where}  ({src})" if t else f"== {got}  {sp}  @{where}  ({src})")
         print(snip.strip())
         print()
     if not hits:

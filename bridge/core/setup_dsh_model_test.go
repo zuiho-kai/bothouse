@@ -38,7 +38,7 @@ func dshTestBridge(t *testing.T) {
 // model the default and the acp model; the key is in the role's env and its 0600 env file.
 func TestApplyWizardDSHRelay(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, _, _ := fakeDSH(t)
 	t.Setenv("DSH_HOME", t.TempDir())
@@ -86,7 +86,7 @@ func TestApplyWizardDSHRelay(t *testing.T) {
 // #1498: the output cap typed in the wizard is what the overlay writes, and a negative one is refused.
 func TestApplyWizardDSHMaxTokens(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, _, _ := fakeDSH(t)
 	t.Setenv("DSH_HOME", t.TempDir())
@@ -119,7 +119,7 @@ func TestApplyWizardDSHMaxTokens(t *testing.T) {
 // overlay, and the key its apiKeyEnv names is carried into the role's env when only this shell has it.
 func TestApplyWizardDSHCarriesHomeModel(t *testing.T) {
 	useRepoHooks(t)
-	noHardware(t)
+	noLocalGate(t)
 	fakeDiscord(t, map[string]string{fakeToken("333"): "Whale"})
 	dsh, _, _ := fakeDSH(t)
 	home := t.TempDir()

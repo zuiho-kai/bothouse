@@ -13,17 +13,29 @@ import (
 
 // Defaults for the read-frequency report.
 const (
-	// 来源：bridge/contrib/gate/ctxsvc.py 的 STANDING_CHARS=1500（#574）。
-	DefaultReadFrequencySmallChars = 1500
 	// 来源：本 PR 的默认约定（Issue #580 要求参数化）——按 4 B/token，64 KiB 约 1.6 万 token，常读时建议拆分。
 	DefaultReadFrequencyLargeBytes int64 = 65536
 	// 来源：本 PR 的默认约定（Issue #580 要求参数化）——单次打开是探索，至少重复读取 2 次才算「常读」。
 	DefaultReadFrequencyMinReads = 2
 	// 来源：沿用 open-strix file_frequency_report.py 的 --top 默认 15。
 	DefaultReadFrequencyTop = 15
-	// 来源：bridge/contrib/gate/ctxsvc.py 的 STANDING_LINES=20（#574）。
-	readFrequencyStandingMaxLines = 20
 )
+
+// StandingLimitsJSON is contrib/gate/standing_limits.json (STANDING.md's line and character limits, the same
+// file ctxsvc.py reads; #2051), embedded by package ccconnect and set by main. nil = no limits known (library use).
+var StandingLimitsJSON []byte
+
+// StandingLimits returns STANDING.md's line and character limits from StandingLimitsJSON (0, 0 when unknown).
+func StandingLimits() (lines, chars int) {
+	var v struct{ Lines, Chars int }
+	if json.Unmarshal(StandingLimitsJSON, &v) != nil {
+		return 0, 0
+	}
+	return v.Lines, v.Chars
+}
+
+// DefaultReadFrequencySmallChars is the standing-suggestion threshold: STANDING.md's character limit.
+func DefaultReadFrequencySmallChars() int { _, c := StandingLimits(); return c }
 
 // ReadFrequencySource names a read-event backend.
 type ReadFrequencySource string
@@ -236,7 +248,7 @@ func BuildReadFrequencyReport(events []ReadEvent, opts ReadFrequencyOptions) *Re
 
 func normalizeReadFrequencyOptions(opts ReadFrequencyOptions) ReadFrequencyOptions {
 	if opts.SmallChars <= 0 {
-		opts.SmallChars = DefaultReadFrequencySmallChars
+		opts.SmallChars = DefaultReadFrequencySmallChars()
 	}
 	if opts.LargeBytes <= 0 {
 		opts.LargeBytes = DefaultReadFrequencyLargeBytes
@@ -318,13 +330,13 @@ func ReadStandingInfo(wikiDir string, smallChars int) *ReadFrequencyStanding {
 		return nil
 	}
 	if smallChars <= 0 {
-		smallChars = DefaultReadFrequencySmallChars
+		smallChars = DefaultReadFrequencySmallChars()
 	}
 	wikiDir = ResolveReadPath("", wikiDir)
 	path := filepath.Join(wikiDir, "STANDING.md")
 	info := &ReadFrequencyStanding{
 		Path:           path,
-		MaxLines:       readFrequencyStandingMaxLines,
+		MaxLines:       standingMaxLines(),
 		MaxChars:       smallChars,
 		RemainingChars: smallChars,
 	}
@@ -442,3 +454,5 @@ func humanBytes(n int64) string {
 	}
 	return fmt.Sprintf("%.1f TiB", value)
 }
+
+func standingMaxLines() int { l, _ := StandingLimits(); return l }

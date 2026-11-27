@@ -37,6 +37,8 @@ export interface BothouseBackend {
 export interface SkinLook {
   role?: string;
   packDir?: string;
+  /** 绑定里写的自带形象 id（`bothouse pet skin <角色> <形象>`，不是已下载的形象包时）。 */
+  skin?: string;
 }
 
 /** 与 TodoStore 同形（路由与提醒循环只用这几个方法）；写操作一律拒绝：任务板在 bothouse 里改。 */
@@ -106,10 +108,12 @@ function create(base: string | undefined, token: string | undefined): BothouseBa
       const data = (await call('GET', '/skin' + petQuery(petId), undefined, 3_000)) as {
         role?: unknown;
         packDir?: unknown;
+        skin?: unknown;
       };
       value = {
         role: typeof data.role === 'string' && data.role ? data.role : undefined,
         packDir: typeof data.packDir === 'string' && data.packDir ? data.packDir : undefined,
+        skin: typeof data.skin === 'string' && data.skin ? data.skin : undefined,
       };
     } catch {
       // 取不到就沿用上一次

@@ -70,6 +70,7 @@ def internal(text):
 
 
 PLAIN_MAX = 300  # 转给用户的话最多这么多字
+PLAIN_LINE_MAX = 60  # 每行最多这么多字（用户 11-23 要拆分）
 # 内部状态词：用户看不懂，出现一个就拒
 _STATE_WORDS = ("paused", "failed", "transition", "session", "acp", "workspace", "handoff", "board", "timer", "cron",
                 "report", "exit", "token", "hook", "stderr", "stdout", "error", "json", "pid", "allowed", "dispatched",
@@ -100,6 +101,13 @@ def plain_problems(text):
         out.append(f"带内部状态词「{'、'.join(dict.fromkeys(words))}」")
     if "推荐" not in t:
         out.append("没写推荐哪个")
+    # 用户 11-23「你能不能拆分，一坨看不懂，之后也要拆分」：一行一件事，选项各占一行
+    lines = [l for l in t.splitlines() if l.strip()]
+    if len(lines) < 3:
+        out.append("没拆分（写成几行：卡在哪一行，每个做法各一行，推荐一行）")
+    long = [l for l in lines if len(l.strip()) > PLAIN_LINE_MAX]
+    if long:
+        out.append(f"有一行太长（{len(long[0].strip())} 字，每行最多 {PLAIN_LINE_MAX} 字，一行只说一件事）")
     return out
 
 

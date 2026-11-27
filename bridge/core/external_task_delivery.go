@@ -68,7 +68,7 @@ func (e *Engine) externalTaskTarget(event ExternalTaskEvent) (*externalTaskTarge
 	if target.IsPaused() || target.ctx.Err() != nil || target.capacityWait(target.admissionQuotaScope(target.agent, task.SessionKey)) > 0 {
 		return nil, errors.New("task executor paused, stopped or cooling")
 	}
-	key := task.cardSessionKey()
+	key := taskCardSessionKey(task)
 	platformName, channel, err := parseSessionKeyParts(key)
 	if err != nil {
 		return nil, err

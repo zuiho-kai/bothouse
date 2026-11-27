@@ -386,10 +386,6 @@ func (e *Engine) memberCaller(session string, claims *CallerClaims) (callerTurn,
 	return t, nil
 }
 
-func (e *Engine) memberOp(ctx context.Context, req MemberRequest) (MemberResponse, int) {
-	return e.memberOpAs(ctx, req, nil)
-}
-
 // memberOpAs runs one member operation for the caller the request was authenticated as: nil claims
 // mean the bridge's own account (the in-process turn record decides who this is), otherwise the
 // verified token's claims do.
@@ -606,17 +602,29 @@ func runMemberCmd(ctx context.Context, dir, cwd, bin string, args []string, stdi
 	return out.String(), errOut.String(), code
 }
 
-type limitedBuffer struct{ bytes.Buffer }
+// limitedBuffer keeps the first memberOutputLimit bytes and counts the rest; String says how much
+// was cut, so whoever reads it knows the output is not whole (#2048: the tail used to vanish silently).
+type limitedBuffer struct {
+	bytes.Buffer
+	dropped int
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if room := memberOutputLimit - b.Len(); room > 0 {
-		if len(p) > room {
-			b.Buffer.Write(p[:room])
-		} else {
-			b.Buffer.Write(p)
-		}
+	room := max(memberOutputLimit-b.Len(), 0)
+	if len(p) > room {
+		b.Buffer.Write(p[:room])
+		b.dropped += len(p) - room
+	} else {
+		b.Buffer.Write(p)
 	}
 	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string {
+	if b.dropped == 0 {
+		return b.Buffer.String()
+	}
+	return b.Buffer.String() + fmt.Sprintf("\n[output cut: %d more bytes past the %d KiB limit were not kept]", b.dropped, memberOutputLimit>>10)
 }
 
 // ── device-code login ─────────────────────────────────────────────
@@ -786,4 +794,3 @@ func (e *Engine) memberBlock(session *Session) string {
 
 const memberNoteRunAs = "这里角色用单独的系统账号跑，成员目录你直接读不到（系统拦）：替他存文件用 `bothouse member put <文件>`，" +
 	"取他的文件用 `bothouse member get <名字> [存到哪]`，看有哪些用 `bothouse member ls`。"
-

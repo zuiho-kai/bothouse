@@ -24,7 +24,7 @@ import (
 //   - a freed workspace takes the next queued task (ws-handoff --drain);
 //   - once an hour a workspace whose tasks are no longer live on the board is freed.
 // The board itself is written by the lead scripts (contrib/gate/board.py through
-// <dataDir>/collaboration/lead), which own its lock and fields.
+// <dataDir>/collaboration/runtime/lead), which own its lock and fields.
 
 const (
 	teamWorkspaceReconcileEvery = time.Hour
@@ -34,21 +34,21 @@ const (
 	leadScriptTimeout           = 2 * time.Minute
 )
 
-// runLeadScript runs <dataDir>/collaboration/lead/<name> args… as chat's lead would.
-// When collaboration/lead is not installed yet, "board" falls back to <dataDir>/gate/board.py
+// runLeadScript runs the bridge's collaboration/runtime/lead/<name> args… as chat's lead would.
+// When this binary carries no collaboration tools, "board" falls back to <dataDir>/gate/board.py
 // (installed by GateSupervisor or GateScriptFS) so workspace [report]/[ask] still update the board.
 func (e *Engine) runLeadScript(chat, name string, args ...string) ([]byte, error) {
 	if e == nil || e.dataDir == "" {
 		return nil, os.ErrNotExist
 	}
-	bin := filepath.Join(e.dataDir, "collaboration", "lead", name)
 	runtimeDir, err := e.leadRuntimeDir()
 	if err != nil {
 		return nil, err
 	}
-	if runtimeDir != "" {
-		bin = filepath.Join(runtimeDir, "lead", name)
+	if runtimeDir == "" { // no embedded tools: scripts placed there by hand (tests) still run
+		runtimeDir = filepath.Join(e.dataDir, "collaboration", "runtime")
 	}
+	bin := filepath.Join(runtimeDir, "lead", name)
 	var cmdArgs []string
 	if _, err := os.Stat(bin); err == nil {
 		cmdArgs = append([]string{bin}, args...)

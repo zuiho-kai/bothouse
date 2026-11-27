@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import types
 import unittest
 from unittest.mock import Mock
@@ -43,19 +44,21 @@ class ForwardRecipientTest(unittest.TestCase):
             done_item=lambda p: None, paused_item=lambda p: None, done_records=lambda: [],
             items=lambda: [self.live], append_forward=Mock(), arm_guard=Mock(),
             refuse_foreign=Mock(),
+            workspace_state=lambda: {},
             owner_chat=lambda it: str((it or {}).get("chat") or ""),  # 同 board.owner_chat：只认条目的 chat（#2010）
             item_by_id=lambda n: next((i for i in self.board.items() if i.get("id") == n), None),
         )
         self.run = Mock(return_value=types.SimpleNamespace(returncode=0, stdout="Timer created: fake", stderr=""))
         self.ns = functions("ws-forward", {"append_result", "wake_prompt", "timer_cmd", "recipient_project", "other_chat_work", "reject_held_report",
-                                                "task_ids", "find_live", "find_done", "reject_first", "reject_on_board", "early_check", "main"}, dict(
+                                                "task_ids", "find_live", "find_done", "reject_first", "reject_on_board", "by_id",
+                                                "early_check", "resume_handoff", "main"}, dict(
             _team=self.team, board=self.board, json=json, re=re, os=os,
             subprocess=types.SimpleNamespace(run=self.run),
-            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO()),
+            sys=types.SimpleNamespace(exit=lambda message: (_ for _ in ()).throw(SystemExit(message)), stderr=io.StringIO(), executable=sys.executable),
             time=types.SimpleNamespace(strftime=lambda fmt: "2026-11-08"),
             PROMPT_MAX=1500, Path=Path,
             forward_forbid=lambda text: "",
-            _model=_model, _source=_source,
+            _model=_model, _source=_source, _local=types.SimpleNamespace(call=lambda *a, **k: None),
         ))
 
     def forward(self, *args):
@@ -102,7 +105,6 @@ class ForwardRecipientTest(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-s")+1], "discord:ws3")
         reject = self.run.call_args_list[0].args[0]
         self.assertEqual(reject[:5], ["bothouse", "report", "reject", "--id", "1271"])
-        self.board.arm_guard.assert_called_once_with(1271)
 
     def test_waiting_external_item_resumes_and_rejects_held_report(self):
         # #1378: 11-10 #1376 was parked 「等外部」 (workspace freed, busy on another chat's #936); the lead's
@@ -113,6 +115,7 @@ class ForwardRecipientTest(unittest.TestCase):
         self.board.items = lambda: [parked, other]
         self.board.paused_item = lambda p: parked if p == self.notes else None
         self.board.ASK_WHY, self.board.WAIT_EXT = "等待用户答复", "等外部："
+        self.board.asking = lambda item: False
         self.ns["__file__"] = str(HERE / "ws-forward")
         with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
             self.ns["main"](["CI 绿了，接着发版"])
@@ -120,7 +123,7 @@ class ForwardRecipientTest(unittest.TestCase):
         cmds = [c.args[0] for c in self.run.call_args_list]
         # #1405: the reject lands on the task first, before any forwarding step can fail
         self.assertEqual(cmds[0][:5], ["bothouse", "report", "reject", "--id", "1376"])
-        self.assertTrue(cmds[1][0].endswith("ws-handoff") and cmds[1][1:3] == ["--resume", "1376"], cmds[1])
+        self.assertTrue(cmds[1][2].endswith("ws-handoff") and cmds[1][3:5] == ["--resume", "1376"], cmds[1])
 
     def returned_forward(self, board_rc=0, board_out="已记录退回问题；用 ws-handoff --resume <编号> <问题> 续办", same_workspace=False):
         # 交回待验收的活（工作区已让出，returned_at 有值）被主角色转话
@@ -144,7 +147,23 @@ class ForwardRecipientTest(unittest.TestCase):
         code, cmds = self.returned_forward(same_workspace=True)
         self.assertEqual(code, 0)
         self.assertEqual(cmds[1][:4], ["py", "/gate/board.py", "reject", "1500"])
-        self.assertEqual(cmds[2][1:3], ["--resume", "1500"])
+        self.assertEqual(cmds[2][3:5], ["--resume", "1500"])
+
+    def test_bridge_returned_with_stale_board_resumes_before_waking(self):
+        returned_at = "2026-11-12T10:00:00+09:00"
+        self.record["tasks"] = {self.notes: {**self.record, "board": [362]}}
+        self.board.workspace_state = lambda: {"tasks": {"362": {"state": "returned", "since": returned_at}}}
+        self.board.returned = Mock(return_value=True)
+        self.board.__file__ = "/gate/board.py"
+        self.ns["__file__"] = str(HERE / "ws-forward")
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(io.StringIO()):
+            self.ns["main"](["--id", "362", "verify the briefing again"])
+        self.assertEqual(cm.exception.code, 0)
+        cmds = [c.args[0] for c in self.run.call_args_list]
+        self.board.returned.assert_called_once_with(362, "", at=returned_at)
+        self.assertEqual(cmds[1][2:5], ["reject", "362", "verify the briefing again"])
+        self.assertEqual(cmds[2], [sys.executable, "-I", str(HERE / "ws-handoff"), "--resume", "362", "verify the briefing again"])
+        self.assertFalse(any("timer" in c for c in cmds), cmds)
 
     def test_returned_item_forward_records_reject_on_board(self):
         # #1492 L2：桥的 report reject 只丢扣着的汇报不改任务板；走 --resume 前要先 board reject，
@@ -152,17 +171,17 @@ class ForwardRecipientTest(unittest.TestCase):
         code, cmds = self.returned_forward()
         self.assertEqual(code, 0)
         self.assertEqual(cmds[1], ["py", "/gate/board.py", "reject", "1500", "打回：截图没对上"])
-        self.assertTrue(cmds[2][0].endswith("ws-handoff") and cmds[2][1:3] == ["--resume", "1500"], cmds)
+        self.assertTrue(cmds[2][2].endswith("ws-handoff") and cmds[2][3:5] == ["--resume", "1500"], cmds)
 
     def test_returned_item_board_reject_fail_stops(self):
         code, cmds = self.returned_forward(board_rc=1)
         self.assertIn("退回失败", str(code))
-        self.assertFalse(any(c[0].endswith("ws-handoff") for c in cmds), cmds)
+        self.assertFalse(any("--resume" in c for c in cmds), cmds)
 
     def test_returned_item_second_reject_does_not_resume(self):
         code, cmds = self.returned_forward(board_out="第二次退回：已暂停「两轮未过，等用户」，已在聊天频道发 [ask] 请用户定")
         self.assertEqual(code, 0)
-        self.assertFalse(any(c[0].endswith("ws-handoff") for c in cmds), cmds)
+        self.assertFalse(any("--resume" in c for c in cmds), cmds)
 
     def test_not_forwarded_still_rejects_by_notes(self):
         # #1405: 11-10 #1348 — the freed workspace was on another chat's #936, ws-forward --notes exited
@@ -244,24 +263,25 @@ class ForwardRecipientTest(unittest.TestCase):
         self.team.project.assert_not_called()
 
     def test_notes_record_retains_recipient(self):
-        self.record["tasks"] = {self.notes: dict(channel="ws3", ws_key="discord:ws3", chat="discord:chat", project="deep")}
+        path = os.path.abspath(self.notes)
+        self.record["tasks"] = {path: dict(channel="ws3", ws_key="discord:ws3", chat="discord:chat", project="deep")}
         cmd = self.forward("--notes", self.notes)
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")
 
     def test_handoff_records_actual_project_for_queued_dispatch(self):
-        last = Mock()
-        last.read_text.side_effect = OSError()
+        last = Path(tempfile.mkdtemp()) / "ws-handoff-last.json"  # 还没有：record_last 写临时文件再改名
         ns = functions("ws-handoff", {"record_last"}, dict(json=json, _team=types.SimpleNamespace(LAST=last, project=lambda: "gge")))
         ns["record_last"](self.notes, "discord:ws3", "task", "discord:chat", 362, "deep")
-        saved = json.loads(last.write_text.call_args.args[0])
+        self.assertEqual([p.name for p in last.parent.iterdir()], [last.name])  # 没留临时文件
+        saved = json.loads(last.read_text(encoding="utf-8"))
         self.assertEqual(saved["project"], "deep")
         self.assertEqual(saved["tasks"][self.notes]["project"], "deep")
 
     def test_queued_handoff_wakes_recorded_project(self):
         ns = functions("ws-handoff", {"timer_cmd"}, dict(
-            _team=self.team, cc_bin=lambda: "bothouse", KICKOFF="",
+            _team=self.team, cc_bin=lambda: "bothouse", KICKOFF="", KICKOFF_DELAY="5s",
             kickoff_maps=lambda *args: "", kickoff_existing=lambda *args: "", kickoff_long=lambda: "", Path=Path, re=re, SOURCE="source", _QUOTE_SEC="quote",
-            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton", _source=_source,
+            _recall=types.SimpleNamespace(SECTION="recall"), SKELETON="skeleton", _source=_source, _local=types.SimpleNamespace(call=lambda *a, **k: None),
         ))
         cmd = ns["timer_cmd"]("discord:ws3", self.notes, "task", 362, project="deep")
         self.assertEqual(cmd[cmd.index("-p")+1], "deep")

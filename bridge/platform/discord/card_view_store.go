@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -33,11 +35,11 @@ const (
 
 // cardSource is the input a card's two views are rendered from.
 type cardSource struct {
-	Kind    string     `json:"kind"`
-	Content string     `json:"content,omitempty"` // progress card / sub-agent table payload
-	Task    *core.Task `json:"task,omitempty"`    // task card snapshot
-	Lang    string     `json:"lang,omitempty"`
-	Footer  string     `json:"footer,omitempty"` // task card marker
+	Kind    string      `json:"kind"`
+	Content string      `json:"content,omitempty"` // progress card / sub-agent table payload
+	Task    *model.Task `json:"task,omitempty"`    // task card snapshot
+	Lang    string      `json:"lang,omitempty"`
+	Footer  string      `json:"footer,omitempty"` // task card marker
 	// Turn bookkeeping, filled when the source is saved.
 	Channel string   `json:"channel,omitempty"`
 	Origin  string   `json:"origin,omitempty"`
@@ -262,7 +264,7 @@ func (s *cardSourceStore) turn(leader string) map[string]cardSource {
 }
 
 // taskCardRender renders a task card snapshot in either view.
-func taskCardRender(task *core.Task, lang, footer string) cardRender {
+func taskCardRender(task *model.Task, lang, footer string) cardRender {
 	snapshot := task.Clone()
 	return cardRender{
 		lang: lang,

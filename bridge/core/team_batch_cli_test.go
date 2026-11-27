@@ -45,7 +45,7 @@ func TestCUJ_WorkspaceBatchCLI(t *testing.T) {
 	t.Setenv("BOTHOUSE_TEST", "1")
 	// The engine normally sets CC_BIN to itself; this fixture's process is go test.
 	// Keep the real board script but route its nested transitions to the candidate CLI.
-	bin := filepath.Join(data, "collaboration", "lead", "board")
+	bin := filepath.Join(data, "collaboration", "runtime", "lead", "board")
 	if err := os.MkdirAll(filepath.Dir(bin), 0755); err != nil {
 		t.Fatal(err)
 	}

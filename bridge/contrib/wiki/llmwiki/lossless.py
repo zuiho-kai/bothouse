@@ -21,7 +21,9 @@ any other change of the wording still is.
 import re, subprocess, sys
 from pathlib import Path
 
-WIKI = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 SHARED_TOOL = 1  # marker: this lossless.py takes --root; teammate/ shims refuse a tool without it
 SHOW = 20  # 沿用已有配置：ingest.py compress_check / review_check 报错只列 lost[:20]
 ROOT_FILES = {"MEMORY.md", "log.md", "CLAUDE.md"}  # wiki-root files, not memory pages

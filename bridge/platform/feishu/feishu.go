@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -108,11 +110,13 @@ func init() {
 }
 
 type replyContext struct {
-	messageID       string
-	chatID          string
-	sessionKey      string
-	bootstrapThread bool
-	// mentioned / direct: the message @-s the bot in a group / comes from a p2p chat. Copied onto
+	messageID        string
+	chatID           string
+	sessionKey       string
+	bootstrapThread  bool
+	group            bool
+	checkReplyTarget bool
+	// mentioned / direct: the message calls the bot in a group / comes from a p2p chat. Copied onto
 	// core.Message in dispatchCoreMessage for core's built-in busy rules (core/gate_local.go).
 	mentioned bool
 	direct    bool
@@ -1162,6 +1166,9 @@ func (p *Platform) dispatchCoreMessage(msg *core.Message) {
 	p.populateWorkspaceChannelKeys(msg)
 	if rc, ok := msg.ReplyCtx.(replyContext); ok {
 		msg.Mentioned = msg.Mentioned || rc.mentioned
+		if rc.group && !isThreadSessionKey(rc.sessionKey) {
+			msg.ChannelID = rc.chatID
+		}
 		msg.Direct = msg.Direct || rc.direct
 		msg.FromBot = msg.FromBot || rc.fromBot
 		msg.StopAll = msg.StopAll || rc.stopAll
@@ -1474,11 +1481,20 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		return nil
 	}
 
-	if chatType == "group" && !p.groupReplyAll && p.getBotOpenID() != "" {
-		if !isBotMentioned(msg.Mentions, p.getBotOpenID()) {
+	parentID := stringValue(msg.ParentId)
+	botID := p.getBotOpenID()
+	group := chatType == "group"
+	mentioned := group && botID != "" && isBotMentioned(msg.Mentions, botID)
+	allMentioned := p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all")
+	stopAll := isStopAllEvent(sender, msgType, msg.Content)
+	checkReplyTarget := group && !fromBot && botID != "" && !mentioned && !allMentioned && parentID != "" && !stopAll
+	if group && !p.groupReplyAll && botID != "" {
+		if !mentioned {
 			switch {
+			case checkReplyTarget:
+				// The async dispatcher checks the parent author before starting a turn.
 			// Feishu @all sends {"text":"@_all"} with 0 mentions.
-			case p.respondToAtEveryoneAndHere && msg.Content != nil && strings.Contains(*msg.Content, "@_all"):
+			case allMentioned:
 				slog.Debug(p.tag()+": responding to @all message", "chat_id", chatID)
 			// Once a thread has been engaged via @bot, allow follow-up
 			// attachment-only messages (image/file/audio) in the same thread
@@ -1489,7 +1505,7 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 				slog.Debug(p.tag()+": passing attachment through active thread without mention",
 					"chat_id", chatID, "session_key", sessionKey, "msg_type", msgType, "message_id", messageID)
 			// "/stop all" from a user reaches every bot in the chat, mentioned or not.
-			case isStopAllEvent(sender, msgType, msg.Content):
+			case stopAll:
 				slog.Debug(p.tag()+": passing /stop all without mention", "chat_id", chatID)
 			// A bare stop word that calls no bot also reaches every bot, as on Discord.
 			case isBareStopEvent(sender, msg):
@@ -1503,7 +1519,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 
 	if !fromBot && !core.AllowList(p.allowFrom, userID) {
 		slog.Debug(p.tag()+": message from unauthorized user", "user", userID)
-		p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
+		if !checkReplyTarget {
+			p.replyUnauthorizedAccess(ctx, replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey})
+		}
 		return nil
 	}
 
@@ -1527,12 +1545,11 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 		content = *msg.Content
 	}
 	mentions := msg.Mentions
-	parentID := stringValue(msg.ParentId)
 
 	rctx := replyContext{messageID: messageID, chatID: chatID, sessionKey: sessionKey,
-		mentioned: chatType == "group" && p.getBotOpenID() != "" && isBotMentioned(mentions, p.getBotOpenID()),
-		fromBot:   fromBot,
-		direct:    chatType == "p2p", replyTo: parentID,
+		group: group, mentioned: mentioned, checkReplyTarget: checkReplyTarget,
+		fromBot: fromBot,
+		direct:  chatType == "p2p", replyTo: parentID,
 		stopAll: chatType == "group" && isBareStopEvent(sender, msg)}
 	rctx.lead = p.dispatchedBy(fromBot, rctx.mentioned, userID, mentions)
 	slog.Debug(p.tag()+": routed inbound message",
@@ -1545,7 +1562,9 @@ func (p *Platform) onMessage(ctx context.Context, event *larkim.P2MessageReceive
 	// in the same thread can pass through without re-mentioning the bot. When
 	// this is the first accepted message in an existing thread, remember that
 	// dispatch must bootstrap the agent context from the parent/root message.
-	rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
+	if !checkReplyTarget {
+		rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
+	}
 	if rctx.bootstrapThread && parentID == "" {
 		parentID = stringValue(msg.RootId)
 	}
@@ -1575,6 +1594,17 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 	if p.isMessageRecalled(messageID) {
 		slog.Debug(p.tag()+": recalled message ignored in async dispatch", "message_id", messageID)
 		return
+	}
+
+	if rctx.checkReplyTarget {
+		mayListen := (p.groupReplyAll && len(mentions) == 0) ||
+			(p.threadIsolation && isAttachmentMsgType(msgType) && p.isActiveThreadSession(sessionKey))
+		addressed, accept := p.groupReplyTarget(ctx, rctx, mayListen)
+		if !accept {
+			return
+		}
+		rctx.mentioned = addressed
+		rctx.bootstrapThread = p.markThreadSessionActive(sessionKey)
 	}
 
 	// Resolve user and chat names asynchronously so SDK dispatcher is not blocked.
@@ -1615,13 +1645,12 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 		// zero file-resource API calls.
 		approvedFileMetas := p.filterQuotedFilesForUser(quoted.files, mentions, userID)
 		quotedFiles := p.downloadQuotedFiles(ctx, approvedFileMetas)
-		if text == "" && quoted.text == "" && len(quoted.images) == 0 && len(quotedFiles) == 0 {
-			slog.Debug(p.tag()+": dropping empty text after mention stripping",
-				"message_id", messageID,
-				"raw_text_len", len(textBody.Text),
-				"mentions", len(mentions),
-			)
-			return
+		bareMention := text == "" && quoted.text == "" && len(quoted.images) == 0 && len(quotedFiles) == 0
+		if bareMention {
+			if !rctx.mentioned || rctx.fromBot {
+				return
+			}
+			text = core.MentionOnlyPrompt
 		}
 		// Flush any image batch buffered earlier in this session so the image
 		// reaches the engine before the text message advances the user-message
@@ -1632,6 +1661,7 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 			MessageID: messageID,
 			UserID:    userID, UserName: userName, ChatName: chatName,
 			Content: text, ExtraContent: quoted.text, Images: quoted.images, Files: quotedFiles, ReplyCtx: rctx,
+			BackfillOnCall:    bareMention && !isThreadSessionKey(sessionKey),
 			UserMessageTimeMs: createTimeMs,
 		})
 
@@ -1722,8 +1752,12 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 	case "post":
 		textParts, images := p.parsePostContent(messageID, content)
 		text := stripMentions(strings.Join(textParts, "\n"), mentions, p.getBotOpenID())
-		if text == "" && len(images) == 0 && quoted.text == "" && len(quoted.images) == 0 {
-			return
+		bareMention := text == "" && len(images) == 0 && quoted.text == "" && len(quoted.images) == 0
+		if bareMention {
+			if !rctx.mentioned || rctx.fromBot {
+				return
+			}
+			text = core.MentionOnlyPrompt
 		}
 		// Flush any image batch buffered earlier in this session (#1686 P1-B).
 		p.flushImageBatchForSession(sessionKey)
@@ -1732,6 +1766,7 @@ func (p *Platform) dispatchMessage(ctx context.Context, msgType, content string,
 			MessageID: messageID,
 			UserID:    userID, UserName: userName, ChatName: chatName,
 			Content: text, ExtraContent: quoted.text, Images: append(quoted.images, images...),
+			BackfillOnCall:    bareMention && !isThreadSessionKey(sessionKey),
 			ReplyCtx:          rctx,
 			UserMessageTimeMs: createTimeMs,
 		})
@@ -2388,81 +2423,6 @@ func formatReplyChain(chain []chainMessage) string {
 	}
 	b.WriteString("---\n\n")
 	return b.String()
-}
-
-// extractPostPlainText extracts plain text from a Lark post (rich text) JSON content.
-func extractPostPlainText(content string) string {
-	var post struct {
-		Content [][]struct {
-			Tag      string `json:"tag"`
-			Text     string `json:"text"`
-			Href     string `json:"href,omitempty"`
-			Language string `json:"language,omitempty"`
-			UserId   string `json:"user_id,omitempty"`
-			UserName string `json:"user_name,omitempty"`
-		} `json:"content"`
-		Title string `json:"title"`
-	}
-	// Post content may be wrapped in a locale key like {"zh_cn": {...}}.
-	// Try direct parse first, then try extracting from locale wrapper.
-	if err := json.Unmarshal([]byte(content), &post); err != nil || len(post.Content) == 0 {
-		var localeWrapper map[string]json.RawMessage
-		if err2 := json.Unmarshal([]byte(content), &localeWrapper); err2 == nil {
-			for _, v := range localeWrapper {
-				if err3 := json.Unmarshal(v, &post); err3 == nil && len(post.Content) > 0 {
-					break
-				}
-			}
-		}
-	}
-	if len(post.Content) == 0 {
-		return ""
-	}
-	var parts []string
-	if post.Title != "" {
-		parts = append(parts, post.Title)
-	}
-	for _, para := range post.Content {
-		var line []string
-		for _, elem := range para {
-			switch elem.Tag {
-			case "text":
-				if elem.Text != "" {
-					line = append(line, elem.Text)
-				}
-			case "a":
-				if elem.Text != "" && elem.Href != "" {
-					line = append(line, fmt.Sprintf("[%s](%s)", elem.Text, elem.Href))
-				} else if elem.Text != "" {
-					line = append(line, elem.Text)
-				}
-			case "markdown":
-				if elem.Text != "" {
-					line = append(line, elem.Text)
-				}
-			case "at":
-				switch {
-				case elem.UserId == "all":
-					line = append(line, "@all")
-				case elem.UserName != "":
-					line = append(line, "@"+elem.UserName)
-				case elem.UserId != "":
-					line = append(line, "@user")
-				}
-			case "img":
-				line = append(line, "[image]")
-			case "code_block":
-				if elem.Text != "" {
-					lang := elem.Language
-					line = append(line, "```"+lang+"\n"+elem.Text+"\n```")
-				}
-			}
-		}
-		if len(line) > 0 {
-			parts = append(parts, strings.Join(line, ""))
-		}
-	}
-	return strings.Join(parts, "\n")
 }
 
 // extractInteractiveCardText extracts readable text from a Feishu interactive card JSON.
@@ -3214,21 +3174,6 @@ func buildReplyContent(content string) (msgType string, body string) {
 	return larkim.MsgTypeInteractive, buildCardJSON(sanitizeMarkdownURLs(preprocessFeishuMarkdown(content)))
 }
 
-// hasComplexMarkdown detects code blocks or tables that require card rendering.
-func hasComplexMarkdown(s string) bool {
-	if strings.Contains(s, "```") {
-		return true
-	}
-	// Table: line starting and ending with |
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if len(trimmed) > 1 && trimmed[0] == '|' && trimmed[len(trimmed)-1] == '|' {
-			return true
-		}
-	}
-	return false
-}
-
 // maxCardTables is the Feishu interactive card limit for table components.
 // A single card supports at most 5 tables; exceeding this causes API error 11310.
 const maxCardTables = 5
@@ -3297,74 +3242,6 @@ func containsMarkdown(s string) bool {
 	return false
 }
 
-// buildPostJSON converts markdown content to Feishu post (rich text) format.
-func buildPostJSON(content string) string {
-	lines := strings.Split(content, "\n")
-	var postLines [][]map[string]any
-	inCodeBlock := false
-	var codeLines []string
-	codeLang := ""
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if strings.HasPrefix(trimmed, "```") {
-			if !inCodeBlock {
-				inCodeBlock = true
-				codeLang = strings.TrimPrefix(trimmed, "```")
-				codeLines = nil
-			} else {
-				inCodeBlock = false
-				postLines = append(postLines, []map[string]any{{
-					"tag":      "code_block",
-					"language": codeLang,
-					"text":     strings.Join(codeLines, "\n"),
-				}})
-			}
-			continue
-		}
-
-		if inCodeBlock {
-			codeLines = append(codeLines, line)
-			continue
-		}
-
-		// Convert # headers to bold
-		headerLine := line
-		for level := 6; level >= 1; level-- {
-			prefix := strings.Repeat("#", level) + " "
-			if strings.HasPrefix(line, prefix) {
-				headerLine = "**" + strings.TrimPrefix(line, prefix) + "**"
-				break
-			}
-		}
-
-		elements := parseInlineMarkdown(headerLine)
-		if len(elements) > 0 {
-			postLines = append(postLines, elements)
-		} else {
-			postLines = append(postLines, []map[string]any{{"tag": "text", "text": ""}})
-		}
-	}
-
-	// Handle unclosed code block
-	if inCodeBlock && len(codeLines) > 0 {
-		postLines = append(postLines, []map[string]any{{
-			"tag":      "code_block",
-			"language": codeLang,
-			"text":     strings.Join(codeLines, "\n"),
-		}})
-	}
-
-	post := map[string]any{
-		"zh_cn": map[string]any{
-			"content": postLines,
-		},
-	}
-	b, _ := json.Marshal(post)
-	return string(b)
-}
-
 // isValidFeishuHref checks whether a URL is acceptable as a Feishu post href.
 // Feishu rejects non-HTTP(S) URLs with "invalid href" (code 230001).
 func isValidFeishuHref(u string) bool {
@@ -3406,137 +3283,6 @@ func sanitizeMarkdownURLs(md string) string {
 	}
 	b.WriteString(md[last:])
 	return b.String()
-}
-
-// parseInlineMarkdown parses a single line of markdown into Feishu post elements.
-// Supports **bold** and `code` inline formatting.
-func parseInlineMarkdown(line string) []map[string]any {
-	type markerDef struct {
-		pattern string
-		tag     string
-		style   string // for text elements with style
-	}
-	markers := []markerDef{
-		{pattern: "**", tag: "text", style: "bold"},
-		{pattern: "~~", tag: "text", style: "lineThrough"},
-		{pattern: "`", tag: "text", style: "code"},
-		{pattern: "*", tag: "text", style: "italic"},
-	}
-
-	var elements []map[string]any
-	remaining := line
-
-	for len(remaining) > 0 {
-		// Check for link [text](url)
-		linkIdx := strings.Index(remaining, "[")
-		if linkIdx >= 0 {
-			parenClose := -1
-			bracketClose := strings.Index(remaining[linkIdx:], "](")
-			if bracketClose >= 0 {
-				bracketClose += linkIdx
-				parenClose = strings.Index(remaining[bracketClose+2:], ")")
-				if parenClose >= 0 {
-					parenClose += bracketClose + 2
-				}
-			}
-			if parenClose >= 0 {
-				// Check if any marker comes before this link
-				foundEarlierMarker := false
-				for _, m := range markers {
-					idx := strings.Index(remaining, m.pattern)
-					if idx >= 0 && idx < linkIdx {
-						foundEarlierMarker = true
-						break
-					}
-				}
-				if !foundEarlierMarker {
-					linkText := remaining[linkIdx+1 : bracketClose]
-					linkURL := remaining[bracketClose+2 : parenClose]
-					if isValidFeishuHref(linkURL) {
-						if linkIdx > 0 {
-							elements = append(elements, map[string]any{"tag": "text", "text": remaining[:linkIdx]})
-						}
-						elements = append(elements, map[string]any{
-							"tag":  "a",
-							"text": linkText,
-							"href": linkURL,
-						})
-						remaining = remaining[parenClose+1:]
-						continue
-					}
-				}
-			}
-		}
-
-		// Find the earliest formatting marker
-		bestIdx := -1
-		var bestMarker markerDef
-		for _, m := range markers {
-			idx := strings.Index(remaining, m.pattern)
-			if idx < 0 {
-				continue
-			}
-			// For single * marker, skip if it's actually ** (bold)
-			if m.pattern == "*" && idx+1 < len(remaining) && remaining[idx+1] == '*' {
-				idx = findSingleAsterisk(remaining)
-				if idx < 0 {
-					continue
-				}
-			}
-			if bestIdx < 0 || idx < bestIdx {
-				bestIdx = idx
-				bestMarker = m
-			}
-		}
-
-		if bestIdx < 0 {
-			if remaining != "" {
-				elements = append(elements, map[string]any{"tag": "text", "text": remaining})
-			}
-			break
-		}
-
-		if bestIdx > 0 {
-			elements = append(elements, map[string]any{"tag": "text", "text": remaining[:bestIdx]})
-		}
-		remaining = remaining[bestIdx+len(bestMarker.pattern):]
-
-		closeIdx := strings.Index(remaining, bestMarker.pattern)
-		// For single *, make sure we don't match ** as close
-		if bestMarker.pattern == "*" {
-			closeIdx = findSingleAsterisk(remaining)
-		}
-		if closeIdx < 0 {
-			elements = append(elements, map[string]any{"tag": "text", "text": bestMarker.pattern + remaining})
-			remaining = ""
-			break
-		}
-
-		inner := remaining[:closeIdx]
-		remaining = remaining[closeIdx+len(bestMarker.pattern):]
-
-		elements = append(elements, map[string]any{
-			"tag":   bestMarker.tag,
-			"text":  inner,
-			"style": []string{bestMarker.style},
-		})
-	}
-
-	return elements
-}
-
-// findSingleAsterisk finds the index of a single '*' not part of '**' in s.
-func findSingleAsterisk(s string) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '*' {
-			if i+1 < len(s) && s[i+1] == '*' {
-				i++ // skip **
-				continue
-			}
-			return i
-		}
-	}
-	return -1
 }
 
 // fetchBotOpenID retrieves the bot's open_id via the Feishu bot info API.
@@ -4178,25 +3924,25 @@ func progressStateMeta(state core.ProgressCardState, lang string, agent string) 
 	}
 }
 
-func progressKindLabel(kind core.ProgressCardEntryKind, lang string) string {
+func progressKindLabel(kind model.ProgressCardEntryKind, lang string) string {
 	zh := isZhLikeProgressLang(lang)
 	switch kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		if zh {
 			return "思考"
 		}
 		return "Thinking"
-	case core.ProgressEntryToolUse:
+	case model.ProgressEntryToolUse:
 		if zh {
 			return "工具调用"
 		}
 		return "Tool"
-	case core.ProgressEntryToolResult:
+	case model.ProgressEntryToolResult:
 		if zh {
 			return "工具结果"
 		}
 		return "Result"
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		if zh {
 			return "错误"
 		}
@@ -4209,31 +3955,31 @@ func progressKindLabel(kind core.ProgressCardEntryKind, lang string) string {
 	}
 }
 
-func normalizeProgressItems(payload *core.ProgressCardPayload) []core.ProgressCardEntry {
+func normalizeProgressItems(payload *core.ProgressCardPayload) []model.ProgressCardEntry {
 	if payload == nil {
 		return nil
 	}
 	if len(payload.Items) > 0 {
 		return cutProgressLines(payload.Items, payload.LineLen)
 	}
-	out := make([]core.ProgressCardEntry, 0, len(payload.Entries))
+	out := make([]model.ProgressCardEntry, 0, len(payload.Entries))
 	for _, entry := range payload.Entries {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		kind := core.ProgressEntryInfo
+		kind := model.ProgressEntryInfo
 		switch {
 		case strings.HasPrefix(entry, "💭"):
-			kind = core.ProgressEntryThinking
+			kind = model.ProgressEntryThinking
 		case strings.HasPrefix(entry, "🔧"), strings.Contains(entry, "**Tool #"):
-			kind = core.ProgressEntryToolUse
+			kind = model.ProgressEntryToolUse
 		case strings.HasPrefix(entry, "🧾"):
-			kind = core.ProgressEntryToolResult
+			kind = model.ProgressEntryToolResult
 		case strings.HasPrefix(entry, "❌"):
-			kind = core.ProgressEntryError
+			kind = model.ProgressEntryError
 		}
-		out = append(out, core.ProgressCardEntry{Kind: kind, Text: entry})
+		out = append(out, model.ProgressCardEntry{Kind: kind, Text: entry})
 	}
 	return cutProgressLines(out, payload.LineLen)
 }
@@ -4366,7 +4112,7 @@ func progressNoOutputText(lang string) string {
 	return "No output"
 }
 
-func progressResultDot(item core.ProgressCardEntry) string {
+func progressResultDot(item model.ProgressCardEntry) string {
 	if item.Success != nil {
 		if *item.Success {
 			return "🟢"
@@ -4402,13 +4148,13 @@ func progressToolElement(iconToken string, content string) map[string]any {
 	return elem
 }
 
-func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[string]any {
+func renderProgressEntryElement(item model.ProgressCardEntry, lang string) map[string]any {
 	text := strings.TrimSpace(item.Text)
 	if text == "" {
 		text = " "
 	}
 	switch item.Kind {
-	case core.ProgressEntryThinking:
+	case model.ProgressEntryThinking:
 		return map[string]any{
 			"tag":  "div",
 			"icon": map[string]any{"tag": "standard_icon", "token": reasoningToolIcon},
@@ -4419,7 +4165,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 				"text_color": "grey",
 			},
 		}
-	case core.ProgressEntryToolUse:
+	case model.ProgressEntryToolUse:
 		toolName := strings.TrimSpace(item.Tool)
 		if toolName == "" {
 			toolName = "Tool"
@@ -4430,7 +4176,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 			content += "\n" + body
 		}
 		return progressToolElement(display.IconToken, content)
-	case core.ProgressEntryToolResult:
+	case model.ProgressEntryToolResult:
 		toolName := strings.TrimSpace(item.Tool)
 		display := buildToolDisplay(toolName, "")
 		content := fmt.Sprintf("<text_tag color='turquoise'>%s</text_tag> **%s**", progressKindLabel(item.Kind, lang), inlineCodeText(display.Title))
@@ -4446,7 +4192,7 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 			content += "\n_" + progressNoOutputText(lang) + "_"
 		}
 		return progressToolElement(display.IconToken, content)
-	case core.ProgressEntryError:
+	case model.ProgressEntryError:
 		content := fmt.Sprintf("<text_tag color='red'>%s</text_tag>\n%s", progressKindLabel(item.Kind, lang), sanitizeCardMarkdownForCard(text))
 		return map[string]any{
 			"tag":     "markdown",
@@ -4460,12 +4206,12 @@ func renderProgressEntryElement(item core.ProgressCardEntry, lang string) map[st
 	}
 }
 
-func splitProgressItemsByLane(items []core.ProgressCardEntry) (reasoning []core.ProgressCardEntry, tools []core.ProgressCardEntry, others []core.ProgressCardEntry) {
+func splitProgressItemsByLane(items []model.ProgressCardEntry) (reasoning []model.ProgressCardEntry, tools []model.ProgressCardEntry, others []model.ProgressCardEntry) {
 	for _, item := range items {
 		switch item.Kind {
-		case core.ProgressEntryThinking:
+		case model.ProgressEntryThinking:
 			reasoning = append(reasoning, item)
-		case core.ProgressEntryToolUse, core.ProgressEntryToolResult:
+		case model.ProgressEntryToolUse, model.ProgressEntryToolResult:
 			tools = append(tools, item)
 		default:
 			others = append(others, item)
@@ -4506,7 +4252,7 @@ func buildProgressPanel(title string, expanded bool, elements []map[string]any) 
 	}
 }
 
-func buildProgressPanelElements(items []core.ProgressCardEntry, lang string) []map[string]any {
+func buildProgressPanelElements(items []model.ProgressCardEntry, lang string) []map[string]any {
 	elements := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		elements = append(elements, renderProgressEntryElement(item, lang))
@@ -4514,7 +4260,7 @@ func buildProgressPanelElements(items []core.ProgressCardEntry, lang string) []m
 	return elements
 }
 
-func appendProgressGroupedElements(elements []map[string]any, items []core.ProgressCardEntry, lang string, running bool) []map[string]any {
+func appendProgressGroupedElements(elements []map[string]any, items []model.ProgressCardEntry, lang string, running bool) []map[string]any {
 	reasoning, tools, others := splitProgressItemsByLane(items)
 	if len(reasoning) > 0 {
 		elements = append(elements, buildProgressPanel(

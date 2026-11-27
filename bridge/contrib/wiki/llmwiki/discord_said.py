@@ -8,6 +8,7 @@ No session → channel mapping: a session's transcript is context only and never
   user_id()          the user's Discord id: admin_from, else the first allow_from id, in the bridge config (CONFIG)
   said(lo, hi)       [Msg] the user's messages in [lo, hi), oldest first, across all channels and cloud_web rooms
   cloud_said(lo, hi) [Msg] the cloud_web part: hub messages whose author_kind is "user" (see below)
+  deliveries(lo, hi) 📬 deliveries and the user's words after each (今日反思「交付后用户的话」, #1447)
 
 Channels are listed by the API, not by hand (review dream-quote-window.md「频道列表自动列出，含私聊」): each bot's
 guilds → their channels, active threads and archived threads, plus each bot's DM with the user. Which bots: the
@@ -154,7 +155,25 @@ def _page():
         req = urllib.request.Request(url, headers={"Authorization": f"Bot {tok}", "User-Agent": "bothouse-wiki/1.0"})
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read().decode("utf-8"))
-    return SimpleNamespace(get=get)
+
+    def fetch(channel, start, end, tok):
+        """The channel's messages with start <= timestamp < end, oldest first (pages of 100 after a snowflake)."""
+        after, out = str((int(start.timestamp() * 1000) - 1 - DISCORD_EPOCH) << 22), []
+        while True:
+            batch = get(f"{API}/channels/{channel}/messages?limit=100&after={after}", tok)  # 100: Discord's page cap
+            if not batch:
+                return out
+            batch.sort(key=lambda m: int(m["id"]))
+            for m in batch:
+                ts = datetime.fromisoformat(m["timestamp"])
+                if ts >= end:
+                    return out
+                if ts >= start:
+                    out.append(m)
+            if len(batch) < 100:
+                return out
+            after = batch[-1]["id"]
+    return SimpleNamespace(get=get, fetch=fetch)
 
 
 def _get(path, tok, data=None):
@@ -400,6 +419,23 @@ def said(lo, hi, assistant, main, list_channels=None, fetch=None, cloud=None, st
     are injectable (tests)."""
     uid = user_id()
     out = cloud(lo, hi, assistant, main) if cloud else cloud_said(lo, hi, assistant, main, strict=strict)
+    for ch, label, msgs in _channel_msgs(uid, lo, hi, assistant, main, list_channels, fetch, strict):
+        for m in msgs:
+            ts = _iso(m["timestamp"])
+            if not (lo <= ts < hi) or not _users(m, uid):
+                continue
+            out.append(Msg(ts, ch, label, text_of(m)))
+    out.sort()
+    return out
+
+
+def _users(m, uid):
+    """The user's own typed message, not a bridge command (said() and deliveries() read the user's words alike)."""
+    return ((m.get("author") or {}).get("id") == uid and m.get("type", 0) in TYPED and not is_command(text_of(m)))
+
+
+def _channel_msgs(uid, lo, hi, assistant, main, list_channels=None, fetch=None, strict=False):
+    """(channel, label, raw messages in [lo, hi)) of every Discord channel the bots list: said()'s reading, shared."""
     toks = tokens(assistant, main)
     listing = list_channels or (lambda tok, uid_, lo_: _listed(tok, uid_, lo_, hi))
     found = {}  # channel → (label, the bots that list it first, then the rest): a channel every bot sees is read once
@@ -419,13 +455,41 @@ def said(lo, hi, assistant, main, list_channels=None, fetch=None, cloud=None, st
                 raise Unavailable(f"Discord channel {ch}: history forbidden for every credential")
             GONE.add(ch)  # every bot got 403: logged by the caller
             continue
-        for m in msgs:
-            ts = _iso(m["timestamp"])
-            if not (lo <= ts < hi) or (m.get("author") or {}).get("id") != uid or m.get("type", 0) not in TYPED:
-                continue
-            text = text_of(m)
-            if is_command(text):
-                continue
-            out.append(Msg(ts, ch, label, text))
-    out.sort()
-    return out
+        yield ch, label, msgs
+
+
+# 交付后用户的话（#1447，用户 11-11「做，你端到端看护一下，不要做了然后还要我帮你看」）：被骂的做法多半只在用户事后的
+# 反应里（工作区自己的轨迹没有弯路信号），今日反思要看得到「哪份交付 → 用户说了什么」。认法同影子回放 shadow-replay：
+# 频道里 📬「标题」开头的交付汇报，反应 = 同频道 3 小时内、下一份交付之前用户的话；另加直接回复这份交付的话（不限 3 小时）。
+DELIVERY = re.compile(r"📬「([^」\n]*)」")
+REACT_HOURS = 3  # 来源：影子回放 deliveries(hours=3)，同一口径
+
+
+def deliveries(lo, hi, assistant, main, list_channels=None, fetch=None):
+    """[{ts, channel, name, who, title, mail, reacts: [Msg]}]: 📬 deliveries posted in [lo - 3 h, hi) that the user
+    reacted to in [lo, hi), oldest first. Reads the same channels and the same (cached) history as said()."""
+    uid, out = user_id(), []
+    for ch, label, msgs in _channel_msgs(uid, lo - REACT_HOURS * 3600, hi, assistant, main, list_channels, fetch):
+        msgs = sorted(msgs, key=lambda m: _iso(m["timestamp"]))
+        mails = [m for m in msgs if (m.get("author") or {}).get("id") != uid and DELIVERY.search(text_of(m)[:40])]
+        for n, m in enumerate(mails):
+            t = _iso(m["timestamp"])
+            nxt = _iso(mails[n + 1]["timestamp"]) if n + 1 < len(mails) else hi
+            stop = min(t + REACT_HOURS * 3600, nxt)
+            who = (m.get("author") or {}).get("id")
+            # a long delivery comes in several messages, and the bot may answer a follow-up: a reply to any of them is
+            # a reply to this delivery
+            mine = {x.get("id") for x in msgs if (x.get("author") or {}).get("id") == who and t <= _iso(x["timestamp"]) < nxt}
+            reacts = []
+            for u in msgs:
+                ts = _iso(u["timestamp"])
+                ref = (u.get("message_reference") or {}).get("message_id")
+                if ts <= t or not (lo <= ts < hi) or not _users(u, uid):
+                    continue
+                if (ref and ref in mine) or (t < ts <= stop and not ref):
+                    reacts.append(Msg(ts, ch, label, text_of(u)))
+            if reacts:
+                text = text_of(m)
+                out.append({"ts": t, "channel": ch, "name": label, "who": (m.get("author") or {}).get("username", ""),
+                            "title": DELIVERY.search(text).group(1), "mail": text, "reacts": reacts})
+    return sorted(out, key=lambda d: d["ts"])

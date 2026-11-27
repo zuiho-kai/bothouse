@@ -4,6 +4,8 @@
 # 用法：
 #   ws-pass [--notes <交接>] --stitch <成品图>...        拼一张「参考 | 成品」并排图，只打印路径，不发送；打开看过再决定
 #   ws-pass [--notes <交接>] [--compare <并排图>] <附件>... "<给用户的话>"   发到这件活的来源聊天频道
+#   本机口子写了 pass_gate 时（_local.py）：并排图由它出、不用 --compare；它拦下的只有 --override "<用户原话>" 能放行，
+#     --ref-range 起-止秒 指定参考比哪一段。
 #   ws-pass [--id <任务号> | --notes <交接>] --verdict "<逐条对照>"     不带附件：放行桥扣下的文字 [report]，原文照贴给用户（11-09
 #     用户「我都说工作群返回你要看一眼，结果你他妈就图片跟视频，你看一眼文字你不看」；桥 core/team_report_accept.go）。
 #     工作区随交回带上的成品（ws-up --report --file/--image；ws-up 会把汇报里写了路径、这件活期间写出的成品文档自动当 --file 带上）
@@ -22,6 +24,7 @@ here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here))
 import _team  # noqa: E402
 import _handoff_rules  # noqa: E402
+import _local  # noqa: E402  本机自己加的关卡（<数据目录>/collaboration/local/hooks.py，没有就跳过）
 sys.path.insert(0, os.environ.get("GATE_DIR") or str(here.parent / "gate"))
 import board  # noqa: E402
 
@@ -264,6 +267,7 @@ def main(argv):
         print(f"用法：{USAGE}")
         return
     notes, compare, do_stitch, cover_ok, verdict, labels, rest, it = None, None, False, False, "", [], [], iter(argv)
+    rng_arg, override = "", None
     nid = 0
     for a in it:
         if a == "--id":
@@ -280,6 +284,12 @@ def main(argv):
             labels.append(v.strip())
         elif a == "--stitch":
             do_stitch = True
+        elif a == "--ref-range":
+            rng_arg = next(it, "") or sys.exit(f"用法：{USAGE}（--ref-range 后面跟参考的起止秒，如 43-48）")
+        elif a == "--override":
+            override = next(it, "")
+            if len(override.strip()) < 2:
+                sys.exit("ws-pass: --override 后面要跟用户明说要看的原话，没有用户原话不能放行")
         elif a == "--verdict":
             verdict = next(it, "")
         elif a == "--cover-checked":
@@ -294,6 +304,15 @@ def main(argv):
         shots = [os.path.abspath(os.path.expanduser(p)) for p in rest]
         if not shots or any(not os.path.isfile(p) for p in shots):
             sys.exit(f"用法：{USAGE}（--stitch 后面跟存在的成品图）")
+        gated = _local.call("pass_gate", rec, rec.get("file") or path, have, shots, rng_arg)
+        if gated is not None:  # 本机口子自己出并排图、判拦不拦：只打印，不发
+            compares, block = gated
+            for c in compares:
+                print(c)
+            if block:
+                print("ws-pass: 会拦下：\n  " + "\n  ".join(block), file=sys.stderr)
+                sys.exit(3)
+            return
         if not have:
             sys.exit("ws-pass: 这件活的交接里没有本地参考图/视频，拼不了并排图" +
                      (f"（只有链接：{'、'.join(links[:3])}，先下载到 ~/work/ref/）" if links else ""))
@@ -324,7 +343,23 @@ def main(argv):
             shots = [p for p in shots if p not in docs]
             if not shots:
                 sys.exit("ws-pass: 附件都是文档、话里已有链接，不用发附件；只放行文字汇报就不带附件和话，只写 --verdict")
-    if have or links:
+    made = []  # 口子出的并排图：随成品发，不算成品
+    blocked = _local.call("pass_block", rec, rec.get("file") or path, shots)
+    if blocked:
+        sys.exit(f"ws-pass: {blocked}")
+    gated = _local.call("pass_gate", rec, rec.get("file") or path, have, shots, rng_arg)
+    if gated is not None:  # 本机口子出并排图（附在最前面）、判拦不拦；拦下的只有用户看过后明说要看才放行
+        compares, block = gated
+        if block:
+            if override is None:
+                _local.call("on_blocked", nid or board_id(rec, path), shots, verdict, block, rec.get("chat") or "")
+                sys.exit("ws-pass: 检查拦下，没发：\n  " + "\n  ".join(block) +
+                         "\n不合格用 ws-forward 打回；用户看过明说要看，再加 --override \"<用户原话>\"")
+            err = _local.call("override_err", rec, nid or board_id(rec, path), shots, override)
+            if err:
+                sys.exit(f"ws-pass: --override 不放行：{err}")
+        made, shots = compares, [*compares, *shots]
+    elif have or links:
         if not compare:
             sys.exit("ws-pass: 这件活的交接里有参考材料（" + "、".join((have + links)[:3]) + "），发给用户前要附一张「参考 | 成品」并排图："
                      f"先跑 {here / 'ws-pass'} --notes {path} --stitch <成品图>，打开看过，像了再用 --compare <并排图> 发")
@@ -337,7 +372,7 @@ def main(argv):
     if is_cover_job(rec, path) and not cover_ok:
         sys.exit("ws-pass: 这是封面/宣传活，发前要对 bili-playbook 规则逐条看过手机列表大小的缩略图（--stitch 会顺带出）：\n"
                  + cover_rules() + "\n全对了再加 --cover-checked 发；不对用 ws-forward 打回。")
-    diffs = compare_gate(nid or board_id(rec, path), [p for p in shots if p != compare], msg)
+    diffs = compare_gate(nid or board_id(rec, path), [p for p in shots if p != compare and p not in made], msg)
     if diffs:
         msg = msg + "\n\n" + diffs  # 三处差别跟成品同一条消息到用户手里
     if board.is_probe(rec.get("board")):

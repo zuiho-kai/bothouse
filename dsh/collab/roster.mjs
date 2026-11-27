@@ -4,12 +4,11 @@
 // because @-mentions are matched by name.
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { CollabError } from './store.mjs';
+import { CollabError, MAX_NAME } from './store.mjs';
 import { checkAvatar } from './avatars.mjs';
 // DSH's permission preset names (@deepseek-ai/dsh-base cordis.patch.yml presets), kept on the member for the panel.
 const PERMISSION_PRESETS = ['read-only', 'workspace-write', 'danger-full-access'];
 
-const MAX_NAME = 32;
 const MAX_PERSONA = 4000;
 const RESERVED = new Set(['owner', 'user', 'system']);
 const MODEL_LIST_TIMEOUT_MS = 5_000;

@@ -1,12 +1,15 @@
 package discord
 
-import "github.com/chenhg5/cc-connect/core"
+import (
+	"github.com/chenhg5/cc-connect/core"
+	"github.com/chenhg5/cc-connect/core/model"
+)
 
 var _ core.TaskThreadTarget = (*Platform)(nil)
 
 // TaskThreadReplyCtx implements core.TaskThreadTarget: the card's thread is a channel; a
 // progress card started there opens in the detailed view unless someone chose another.
-func (p *Platform) TaskThreadReplyCtx(t *core.Task) (any, bool) {
+func (p *Platform) TaskThreadReplyCtx(t *model.Task) (any, bool) {
 	if t == nil || t.ThreadID == "" || t.ThreadID == t.ChannelID || t.ThreadArchivedAt != nil {
 		return nil, false
 	}

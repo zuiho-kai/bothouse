@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """subagent-ctx-hook: when a subagent's context reaches THRESHOLD tokens, tell it to write a short handoff and stop.
-The main session is never denied. Only a team-workspace main session (its transcript carries the
-"[工作区规矩" rules block) gets a reminder: at MAIN_START tokens and every MAIN_STEP after, PreToolUse adds a note
+The main session is never denied. A bridge-driven main session (a team workspace: its transcript carries the
+"[工作区规矩" rules block; or a chat channel: it carries the bridge's "[bothouse sender_id=" header) gets a reminder: at MAIN_START tokens and every MAIN_STEP after, PreToolUse adds a note
 (additionalContext) asking it to write a handoff, report back and continue in a new session; tools still run.
 Workspace sessions are exempt from the bridge's own context-size refresh (PR #670), so nothing else stops them.
 
@@ -60,13 +60,19 @@ DENY_TIME = "到 {m} 分钟了，停手：只写交接，固定三节：做到�
 
 
 # 工作区主线：11-22 工作区会话 fe7c0e70 一路涨到 31 万、过 30 万的调用 11 次没有任何提示（反思 11-21/22 a 类，#1878）；
-# 25 万取自该反思的改法「上下文到 250k 就写交接状态并开新会话续做」，每涨 5 万再提醒一次取主角色 11-23 定案。
-MAIN_START = 250000
+# 每涨 5 万再提醒一次取主角色 11-23 定案。起点 20 万取自 11-26 反思 a 类（#2063）：25 万线没守住，
+# 当天 8bda7ba1 到 29 万、c5c86450 到 27.4 万（工作区）、cf6c8005 到 28.9 万（聊天主会话，桥 28 万换新只在两轮之间），
+# 改成「提前到 200k」，聊天主会话也一起提醒。
+MAIN_START = 200000
 MAIN_STEP = 50000
 WS_MARK = b"[\xe5\xb7\xa5\xe4\xbd\x9c\xe5\x8c\xba\xe8\xa7\x84\xe7\x9f\xa9"  # "[工作区规矩", core/team_mode.go workspaceRulesText
-MAIN_TIP = ("【上下文到线】这个工作区会话的上下文已约 {n} token（≥25 万），之后每一步都要重读整段上下文。"
+CHAT_MARK = b"[bothouse sender_id="  # 桥送进会话的每条消息头（聊天频道和工作区都有，先认工作区）
+MAIN_TIP = ("【上下文到线】这个工作区会话的上下文已约 {n} token（≥20 万），之后每一步都要重读整段上下文。"
             "做完手上这一步就收口：把做到哪（产出文件在哪）、下一步要动的「文件:行」写进交接页，照交接的交回方式交回，"
             "剩下的开新会话接着做。只是提醒，工具不拦。")
+CHAT_TIP = ("【上下文到线】这个聊天会话的上下文已约 {n} token（≥20 万），之后每一步都要重读整段上下文。"
+            "这一轮不再开新的长读：剩下要查要改的交工作区（ws-handoff），回完这条就跑 bothouse session new --after-turn 换新会话。"
+            "只是提醒，工具不拦。")
 
 
 def _ts(rec):
@@ -204,11 +210,14 @@ def last_ctx(path):
 
 
 def workspace_ctx(path):
-    """(latest, previous) context of a workspace main transcript, or None if it is not a workspace session.
+    """(latest, previous, kind) context of a bridge main transcript (kind "ws" or "chat"), or None if the
+    bridge did not drive it.
     previous = the usage of the assistant message before the latest one (a different message id).
     A message with several tool calls: once one of its calls has a tool_result, previous = latest (already hinted)."""
     with open(path, "rb") as f:
-        if WS_MARK not in f.read(1 << 20):  # 来源：实现细节——规矩块在首条桥消息里，读前 1 MiB 足够
+        head = f.read(1 << 20)  # 来源：实现细节——规矩块和消息头在首条桥消息里，读前 1 MiB 足够
+        kind = "ws" if WS_MARK in head else "chat" if CHAT_MARK in head else None
+        if kind is None:
             return None
         f.seek(0)
         seen = []
@@ -236,8 +245,8 @@ def workspace_ctx(path):
     if not seen:
         return None
     if answered:
-        return seen[-1][1], seen[-1][1]
-    return seen[-1][1], (seen[-2][1] if len(seen) > 1 else 0)
+        return seen[-1][1], seen[-1][1], kind
+    return seen[-1][1], (seen[-2][1] if len(seen) > 1 else 0), kind
 
 
 def main_check(d):
@@ -248,11 +257,11 @@ def main_check(d):
     r = workspace_ctx(tp)
     if not r:
         return None
-    n, prev = r
+    n, prev, kind = r
     step = lambda x: (x - MAIN_START) // MAIN_STEP if x >= MAIN_START else -1
     if step(n) < 0 or step(n) == step(prev):
         return None
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": MAIN_TIP.format(n=n)}}
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": (MAIN_TIP if kind == "ws" else CHAT_TIP).format(n=n)}}
 
 
 def context_tokens(d):
@@ -311,7 +320,7 @@ def progress_write(d):
 def check(d, now=None):
     """The dict to print, or None (pass)."""
     if not d.get("agent_id"):
-        return main_check(d)  # main session: only a workspace reminder, never a deny
+        return main_check(d)  # main session: only a reminder (workspace or chat), never a deny
     if d.get("hook_event_name") == "PreToolUse":
         m = over_time(d, now or time.time())
         if m and not progress_write(d):

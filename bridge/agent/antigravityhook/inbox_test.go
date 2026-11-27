@@ -41,8 +41,16 @@ func TestInboxHookFlow(t *testing.T) {
 	}
 	// A message arriving at the end of the turn keeps it going.
 	_ = b.Put("收尾前")
-	if m := run("Stop"); m["decision"] != "continue" || !strings.Contains(m["reason"].(string), "收尾前") {
+	m := run("Stop")
+	if m["decision"] != "continue" || !strings.Contains(m["reason"].(string), "收尾前") {
 		t.Fatalf("stop %v", m)
+	}
+	// #2259: the turn has usually answered already; the reason must say the earlier text goes out
+	// in the same message and give a way to end without writing the answer again.
+	for _, want := range []string{"拼成同一条消息", "不要再写一遍", "NO_REPLY"} {
+		if !strings.Contains(m["reason"].(string), want) {
+			t.Fatalf("stop reason lacks %q: %v", want, m["reason"])
+		}
 	}
 	// Empty at Stop: the turn ends and later messages are refused (queued by core).
 	if m := run("Stop"); m["decision"] != "allow" {

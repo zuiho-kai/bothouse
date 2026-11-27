@@ -357,6 +357,36 @@ class InIngest(Fake):
              mock.patch.object(I, "QUOTE_LEAD", 0):
             self.assertEqual(I.bad_quotes(["- 用户说「别再加没要的开关」"], lambda: "", [p]), ["「别再加没要的开关」"])  # the check bites
 
+class HistoryPages(unittest.TestCase):
+    def test_history_pages_through_the_window(self):
+        """history() reads through _page().fetch: every page after the window's start, stops at its end (the product copy
+        once had only get(), so every night run logged 'Discord history unavailable: AttributeError')."""
+        import discord_said as d
+        from datetime import datetime, timezone
+        t0 = datetime(2026, 11, 27, tzinfo=timezone.utc).timestamp()
+        msgs = [{"id": str(((int((t0 + i) * 1000)) - d.DISCORD_EPOCH) << 22),
+                 "timestamp": datetime.fromtimestamp(t0 + i, timezone.utc).isoformat()} for i in range(250)]
+        calls = []
+
+        def fake_open(req, timeout=0):
+            after = int(req.full_url.split("after=")[1])
+            calls.append(after)
+            page = [m for m in msgs if int(m["id"]) > after][:100]
+            import io, json
+            class R(io.BytesIO):
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+            return R(json.dumps(page).encode())
+        real = d.urllib.request.urlopen
+        d.urllib.request.urlopen = fake_open
+        try:
+            got = d.history("1", t0 + 10, t0 + 220, "tok")
+        finally:
+            d.urllib.request.urlopen = real
+        assert [m["timestamp"] for m in got] == [m["timestamp"] for m in msgs[10:220]]
+        assert len(calls) == 3
+
+
 
 if __name__ == "__main__":
     unittest.main()

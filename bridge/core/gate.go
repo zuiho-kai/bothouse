@@ -60,6 +60,12 @@ const mentionedNote = "（用户这条明确 @ 了你或回复了你，必须回
 // 「这规矩有问题啊 和门闸冲突了 不是说门闸判断谁接话吗 只是优先主角是」
 const gateReplyNote = "（门闸把这一轮判给你回：没 @ 你也由你接，必须回复，不要只回 NO_REPLY。）"
 
+// bufferedBacklogNote heads the silent backlog handed into a later turn. The attribution
+// metadata is not decoration: answering an older question without quoting or mentioning its
+// author makes the answer look attached to whatever message happened to wake the bot
+// (2026-11-26, Eicy's fork question answered after 石英's monitor notice).
+const bufferedBacklogNote = "（之前没回复的消息，按时间顺序。每条 [backlog-message ...] 都带原消息的 message_id 和 sender_id。回答其中较早的问题时，必须先用 bothouse send --reply-to <那条的 message_id> --message \"...\" 引用原消息；平台不能引用时用 bothouse send --at-users <那条的 sender_id> -m \"...\" @ 原提问人。不要把答案裸接在当前最新消息后面。）"
+
 // gateState is one published gate configuration plus a pointer to the running state. The
 // configuration fields are never written after the value is stored in Engine.gate: a setter
 // copies it, changes the copy and swaps the pointer (Engine.updateGate), so a message goroutine
@@ -289,7 +295,7 @@ func (e *Engine) SetGate(url string, timeoutMs int, fallback string) {
 		next = &cp
 	}
 	if next.gateRuntime == nil {
-		next.gateRuntime = newGateRuntime()
+		next.gateRuntime = e.heard() // one listen buffer for both modes (call_context.go)
 	}
 	next.url, next.timeout, next.fallback = url, time.Duration(timeoutMs)*time.Millisecond, fallback
 	next.inject, next.injectDyn = inject, injectDyn
@@ -440,10 +446,15 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	if msg.FromBot && !msg.Mentioned {
 		// A teammate talking to someone else: only listen. Never start a turn from it, gate or
 		// not, so bots can't chain each other into a loop.
-		if g != nil {
-			g.bufferContext(interactiveKey, msg)
-		}
+		e.heard().bufferContext(interactiveKey, msg)
 		slog.Info("gate: teammate context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
+		return true
+	}
+	if msg.AutomatedNotice {
+		// A monitor/status notice is worth remembering as context, but it is not a
+		// conversation turn: it must never consult the wake model or start a reply.
+		e.heard().bufferContext(interactiveKey, msg)
+		slog.Info("gate: automated notice context", "session", msg.SessionKey, "from", msg.UserName, "len", len(msg.Content))
 		return true
 	}
 	if msg.nativeCommand {
@@ -465,21 +476,29 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		msg.burstDone = false // held while busy, released after the turn ended: nothing left to judge
 		if !msg.IsPermissionResponse {
 			if g == nil && !ownerDM && e.suppressUnaddressedGroup(p, msg) {
+				// Not called here: only listened to. It goes into the same buffer the gate uses,
+				// so the turn that calls this role later gets it (withCallContext).
+				e.heard().bufferContext(interactiveKey, msg)
 				return true
+			}
+			keepUserText(msg)
+			if g == nil {
+				// No routing model: the turn still gets what this role only listened to (user
+				// 2026-11-26「关掉了就默认就不是全带入吗」). Same step as the gate path below.
+				e.withHeardContext(p, msg, session, interactiveKey)
 			}
 			if g == nil && e.applyLocalGate(p, msg, session, interactiveKey) {
 				return true
 			}
 			e.teamNoteTurn(msg, session)
-			// #1856: no gate still records what was seen, so restart catch-up knows where
-			// the posts made while the bridge was down begin (missed_catchup.go).
-			if g == nil && msg.MessageID != "" {
-				markSeen(p, session, msg)
+			if g != nil {
+				// #1856/#2254: the owner-DM fast path with a gate installed also hands the message to
+				// a turn; mark it seen so restart catch-up does not answer it again.
+				if msg.MessageID != "" {
+					markSeen(p, session, msg)
+				}
+				msg.Content = withLatestMark(msg.Content)
 			}
-			// #1375: no gate (agentm's claude role) also means no backfill and no @ note, so the
-			// person's words came bare after the memory and member blocks and read as their tail.
-			keepUserText(msg)
-			msg.Content = withLatestMark(msg.Content)
 		}
 		return false
 	}
@@ -500,9 +519,6 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		if m, ok := p.(InjectedReplyMerger); ok {
 			h.msg.ReplyCtx = m.MergeInjectedReply(h.msg.ReplyCtx, msg.ReplyCtx)
 		}
-		if h.msg.userTextSet || msg.userTextSet {
-			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
-		}
 		// Fold only the sender's own words: msg.Content already carries its own ambient chat,
 		// which would otherwise appear once per message of the burst. bufferedText drops it
 		// wherever a quote or note put it, the same rule the silent buffer uses.
@@ -511,9 +527,12 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		// sits, and the held message's own words the first time a part joins it, so the
 		// voice note below never wraps typed text; voiceMarked stops that second mark.
 		if h.msg.FromVoice && !h.msg.voiceMarked {
-			h.msg.Content, h.msg.voiceMarked = withVoiceNote(h.msg.Content, true), true
+			h.msg.Content, h.msg.voiceMarked = withVoiceNoteBeforeUserText(h.msg.Content, h.msg), true
 		}
 		h.msg.Content = strings.TrimSpace(h.msg.Content + "\n" + withVoiceNote(body, msg.FromVoice))
+		if h.msg.userTextSet || msg.userTextSet {
+			h.msg.userText, h.msg.userTextSet = strings.TrimSpace(userTextOf(h.msg)+"\n"+userTextOf(msg)), true
+		}
 		h.msg.Images = append(h.msg.Images, msg.Images...)
 		h.msg.Files = append(h.msg.Files, msg.Files...)
 		h.msg.Mentioned = h.msg.Mentioned || msg.Mentioned
@@ -578,7 +597,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	// typed buffer as speech and a transcript in the buffer is not handed over as typing.
 	for i := range buffered {
 		if i < len(bufferedVoice) && bufferedVoice[i] {
-			buffered[i] = withVoiceNote(buffered[i], true)
+			buffered[i] = withBufferedVoiceNote(buffered[i])
 		}
 	}
 
@@ -614,7 +633,7 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 		return true
 	}
 	if dec.Action == "silent" {
-		if text := bufferedText(msg); text != "" {
+		if text := backlogTextFor(msg); text != "" {
 			g.bufferVoice(interactiveKey, text, userTextOf(msg), msg.FromVoice && !msg.voiceMarked)
 		}
 		return true
@@ -668,27 +687,9 @@ func (e *Engine) applyGate(p Platform, msg *Message, session *Session, interacti
 	// prompt would call the typed history speech. voiceMarked tells the turn build and the
 	// mid-turn injection below not to mark it a second time.
 	if msg.FromVoice && !msg.voiceMarked {
-		content, msg.voiceMarked = withVoiceNote(content, true), true
+		content, msg.voiceMarked = withVoiceNoteBeforeUserText(content, msg), true
 	}
-	session.backfillMu.Lock() // maomao fork: read and mark seen as one step (Session.backfillMu)
-	if back, images, ok := e.channelBackfill(p, msg, session); ok {
-		// The channel itself is the record: it covers the gate buffer and also
-		// what the buffer never saw (downtime, restarts, dropped messages).
-		if back != "" {
-			content = back + "\n\n" + withLatestMark(content)
-		} else {
-			content = withLatestMark(content)
-		}
-		// maomao fork: the images of those posts go first, in channel order, before this
-		// message's own (for a new turn and for mid-turn injection alike).
-		msg.Images = append(images, msg.Images...)
-	} else if len(buffered) > 0 {
-		content = "（之前没回复的消息，按时间顺序）\n" + strings.Join(buffered, "\n") + "\n\n" + withLatestMark(content)
-	} else {
-		content = withLatestMark(content)
-	}
-	markSeen(p, session, msg)
-	session.backfillMu.Unlock()
+	content = e.withCallContext(p, msg, session, content, buffered)
 
 	inject := content
 	if strings.TrimSpace(inject) == "" {
@@ -758,17 +759,11 @@ func (e *Engine) abortForQueuedFront(p Platform, msg *Message, interactiveKey st
 	}
 }
 
-// buffer keeps text for the next turn of interactiveKey (capped at maxBuffered); gateText is the
-// same message as the user wrote it, which is what the gate sees in Buffered.
-func (g *gateState) buffer(interactiveKey, text, gateText string) {
-	g.bufferVoice(interactiveKey, text, gateText, false)
-}
-
 // bufferVoice is buffer with the entry's origin: a transcript that arrives while the bot is
 // silent must still be marked as speech when it is finally handed to the next turn (#215).
 // The mark goes on this entry, not on the whole assembled prompt: the buffer mixes typed and
 // spoken messages, so one mark for the turn would call the typed ones speech.
-func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
+func (g *gateRuntime) bufferVoice(interactiveKey, text, gateText string, fromVoice bool) {
 	g.mu.Lock()
 	b := append(g.buf[interactiveKey], text)
 	gb := append(g.gbuf[interactiveKey], gateText)
@@ -781,7 +776,7 @@ func (g *gateState) bufferVoice(interactiveKey, text, gateText string, fromVoice
 }
 
 // dropBuffered removes the first n buffered messages (delivered with this turn). Caller holds g.mu.
-func (g *gateState) dropBuffered(interactiveKey string, n int) {
+func (g *gateRuntime) dropBuffered(interactiveKey string, n int) {
 	g.buf[interactiveKey] = g.buf[interactiveKey][min(n, len(g.buf[interactiveKey])):]
 	g.gbuf[interactiveKey] = g.gbuf[interactiveKey][min(n, len(g.gbuf[interactiveKey])):]
 	if vs := g.bufVoice[interactiveKey]; len(vs) > 0 {
@@ -789,10 +784,30 @@ func (g *gateState) dropBuffered(interactiveKey string, n int) {
 	}
 }
 
-// bufferedText is what the gate files for a later turn: the platform's ambient chat (QQ's
-// "[群里刚才的聊天]") is dropped, because the turn that finally answers brings its own.
+// bufferedText is what the gate files for a later turn. It keeps the sender label,
+// platform-supplied quote context and media notes, but drops this message's bridge control
+// head: otherwise every buffered entry repeats the message-ID line and the native-reply
+// instructions, burying the attribution the model needs (2026-11-26). The ambient group
+// log is dropped too, because the turn that finally answers brings its own.
 func bufferedText(msg *Message) string {
 	text := strings.TrimSpace(msg.Content)
+	if identity := chatIdentityBlock(msg); identity != "" {
+		text = strings.ReplaceAll(text, identity+"\n", "")
+		text = strings.ReplaceAll(text, identity, "")
+	}
+	if strings.Contains(text, "[Message IDs:") {
+		lines := strings.Split(text, "\n")
+		kept := lines[:0]
+		for _, line := range lines {
+			if !strings.HasPrefix(strings.TrimSpace(line), "[Message IDs:") {
+				kept = append(kept, line)
+			}
+		}
+		text = strings.Join(kept, "\n")
+	}
+	text = strings.ReplaceAll(text, nativeQuotedReplyInstructions+"\n", "")
+	text = strings.ReplaceAll(text, nativeQuotedReplyInstructions, "")
+	text = strings.TrimSpace(text)
 	if ambient := strings.TrimSpace(msg.AmbientChat); ambient != "" {
 		if strings.HasPrefix(text, ambient) {
 			text = strings.TrimSpace(strings.TrimPrefix(text, ambient))
@@ -805,9 +820,70 @@ func bufferedText(msg *Message) string {
 	return text
 }
 
+// withBufferedVoiceNote marks the spoken part of one buffered backlog entry. The
+// backlog attribution header is metadata, so the note goes under it, immediately above
+// the speaker's words; otherwise the voice mark looks like it belongs to the header and
+// the transcript itself reads as typed text (#215).
+func withBufferedVoiceNote(entry string) string {
+	if head, rest, ok := strings.Cut(entry, "\n"); ok && strings.HasPrefix(head, "[backlog-message ") {
+		return head + "\n" + voiceNoteMark + "\n" + rest
+	}
+	return withVoiceNote(entry, true)
+}
+
+// withVoiceNoteBeforeUserText places the voice note immediately above this message's own
+// words. msg.Content already carries bridge control blocks by the time the gate marks it;
+// wrapping the whole decorated content would leave the note above those blocks instead of
+// above the transcript (#215).
+func withVoiceNoteBeforeUserText(content string, msg *Message) string {
+	body := strings.TrimSpace(senderText(msg, userTextOf(msg)))
+	if body == "" {
+		body = strings.TrimSpace(userTextOf(msg))
+	}
+	if body != "" {
+		if i := strings.LastIndex(content, body); i >= 0 {
+			return strings.TrimRight(content[:i], "\n") + "\n" + voiceNoteMark + "\n" + content[i:]
+		}
+	}
+	return withVoiceNote(content, true)
+}
+
+// backlogText is bufferedText plus the attribution a later turn needs to answer the
+// original speaker rather than appear to answer the message that happened to wake the bot.
+func backlogText(msg *Message) string {
+	text := bufferedText(msg)
+	if text == "" {
+		return text
+	}
+	var attrs []string
+	if msg.MessageID != "" {
+		attrs = append(attrs, "message_id="+msg.MessageID)
+	}
+	if msg.UserID != "" {
+		attrs = append(attrs, "sender_id="+msg.UserID)
+	}
+	if msg.UserName != "" {
+		safeName := strings.NewReplacer(`"`, `'`, "\n", " ", "\r", "").Replace(msg.UserName)
+		attrs = append(attrs, fmt.Sprintf("sender_name=%q", safeName))
+	}
+	if len(attrs) == 0 {
+		return text
+	}
+	return "[backlog-message " + strings.Join(attrs, " ") + "]\n" + text
+}
+
+// backlogTextFor keeps teammate-bot context in its existing structured quote form;
+// human backlog gets the quote-target attribution header.
+func backlogTextFor(msg *Message) string {
+	if msg.FromBot {
+		return bufferedText(msg)
+	}
+	return backlogText(msg)
+}
+
 // bufferContext buffers msg as listen-only context; attachments become a note.
-func (g *gateState) bufferContext(interactiveKey string, msg *Message) {
-	text, gateText := bufferedText(msg), userTextOf(msg)
+func (g *gateRuntime) bufferContext(interactiveKey string, msg *Message) {
+	text, gateText := backlogTextFor(msg), userTextOf(msg)
 	if n := len(msg.Images) + len(msg.Files); n > 0 {
 		note := fmt.Sprintf("（附了 %d 个图片/文件）", n)
 		text, gateText = strings.TrimSpace(text+note), strings.TrimSpace(gateText+note)
@@ -981,6 +1057,9 @@ type gateContextResponse struct {
 		Path string `json:"path"`
 		Desc string `json:"desc"`
 	} `json:"wiki"`
+	// Notice: lines for the people in this chat, not the agent (ctxsvc: the decision block went over
+	// its warn line and was still sent whole, #2065). Posted like the house-rules notice (#2271).
+	Notice []string `json:"notice"`
 }
 
 // bot returns the gate URL's ?bot= value ("" for the main bot).
@@ -1054,6 +1133,14 @@ func (e *Engine) turnContext(session *Session, sessionKey, text, sender string) 
 		slog.Warn("gate: context fetch failed", "session", sessionKey, "error", err)
 		return ""
 	}
+	if len(out.Notice) > 0 {
+		text := strings.Join(out.Notice, "\n")
+		go func() {
+			if err := e.sendNoticeOrOwnerDM(sessionKey, text); err != nil {
+				slog.Error("gate: context notice not sent", "session", sessionKey, "error", err, "notice", text)
+			}
+		}()
+	}
 	var wiki []string
 	for _, w := range out.Wiki {
 		wiki = append(wiki, "\n- "+w.Path+" — "+w.Desc)
@@ -1077,16 +1164,6 @@ func turnEpoch(session *Session) string {
 		ep = t.Epoch
 	})
 	return ep
-}
-
-// withTurnBlocks puts the teammate status, wiki pages and handoff the
-// agent's context does not hold yet before content. Called right before every
-// send of a turn, so a message that never reaches the agent marks nothing as
-// sent. The handoff goes with whatever turn comes first after a fresh start
-// (user, cron, timer or queued); teammate status and wiki pages only with
-// turnCtx messages.
-func (e *Engine) withTurnBlocks(session *Session, sessionKey, query, content string, turnCtx bool) string {
-	return e.withTurnBlocksRef(session, sessionKey, query, "", content, turnCtx, nil)
 }
 
 // withTurnBlocksRef also puts the background of the work a reply quotes (ref, reply_task.go)

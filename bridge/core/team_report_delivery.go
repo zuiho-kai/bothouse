@@ -150,28 +150,6 @@ func (e *Engine) saveReportsLocked() error {
 	return nil
 }
 
-// reportSeenRecently reports whether this handback is still pending or was delivered within the
-// dedupe window; true means no second wake/post for the same words.
-func (e *Engine) reportSeenRecently(key string) bool {
-	e.teamExit.mu.Lock()
-	defer e.teamExit.mu.Unlock()
-	if rec := e.loadReportsLocked()[key]; rec != nil {
-		if !rec.delivered() || time.Since(rec.DeliveredAt) <= teamReportDedupe {
-			return true
-		}
-		delete(e.teamExit.reports, key)
-		e.saveReportsLocked()
-	}
-	return false
-}
-
-// rememberReport records a queued handback wake. false: an equal report is still pending or was
-// just delivered, so the caller must not queue another wake, or the record could not be saved.
-func (e *Engine) rememberReport(rec *pendingReport) bool {
-	ok, _ := e.rememberReportErr(rec)
-	return ok
-}
-
 // rememberReportErr keeps the dedupe answer apart from the persistence error: a record that
 // could not be written must not become a wake's only copy. Callers hold no lock.
 func (e *Engine) rememberReportErr(rec *pendingReport) (bool, error) {

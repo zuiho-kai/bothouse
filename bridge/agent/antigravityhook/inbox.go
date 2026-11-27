@@ -141,7 +141,18 @@ func (b *Inbox) take(closeIfEmpty bool) ([]string, error) {
 
 // stopReasonHead introduces messages the Stop hook hands over: agy injects the reason as a
 // system message, so say plainly that these are the people in the chat, not the system.
-const stopReasonHead = "（这一轮还在进行时，聊天里又发来了新消息，由 bothouse 原样转来，等同用户亲自发的消息。先照它们回应或调整，再结束这一轮。）"
+//
+// At Stop the model has usually written its whole answer already, and everything it writes in a
+// turn goes out as one chat message. It must know that, or it answers again what it just answered
+// and the reply carries the answer twice: 2026-11-26 20:34 discord 1561556710097952888, 「怎么弄」
+// answered, 「给我网址和操作流程」 arrived at Stop with 「先照它们回应」 and the 「必须回复」 note,
+// and the model wrote the same steps a second time (#2259). A NO_REPLY after real text only drops
+// the marker (core stripTrailingSilent), so it is the way to end without adding anything.
+const stopReasonHead = "（你这一轮写完、正要结束时，聊天里又发来了新消息，由 bothouse 原样转来，等同用户亲自发的消息。" +
+	"你这一轮前面写的回复还没发出去，会和你接下来写的拼成同一条消息发出。" +
+	"所以先对照前面已经写的：新消息问的已经答到了，就不要再写一遍，换个说法重写也算重复；只补前面没答到、或要按新消息改的部分。" +
+	"前面已经全部答到，就只回 NO_REPLY 结束这一轮，前面写的照常发出。" +
+	"转来的消息里「必须回复」的要求，由这一条消息满足。）"
 
 // RunInboxHook is the "_agy-inbox-hook <event>" command: it answers agy's PreInvocation or Stop
 // hook from the inbox named by EnvInbox. Any failure answers "go on as usual", never an error:

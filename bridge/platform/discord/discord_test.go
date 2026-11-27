@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -113,7 +115,8 @@ func TestResolveThreadReplyContext_UsesExistingThreadChannel(t *testing.T) {
 		},
 	}
 
-	sessionKey, rc, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	sessionKey, rc, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -151,7 +154,8 @@ func TestResolveThreadReplyContext_FallsBackToMessageChannelWhenParentMissing(t 
 			Author:    &discordgo.User{ID: "u1"},
 		},
 	}
-	_, _, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	_, _, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -197,7 +201,8 @@ func TestResolveThreadReplyContext_CreatesThreadForGuildMessage(t *testing.T) {
 		},
 	}
 
-	sessionKey, rc, parentChannelID, err := resolveThreadReplyContext(msg, "bot-1", ops)
+	p := &Platform{botID: "bot-1", threadOps: ops}
+	sessionKey, rc, parentChannelID, err := p.resolveThreadReplyContext(msg)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext() error = %v", err)
 	}
@@ -228,8 +233,9 @@ func TestSessionKeyForChannel_UsesThreadKeyWhenChannelIsThread(t *testing.T) {
 		},
 	}
 
-	if got := resolveSessionKeyForChannel("thread-7", "user-1", false, true, ops); got != "discord:thread-7" {
-		t.Fatalf("resolveSessionKeyForChannel() = %q, want discord:thread-7", got)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	if got, _ := p.interactionKeys("thread-7", "user-1"); got != "discord:thread-7" {
+		t.Fatalf("interaction key = %q, want discord:thread-7", got)
 	}
 }
 
@@ -275,8 +281,9 @@ func TestResolveParentChannelID(t *testing.T) {
 				ch := tc.channel
 				ops.resolveChannel = func(string) (*discordgo.Channel, error) { return ch, nil }
 			}
-			if got := resolveParentChannelID(tc.channelID, ops); got != tc.want {
-				t.Errorf("resolveParentChannelID(%q) = %q, want %q", tc.channelID, got, tc.want)
+			p := &Platform{threadIsolation: true, threadOps: ops}
+			if _, got := p.interactionKeys(tc.channelID, "user"); got != tc.want {
+				t.Errorf("interaction parent(%q) = %q, want %q", tc.channelID, got, tc.want)
 			}
 		})
 	}
@@ -322,7 +329,8 @@ func TestResolveCronReplyTarget_CreatesStandaloneThread(t *testing.T) {
 		return nil
 	}
 
-	sessionKey, rc, err := resolveCronReplyTarget("discord:channel-1:user-1", "Daily sync", ops)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	sessionKey, rc, err := p.resolveCronReplyTarget("discord:channel-1:user-1", "Daily sync")
 	if err != nil {
 		t.Fatalf("resolveCronReplyTarget() error = %v", err)
 	}
@@ -343,6 +351,16 @@ func TestResolveCronReplyTarget_CreatesStandaloneThread(t *testing.T) {
 	}
 	if joinedThread != "thread-fresh" {
 		t.Fatalf("joinedThread = %q, want thread-fresh", joinedThread)
+	}
+	p.threadSessionPerUser = true
+	for source, want := range map[string]string{
+		"discord:channel-1:user-1": "discord:thread-fresh:user-1",
+		"discord:channel-1":        "discord:thread-fresh",
+	} {
+		key, ctx, err := p.ResolveCronReplyTarget(source, "Daily sync")
+		if err != nil || key != want || ctx.(replyContext).targetChannelID() != "thread-fresh" {
+			t.Errorf("scheduled thread for %s = %s, %+v, %v", source, key, ctx, err)
+		}
 	}
 }
 
@@ -367,7 +385,8 @@ func TestResolveCronReplyTarget_ReusesExistingThreadKey(t *testing.T) {
 		return &discordgo.Channel{ID: "thread-fresh-2", Type: discordgo.ChannelTypeGuildPublicThread}, nil
 	}
 
-	sessionKey, rc, err := resolveCronReplyTarget("discord:thread-1", "cron", ops)
+	p := &Platform{threadIsolation: true, threadOps: ops}
+	sessionKey, rc, err := p.resolveCronReplyTarget("discord:thread-1", "cron")
 	if err != nil {
 		t.Fatalf("resolveCronReplyTarget() error = %v", err)
 	}
@@ -396,8 +415,8 @@ func TestSendWithButtons_UsesFollowupComponents(t *testing.T) {
 				t.Fatalf("original content = %#v, want choose mode", payload["content"])
 			}
 		case strings.Contains(r.URL.Path, "/webhooks/app-1/token-1"):
-			if payload["content"] != "choose mode" {
-				t.Fatalf("followup content = %#v, want choose mode", payload["content"])
+			if c, _ := payload["content"].(string); c != "" {
+				t.Fatalf("followup content = %#v, want empty (text already sent in the original response, #2232)", payload["content"])
 			}
 			components, ok := payload["components"].([]any)
 			if !ok || len(components) != 1 {
@@ -919,9 +938,9 @@ func TestSendPreviewStart_ProgressPayloadUsesEmbed(t *testing.T) {
 	s := newTestDiscordSession(t, server)
 	p := &Platform{session: s, progressStyle: "card"}
 
-	progress := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryThinking, Text: "planning"},
-		{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
+	progress := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryThinking, Text: "planning"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 	if progress == "" {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
@@ -1032,8 +1051,8 @@ func TestUpdateMessage_ProgressPayloadUsesEmbed(t *testing.T) {
 	p := &Platform{session: s, progressStyle: "card"}
 
 	exitCode := 0
-	progress := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{
-		{Kind: core.ProgressEntryToolResult, Tool: "Bash", Text: "hi", Status: "completed", ExitCode: &exitCode},
+	progress := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "hi", Status: "completed", ExitCode: &exitCode},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateCompleted)
 	if progress == "" {
 		t.Fatal("BuildProgressCardPayloadV2() returned empty payload")
@@ -1081,8 +1100,8 @@ func TestBuildDiscordProgressEmbed_ShowsTruncatedNotice(t *testing.T) {
 		Lang:      string(core.LangEnglish),
 		State:     core.ProgressCardStateRunning,
 		Truncated: true,
-		Items: []core.ProgressCardEntry{
-			{Kind: core.ProgressEntryThinking, Text: "reviewing repository state"},
+		Items: []model.ProgressCardEntry{
+			{Kind: model.ProgressEntryThinking, Text: "reviewing repository state"},
 		},
 	}
 
@@ -1733,7 +1752,8 @@ func TestDispatchMessage_SetsChannelKeyForThreadIsolation(t *testing.T) {
 		Author:    &discordgo.User{ID: "U1", Username: "user1"},
 	}}
 
-	threadSessionKey, rctx, _, err := resolveThreadReplyContext(m, "BOT_ID", ops)
+	p.threadOps = ops
+	threadSessionKey, rctx, _, err := p.resolveThreadReplyContext(m)
 	if err != nil {
 		t.Fatalf("resolveThreadReplyContext error: %v", err)
 	}

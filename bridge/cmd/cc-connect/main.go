@@ -231,7 +231,6 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"workspace":    runWorkspace,
 	"channel":      runChannel,
 	"ctx":          runCtx,
-	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"vent":         runVent,
 	"secret":       runSecret,
@@ -244,15 +243,14 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"agent-sid":    runAgentSID,
 	"daemon":       runDaemon,
 	"feishu":       runFeishu,
-	"tuitui":       runTuiTui,
 	"weixin":       runWeixin,
-	"yuanbao":      runYuanbao,
 	"doctor":       runDoctor,
 	"web":          runWeb,
 	"pet":          runPet,
 	"setup":        runSetup,
 	"module":       runModule,
 	"features":     runFeatures,
+	"rules":        runRules,
 }
 
 func main() {
@@ -588,6 +586,11 @@ func runMain() {
 	}
 
 	// a wizard-made main wiki runs its own copy of the wiki programs: bring it to this build's (#1650)
+	if updated, err := core.SyncRoleWikiPrograms(cfg.DataDir); err != nil {
+		slog.Warn("wiki programs: role install update failed", "error", err)
+	} else if updated {
+		slog.Info("wiki programs: role install updated to this build")
+	}
 	if updated, err := core.SyncMainWikiPrograms(cfg.DataDir); err != nil {
 		slog.Warn("wiki programs: update failed", "error", err)
 	} else if updated {
@@ -642,6 +645,7 @@ func runMain() {
 			slog.Error("bridge: failed to create server - token is required (or set insecure=true for local dev)")
 			os.Exit(1)
 		}
+		bridgeSrv.SetHost(cfg.Bridge.Host)
 		rt.bridgeSrv = bridgeSrv
 		for i, e := range engines {
 			rt.registerBridge(builtProjs[i].Name, e)
@@ -893,17 +897,6 @@ func runMain() {
 			}
 		}
 		relayMgr.SetVisibility(cfg.Relay.Visibility)
-		if cfg.Relay.VoiceResident != nil {
-			idle := 10 * time.Minute // 来源：调研 A 3.5 空闲 TTL 10 分钟。
-			turns := 30              // 来源：调研 A 3.5 累计 30 轮回收。
-			if cfg.Relay.VoiceResidentIdleSecs != nil && *cfg.Relay.VoiceResidentIdleSecs > 0 {
-				idle = time.Duration(*cfg.Relay.VoiceResidentIdleSecs) * time.Second
-			}
-			if cfg.Relay.VoiceResidentMaxTurns != nil && *cfg.Relay.VoiceResidentMaxTurns > 0 {
-				turns = *cfg.Relay.VoiceResidentMaxTurns
-			}
-			relayMgr.SetVoiceResident(*cfg.Relay.VoiceResident, idle, turns)
-		}
 		apiSrv.SetRelayManager(relayMgr)
 
 		// Create shared DirHistory for all engines
@@ -1100,22 +1093,27 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		lang = core.LangAuto // auto-detect
 	}
 
-	engine := core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
-	b.engine = engine
-	engine.SetBaseWorkDir(workDir)
-	engine.SetProjectStateStore(projectState)
-	engine.SetDataDir(cfg.DataDir)
+	opts := core.EngineOptions{
+		Name: proj.Name, Agent: agent, Platforms: platforms, SessionStorePath: sessionFile, Lang: lang,
+		BaseWorkDir:  workDir,
+		ProjectState: projectState,
+		DataDir:      cfg.DataDir,
+	}
+	// An early return still hands an engine to startProject, which stops it.
+	bareEngine := func() *core.Engine {
+		return core.NewEngine(proj.Name, agent, platforms, sessionFile, lang)
+	}
 	if proj.PublicProgressEnabled() {
-		if err := engine.EnablePublicProgress(); err != nil {
-			slog.Error("public progress initialization failed", "error", err)
-			return b, fmt.Errorf("public progress: %w", err)
-		}
+		pp := &core.PublicProgressOptions{}
 		if proj.PublicProgressThreadArchiveMins != nil {
-			engine.SetPublicProgressThreadArchiveAfter(time.Duration(*proj.PublicProgressThreadArchiveMins) * time.Minute)
+			d := time.Duration(*proj.PublicProgressThreadArchiveMins) * time.Minute
+			pp.ThreadArchiveAfter = &d
 		}
 		if proj.PublicProgressResultReadyArchiveMins != nil {
-			engine.SetPublicProgressResultReadyThreadArchiveAfter(time.Duration(*proj.PublicProgressResultReadyArchiveMins) * time.Minute)
+			d := time.Duration(*proj.PublicProgressResultReadyArchiveMins) * time.Minute
+			pp.ResultReadyThreadArchiveAfter = &d
 		}
+		opts.PublicProgress = pp
 	}
 
 	// Wire multi-workspace mode
@@ -1127,12 +1125,14 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		}
 		if err := os.MkdirAll(baseDir, 0o755); err != nil {
 			slog.Error("failed to create base_dir", "path", baseDir, "err", err)
+			b.engine = bareEngine()
 			return b, errSkipProject
 		}
-		bindingStore := filepath.Join(cfg.DataDir, "workspace_bindings.json")
-		engine.SetMultiWorkspace(baseDir, bindingStore)
-		if proj.WorkspaceInitAllowLocalPaths != nil {
-			engine.SetWorkspaceInitAllowLocalPaths(*proj.WorkspaceInitAllowLocalPaths)
+		mw := &core.MultiWorkspaceOptions{
+			BaseDir:             baseDir,
+			BindingStorePath:    filepath.Join(cfg.DataDir, "workspace_bindings.json"),
+			InitAllowLocalPaths: proj.WorkspaceInitAllowLocalPaths,
+			SkipGit:             proj.SkipGit,
 		}
 		idleMins := cfg.WorkspaceIdleTimeoutMins
 		if idleMins == nil && proj.WorkspaceIdleTimeoutMinsLegacy != nil {
@@ -1141,16 +1141,13 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 			idleMins = proj.WorkspaceIdleTimeoutMinsLegacy
 		}
 		if idleMins != nil {
-			mins := *idleMins
-			if mins <= 0 {
-				engine.SetWorkspaceIdleTimeout(0)
-			} else {
-				engine.SetWorkspaceIdleTimeout(time.Duration(mins) * time.Minute)
+			var d time.Duration
+			if mins := *idleMins; mins > 0 {
+				d = time.Duration(mins) * time.Minute
 			}
+			mw.IdleTimeout = &d
 		}
-		if proj.SkipGit != nil {
-			engine.SetSkipGit(*proj.SkipGit)
-		}
+		opts.MultiWorkspace = mw
 		slog.Info("multi-workspace mode enabled", "project", proj.Name, "base_dir", baseDir)
 	}
 
@@ -1168,6 +1165,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 	if observeEnabled {
 		if obsChan == "" {
 			slog.Error("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
+			b.engine = bareEngine()
 			return b, errors.New("observe: channel is required (use --observe-channel or set channel in [projects.observe])")
 		}
 		hasSlack := false
@@ -1184,29 +1182,32 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 			if projectDir == "" {
 				slog.Warn("observe: could not find Claude Code project directory", "workDir", workDir)
 			} else {
-				sessionKey := fmt.Sprintf("slack:%s", obsChan)
-				engine.SetObserveConfig(projectDir, sessionKey)
+				opts.Observe = &core.ObserveOptions{ProjectDir: projectDir, SessionKey: fmt.Sprintf("slack:%s", obsChan)}
 			}
 		}
 	}
 
-	engine.SetCommandSaveAddFunc(func(name, description, prompt, exec, workDir string) error {
-		return config.AddCommand(config.CommandConfig{Name: name, Description: description, Prompt: prompt, Exec: exec, WorkDir: workDir})
-	})
-	engine.SetCommandSaveDelFunc(func(name string) error {
-		return config.RemoveCommand(name)
-	})
-
-	engine.SetAliasSaveAddFunc(func(name, command string) error {
-		return config.AddAlias(config.AliasConfig{Name: name, Command: command})
-	})
-	engine.SetAliasSaveDelFunc(func(name string) error {
-		return config.RemoveAlias(name)
-	})
+	opts.Save = core.EngineSaveFuncs{
+		CommandAdd: func(name, description, prompt, exec, workDir string) error {
+			return config.AddCommand(config.CommandConfig{Name: name, Description: description, Prompt: prompt, Exec: exec, WorkDir: workDir})
+		},
+		CommandDel: func(name string) error {
+			return config.RemoveCommand(name)
+		},
+		AliasAdd: func(name, command string) error {
+			return config.AddAlias(config.AliasConfig{Name: name, Command: command})
+		},
+		AliasDel: func(name string) error {
+			return config.RemoveAlias(name)
+		},
+		Display: func(mode *string, thinkingMessages *bool, thinkingMaxLen, toolMaxLen *int, toolMessages *bool) error {
+			return config.SaveDisplayConfig(mode, thinkingMessages, thinkingMaxLen, toolMaxLen, toolMessages)
+		},
+	}
 
 	// Wire shell configuration
 	shell, shellFlag, shellProfile := config.EffectiveShell(cfg, &proj)
-	engine.SetShell(shell, shellFlag, shellProfile)
+	opts.Shell = core.ShellOptions{Shell: shell, Flag: shellFlag, Profile: shellProfile}
 
 	// Wire hooks
 	if len(cfg.Hooks) > 0 {
@@ -1221,17 +1222,17 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 				Async:   h.Async,
 			}
 		}
-		engine.SetHooks(core.NewHookManager(proj.Name, coreHooks, shell, shellFlag, shellProfile))
+		opts.Hooks = core.NewHookManager(proj.Name, coreHooks, shell, shellFlag, shellProfile)
 	}
 
 	// Wire local reference normalization / rendering
-	engine.SetReferenceConfig(core.ReferenceRenderCfg{
+	opts.References = core.ReferenceRenderCfg{
 		NormalizeAgents: proj.References.NormalizeAgents,
 		RenderPlatforms: proj.References.RenderPlatforms,
 		DisplayPath:     proj.References.DisplayPath,
 		MarkerStyle:     proj.References.MarkerStyle,
 		EnclosureStyle:  proj.References.EnclosureStyle,
-	})
+	}
 
 	// Wire streaming preview
 	{
@@ -1251,12 +1252,15 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 		if cfg.StreamPreview.DisabledPlatforms != nil {
 			spcfg.DisabledPlatforms = cfg.StreamPreview.DisabledPlatforms
 		}
-		engine.SetStreamPreviewCfg(spcfg)
+		opts.StreamPreview = spcfg
 	}
 
-	engine.SetDisplaySaveFunc(func(mode *string, thinkingMessages *bool, thinkingMaxLen, toolMaxLen *int, toolMessages *bool) error {
-		return config.SaveDisplayConfig(mode, thinkingMessages, thinkingMaxLen, toolMaxLen, toolMessages)
-	})
+	engine, err := core.NewEngineWithOptions(opts)
+	b.engine = engine
+	if err != nil {
+		slog.Error("public progress initialization failed", "error", err)
+		return b, fmt.Errorf("public progress: %w", err)
+	}
 
 	// Everything a config reload may change is applied by one function, shared with reloadConfig.
 	applyProjectSettings(engine, cfg, proj)
@@ -1711,7 +1715,7 @@ func printUsage() {
 
   Bridge your messaging platforms to local AI coding agents.
   Supports: Claude Code, Codex, Cursor, Gemini CLI, Qoder CLI, OpenCode
-  Platforms: Feishu, TuiTui, Telegram, Slack, DingTalk, Discord, LINE, WeChat Work, Weixin, QQ, QQ Bot
+  Platforms: Feishu, Telegram, Slack, Discord, WeChat Work, Weixin, QQ, QQ Bot
 
   bothouse: https://github.com/zuiho-kai/bothouse (docs/GETTING_STARTED.md)
 
@@ -1796,12 +1800,6 @@ Commands:
     new              Force QR onboarding to create a new bot
     bind             Bind existing app_id/app_secret
 
-  tuitui             Access TuiTui history, posts, and attachments
-    messages         Read chat history
-    search           Search chat history
-    post             Post a channel message
-    download         Download a message attachment
-
   weixin             Setup Weixin personal (ilink) via QR or token
     setup            QR login, or bind when --token is provided
     new              Force QR login
@@ -1826,7 +1824,6 @@ Examples:
   bothouse cron list                List all scheduled tasks
   bothouse feishu setup             Setup Feishu/Lark bot credentials
   bothouse weixin setup             Setup Weixin (ilink) with QR or --token
-  bothouse yuanbao setup            Setup Yuanbao bot with --token app_key:app_secret
   bothouse update                   Update to the latest version
   bothouse config format            Format the config file
   bothouse config example > c.toml  Save example config to a file
@@ -2065,7 +2062,6 @@ func applyProjectSettings(engine *core.Engine, cfg *config.Config, proj config.P
 	engine.SetMemberWorkspaces(proj.MemberWorkspacesEnabled())
 	engine.SetMemberWorkspacesSaver(saveMemberWorkspaces)
 	engine.SetDispatchMode(proj.DispatchMode)
-	engine.SetVoiceDesk(proj.VoiceDesk)
 }
 
 func reloadConfig(configPath, projName string, engine *core.Engine, started map[string]map[string]any) (*core.ConfigReloadResult, error) {

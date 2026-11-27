@@ -88,7 +88,7 @@ from aiohttp import WSCloseCode, WSMsgType, web
 
 from . import cloudweb, webpush
 from .errors import Conflict, WorkspaceError   # 定义在叶子模块（见 rh/errors.py），这里照旧可 from rh.hub import
-from .meeting import MAX_TEXT_CHARS, clean
+from .meeting import MAX_TEXT_CHARS, clean, clip
 from .voice import SAMPLE_RATE
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -629,7 +629,7 @@ class Hub:
         cur = self.db.execute(
             "INSERT INTO messages(room_id, author_kind, author, name, text, status, spoken, created_at, updated_at,"
             " client_key, card, from_turn) VALUES(?,?,?,?,?,?,NULL,?,?,?,?,?)",
-            (room_id, kind, author, name, clean(text, max_chars), status, now, now, key, card, 1 if from_turn else None))
+            (room_id, kind, author, name, clip(text, max_chars), status, now, now, key, card, 1 if from_turn else None))
         self.db.commit()
         return self.message(cur.lastrowid), True
 
@@ -834,6 +834,23 @@ class Hub:
         for pid, play in plays.items():
             self.out(play["ws"]).put(json.dumps({"type": "device", "event": "stop", "role": play["role"],
                                                  "play_id": pid}), pid, stop=True)
+
+    async def tell_undelivered(self, room_id: int, who: str, text: str) -> None:
+        """一条消息因频道已归档进不去：在还开着的频道贴一条系统消息并推到手机，不只写日志
+        （用户 11-26「超限照发不砍并在频道里报警，不只写日志」，#2065）。贴到这个工作区归属的聊天频道，
+        没有或也归档了就贴第一个频道（它不能归档，update_room）。原文整条记进日志。"""
+        room = self.room(room_id)
+        name = room["name"] if room else str(room_id)
+        print(f"[hub] {who} 发往 #{name} 的消息没发出（频道已归档），原文：{text}", file=sys.stderr, flush=True)
+        target = self.workspace_owner(room_id)
+        t = self.room(target) if target is not None else None
+        if t is None or t["archived_at"] is not None:
+            target = self.first_room()
+        msg, _ = self.create(target, {"author_kind": "system",
+                                      "text": f"有条回复因频道归档没发出：{who} 发往 #{name}，{len(text)} 字。恢复 #{name} 后让它重发。"})
+        await self.broadcast({"type": "message", "message": msg}, target)
+        await self.notify_new(msg)
+        self.push_soon(msg, notify=True)
 
     async def notify_new(self, msg: dict) -> None:
         for f in self.listeners:

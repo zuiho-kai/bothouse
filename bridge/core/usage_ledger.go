@@ -208,14 +208,6 @@ func (l *UsageLedger) readDay(date string) (usageDay, error) {
 	return day, err
 }
 
-// Record appends one record synchronously.
-func (l *UsageLedger) Record(r UsageRecord) error {
-	if r.Time.IsZero() {
-		r.Time = time.Now()
-	}
-	return l.Upsert([]UsageRecord{r})
-}
-
 // Upsert writes records grouped by local date. A record whose Key matches an
 // existing record of that day replaces it, keeping the larger value of each
 // token field (a log can repeat one response with partial then final usage).
@@ -371,13 +363,6 @@ func (l *UsageLedger) aggregate(records []UsageRecord, group string) []UsageAggr
 	return out
 }
 
-// Query uses local calendar dates, inclusively. Missing dates have no buckets.
-// It takes no lock: Record replaces day files by rename, so a read sees either
-// the old or the new file, and queries never hold up writes.
-func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]UsageAggregate, error) {
-	return l.QueryMember(from, to, group, role, model, "")
-}
-
 func (l *UsageLedger) QueryMember(from, to time.Time, group, role, model, member string) ([]UsageAggregate, error) {
 	turns, err := readUsageTurns(filepath.Join(l.dir, "turns"))
 	if err != nil {
@@ -414,4 +399,19 @@ func (l *UsageLedger) QueryMember(from, to time.Time, group, role, model, member
 		})
 	}
 	return rows, nil
+}
+
+// Query uses local calendar dates, inclusively. Missing dates have no buckets.
+// It takes no lock: Record replaces day files by rename, so a read sees either
+// the old or the new file, and queries never hold up writes.
+func (l *UsageLedger) Query(from, to time.Time, group, role, model string) ([]UsageAggregate, error) {
+	return l.QueryMember(from, to, group, role, model, "")
+}
+
+// Record appends one record synchronously.
+func (l *UsageLedger) Record(r UsageRecord) error {
+	if r.Time.IsZero() {
+		r.Time = time.Now()
+	}
+	return l.Upsert([]UsageRecord{r})
 }

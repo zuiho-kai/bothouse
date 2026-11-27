@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -40,10 +42,10 @@ func (p *Platform) workspaceSession() (workspaceAPI, error) {
 	return nil, errors.New("discord: workspace: not connected")
 }
 
-func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) TeamGuildChannels(ctx context.Context, channelID string) (model.TeamChannel, []model.TeamChannel, error) {
 	api, err := p.workspaceSession()
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 	self, all, err := p.teamGuildChannels(api, channelID, discordgo.WithContext(ctx))
 	return self, all, workspaceErr(err)
@@ -103,7 +105,7 @@ type channelMessagesAPI interface {
 }
 
 // TeamChannelMessages reads a workspace channel's whole history, oldest first, for its archive.
-func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
+func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]model.TeamArchivedMessage, error) {
 	s := p.boardSession()
 	if s == nil {
 		return nil, errors.New("discord: workspace: not connected")
@@ -111,8 +113,8 @@ func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([
 	return teamChannelMessages(s, channelID, discordgo.WithContext(ctx))
 }
 
-func teamChannelMessages(api channelMessagesAPI, channelID string, options ...discordgo.RequestOption) ([]core.TeamArchivedMessage, error) {
-	var out []core.TeamArchivedMessage
+func teamChannelMessages(api channelMessagesAPI, channelID string, options ...discordgo.RequestOption) ([]model.TeamArchivedMessage, error) {
+	var out []model.TeamArchivedMessage
 	before := ""
 	for {
 		page, err := api.ChannelMessages(channelID, 100, before, "", "", options...) // Discord 单页上限 100
@@ -120,7 +122,7 @@ func teamChannelMessages(api channelMessagesAPI, channelID string, options ...di
 			return nil, err
 		}
 		for _, m := range page {
-			a := core.TeamArchivedMessage{ID: m.ID, Time: m.Timestamp, Content: m.Content}
+			a := model.TeamArchivedMessage{ID: m.ID, Time: m.Timestamp, Content: m.Content}
 			if m.Author != nil {
 				a.Author = m.Author.Username
 			}
@@ -147,10 +149,10 @@ func teamChannelMessages(api channelMessagesAPI, channelID string, options ...di
 	return out, nil
 }
 
-func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (core.TeamChannel, error) {
+func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannelID, name string) (model.TeamChannel, error) {
 	api, err := p.workspaceSession()
 	if err != nil {
-		return core.TeamChannel{}, err
+		return model.TeamChannel{}, err
 	}
 	c, err := p.createTeamWorkspaceChannel(api, besideChannelID, name, discordgo.WithContext(ctx))
 	return c, workspaceErr(p.missingPermissionErr(err, permManageChannels))
@@ -263,23 +265,23 @@ func workspaceErr(err error) error {
 	return err
 }
 
-func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options ...discordgo.RequestOption) (model.TeamChannel, []model.TeamChannel, error) {
 	ch, err := api.Channel(channelID, options...)
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 	thread := ch
 	if ch, err = p.workspaceHost(api, ch, options...); err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 	if !teamHostType(ch.Type) || ch.GuildID == "" {
-		return core.TeamChannel{}, nil, fmt.Errorf("discord: channel %s: %w", channelID, core.ErrNotTeamChannel)
+		return model.TeamChannel{}, nil, fmt.Errorf("discord: channel %s: %w", channelID, core.ErrNotTeamChannel)
 	}
 	if isDMChannelType(thread.Type) {
 		// A DM works as a chat channel too: its workspaces are the bot's pool in its team server,
 		// and the reports come back to the DM. 来源：2026-11-10 agentm leihui 私聊派活报
 		// 「workspace new 失败：not a guild text channel」，用户「私聊被拒绝了，不应该有这个问题」。
-		self := core.TeamChannel{ID: thread.ID, Name: "私聊", ParentID: ch.ParentID}
+		self := model.TeamChannel{ID: thread.ID, Name: "私聊", ParentID: ch.ParentID}
 		_, all, err := p.teamGuildChannels(api, ch.ID, options...)
 		return self, all, err
 	}
@@ -292,7 +294,7 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 	}
 	list, err := api.GuildChannels(ch.GuildID, options...)
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 	owned, err := p.workspaceShelfStore().guild(ch.GuildID)
 	if err != nil {
@@ -326,7 +328,7 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 		}
 	}
 	shelved := func(c *discordgo.Channel) bool { return owned.Channels[c.ID] && idle[c.ParentID] }
-	var all []core.TeamChannel
+	var all []model.TeamChannel
 	for _, c := range list {
 		if c != nil && c.Type == discordgo.ChannelTypeGuildText {
 			// Exclude strangers entirely: merely clearing Shelved would let their
@@ -334,16 +336,16 @@ func (p *Platform) teamGuildChannels(api workspaceAPI, channelID string, options
 			if idle[c.ParentID] && !owned.Channels[c.ID] {
 				continue
 			}
-			all = append(all, core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
+			all = append(all, model.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved(c)})
 		}
 	}
 	if thread != ch {
 		// A thread (子区) works as a chat channel: its workspaces are the pool beside its text
 		// channel, and the reports come back to the thread itself, where the user asked.
 		// 来源：2026-11-10 agentm #32 「当前Discord子区不是guild text channel」，子区派的 GPU 测试没人接。
-		return core.TeamChannel{ID: thread.ID, Name: thread.Name, ParentID: ch.ParentID}, all, nil
+		return model.TeamChannel{ID: thread.ID, Name: thread.Name, ParentID: ch.ParentID}, all, nil
 	}
-	return core.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
+	return model.TeamChannel{ID: ch.ID, Name: ch.Name, ParentID: ch.ParentID, Shelved: shelved(ch)}, all, nil
 }
 
 // teamHostType: channels a chat channel's workspaces are created beside. A forum (or media) channel
@@ -554,16 +556,16 @@ func missingPermission(err error) bool {
 	return rest.Response != nil && rest.Response.StatusCode == http.StatusForbidden
 }
 
-func (p *Platform) createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (core.TeamChannel, error) {
+func (p *Platform) createTeamWorkspaceChannel(api workspaceAPI, besideChannelID, name string, options ...discordgo.RequestOption) (model.TeamChannel, error) {
 	ch, err := api.Channel(besideChannelID, options...)
 	if err == nil {
 		ch, err = p.workspaceHost(api, ch, options...) // beside a thread = beside its text channel; a DM = in the team server
 	}
 	if err != nil {
-		return core.TeamChannel{}, err
+		return model.TeamChannel{}, err
 	}
 	if ch.GuildID == "" {
-		return core.TeamChannel{}, fmt.Errorf("discord: channel %s: %w", besideChannelID, core.ErrNotTeamChannel)
+		return model.TeamChannel{}, fmt.Errorf("discord: channel %s: %w", besideChannelID, core.ErrNotTeamChannel)
 	}
 	// A new workspace goes straight into the workspace category; when the category cannot be had
 	// (no guild-wide 「管理频道」), it is created beside the chat channel as before, and core moves
@@ -582,7 +584,7 @@ func (p *Platform) createTeamWorkspaceChannel(api workspaceAPI, besideChannelID,
 		Name: name, Type: discordgo.ChannelTypeGuildText, ParentID: parent,
 	}, options...)
 	if err != nil {
-		return core.TeamChannel{}, workspacePermissionHint(err)
+		return model.TeamChannel{}, workspacePermissionHint(err)
 	}
 	shelved := false
 	if cat != "" {
@@ -592,7 +594,7 @@ func (p *Platform) createTeamWorkspaceChannel(api workspaceAPI, besideChannelID,
 			shelved = c.ParentID == cat
 		}
 	}
-	return core.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved}, nil
+	return model.TeamChannel{ID: c.ID, Name: c.Name, ParentID: c.ParentID, Shelved: shelved}, nil
 }
 
 // workspacePermissionHint: Discord refuses to create the workspace channel (403 / 50013 Missing Permissions, 50001

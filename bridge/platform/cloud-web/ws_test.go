@@ -14,6 +14,54 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func TestWebSocketChannelReplyGuidance(t *testing.T) {
+	for _, tc := range []struct {
+		server    string
+		wantGuide bool
+	}{
+		{"conest-dsh-collab", true},
+		{"role-household", false},
+	} {
+		t.Run(tc.server, func(t *testing.T) {
+			upgrader := websocket.Upgrader{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				if _, _, err = conn.ReadMessage(); err != nil {
+					return
+				}
+				_ = conn.WriteJSON(wireRegisterAck{Type: "register_ack", OK: true, Server: map[string]any{"name": tc.server}})
+			}))
+			defer srv.Close()
+			ws := newWSTransport("ws"+strings.TrimPrefix(srv.URL, "http"), "test", "member", "project")
+			p := &Platform{tp: ws}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			connected := false
+			var guidance string
+			ws.onConnected = func() {
+				connected = true
+				guidance = p.ChannelReplyGuidance()
+				cancel()
+			}
+			err := ws.connectOnce(ctx)
+			if !connected {
+				t.Fatalf("websocket did not register: %v", err)
+			}
+			if tc.wantGuide {
+				if !strings.Contains(guidance, `\$10`) || !strings.Contains(guidance, `\(…\)`) {
+					t.Fatalf("missing currency and formula guidance: %q", guidance)
+				}
+			} else if guidance != "" {
+				t.Fatalf("non-DSH gateway got guidance: %q", guidance)
+			}
+		})
+	}
+}
+
 func TestWebSocketIntegration(t *testing.T) {
 	var mu sync.Mutex
 	var outbound []map[string]any

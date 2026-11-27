@@ -55,7 +55,6 @@ type RelayManager struct {
 	storePath  string                   // empty = no persistence
 	timeout    time.Duration
 	visibility string
-	voice      voiceRelayStore
 	// team bindings from the wizard and configured team_status_dir (relay_team_bind.go)
 	dataDir    string
 	denied     map[string]map[string]bool // chatID → project (or "*") removed by /bind -x or /bind remove
@@ -82,7 +81,6 @@ func NewRelayManager(dataDir string) *RelayManager {
 		rm.balance = newRelayBalanceGuard(dataDir)
 		go rm.balance.watch(rm)
 	}
-	rm.initVoiceRelay(dataDir)
 	return rm
 }
 
@@ -252,10 +250,6 @@ type RelayRequest struct {
 	// itself. Empty keeps the target in the source session.
 	Workspace string `json:"workspace,omitempty"`
 	Message   string `json:"message"`
-	// UserText (voice mode) is the speaker's own words without the entry prompt in Message.
-	UserText string `json:"user_text,omitempty"`
-	// Stream enables early public speech for this private voice request.
-	Stream bool `json:"stream,omitempty"`
 }
 
 // RelayResponse is the result of a relay send.

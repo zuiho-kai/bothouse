@@ -5,6 +5,7 @@ import "fmt"
 // agentIdentityHead opens the identity block; handoff.go drops the block from an
 // old session's tail (it would otherwise be re-sent as history).
 const agentIdentityHead = "[Bridge identity — current responder]"
+const channelReplyGuidanceHead = "[Bridge channel reply formatting]"
 
 // agentIdentityText anchors the current responder to local project configuration.
 // It is a conversational name, not a claim about the underlying model/vendor.
@@ -22,7 +23,7 @@ func (e *Engine) withAgentIdentity(prompt string, session *Session) string {
 
 func (e *Engine) withAgentInstructions(prompt, userID string, fromBot bool, session *Session, agent Agent) string {
 	e.checkRulesContext(session, agent)
-	rules := e.contextRules(e.teamLayer().WithRoleDuty(teamModeRulesFor(e.DispatchMode()), ""), session, agent)
+	rules := e.contextRules(e.teamLayer().WithRoleDuty(teamModeRulesFor(e.DispatchMode()), ""), "", session, agent)
 	return e.withStandingBlocks(rules, prompt, userID, fromBot, session, agent)
 }
 
@@ -34,8 +35,15 @@ func (e *Engine) SetAgentIdentityEnabled(on bool) { e.skipAgentIdentity.Store(!o
 // context through injectBlock (nil session = every delivery).
 func (e *Engine) withChannelAgentInstructions(prompt, userID string, fromBot bool, p Platform, sessionKey string, session *Session, agent Agent) string {
 	e.checkRulesContext(session, agent)
-	rules := e.contextRules(e.teamLayer().WithRoleDuty(e.rulesForSession(e.channelDispatchMode(p, sessionKey), sessionKey), sessionKey), session, agent)
-	return e.withStandingBlocks(rules, prompt, userID, fromBot, session, agent)
+	rules := e.contextRules(e.teamLayer().WithRoleDuty(e.rulesForSession(e.channelDispatchMode(p, sessionKey), sessionKey), sessionKey), sessionKey, session, agent)
+	e.noticeHouseRulesOver(sessionKey, fromBot)
+	prompt = e.withStandingBlocks(rules, prompt, userID, fromBot, session, agent)
+	if provider, ok := p.(ChannelReplyGuidanceProvider); ok {
+		if guidance := e.injectBlock(session, "channel_reply_guidance", provider.ChannelReplyGuidance()); guidance != "" {
+			return channelReplyGuidanceHead + "\n" + guidance + "\n\n" + prompt
+		}
+	}
+	return prompt
 }
 
 // withStandingBlocks: identity, rules, permission delegation, delegation policy and the agent's

@@ -6,7 +6,9 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, sta
 import { dirname, join } from 'node:path';
 import { CollabError, publicMessage } from './store.mjs';
 
-export const BOARD_EVENTS_FILE = 'board-events.jsonl';
+import { BOARD_EVENTS_FILE } from './bridge-files.mjs';
+
+export { BOARD_EVENTS_FILE };
 // 验收要求派活后「几秒内」光柱出现；每秒 stat 一次这个只追加的小文件足够便宜。
 export const TAIL_INTERVAL_MS = 1000;
 // 一次回放给一页历史，条数上限沿用消息分页的 200 条（store.mjs clampLimit）。
@@ -110,14 +112,22 @@ export function deskReplay({ store, boardDir, from, to }) {
     merged.push({ ts, event: { ...entry, type: 'task' } });
   }
   const rows = store.db.prepare('SELECT * FROM messages WHERE deleted = 0 AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT ?')
-    .all(fromMs / 1000, toMs / 1000, REPLAY_MAX);
+    .all(fromMs / 1000, toMs / 1000, REPLAY_MAX + 1); // one more than kept: tells whether older ones were left out
+  let truncated = rows.length > REPLAY_MAX;
+  if (truncated) rows.length = REPLAY_MAX;
   for (const row of rows.reverse()) {
     const message = publicMessage(row, store);
     merged.push({ ts: row.created_at * 1000, event: { type: 'message', message } });
   }
   merged.sort((a, b) => a.ts - b.ts);
-  const kept = merged.length > REPLAY_MAX ? merged.slice(-REPLAY_MAX) : merged;
-  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event) };
+  if (merged.length > REPLAY_MAX) truncated = true;
+  const kept = truncated ? merged.slice(-REPLAY_MAX) : merged;
+  // total: every event in the window, kept or not. When truncated the page keeps
+  // 「共 X 条，只回放最近 N 条」 beside the replay bar (#2047 item 20, #2065).
+  const total = merged.length - rows.length + (truncated
+    ? store.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE deleted = 0 AND created_at >= ? AND created_at <= ?').get(fromMs / 1000, toMs / 1000).n
+    : rows.length);
+  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event), truncated, total };
 }
 
 /**

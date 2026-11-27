@@ -2,15 +2,16 @@ package discord
 
 import (
 	"fmt"
-	"github.com/chenhg5/cc-connect/core"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenhg5/cc-connect/core/model"
 )
 
 func TestTaskCardMembersRuntime(t *testing.T) {
 	start := time.Date(2026, 10, 23, 6, 0, 0, 0, time.UTC)
-	task := &core.Task{Title: "Shared task", Members: []core.TaskMember{
+	task := &model.Task{Title: "Shared task", Members: []model.TaskMember{
 		{ID: "worker", Name: "肥鱼", Title: "测试", Status: "running", StartedAt: start, UpdatedAt: start.Add(time.Minute)},
 		{ID: "child", ParentID: "worker", Name: "子agent A", Title: "文档", Status: "completed", StartedAt: start, EndedAt: start.Add(155 * time.Second)},
 		{ID: "queued", Name: "大豆包", Title: "检查", Status: "queued"},
@@ -47,13 +48,13 @@ func TestTaskCardMembersRuntime(t *testing.T) {
 
 func TestTaskCardRender(t *testing.T) {
 
-	task := &core.Task{
+	task := &model.Task{
 		ID:                 "T-113",
 		Title:              "状态卡与留痕",
 		Agent:              "大豆包",
 		Origin:             "voice",
-		State:              core.TaskStateCompleted,
-		FactStage:          core.FactStageVerified,
+		State:              model.TaskStateCompleted,
+		FactStage:          model.FactStageVerified,
 		RequiredSummary:    "实现 Discord 任务卡与语音回执",
 		ResultSummary:      "增加任务模型、持久化索引与讨论串留痕",
 		VerificationResult: "全量单元测试与 race 检查通过",
@@ -102,7 +103,7 @@ func TestTaskCardRender(t *testing.T) {
 // reported". One row per name has to survive, and the live row is the one shown.
 func TestRenderTaskMembersHidesStaleTwin(t *testing.T) {
 	start := time.Date(2026, 10, 23, 5, 53, 0, 0, time.UTC)
-	members := []core.TaskMember{
+	members := []model.TaskMember{
 		{ID: "gge-1", Name: "G哥", Title: "私有房间", Status: "queued", AssignedAt: start, UpdatedAt: start},
 		{ID: "gge-2", Name: "G哥", Title: "私有房间与真机验收", Status: "running", AssignedAt: start.Add(time.Minute), UpdatedAt: start.Add(time.Minute)},
 	}
@@ -120,7 +121,7 @@ func TestRenderTaskMembersHidesStaleTwin(t *testing.T) {
 func TestRenderTaskMembersKeepsFinishedRowsOverStaleTwin(t *testing.T) {
 	start := time.Date(2026, 10, 23, 5, 53, 0, 0, time.UTC)
 	for _, status := range []string{"completed", "failed"} {
-		members := []core.TaskMember{
+		members := []model.TaskMember{
 			{ID: "gge-1", Name: "G哥", Title: "私有房间", Status: "queued", AssignedAt: start, UpdatedAt: start},
 			{ID: "gge-2", Name: "G哥", Title: "私有房间与真机验收", Status: status, Summary: "结果在这", AssignedAt: start.Add(time.Minute), UpdatedAt: start.Add(time.Minute), EndedAt: start.Add(2 * time.Minute)},
 			{ID: "gge-3", Name: "G哥", Title: "复验", Status: "running", AssignedAt: start.Add(3 * time.Minute), UpdatedAt: start.Add(3 * time.Minute)},

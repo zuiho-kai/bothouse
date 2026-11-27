@@ -35,11 +35,12 @@ const (
 	TaskForumTagReview  = "待验收"
 	TaskForumTagPaused  = "暂停"
 	TaskForumTagRelease = "等发布"
+	TaskForumTagHold    = "在等"
 	TaskForumTagDone    = "完成"
 )
 
 // Source: handoff #783 puts the states needing a person first.
-var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
+var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagHold, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
 
 func TaskForumTagEmoji(tag string) string {
 	switch tag {
@@ -49,6 +50,8 @@ func TaskForumTagEmoji(tag string) string {
 		return "👀"
 	case TaskForumTagRelease:
 		return "📦"
+	case TaskForumTagHold:
+		return "⏳"
 	case TaskForumTagRunning:
 		return "⚙️"
 	case TaskForumTagPaused:
@@ -77,25 +80,13 @@ func (e *Engine) taskForumEnabled() bool {
 // PermSendMessages: opening a post in the forum and posting in it.
 const PermSendMessages = "发送消息 (Send Messages)"
 
-// TaskForum identifies a category's forum. Empty CategoryID is a legacy
-// server-wide mapping, retained only for already published posts.
-type TaskForum struct {
-	ID         string `json:"id"`
-	GuildID    string `json:"guild"`
-	CategoryID string `json:"category,omitempty"`
-	// Channel: a private chat channel's posts are threads in that channel (ID is the channel),
-	// so only people who can see the channel see them (user 11-24「如果是那种私人频道的话」变私密帖).
-	Channel string            `json:"channel,omitempty"`
-	Tags    map[string]string `json:"tags"`
-}
-
 var ErrTaskForumCategoryRequired = errors.New("task forum: source chat must belong to a category")
 
 // ErrTaskForumWorkspaceCategory: the source is in the workspace category, which has no task forum;
 // the post goes to the main chat's category forum instead.
 var ErrTaskForumWorkspaceCategory = errors.New("task forum: workspace category has no task forum")
 
-func (f TaskForum) scopeKey(platform string) string {
+func taskForumScopeKey(f TaskForum, platform string) string {
 	key := platform + ":" + f.GuildID
 	if f.CategoryID != "" {
 		key += ":" + f.CategoryID
@@ -104,39 +95,6 @@ func (f TaskForum) scopeKey(platform string) string {
 		key += ":" + f.Channel
 	}
 	return key
-}
-
-// TaskForumPost is what one post shows. Marker starts the title and finds a post whose create
-// response was lost.
-type TaskForumPost struct {
-	Marker   string
-	Title    string
-	Card     string
-	Tag      string
-	Archived bool
-}
-
-// TaskForumPoster is a platform with forum channels (Discord).
-type TaskForumPoster interface {
-	// TaskForumScope resolves the source's current server and category, without creating anything.
-	TaskForumScope(context.Context, string) (TaskForum, error)
-	// TaskForumForPost resolves and reconciles an existing post's actual forum.
-	TaskForumForPost(context.Context, string, []string) (TaskForum, error)
-	// EnsureTaskForum finds (remembered first) or creates the 「任务」 forum of chatChannelID's
-	// category, with the state tags.
-	EnsureTaskForum(ctx context.Context, chatChannelID, remembered string, tags []string) (TaskForum, error)
-	// OpenTaskPost opens the post (or finds the one this bot already opened by Marker); returns its ID.
-	OpenTaskPost(ctx context.Context, forum TaskForum, post TaskForumPost) (string, error)
-	// UpdateTaskPost edits the 现状卡, title and tag, and archives or reopens the post.
-	UpdateTaskPost(ctx context.Context, forum TaskForum, threadID string, post TaskForumPost) error
-	// PostTaskNode posts one key moment in the post.
-	PostTaskNode(ctx context.Context, threadID, text string) error
-	// TaskPostGone: err says the post or forum no longer exists.
-	TaskPostGone(err error) bool
-	// OwnsTaskPost: threadID is a post this bot opened (only its opener can edit the 现状卡).
-	OwnsTaskPost(ctx context.Context, threadID string) (bool, error)
-	// TaskPostLimit: the most characters one message of the post may hold on this platform.
-	TaskPostLimit() int
 }
 
 // taskForumPostState is what the bridge remembers of one item's post.
@@ -319,7 +277,12 @@ func taskForumTagOf(it teamTaskBoardItem, now time.Time) (string, string) {
 		return TaskForumTagPaused, "暂停" + taskForumWhy(firstNonEmpty(why, it.PauseWhy))
 	case teamTaskRelease:
 		return TaskForumTagRelease, firstNonEmpty(why, "等集中发布上线")
+	case teamTaskOnHold:
+		return TaskForumTagHold, "在等：" + why
 	case teamTaskStuck:
+		if it.Paused != "" {
+			return TaskForumTagRunning, why // a 在等 past its time: say so, not 「交出后还没有进展回报」
+		}
 		return TaskForumTagRunning, "交出后还没有进展回报"
 	case teamTaskHidden:
 		if it.Backlog != "" {
@@ -717,7 +680,7 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 	if err != nil {
 		return TaskForum{}, err
 	}
-	g := scope.scopeKey(plat)
+	g := taskForumScopeKey(scope, plat)
 	if s.Chats[chat] != g || s.CategoryNotices[chat] {
 		s.Chats[chat] = g
 		delete(s.CategoryNotices, chat)
@@ -733,7 +696,7 @@ func (e *Engine) taskForumForumLocked(ctx context.Context, s *taskForumState, po
 	if err != nil {
 		return TaskForum{}, err
 	}
-	g = f.scopeKey(plat)
+	g = taskForumScopeKey(f, plat)
 	s.Forums[g] = f
 	if e.taskForumRT().checkedForums == nil {
 		e.taskForumRT().checkedForums = map[string]bool{}
@@ -762,7 +725,7 @@ func (e *Engine) taskForumPostForumLocked(ctx context.Context, s *taskForumState
 		return TaskForum{}, err
 	}
 	ps.Forum = f.ID
-	s.Forums[f.scopeKey(ps.Platform)] = f
+	s.Forums[taskForumScopeKey(f, ps.Platform)] = f
 	if e.taskForumRT().checkedForums == nil {
 		e.taskForumRT().checkedForums = map[string]bool{}
 	}
@@ -1202,7 +1165,7 @@ func (e *Engine) resolveTaskThread(ctx context.Context, task *Task) {
 	if task.ForumPost {
 		return
 	}
-	it := e.workspaceBoardItem(task.cardSessionKey(), 0)
+	it := e.workspaceBoardItem(taskCardSessionKey(task), 0)
 	if it == nil || !taskForumWant(*it) {
 		return
 	}
@@ -1343,7 +1306,7 @@ func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
 	if err != nil {
 		return ""
 	}
-	group := scope.scopeKey(plat)
+	group := taskForumScopeKey(scope, plat)
 	rt := e.taskForumRT()
 	rt.mu.Lock()
 	s := e.taskForumLoadLocked()
@@ -1389,7 +1352,7 @@ func (e *Engine) taskForumWaitingSummary(session string, now time.Time) string {
 				continue
 			}
 			itemScope, err := poster.TaskForumScope(ctx, sourceChat)
-			if err != nil || itemScope.scopeKey(plat) != group {
+			if err != nil || taskForumScopeKey(itemScope, plat) != group {
 				continue
 			}
 		}

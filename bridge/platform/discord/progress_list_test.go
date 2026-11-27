@@ -4,15 +4,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestProgressListKeepsLinesAfterDone(t *testing.T) {
 	payload := &core.ProgressCardPayload{
 		Lang: "zh", State: core.ProgressCardStateCompleted, Steps: 3, ElapsedSec: 700, LineLen: 200,
-		Items: []core.ProgressCardEntry{
-			{Kind: core.ProgressEntryInfo, Text: "……你要是还在，说句话就行，不用回长的。"},
-			{Kind: core.ProgressEntryToolUse, Tool: "Bash", Text: "ls"},
+		Items: []model.ProgressCardEntry{
+			{Kind: model.ProgressEntryInfo, Text: "……你要是还在，说句话就行，不用回长的。"},
+			{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "ls"},
 		},
 	}
 	desc := buildDiscordProgressDescription(payload)
@@ -27,7 +29,7 @@ func TestProgressListKeepsLinesAfterDone(t *testing.T) {
 
 func TestProgressListLineLen(t *testing.T) {
 	long := strings.Repeat("字", 150)
-	item := core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: long}
+	item := model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: long}
 	if n := len([]rune(buildDiscordProgressLineN(item, "zh", 200))); n < 150 {
 		t.Fatalf("line cut at %d runes, want the full 150", n)
 	}

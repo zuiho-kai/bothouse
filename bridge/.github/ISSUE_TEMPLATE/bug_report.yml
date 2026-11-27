@@ -53,11 +53,9 @@ body:
       multiple: true
       options:
         - Feishu (Lark)
-        - DingTalk
         - Telegram
         - Slack
         - Discord
-        - LINE
         - WeChat Work (企业微信)
         - QQ (NapCat/OneBot)
         - N/A

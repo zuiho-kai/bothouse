@@ -300,10 +300,6 @@ func (e *Engine) extendDomainLocked(scope quotaScope, until time.Time) time.Time
 	return until
 }
 
-func (e *Engine) recordQuotaFor(scope quotaScope, until time.Time, session string) {
-	e.recordQuotaWindowFor(scope, until, session, "")
-}
-
 // quotaWindowLabel names the allowance a usage window measures, so the cooldown
 // log says whether a 5-hour or a weekly limit ran out (11-11 17:15 a role went
 // into a two-day cooldown and nobody could tell which window it came from).
@@ -556,9 +552,6 @@ func (e *Engine) updateQuotaState(fn func()) {
 		fn()
 	}()
 }
-
-// waitQuotaUpdates blocks until every deferred updateQuotaState write is done.
-func (e *Engine) waitQuotaUpdates() { e.quotaUpdates.Wait() }
 
 // The session's effective model includes CLI-pinned and per-channel overrides.
 func (e *Engine) quotaScopeOfSession(agent Agent, session AgentSession) quotaScope {

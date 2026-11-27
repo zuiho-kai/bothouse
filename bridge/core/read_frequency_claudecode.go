@@ -18,8 +18,6 @@ type ClaudeCodeReadSource struct {
 	Dir string
 }
 
-func (s ClaudeCodeReadSource) Name() string { return string(ReadFrequencySourceClaudeCode) }
-
 func (s ClaudeCodeReadSource) ReadEvents(since time.Time) ([]ReadEvent, error) {
 	dir := strings.TrimSpace(s.Dir)
 	if dir == "" {
@@ -117,3 +115,5 @@ func readClaudeCodeReadFile(path string, since time.Time) ([]ReadEvent, error) {
 	}
 	return out, nil
 }
+
+func (s ClaudeCodeReadSource) Name() string { return string(ReadFrequencySourceClaudeCode) }

@@ -185,9 +185,3 @@ func (e *Engine) exitBounceCount(sessionKey string) int {
 	}
 	return n
 }
-
-// exitHeadlineOK: body's first line has a #id that is on the board and a sentence.
-func (e *Engine) exitHeadlineOK(body string) bool {
-	id, _, problems := team.ExitHeadline(body)
-	return problems == nil && e.boardItemByID(id) != nil
-}

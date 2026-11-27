@@ -13,7 +13,7 @@ import (
 // The panel's "add role/model" entry (append_only): a new role is added next to the ones already
 // configured; a name that is already taken is refused instead of updating or renaming.
 func TestApplyWizardAppendOnly(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -54,7 +54,7 @@ func TestApplyWizardAppendOnly(t *testing.T) {
 // Adding a role keeps the lead: old members' gate_url / gate_fallback / team_lead_bot stay as they
 // were, even if the request names the new role as fallback (what an older panel would send).
 func TestApplyWizardAppendOnlyKeepsLead(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -95,7 +95,7 @@ func TestApplyWizardAppendOnlyKeepsLead(t *testing.T) {
 // Non-ASCII names map to role-N: adding two of them one after another both work (role-1, role-2),
 // and a real duplicate is refused under the name the user typed.
 func TestApplyWizardAppendOnlyNonASCIINames(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -127,7 +127,7 @@ func TestApplyWizardAppendOnlyNonASCIINames(t *testing.T) {
 // in the wizard's list of existing roles and in the project list.
 func TestApplyWizardAppendOnlyDisplayNameAndBackend(t *testing.T) {
 	dshStoredKey(t)
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -207,7 +207,7 @@ func TestApplyWizardAppendOnlyDisplayNameAndBackend(t *testing.T) {
 // The first-run wizard (not append_only) treats a non-ASCII name the same way: the project is
 // role-N, team_name keeps the name the user typed, and the project list shows that name.
 func TestApplyWizardFirstRunDisplayName(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()

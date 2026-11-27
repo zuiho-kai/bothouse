@@ -443,8 +443,8 @@ class T(unittest.TestCase):
             self.assertNotIn("【旧】", texts[0])
             self.assertIn("【旧】", texts[1])
 
-    def test_selected_rows_need_current_topic_without_backfill(self):
-        # 历史词可参与找页，但选定页里的旧话题行不应继续推；主库、角色库用同一选择规则。
+    def test_old_topic_rows_left_to_relevance_check(self):
+        # 历史词参与找页；旧话题行由 need 的相关度判定去掉（#2031 二轮：先去不相关再排名额，不再占名额），不再按本句稀有词删行。
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             notes = root / "notes"
@@ -453,26 +453,86 @@ class T(unittest.TestCase):
             texts = {
                 "history": "- deployment pipeline history release workflow",
                 "current": "- astronomy telescope guidance",
-                "spare": "- astronomy observation guidance with additional context for a longer entry",
             }
             for name, text in texts.items():
                 (notes / (name + ".md")).write_text(text, encoding="utf-8")
-            with patch.object(ctxsvc, "FORUM", None):
+            with patch.object(ctxsvc, "FORUM", None), patch.object(ctxsvc, "RERANK_URL", ""):
                 ctxsvc.WIKI, ctxsvc._idx = root, {}
                 expanded = "deployment pipeline history release workflow astronomy telescope"
-                unfiltered = ctxsvc.match_wiki(expanded, k=2, prepared=True)
-                self.assertEqual([Path(p["path"]).stem for p in unfiltered], ["history", "current"])
-                for own in (False, True):
-                    with self.subTest(role_wiki=own):
-                        if own:
-                            ctxsvc.WIKI = root / "absent-main"
-                        # rare_toks uses the shared vocabulary, as in context() on both roots.
-                        with patch.object(ctxsvc, "rare_toks", return_value="astronomy telescope"):
-                            got = ctxsvc.match_wiki(expanded, k=2, root=root, prepared=True,
-                                                    focus="astronomy telescope")
-                        self.assertEqual([Path(p["path"]).stem for p in got], ["current"])
-                        self.assertNotIn("deployment", got[0]["desc"])
-                        self.assertEqual(got[0]["rows"], unfiltered[1]["rows"])
+                got = ctxsvc.match_wiki(expanded, k=2, prepared=True, focus="astronomy telescope",
+                                        need="astronomy telescope")
+                weak = {Path(p["path"]).stem: [r.get("weak", False) for r in p["rows"]] for p in got}
+                self.assertEqual(weak, {"current": [False]})
+                pushed = ctxsvc._cap_pages(got, ())
+                self.assertEqual([Path(p["path"]).stem for p in pushed], ["current"])
+
+    def test_rerank_judges_topic_and_frees_slots(self):
+        # #2031 二轮：口语追问自己不带话题，重排拿「这句+前两轮」去问；判不相关的先去掉，排在后面的对题行补上名额。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            notes = root / "notes"
+            notes.mkdir()
+            (notes / "README.md").write_text("x", encoding="utf-8")
+            for i in range(3):
+                (notes / f"noise{i}.md").write_text(f"- alpha beta noise{i}\n", encoding="utf-8")
+            (notes / "topic.md").write_text("- alpha encoder collision\n", encoding="utf-8")
+            asked = []
+
+            def fake(need, lines, topic=""):
+                asked.append(topic)
+                return ["noise" in l for l in lines]
+            with patch.object(ctxsvc, "FORUM", None), patch.object(ctxsvc, "weak_lines", fake):
+                ctxsvc.WIKI, ctxsvc._idx = root, {}
+                got = ctxsvc.match_wiki("alpha beta encoder", k=3, prepared=True, need="alpha beta")
+            self.assertEqual(asked, ["alpha beta encoder"])
+            self.assertEqual([Path(p["path"]).stem for p in got], ["topic"])
+
+    def test_rerank_floor_follows_model(self):
+        # #2031：重排服务答话带 model 时按表取线（4B 0.5），不带时用 RERANK_MIN。
+        class Resp:
+            def __init__(self, body): self.body = body
+            def read(self): return json.dumps(self.body).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        for body, want in (({"p": [0.3, 0.6], "model": "Qwen3-Reranker-4B"}, [True, False]), ({"p": [0.3, 0.1]}, [False, True])):
+            with patch.object(ctxsvc, "RERANK_URL", "http://x"), patch.object(ctxsvc, "RERANK_MIN", 0.2), \
+                    patch.object(ctxsvc, "_rr_memo", __import__("collections").OrderedDict()), \
+                    patch("urllib.request.urlopen", lambda *a, **k: Resp(body)):
+                self.assertEqual(ctxsvc.weak_lines("q", ["a", "b"]), want)
+
+    def test_rerank_lazy_and_memo(self):
+        # #2031：按顺序一批批判，够数就停；判过的同一句同一行不再问服务
+        calls = []
+
+        class Resp:
+            def __init__(self, n): self.n = n
+            def read(self): return json.dumps({"p": [0.9] * self.n}).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake(req, timeout=0):
+            n = len(json.loads(req.data)["docs"])
+            calls.append(n)
+            return Resp(n)
+        hits = [("a.md", i, f"- line {i}") for i in range(20)]
+        with patch.object(ctxsvc, "RERANK_URL", "http://x"), patch.object(ctxsvc, "_rr_memo", __import__("collections").OrderedDict()), \
+                patch("urllib.request.urlopen", fake):
+            self.assertEqual(len(ctxsvc.relevant("q", hits, "q", lambda h: h[2], 8)), 8)
+            self.assertEqual(calls, [8])
+            ctxsvc.relevant("q", hits[:4], "q", lambda h: h[2], 8)
+            self.assertEqual(calls, [8])
+
+    def test_refs_record_cross_page_and_headless_rows(self):
+        # #2031：别的页的楼写成「| 路径:行号: 」、页头为空时第一行前没有「| 」，推送记录原来漏记这两类。
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.md").write_text("- alpha line\n", encoding="utf-8")
+            (root / "b.md").write_text("x\n- beta line\n", encoding="utf-8")
+            ctxsvc.WIKI = root
+            base = ctxsvc._shown(".").removesuffix("/.") + "/"
+            items = [{"path": base + "a.md", "desc": "1: alpha line | " + base + "b.md:2: beta line"}]
+            got = ctxsvc._refs(items)
+            self.assertEqual([g.split("#")[0] for g in got], ["a.md:1", "b.md:2"])
 
     def test_short_focus_without_content_keeps_history(self):
         with tempfile.TemporaryDirectory() as d:

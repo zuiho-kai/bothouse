@@ -621,6 +621,29 @@ func TestValidateProjectDisplayConfig(t *testing.T) {
 	}
 }
 
+func TestLoad_BridgeHost(t *testing.T) {
+	for _, tc := range []struct{ name, setting, want string }{
+		{"omitted", "", ""},
+		{"empty", "host = \"\"", ""},
+		{"IPv4", "host = \"127.0.0.1\"", "127.0.0.1"},
+		{"IPv6", "host = \"::1\"", "::1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(baseConfigTOML+"\n[bridge]\nenabled = true\ntoken = \"test\"\n"+tc.setting+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Bridge.Host != tc.want {
+				t.Fatalf("bridge host = %q, want %q", cfg.Bridge.Host, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoad_DefaultsDataDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

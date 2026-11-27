@@ -133,3 +133,20 @@ func (e *Engine) sendCronFailureNotice(jobID, sessionKey, text string) error {
 		"project", e.name, "job", jobID, "session", sessionKey, "dm", dmKey)
 	return nil
 }
+
+// sendNoticeOrOwnerDM posts a bridge notice to sessionKey's chat, or to the owner's private chat
+// when that chat keeps bridge notices out (QQ groups), like sendCronFailureNotice.
+func (e *Engine) sendNoticeOrOwnerDM(sessionKey, text string) error {
+	_, p, replyCtx, err := e.resolveOutboundSessionTarget(sessionKey, false)
+	if err != nil {
+		return err
+	}
+	if q, ok := p.(SystemNoticeQuieter); !ok || !q.QuietSystemNotices(replyCtx) {
+		return e.SendToSession(sessionKey, text)
+	}
+	dmKey, err := e.OpenDMSession()
+	if err != nil {
+		return err
+	}
+	return e.SendToSession(dmKey, text)
+}

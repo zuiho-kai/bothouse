@@ -6,6 +6,63 @@ import (
 	"testing"
 )
 
+type replyGuidanceTestPlatform struct{ *inputTestPlatform }
+
+func (*replyGuidanceTestPlatform) ChannelReplyGuidance() string {
+	return `Use \$10 for currency in channel replies.`
+}
+
+func TestCUJ_ChannelReplyGuidance(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		guidance bool
+	}{
+		{"platform with guidance", true},
+		{"platform without guidance", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, e, a, sink, s := inputFixture(t)
+			var p Platform = sink
+			if tc.guidance {
+				p = &replyGuidanceTestPlatform{sink}
+			}
+			send := func(id, content string) {
+				e.ReceiveMessage(p, &Message{SessionKey: inputTestKey, Platform: p.Name(), MessageID: id, UserID: "human", Content: content, Mentioned: true, ReplyCtx: "local"})
+			}
+			check := func(want bool) {
+				t.Helper()
+				prompt := inputPrompt(t, a)
+				if got := strings.Contains(prompt, `Use \$10 for currency`); got != want {
+					t.Fatalf("channel reply guidance present = %v, want %v", got, want)
+				}
+				if want {
+					clean := stripStaleBlocks(prompt)
+					if strings.Contains(clean, `Use \$10 for currency`) || !strings.Contains(clean, "Compare the two prices") {
+						t.Fatalf("handoff did not strip just the channel guidance: %q", clean)
+					}
+				}
+			}
+			send("first", "Compare the two prices")
+			check(tc.guidance)
+			send("second", "Include the change")
+			inputDone(a, "first answer")
+			check(false)
+			inputDone(a, "second answer")
+			inputWait(t, func() bool { return !s.Busy() })
+			send("third", "Summarize the figures")
+			check(false)
+			inputDone(a, "third answer")
+			inputWait(t, func() bool { return !s.Busy() })
+			visible := strings.Join(sink.getSent(), "\n")
+			for _, want := range []string{"first answer", "second answer", "third answer"} {
+				if !strings.Contains(visible, want) {
+					t.Fatalf("missing reply %q", want)
+				}
+			}
+		})
+	}
+}
+
 func TestCUJ_Identity_FreshQueuedAndResumed(t *testing.T) {
 	_, e, a, p, s := inputFixture(t)
 	e.SetTeam(t.TempDir(), "大豆包", false)

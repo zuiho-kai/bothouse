@@ -9,7 +9,7 @@ import (
 
 func writeHouseRules(t *testing.T, dataDir, text string) {
 	t.Helper()
-	path := houseRulesPath(dataDir)
+	path := HouseRulesPath(dataDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -69,23 +69,24 @@ func TestHouseRulesKeptWithTeamRulesOff(t *testing.T) {
 
 func TestReadHouseRules(t *testing.T) {
 	dir := t.TempDir()
-	if got := readHouseRules(dir); got != "" {
+	if got := readHouseRules(dir, ""); got != "" {
 		t.Fatalf("missing file: got %q", got)
 	}
-	if got := readHouseRules(""); got != "" {
+	if got := readHouseRules("", ""); got != "" {
 		t.Fatalf("no data dir: got %q", got)
 	}
 	writeHouseRules(t, dir, " \n\t\n")
-	if got := readHouseRules(dir); got != "" {
+	if got := readHouseRules(dir, ""); got != "" {
 		t.Fatalf("blank file: got %q", got)
 	}
-	writeHouseRules(t, dir, strings.Repeat("x", houseRulesMaxBytes+1))
-	if got := readHouseRules(dir); got != "" {
-		t.Fatalf("file over the cap must not be sent, got %d bytes", len(got))
+	over := strings.Repeat("守则一条\n", HouseRulesWarnBytes/13+1)
+	writeHouseRules(t, dir, over)
+	if got := readHouseRules(dir, ""); got != houseRulesHead+"\n"+strings.TrimSpace(over) {
+		t.Fatalf("file over the warn line must be sent whole, got %d of %d bytes", len(got), len(over))
 	}
-	writeHouseRules(t, dir, strings.Repeat("x", houseRulesMaxBytes))
-	if got := readHouseRules(dir); got != houseRulesHead+"\n"+strings.Repeat("x", houseRulesMaxBytes) {
-		t.Fatalf("file at the cap must be sent, got %d bytes", len(got))
+	writeHouseRules(t, dir, strings.Repeat("x", HouseRulesWarnBytes))
+	if got := readHouseRules(dir, ""); got != houseRulesHead+"\n"+strings.Repeat("x", HouseRulesWarnBytes) {
+		t.Fatalf("file at the line must be sent, got %d bytes", len(got))
 	}
 }
 
@@ -95,5 +96,119 @@ func TestHouseRulesMissingFileNotSent(t *testing.T) {
 	e.SetTeam(t.TempDir(), "橘", false)
 	if got := houseTurn(t, e, a, p, "一"); strings.Contains(got, houseRulesHead) || !strings.Contains(got, rulesHead) {
 		t.Fatalf("missing house file changed the delivery:\n%s", got)
+	}
+}
+
+func houseNotices(p *exitTestPlatform) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, s := range p.out {
+		if strings.Contains(s.text, "📏") {
+			n++
+		}
+	}
+	return n
+}
+
+// A house file over the warn line still reaches the agent whole, and the chat a person wrote in
+// is told once per file version (#2048: an over-size file used to be dropped and only logged).
+func TestHouseRulesOverLineSentWholeAndNoticedOncePerVersion(t *testing.T) {
+	e, a, p := exitFixture(t, nil)
+	e.SetTeam(t.TempDir(), "橘", false)
+	big := strings.Repeat("一条很长的守则。\n", HouseRulesWarnBytes/25+1) + "最后一条\n"
+	writeHouseRules(t, e.dataDir, big)
+
+	first := houseTurn(t, e, a, p, "一")
+	if !strings.Contains(first, "最后一条") {
+		t.Fatalf("over-line house rules not sent whole:\n%s", first)
+	}
+	inputWait(t, func() bool { return houseNotices(p) == 1 })
+	houseTurn(t, e, a, p, "二")
+	writeHouseRules(t, e.dataDir, big+"又加一条\n")
+	third := houseTurn(t, e, a, p, "三")
+	if !strings.Contains(third, "又加一条") {
+		t.Fatalf("edited over-line rules not resent whole:\n%s", third)
+	}
+	inputWait(t, func() bool { return houseNotices(p) == 2 })
+	houseTurn(t, e, a, p, "四")
+	if n := houseNotices(p); n != 2 {
+		t.Fatalf("same version noticed again: %d notices", n)
+	}
+	writeHouseRules(t, e.dataDir, "短守则\n")
+	houseTurn(t, e, a, p, "五")
+	writeHouseRules(t, e.dataDir, big)
+	houseTurn(t, e, a, p, "六")
+	inputWait(t, func() bool { return houseNotices(p) == 3 })
+}
+
+func writeHouseFile(t *testing.T, dataDir, audience, text string) {
+	t.Helper()
+	path := HouseRulesPathFor(dataDir, audience)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Each audience reads its own file; a missing or blank one falls back to house.md (#2082).
+func TestReadHouseRulesAudienceFileAndFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeHouseRules(t, dir, "并集")
+	writeHouseFile(t, dir, HouseAudienceLead, "主角色那份")
+	writeHouseFile(t, dir, HouseAudienceWorkspace, " \n")
+	if got := readHouseRules(dir, HouseAudienceLead); got != houseRulesHead+"\n主角色那份" {
+		t.Fatalf("lead: got %q", got)
+	}
+	if got := readHouseRules(dir, HouseAudienceWorkspace); got != houseRulesHead+"\n并集" {
+		t.Fatalf("blank workspace file must fall back to house.md, got %q", got)
+	}
+	if got := readHouseRules(dir, HouseAudienceMember); got != houseRulesHead+"\n并集" {
+		t.Fatalf("missing member file must fall back to house.md, got %q", got)
+	}
+	if got := readHouseRules(dir, ""); got != houseRulesHead+"\n并集" {
+		t.Fatalf("no audience: got %q", got)
+	}
+}
+
+// A workspace channel gets the workspace file whoever the role is; a chat channel gets the lead or
+// member file by the configured position (#2082: the workspace no longer gets 「交给另一个成员验收」).
+func TestHouseRulesPerAudienceDelivered(t *testing.T) {
+	cases := []struct {
+		name      string
+		lead, ws  bool
+		want, not string
+	}{
+		{"lead chat", true, false, "主角色守则", "队友守则"},
+		{"member chat", false, false, "队友守则", "主角色守则"},
+		{"lead workspace", true, true, "工作区守则", "主角色守则"},
+		{"member workspace", false, true, "工作区守则", "队友守则"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e, a, p := exitFixture(t, nil)
+			e.SetTeam(t.TempDir(), "橘", c.lead)
+			ws := c.ws
+			e.workspaceChatForTest = func(string) bool { return ws }
+			writeHouseRules(t, e.dataDir, "并集守则")
+			writeHouseFile(t, e.dataDir, HouseAudienceLead, "主角色守则")
+			writeHouseFile(t, e.dataDir, HouseAudienceWorkspace, "工作区守则")
+			writeHouseFile(t, e.dataDir, HouseAudienceMember, "队友守则")
+			got := houseTurn(t, e, a, p, "一")
+			if !strings.Contains(got, houseRulesHead+"\n"+c.want) || strings.Contains(got, c.not) || strings.Contains(got, "并集守则") {
+				t.Fatalf("want %q only:\n%s", c.want, got)
+			}
+		})
+	}
+}
+
+// Outside a team there is no audience: house.md as before.
+func TestHouseRulesAudienceOutsideTeam(t *testing.T) {
+	e, _, _ := exitFixture(t, nil)
+	e.SetTeam("", "", false)
+	if got := houseRulesAudience(e, "discord:1:2"); got != "" {
+		t.Fatalf("outside a team: got %q", got)
 	}
 }

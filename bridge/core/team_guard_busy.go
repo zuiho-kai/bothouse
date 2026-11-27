@@ -24,11 +24,16 @@ func (e *Engine) guardVerdict(job *TimerJob) string {
 		return ""
 	}
 	id, _ := strconv.Atoi(m[1])
+	if task, known, err := e.TeamTask(id); err != nil {
+		slog.Warn("timer: could not read task state for guard", "board_item", id, "error", err)
+	} else if known && (task.State == TeamTaskReturned || task.State == TeamTaskClosed) {
+		return "done"
+	}
 	for _, it := range readTeamTaskBoard(e.team.dir) {
 		if it.ID != id {
 			continue
 		}
-		if it.Paused != "" {
+		if it.Paused != "" || !it.ReturnedAt.IsZero() {
 			return "done"
 		}
 		if it.WS == "" {
@@ -57,7 +62,7 @@ func (ts *TimerScheduler) holdGuardWhileWorking(engine *Engine, job *TimerJob) b
 		return true
 	case "done":
 		ts.store.MarkFired(job.ID, nil)
-		slog.Info("timer: guard dropped, the task is paused or off the board", "id", job.ID, "desc", job.Description)
+		slog.Info("timer: guard dropped, the task no longer needs a handback check", "id", job.ID, "desc", job.Description)
 		return true
 	}
 	return false

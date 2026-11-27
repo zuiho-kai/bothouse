@@ -121,20 +121,8 @@ class GatewayASR:
         return str(body.get("text", "")), (float(conf) if isinstance(conf, (int, float)) else None)
 
 
-GATEWAY_CONFIG = Path.home() / "ai-gateway" / "state" / "config.json"
-
-
-def gateway_key(path: Path = GATEWAY_CONFIG) -> str:
-    return str(json.loads(path.read_text())["api_key"])
-
-
-def gateway_asr(base_url: str, log: Callable[[str], None], path: Path = GATEWAY_CONFIG) -> GatewayASR | None:
-    """读不到 gateway key 就返回 None（只关语音输入，主机照常起）；日志里不打印 key。"""
-    try:
-        return GatewayASR(base_url, gateway_key(path))
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        log(f"[voice] 读不到 gateway key（{path}：{type(e).__name__}），语音输入关闭，播放和文字照常")
-        return None
+# 原来这里按作者本机路径 ~/ai-gateway/state/config.json 读 key（gateway_key / gateway_asr）；用它的语音中继已删，
+# 发布包里留着只会在别人机器上读一个不存在的目录（#2047 第 12 条），一并删掉。GatewayASR 照旧由调用方传 key。
 
 
 class SayTTS:

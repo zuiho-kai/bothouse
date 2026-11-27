@@ -41,14 +41,6 @@ type WizardProjectOptions struct {
 	MemberWorkspaces *bool
 }
 
-// UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
-func UpsertWizardProject(o WizardProjectOptions) error {
-	_, err := ApplyWizardProjects(func([]WizardProjectSnapshot) ([]WizardProjectOptions, error) {
-		return []WizardProjectOptions{o}, nil
-	})
-	return err
-}
-
 // WizardProjectSnapshot is one [[projects]] entry as it is in config.toml now.
 type WizardProjectSnapshot struct {
 	Name, AgentType, WorkDir, AgentCmd string
@@ -289,7 +281,8 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 			break
 		}
 	}
-	if p == nil {
+	newProject := p == nil
+	if newProject {
 		at := o.AgentType
 		if at == "" {
 			at = "claudecode"
@@ -372,6 +365,9 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 					opts["allow_from"] = merged
 				}
 			}
+			if newProject && defaultFeishuDirectCodex(o.AgentType, o.PlatformType, opts) {
+				p["inject_team_rules"] = false
+			}
 		}
 	}
 	if o.NameCustomized != nil {
@@ -413,6 +409,23 @@ func applyWizardProject(doc map[string]any, o WizardProjectOptions) error {
 	return nil
 }
 
+// defaultFeishuDirectCodex applies to newly provisioned, single-platform roles.
+func defaultFeishuDirectCodex(agentType, platformType string, options map[string]any) bool {
+	if agentType != "codex" || (platformType != "feishu" && platformType != "lark") {
+		return false
+	}
+	if strings.TrimSpace(stringOption(options["allow_bots"])) != "" || strings.TrimSpace(stringOption(options["team_lead_bot"])) != "" {
+		return false
+	}
+	for _, entry := range strings.Split(stringOption(options["allow_from"]), ",") {
+		id := strings.TrimSpace(entry)
+		if !strings.HasPrefix(id, "ou_") || len(id) == len("ou_") || strings.Contains(id, "*") {
+			return false
+		}
+	}
+	return true
+}
+
 // WizardPlatformProject is a project that has a platform of the asked type.
 // Options include secrets (token); callers must not send them to clients.
 type WizardPlatformProject struct {
@@ -422,29 +435,6 @@ type WizardPlatformProject struct {
 	Options   map[string]any
 	GateURL   string
 	Fallback  string
-}
-
-// ListPlatformProjects returns projects that have a platform of type platType.
-func ListPlatformProjects(platType string) ([]WizardPlatformProject, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-	cfg, err := loadLocked()
-	if err != nil {
-		return nil, err
-	}
-	var out []WizardPlatformProject
-	for _, p := range cfg.Projects {
-		for _, pl := range p.Platforms {
-			if pl.Type != platType {
-				continue
-			}
-			wd, _ := p.Agent.Options["work_dir"].(string)
-			out = append(out, WizardPlatformProject{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd,
-				Options: pl.Options, GateURL: p.GateURL, Fallback: p.GateFallback})
-			break
-		}
-	}
-	return out, nil
 }
 
 // LoadForSetup parses the config without validation, for the setup wizard on a
@@ -558,4 +548,35 @@ func EnsureWizardHook(event, command string) (added bool, err error) {
 	}
 	doc["hooks"] = append(hooks, map[string]any{"event": event, "type": "command", "command": command})
 	return true, saveConfig(doc)
+}
+
+// UpsertWizardProject creates or updates one project (see ApplyWizardProjects).
+func UpsertWizardProject(o WizardProjectOptions) error {
+	_, err := ApplyWizardProjects(func([]WizardProjectSnapshot) ([]WizardProjectOptions, error) {
+		return []WizardProjectOptions{o}, nil
+	})
+	return err
+}
+
+// ListPlatformProjects returns projects that have a platform of type platType.
+func ListPlatformProjects(platType string) ([]WizardPlatformProject, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+	cfg, err := loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	var out []WizardPlatformProject
+	for _, p := range cfg.Projects {
+		for _, pl := range p.Platforms {
+			if pl.Type != platType {
+				continue
+			}
+			wd, _ := p.Agent.Options["work_dir"].(string)
+			out = append(out, WizardPlatformProject{Name: p.Name, AgentType: p.Agent.Type, WorkDir: wd,
+				Options: pl.Options, GateURL: p.GateURL, Fallback: p.GateFallback})
+			break
+		}
+	}
+	return out, nil
 }

@@ -302,24 +302,13 @@ def _decide_sub(req, bot):
 # - discord allow_from：谁是用户本人（"*" 或读不到 = 频道里的人都算用户）；
 # - team_status_dir：各 bot 每 2 秒写的忙闲状态（core/team.go），用来看谁刚干完活、谁在线。没配就不知道谁在线，按都在线算。
 # bot 的 Discord ID 用团队文件里成员的 "id"（lead.py）；没写 id 的按 Discord 用户名/昵称对团队文件的名字和别名认。
-try:
-    import tomllib
-except ImportError:  # Python 3.10 及以下：没有 tomllib，读不了 config.toml，按没配处理
-    tomllib = None
-
 CC_CONFIG = SETUP_DIR / "config.toml"
 
 
 def _cc_projects():
     """config.toml 里属于本团队的 project：[(成员 key, project 表)]，主角色排前面。读不到 → []。"""
-    if tomllib is None:
-        return []
-    try:
-        cfg = tomllib.loads(CC_CONFIG.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
     out = []
-    for p in cfg.get("projects") or []:
+    for p in datadir.projects(CC_CONFIG):  # 解析只在 datadir.py；读不了（含没有 tomllib）回 []
         k = _project_member(p.get("name") or "")
         if k is not None:
             out.append((k, p))

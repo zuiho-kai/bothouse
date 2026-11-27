@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -63,7 +65,7 @@ func (p *Platform) roomFromSessionKey(sessionKey string) (string, bool) {
 // frames carry task.Seq: the gateway keeps the highest seq it applied, skips an
 // older frame instead of rolling the card back, and refreshes the row when a
 // retried create finds it already there with older content.
-func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang core.Language) error {
+func (p *Platform) EnsureTaskCard(ctx context.Context, task *model.Task, lang core.Language) error {
 	if task == nil {
 		return errors.New("cloud_web: nil task")
 	}
@@ -107,7 +109,7 @@ func (p *Platform) EnsureTaskCard(ctx context.Context, task *core.Task, lang cor
 
 // PublishTaskFact: the card itself carries the latest progress and member rows;
 // Channels has no task thread to post facts into.
-func (p *Platform) PublishTaskFact(context.Context, *core.Task, core.TaskEvent, core.Language) error {
+func (p *Platform) PublishTaskFact(context.Context, *model.Task, model.TaskEvent, core.Language) error {
 	return nil
 }
 
@@ -116,14 +118,14 @@ func (p *Platform) PublishTaskFact(context.Context, *core.Task, core.TaskEvent, 
 // gateway then stores it with a card, which keeps it out of the text-draft
 // cleanup that runs when a bot disconnects or registers again (#119 review):
 // a plain-text preview would be dropped there and later edits would miss.
-func renderTaskCardText(task *core.Task) string {
+func renderTaskCardText(task *model.Task) string {
 	title := strings.TrimSpace(task.Title)
 	if title == "" {
 		title = task.ID
 	}
-	items := []core.ProgressCardEntry{{Kind: core.ProgressEntryInfo, Text: fmt.Sprintf("📋 %s · %s", title, task.State)}}
+	items := []model.ProgressCardEntry{{Kind: model.ProgressEntryInfo, Text: fmt.Sprintf("📋 %s · %s", title, task.State)}}
 	if s := strings.TrimSpace(task.LatestProgress); s != "" {
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: s})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: s})
 	}
 	for _, m := range task.Members {
 		line := m.Name
@@ -136,7 +138,7 @@ func renderTaskCardText(task *core.Task) string {
 		if m.Summary != "" {
 			line += " " + m.Summary
 		}
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryInfo, Text: line})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryInfo, Text: line})
 	}
 	return withTaskMembers(core.BuildProgressCardPayloadV2(items, false, "📋 "+title, "", taskCardState(task.State)), task.Members)
 }
@@ -155,7 +157,7 @@ type taskCardMember struct {
 
 // withTaskMembers adds the structured member list to a progress-card payload
 // as task_members; the text rows above stay for display.
-func withTaskMembers(payload string, members []core.TaskMember) string {
+func withTaskMembers(payload string, members []model.TaskMember) string {
 	body, ok := strings.CutPrefix(payload, core.ProgressCardPayloadPrefix)
 	if !ok || len(members) == 0 {
 		return payload
@@ -176,13 +178,13 @@ func withTaskMembers(payload string, members []core.TaskMember) string {
 	return core.ProgressCardPayloadPrefix + string(out)
 }
 
-func taskCardState(s core.TaskState) core.ProgressCardState {
+func taskCardState(s model.TaskState) core.ProgressCardState {
 	switch s {
-	case core.TaskStateCompleted, core.TaskStateResultReady:
+	case model.TaskStateCompleted, model.TaskStateResultReady:
 		return core.ProgressCardStateCompleted
-	case core.TaskStateCancelled:
+	case model.TaskStateCancelled:
 		return core.ProgressCardStateAborted
-	case core.TaskStateFailed:
+	case model.TaskStateFailed:
 		return core.ProgressCardStateFailed
 	}
 	return core.ProgressCardStateRunning

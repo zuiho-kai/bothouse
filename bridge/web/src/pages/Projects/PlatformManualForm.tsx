@@ -23,9 +23,6 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
     if (platformType === 'cloud_web') {
       return { transport: 'websocket' };
     }
-    if (platformType === 'tuitui') {
-      return { group_policy: 'allowlist', require_mention: true, history_limit: 50 };
-    }
     return {};
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
