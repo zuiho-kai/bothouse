@@ -199,12 +199,16 @@ func probeAnnouncementPort(au *url.URL, token string, web DSHWeb, deadline time.
 		if expired(deadline) {
 			return "", 0, false
 		}
-		if !probeDSHWebToken(deadline, p, token) {
-			return "", 0, false
-		}
+		// Ownership first, from lsof and the process table alone: the token probe is an HTTP request,
+		// and a port that is not this bridge's host must never receive one. FutuOpenD's telnet console
+		// (127.0.0.1:22222) read each request line as the account and password, failed its login and
+		// restarted logged out, so the trading OpenD stayed down (#2078).
 		pid, owned, why := dshWebPortOwned(dshWebDeadlineCtx0(deadline), p)
 		if !owned {
-			slog.Warn("dsh web self-heal: a port answers this token but is not this bridge's host: "+why, "port", p)
+			slog.Debug("dsh web self-heal: a listener is not this bridge's host, not probed: "+why, "port", p)
+			return "", 0, false
+		}
+		if !probeDSHWebToken(deadline, p, token) {
 			return "", 0, false
 		}
 		return p, pid, true
