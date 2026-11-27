@@ -104,6 +104,10 @@ func (e *Engine) updateTeamChatStates(now time.Time) {
 		st.Since, changed = now, true
 	}
 	items := e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
+	if e.parkCoolingPauses(items, now) {
+		// a pause made during a quota cooldown is now a wait with its time (#2095): judge that, not the pause
+		items = e.dropGoneTeamTaskBoard(placeTeamTaskBoard(e.teamTaskBoardPlacer(), readTeamTaskBoard(e.team.dir)))
+	}
 	// a report held for the lead's verdict is not a stop yet: the lead may send the work straight
 	// back (#2000: #1998 was told 「②停了…等外部」 19 s before the lead redispatched it)
 	stopItems := make([]teamTaskBoardItem, 0, len(items))

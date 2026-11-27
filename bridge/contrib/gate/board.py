@@ -34,7 +34,7 @@
   board hold [编号...] [--why 原因]        # 为集中发布暂停：标「为发布暂停」，不放回工作区、不清会话；不给编号 = 板上所有
                                          #   在工作区里、没交回、没暂停的条目。看门不把这期间的报错算失败；桥重启（发布切换）
                                          #   后自动去掉标记、叫原工作区从停点续（core/team_release_hold.go）
-  board unhold [编号...]                  # 发布没切（取消/改期）时手动去掉「为发布暂停」；不给编号 = 全部
+  board unhold [编号...] [--landed <提交>] # 发布没切（取消/改期）时手动去掉「为发布暂停」；不给编号 = 全部
   board pr <编号> <GitHub PR URL> no-deploy|deploy  # 派活人绑定本代次 PR 和交接部署范围
   board stage <编号> 样|全量 [--product 成品] [--ref 原件 ...]   # 成品活先交一小段样、用户认了才铺开全量（#1904）：
                                          #   登记这件活做到哪一段、成品和原件在哪（路径或链接；--ref 给了就整份换）。
@@ -1928,8 +1928,10 @@ def hold(nids, why=None):
     return picked
 
 
-def unhold(nids, at=None):
-    """去掉「为发布暂停」。at：只去掉这一次打的标记（桥重启后续办时带上，免得撤掉重启后新打的）。返回去掉的编号。"""
+def unhold(nids, at=None, landed=None):
+    """去掉「为发布暂停」。at：只去掉这一次打的标记（桥重启后续办时带上，免得撤掉重启后新打的）。返回去掉的编号。
+    landed：发布已随这个提交上线、却没有开着的交接可续（#2095：#2069 修法 16:24 已上线，标记撤掉后落成「工作区已释放」，
+    给用户发了「②停了」）。同 mark_deployed：转「待上线验收」、记交回时刻、验收人是派活人，由桥的验收调度叫派活人收口，不叫用户。"""
     with _locked():
         cur = _read_locked()
         cleared = []
@@ -1939,6 +1941,12 @@ def unhold(nids, at=None):
                 continue
             i.pop("release_hold")
             i["at"] = _now()
+            if landed and not i.get("paused") and not i.get("returned_at"):
+                i["deployed"] = {"commit": landed, "at": _bound_now()}
+                i["returned_at"] = _bound_now()
+                i["reviewer"] = i.get("dispatcher", "")
+                i["status"] = f"待上线验收：为发布暂停的活已随 {landed[:8]} 上线，没有交接可续"
+                event(i["id"], "returned", i)
             cleared.append(i["id"])
         if cleared:
             _write(cur)
@@ -2803,7 +2811,12 @@ def main(argv):
             if not out:
                 print("没有要收起的暂停条目" if prune_on() else "自动收起已关（board prune --on 打开）")
         elif cmd in ("hold", "unhold"):
-            rest, opt = argv[1:], None
+            rest, opt, landed = argv[1:], None, None
+            if cmd == "unhold" and "--landed" in rest:  # --landed <提交>：已随它上线、没交接可续，转待上线验收（#2095）
+                k = rest.index("--landed")
+                if k + 1 >= len(rest) or not re.fullmatch(r"[0-9a-f]{7,40}", rest[k + 1]):
+                    sys.exit("用法：board unhold [编号...] [--at 标记时刻] [--landed <提交>]")
+                landed, rest = rest[k + 1], rest[:k] + rest[k + 2:]
             flag = "--why" if cmd == "hold" else "--at"  # --at：桥续办时只撤它看到的那次标记
             if flag in rest:
                 k = rest.index(flag)
@@ -2811,7 +2824,7 @@ def main(argv):
                     sys.exit("用法：board hold [编号...] [--why 原因] ｜ board unhold [编号...] [--at 标记时刻]")
                 opt, rest = rest[k + 1], rest[:k] + rest[k + 2:]
             nids = [int(x.lstrip("#")) for x in rest]
-            got = hold(nids, opt) if cmd == "hold" else unhold(nids, opt)
+            got = hold(nids, opt) if cmd == "hold" else unhold(nids, opt, landed)
             word = "为发布暂停" if cmd == "hold" else "去掉为发布暂停"
             print(f"{word}：" + ("、".join(f"#{n}" for n in got) if got else "没有符合的条目"))
         elif cmd == "keep-running" and argv[1:] in ([], ["on"], ["off"], ["default"]):
