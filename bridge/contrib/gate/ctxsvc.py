@@ -606,13 +606,16 @@ def context(req):
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    dec = decision_items(text, key)
+    notices = []
+    dec = decision_items(text, key, notices)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + corrected_items(bot, key) + board_items(key)
            + proposal_items(text, bot, key)
            + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True, need=need) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req, own_paths={w["path"] for w in mine})  # 去重后再在两库间分配额度
+    if notices:
+        out["notice"] = notices  # 给人看的提醒，gate.go turnContext 发到这个聊天（静音群转主人私聊）
     try:
         exp_log(key, bot, text, out["wiki"], tq, ep=str(req.get("epoch") or ""))
     except Exception:
@@ -774,8 +777,9 @@ def decisions(text, root=None):
 # 带派活/接手/开工/交接字样）。
 _START = re.compile(r"^\[[^\]\n]+ → [^\]\n]+\]|派活|派给|接手|开工|交接")
 DEC_BLOCK = 2600  # 单块上限：加上块头约 2.8k，守住作者定的单轮 3000 字
-DEC_KEY_CHARS = 6000  # 每个会话 key 累计上限：约两次开工的量；交接文件那轮算新活，清零重计
+DEC_KEY_CHARS = 6000  # 每个会话 key 累计提醒线（不是上限，过了照发）：约两次开工的量；交接文件那轮算新活，清零重计
 _dec_used = {}
+_dec_noticed = set()  # 已在频道报过越线的 key
 
 
 def _handoff_named(q):
@@ -788,14 +792,15 @@ def is_start(text):
     return _handoff_named(q) or bool(_START.search(q))
 
 
-def decision_items(text, key=""):
-    """开工那一轮按话题附一块定案（is_start）；同一 key 累计不超过 DEC_KEY_CHARS。
+def decision_items(text, key="", notices=None):
+    """开工那一轮按话题附一块定案（is_start）；同一 key 累计过 DEC_KEY_CHARS 照发，往 notices 里放一条提醒（每次清零后只报一次）。
     path 带话题页的指纹：同一话题一个会话只推一次（gate.go turnContext）。"""
     try:
         if not is_start(text):
             return []
         if _handoff_named(query(text)):
             _dec_used[key] = 0
+            _dec_noticed.discard(key)
         pages, hits = decisions(text)
     except Exception:  # 读坏了不挡推页
         return []
@@ -811,19 +816,15 @@ def decision_items(text, key=""):
             break
         by.setdefault(rel, []).append(row)
         rows.setdefault(rel, []).append(_row(rel, line, row, rel, ln=ln))
-    # 同一 key 累计到 DEC_KEY_CHARS：发得下的页先发，发不下的从相关度最低的页往前丢，丢了记一笔（#2047 第 5 条：原来超一点整块不发）
-    left = DEC_KEY_CHARS - _dec_used.get(key, 0)
-    dropped = []
-    while by and sum(len(rel) + 1 + sum(len(r) + 1 for r in v) for rel, v in by.items()) > left:
-        rel, _ = by.popitem()
-        rows.pop(rel, None)
-        dropped.append(rel)
-    if dropped:
-        print(f"ctxsvc: 定案块 {key} 累计到 {DEC_KEY_CHARS} 字上限，这轮没推：{', '.join(dropped)}", file=sys.stderr, flush=True)
-    if not by:
-        return []
+    # 同一 key 累计过 DEC_KEY_CHARS 也整份照发，不砍；第一次越线在频道里报一次（gate.go 读 notice 发出去）。
+    # 用户 11-26「超限照发不砍并在频道里报警，不只写日志」；同 core/team_mode.go 本机守则（#2271），交接文件那轮清零后再越线再报。
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
-    _dec_used[key] = _dec_used.get(key, 0) + len(body)
+    used = _dec_used.get(key, 0) + len(body)
+    if used > DEC_KEY_CHARS and key not in _dec_noticed and notices is not None:
+        _dec_noticed.add(key)
+        notices.append(f"📏 这个会话推的「已定的方向和做法」累计 {used} 字，超过提醒线 {DEC_KEY_CHARS} 字。仍整份照发，"
+                       f"但上下文会多占；定案页太多就合并几条。")
+    _dec_used[key] = used
     return [_render({"path": f"【已定的方向和做法 {tag}】", "sep": "\n",
                      "head": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索",
                      "rows": [r for rel in by for r in rows[rel]]})]

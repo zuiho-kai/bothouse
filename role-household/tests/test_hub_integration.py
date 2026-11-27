@@ -305,7 +305,7 @@ class CloudWebRooms(CloudWebBase):
         self.assertEqual([x["text"] for x in self.hub.history(r2, None)], ["一", "二", "三"])
 
     async def test_reply_into_archived_room_dropped_connection_kept(self):
-        """bot 回话时频道已被归档：这条丢掉（hub 拒收），bot 的连接不断，之后往别的频道说话照常。"""
+        """bot 回话时频道已被归档：这条进不去（hub 拒收），第一个频道贴系统消息报一句（#2065），bot 的连接不断，之后往别的频道说话照常。"""
         ju = await self.registered("maomao", "橘")
         r2 = self.hub.create_room({"name": "工作"})["id"]
         self.hub.update_room(r2, {"archived": True})
@@ -316,6 +316,8 @@ class CloudWebRooms(CloudWebBase):
         await wait_for(lambda: self.rows(author="maomao"), what="大厅那条进频道")
         self.assertEqual([m["text"] for m in self.rows(author="maomao")], ["大厅"])
         self.assertEqual(self.hub.history(r2, None), [])
+        notes = [m["text"] for m in self.hub.history(1, None) if m["author_kind"] == "system"]
+        self.assertEqual(notes, ["有条回复因频道归档没发出：橘 发往 #工作，2 字。恢复 #工作 后让它重发。"])
 
 
 class RenderIntegrationApi(HistoryBase):

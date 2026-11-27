@@ -835,6 +835,23 @@ class Hub:
             self.out(play["ws"]).put(json.dumps({"type": "device", "event": "stop", "role": play["role"],
                                                  "play_id": pid}), pid, stop=True)
 
+    async def tell_undelivered(self, room_id: int, who: str, text: str) -> None:
+        """一条消息因频道已归档进不去：在还开着的频道贴一条系统消息并推到手机，不只写日志
+        （用户 11-26「超限照发不砍并在频道里报警，不只写日志」，#2065）。贴到这个工作区归属的聊天频道，
+        没有或也归档了就贴第一个频道（它不能归档，update_room）。原文整条记进日志。"""
+        room = self.room(room_id)
+        name = room["name"] if room else str(room_id)
+        print(f"[hub] {who} 发往 #{name} 的消息没发出（频道已归档），原文：{text}", file=sys.stderr, flush=True)
+        target = self.workspace_owner(room_id)
+        t = self.room(target) if target is not None else None
+        if t is None or t["archived_at"] is not None:
+            target = self.first_room()
+        msg, _ = self.create(target, {"author_kind": "system",
+                                      "text": f"有条回复因频道归档没发出：{who} 发往 #{name}，{len(text)} 字。恢复 #{name} 后让它重发。"})
+        await self.broadcast({"type": "message", "message": msg}, target)
+        await self.notify_new(msg)
+        self.push_soon(msg, notify=True)
+
     async def notify_new(self, msg: dict) -> None:
         for f in self.listeners:
             await f(msg)

@@ -99,8 +99,11 @@ class TeamExit:
         """贴帖；频道已归档（Conflict）时不贴、返回 None。异常不往上冒：on_new 跑在 bot 连接的收帧循环里，冒出去会断连接。"""
         try:
             msg, new = self.hub.create(room_id, body)
-        except Conflict as e:
-            print(f"[team-exit] 频道 {room_id} 没贴上：{e}", file=sys.stderr, flush=True)
+        except Conflict:   # 频道已归档：在开着的频道里报一句（#2065），报不出也不往上冒
+            try:
+                await self.hub.tell_undelivered(room_id, body.get("name") or "工作区", body.get("text") or "")
+            except Exception as e:
+                print(f"[team-exit] 频道 {room_id} 已归档，没贴上，报也没报出去：{e}", file=sys.stderr, flush=True)
             return None
         if new:
             await self.hub.broadcast({"type": "message", "message": msg}, room_id)
