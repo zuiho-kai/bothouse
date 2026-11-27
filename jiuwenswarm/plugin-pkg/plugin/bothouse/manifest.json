@@ -2,41 +2,76 @@
   "version": "1.0.0",
   "package_type": "plugin",
   "id": "bothouse",
-  "name": "bothouse 人设与记忆",
-  "description": "让九问的智能体带上 bothouse 角色的人设和一本共享的记忆 wiki。",
+  "name": "bothouse 组织智能体与记忆",
+  "description": "让九问的智能体带上 bothouse 角色人设、飞书需求卡/话题进度分离，以及全队共享记忆论坛。",
   "display_name": {
-    "en": "bothouse persona & memory",
-    "zh": "bothouse 人设与记忆"
+    "en": "bothouse org agent & team memory",
+    "zh": "bothouse 组织智能体与记忆"
   },
   "display_description": {
-    "en": "Every model call carries the bothouse role's persona and its shared memory wiki, so the agent keeps one character and remembers what the team wrote down.",
-    "zh": "调用模型时带上 bothouse 角色的人设和共享记忆 wiki：一个性格说话，记得团队写下的事。"
+    "en": "Adds bothouse role persona, Feishu need cards, topic-isolated execution with one progress card, and a shared team memory forum.",
+    "zh": "为九问 AI 同事提供人设、飞书需求卡、话题干活与进度卡分离，以及全队共享记忆论坛。"
   },
-  "category": "Others",
+  "category": "Engineering",
   "source": "local",
   "avatar": "",
   "default_init_input": {
-    "zh": "你是谁？自我介绍一下",
-    "en": "Who are you? Introduce yourself"
+    "zh": "对当前需求做一次需求分析并生成飞书需求卡",
+    "en": "Run a requirement analysis and send a Feishu need card"
   },
   "tags": [
-    { "en": "Persona", "zh": "人设" },
-    { "en": "Memory", "zh": "记忆" },
+    { "en": "Team Memory", "zh": "记忆论坛" },
+    { "en": "Feishu Topic", "zh": "飞书话题" },
     { "en": "bothouse", "zh": "bothouse" }
   ],
   "quick_inputs": [
-    { "zh": "你是谁？自我介绍一下", "en": "Who are you? Introduce yourself" },
-    { "zh": "在记忆 wiki 里查一下我们上次定了什么", "en": "Look up in the memory wiki what we decided last time" },
-    { "zh": "把今天定下的事记进记忆 wiki", "en": "Write what we decided today into the memory wiki" }
+    { "zh": "对当前需求做一次需求分析并生成飞书需求卡", "en": "Run a requirement analysis and send a Feishu need card" },
+    { "zh": "在全队记忆论坛里查一下以前定过的规矩", "en": "Search the shared team memory forum for past rules" },
+    { "zh": "把这件活开飞书话题并挂出进度卡", "en": "Open a Feishu topic and post the progress card" }
+  ],
+  "skills": [
+    {
+      "dir": "./skills/bothouse-team-workflow",
+      "mode": "all"
+    }
+  ],
+  "tools": [
+    {
+      "file": "tools/feishu_need_card_tool.py",
+      "class": "BothouseFeishuNeedCardTool",
+      "display_name": { "en": "Feishu Need Card", "zh": "飞书需求分析卡" },
+      "display_description": {
+        "en": "Collects group quotes, shared memory rules, and acceptance criteria into a Feishu interactive need card.",
+        "zh": "汇总群聊原话、记忆论坛历史规则和验收标准，发出带确认按钮的飞书需求卡。"
+      }
+    },
+    {
+      "file": "tools/feishu_topic_task_tool.py",
+      "class": "BothouseFeishuTopicTaskTool",
+      "display_name": { "en": "Feishu Topic & Progress", "zh": "飞书话题与进度卡" },
+      "display_description": {
+        "en": "Keeps agent work logs inside a Feishu topic, updates one progress card in-place, and checks stuck tasks.",
+        "zh": "把干活来回关进飞书话题，主群只原地刷新一张进度卡，并支持卡住提醒与交回检查。"
+      }
+    },
+    {
+      "file": "tools/memory_forum_tool.py",
+      "class": "BothouseMemoryForumTool",
+      "display_name": { "en": "Team Memory Forum", "zh": "全队记忆论坛" },
+      "display_description": {
+        "en": "Searches shared team memory threads, cites rules, records corrections, and promotes repeat mistakes to checks.",
+        "zh": "检索全队共享记忆论坛，记录纠正并夜间归帖投票，同类错第二次自动升成检查。"
+      }
+    }
   ],
   "rails": [
     {
       "file": "rails/bothouse_role_rail.py",
       "class": "BothouseRoleRail",
-      "display_name": { "en": "bothouse role", "zh": "bothouse 角色" },
+      "display_name": { "en": "bothouse role & team memory", "zh": "bothouse 角色与团队记忆" },
       "display_description": {
-        "en": "Puts the bothouse role's persona and memory wiki section into the system prompt before each model call.",
-        "zh": "每次调用模型前，把 bothouse 角色的人设和记忆 wiki 说明放进系统提示词。"
+        "en": "Injects persona and shared team memory forum hits before each model call and checks stuck tasks.",
+        "zh": "每次调用模型前注入人设与全队共享记忆论坛命中规则，并巡检卡住任务。"
       }
     }
   ]

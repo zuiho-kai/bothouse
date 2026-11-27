@@ -217,8 +217,8 @@ def install_plugin(packages, root: Path) -> int:
     got = packages.import_plugin_package({"path": str(pkg)})
     packages.install_plugin_package({"id": got["id"]})
     print(f"插件已装：{got['id']}（JiuwenSwarm 的插件中心「我的插件」里能看到）")
-    sys.path.insert(0, str(pkg / "rails"))
-    import bothouse_role_rail as rail  # the copy in this package: the same lookup the installed rail does
+    sys.path.insert(0, str(pkg.parent))
+    from bothouse.rails import bothouse_role_rail as rail  # the copy in this package: the same lookup the installed rail does
 
     report_role(rail.bothouse_role_file(), root / "bothouse")
     print("用法：对话里勾选插件「bothouse 人设与记忆」；飞书等渠道的 JiuwenMate 同事在「能力 → 插件」里装备它再发布。"

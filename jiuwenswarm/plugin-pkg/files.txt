@@ -3,7 +3,14 @@ jiuwenswarm/plugin-pkg/extension/extension.py
 jiuwenswarm/plugin-pkg/extension/extension.yaml
 jiuwenswarm/plugin-pkg/plugin/bothouse/manifest.json
 jiuwenswarm/plugin-pkg/plugin/bothouse/README.md
+jiuwenswarm/plugin-pkg/plugin/bothouse/common/__init__.py
+jiuwenswarm/plugin-pkg/plugin/bothouse/common/feishu_workflow.py
+jiuwenswarm/plugin-pkg/plugin/bothouse/common/forum_memory.py
 jiuwenswarm/plugin-pkg/plugin/bothouse/rails/bothouse_role_rail.py
+jiuwenswarm/plugin-pkg/plugin/bothouse/skills/bothouse-team-workflow/SKILL.md
+jiuwenswarm/plugin-pkg/plugin/bothouse/tools/feishu_need_card_tool.py
+jiuwenswarm/plugin-pkg/plugin/bothouse/tools/feishu_topic_task_tool.py
+jiuwenswarm/plugin-pkg/plugin/bothouse/tools/memory_forum_tool.py
 patches/jiuwenswarm/manifest.json
 patches/jiuwenswarm/workswarm-0.2.8/runtime_prompt_rail.patch
 bridge/contrib/wiki/setup_wiki.py

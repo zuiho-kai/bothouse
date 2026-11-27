@@ -1,16 +1,7 @@
-"""bothouse for JiuwenSwarm 0.2.9+: the bothouse role's persona file (persona + memory wiki section) as a
-system prompt section, through JiuwenSwarm's own plugin rails (no patch to JiuwenSwarm).
-
-Where the text comes from, the first that is there (the same order as extension/extension.py, the 0.2.8 way):
-  - the persona file the bothouse bridge keeps for the role that runs JiuwenSwarm, i.e. the `acp` project whose
-    command runs jiuwenswarm (bridge/core/acp_presets.go isJiuwenProc): <work_dir>/AGENTS.md, with the memory wiki
-    section between the <!-- conest:wiki --> marks (bridge/core/rolewiki.go WithWiki);
-  - the default role install.py makes on a machine with no such role: <JiuwenSwarm data dir>/bothouse/roles/
-    jiuwenswarm/AGENTS.md.
-The file is read on every model call, so an edit shows from the next call on. This rail only reads it.
-
-Mounted where JiuwenSwarm mounts plugin rails: a chat whose plugin selection has "bothouse", and a JiuwenMate
-colleague (Web, Feishu) whose capabilities.plugins has "bothouse" (server/jiuwenmate/resource_assembly.py).
+"""bothouse for JiuwenSwarm 0.2.9+:
+1. Injects the bothouse role's persona and wiki section as a system prompt section.
+2. Searches the shared team memory forum per query and injects top rules into the system prompt.
+3. Checks in-progress tasks for stuck reminders during task iterations.
 """
 from __future__ import annotations
 
@@ -23,11 +14,13 @@ from typing import Any
 from openjiuwen.core.single_agent.prompts.builder import PromptSection
 from openjiuwen.harness.rails.base import DeepAgentRail
 
+from ..common import feishu_workflow, forum_memory
+
 log = logging.getLogger(__name__)
 SECTION = "bothouse.role"
-# after JiuwenSwarm's own identity section, as the 0.2.8 patch put it
-# (jiuwenswarm/agents/harness/common/prompt/priority_registry.py SystemPromptPriority.CONTEXT_SOUL)
+MEMORY_SECTION = "bothouse.team_memory"
 PRIORITY = 102
+MEMORY_PRIORITY = 103
 
 
 def bothouse_config() -> Path | None:
@@ -67,8 +60,20 @@ def role_text() -> str:
         return ""
 
 
+def _extract_last_query(ctx: Any) -> str:
+    inputs = getattr(ctx, "inputs", None)
+    messages = getattr(inputs, "messages", None) or []
+    for msg in reversed(messages):
+        role = getattr(msg, "role", None) if not isinstance(msg, dict) else msg.get("role")
+        if role == "user":
+            content = getattr(msg, "content", None) if not isinstance(msg, dict) else msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+    return ""
+
+
 class BothouseRoleRail(DeepAgentRail):
-    """Before each model call: the bothouse role's persona and memory wiki section go into the system prompt."""
+    """Before each model call: inject persona + shared team memory forum hits; check stuck tasks on iteration."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -81,6 +86,7 @@ class BothouseRoleRail(DeepAgentRail):
         builder = getattr(self._agent, "system_prompt_builder", None)
         if builder is not None:
             builder.remove_section(SECTION)
+            builder.remove_section(MEMORY_SECTION)
         self._agent = None
 
     async def before_model_call(self, ctx: Any) -> None:
@@ -89,10 +95,34 @@ class BothouseRoleRail(DeepAgentRail):
             return
         try:
             text = role_text()
-        except Exception as exc:  # noqa: BLE001 - a model call must go through whatever happens here
+        except Exception as exc:  # noqa: BLE001
             log.warning("[bothouse] role text not read: %s", exc)
             text = ""
         if not text:
             builder.remove_section(SECTION)
-            return
-        builder.add_section(PromptSection(name=SECTION, content={"cn": text, "en": text}, priority=PRIORITY))
+        else:
+            builder.add_section(PromptSection(name=SECTION, content={"cn": text, "en": text}, priority=PRIORITY))
+
+        try:
+            query = _extract_last_query(ctx)
+            hits = forum_memory.search_forum(query, limit=3) if query else []
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[bothouse] team memory search failed: %s", exc)
+            hits = []
+
+        if hits:
+            lines = ["## 团队共享记忆论坛（命中高分规则）"]
+            for th in hits:
+                lines.append(f"- `[#{th['top_cid']}]` {th['title']}：{th['top_rule']}（分 {th['score']}）")
+            mem_text = "\n".join(lines)
+            builder.add_section(
+                PromptSection(name=MEMORY_SECTION, content={"cn": mem_text, "en": mem_text}, priority=MEMORY_PRIORITY)
+            )
+        else:
+            builder.remove_section(MEMORY_SECTION)
+
+    async def after_task_iteration(self, ctx: Any) -> None:
+        try:
+            feishu_workflow.check_stuck_tasks()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[bothouse] stuck check failed: %s", exc)
