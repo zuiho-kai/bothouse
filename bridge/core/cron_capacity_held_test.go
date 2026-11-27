@@ -36,6 +36,9 @@ func TestCronJob_CapacityHeldRunIsRedeliveredNotEmpty(t *testing.T) {
 		t.Fatalf("ExecuteCronJob() = %v, want nil for a run held through the cooldown", err)
 	}
 	waitFor(t, "held cron run re-delivered and answered", func() bool { return strings.Contains(joined(&p.stubPlatformEngine), "reply:done") })
+	// The reply goes out before the turn closes its journal entry; let that last write land
+	// so the TempDir cleanup does not race it ("turn-journal: directory not empty").
+	waitFor(t, "turn journal closed", func() bool { j := e.turnJournalStore(); return j == nil || len(j.List()) == 0 })
 	if n := sess.sends(); n != 4 {
 		t.Fatalf("sends = %d, want 4 (3 failed + 1 re-delivered)", n)
 	}
