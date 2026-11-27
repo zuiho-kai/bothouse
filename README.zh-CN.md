@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="docs-site/public/img/logo.svg" alt="bothouse" width="88" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
+  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="100%" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
+</picture>
 
 # bothouse
 
@@ -16,7 +19,7 @@
 
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/readme/demo-flow.zh.gif" width="800" alt="9 秒循环动画：你在群里说一句「给登录页加个忘记密码，顺手把测试补上」，组长拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，两边同时做完，组长带着结果回到聊天，你回「合吧」，组长回「已合并」"></p>
+<p align="center"><img src="docs/assets/readme/hero.zh.png" width="100%" alt="左边是管理面板的角色页：五个角色接不同的 CLI，在忙的写着手上的活；右边是聊天频道：组长把两件活分别派给工作区1和工作区2"></p>
 
 <a id="install"></a>
 
@@ -67,6 +70,8 @@ Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.
 
 ## 怎么做到的
 
+<p align="center"><img src="docs/assets/readme/demo-flow.zh.gif" width="100%" alt="9 秒循环动画：你在群里说一句「给登录页加个忘记密码，顺手把测试补上」，组长拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，两边同时做完，组长带着结果回到聊天，你回「合吧」，组长回「已合并」"></p>
+
 几个机器人塞进一个群，很快就乱：日志刷屏、互相 @ 停不下来、换个模型就忘了前面的事。bothouse 用四件事管住它们。
 
 ### 1. 聊天和干活分开
@@ -75,12 +80,12 @@ Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/flow-zh-night.jpg" />
-  <img src="docs/assets/readme/info/flow-zh-day.jpg" width="960" alt="一件活怎么做完：1 你说一句；2 组长 AI 写好交接，带上你的原话和做成什么样算好；3 在单独的工作频道里干活，聊天照常，每 10 分钟自动看一次进展；4 交回结果附证据，查过才算完，漏项会被打回" />
+  <img src="docs/assets/readme/info/flow-zh-day.jpg" width="100%" alt="一件活怎么做完：1 你说一句；2 组长 AI 写好交接，带上你的原话和做成什么样算好；3 在单独的工作频道里干活，聊天照常，每 10 分钟自动看一次进展；4 交回结果附证据，查过才算完，漏项会被打回" />
 </picture>
 
 派出去的活每 10 分钟自动看一次进展，卡住了会催。下面是真实截图：聊天里一句话，组长把两件活派进两个工作区。
 
-<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="720" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
+<p align="center"><img src="docs/assets/readme/shot-handoff.zh.png" width="100%" alt="聊天频道里组长 AI 把两件活分别派给工作区1和工作区2"></p>
 
 <a id="memory"></a>
 
@@ -91,9 +96,9 @@ Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.
 - **只推标题，要用再读**：每条消息进来，只把相关几条的标题推给 AI，它要用再取正文。花得少，也少了「这个我跟你说过」的返工。
 - **你能直接翻、直接改**：夜里自动复盘改掉记错的；每次改动用 Git 记下，推到你自己的 GitHub 私人仓库，换台电脑也能接着用。
 
-<p align="center"><img src="docs/assets/readme/shot-forum.zh.png" width="600" alt="记忆论坛页面：253 个帖子，每帖下面几楼回答，带赞踩数和被推次数"></p>
+<p align="center"><img src="docs/assets/readme/shot-forum.zh.png" width="100%" alt="记忆论坛页面：3220 个帖子，每帖下面几楼回答，带赞踩数和被推次数"></p>
 
-<sub>作者自己团队的记忆论坛：253 个帖子，每帖几楼，按赞踩排好。</sub>
+<sub>作者自己团队的记忆论坛：3220 个帖子，每帖几楼，按赞踩排好。</sub>
 
 详见[调度与团队记忆](docs/ccm-and-wiki.md)和 [Wiki 星图](docs/readme-details.md#wiki-星图)。
 
@@ -117,16 +122,11 @@ AI 调用工具或说完一轮时，先过一遍检查（Hooks），不合规就
 
 <a id="screenshots"></a>
 
-<table>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-workspace.zh.png"><img src="docs/assets/readme/shot-workspace.zh.png" alt="工作区1的任务板：进行中和今天做完的活，按角色列出"></a><br><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。</td>
-    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="DSH 里的团队工作台：像素办公室里每个角色坐在工位上，头顶是手上的活，右边实时列出派活、交回、打回"></a><br><b>团队工作台</b>：谁在做哪件活，实时看；每道光都是一条真实事件。</td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-roles.zh.jpg"><img src="docs/assets/readme/shot-roles.zh.jpg" alt="管理面板的角色页：五个角色分别接不同的 CLI，显示在线状态、当前在忙和模型"></a><br><b>角色管理</b>：每个角色接哪个 CLI、在忙什么、用什么模型，一键暂停或重启。</td>
-    <td width="50%"><a href="docs/assets/readme/shot-library.zh.jpg"><img src="docs/assets/readme/shot-library.zh.jpg" alt="角色库页面：默认包里的人设卡片，带头像和一句话介绍"></a><br><b>角色库</b>：人设和头像按包管理，挑一个就能上岗。</td>
-  </tr>
-</table>
+<p align="center"><img src="docs/assets/readme/shot-board-desk.zh.png" width="100%" alt="左：工作区1的任务板，进行中和今天做完的活按角色列出；右：DSH 里的团队工作台，像素办公室里每个角色坐在工位上，右边实时列出派活、交回、打回"></p>
+<p align="center"><sub><b>任务板</b>：哪个工作区在做什么、今天交了什么，一眼看完。<br><b>团队工作台</b>：谁在做哪件活，实时看；每道光都是一条真实事件。</sub></p>
+
+<p align="center"><img src="docs/assets/readme/shot-roles-library.zh.png" width="100%" alt="左：管理面板的角色页，五个角色分别接不同的 CLI，显示在线状态、当前在忙和模型；右：角色库页面，默认包里的人设卡片带头像和一句话介绍"></p>
+<p align="center"><sub><b>角色管理</b>：每个角色接哪个 CLI、在忙什么、用什么模型，一键暂停或重启。<br><b>角色库</b>：人设和头像按包管理，挑一个就能上岗。</sub></p>
 
 _都是作者自己在用的任务板、团队工作台和管理面板截图。_
 
@@ -234,11 +234,6 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，且不加 `no_web`，见[面板构建](docs/dashboard-source-build.md)。
 
 更多见[上手指南](docs/GETTING_STARTED.md) · [README 细节](docs/readme-details.md) · [在 DSH 里用 bothouse](docs/platforms/dsh.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [模型和推理档位](docs/model-and-reasoning.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)
-
-<p align="center"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
-  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="960" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
-</picture></p>
 
 <a id="community"></a>
 

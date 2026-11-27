@@ -2,7 +2,7 @@
   <a href="https://github.com/zuiho-kai/bothouse">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-en-night.svg" />
-  <img src="docs/assets/readme/banner/hero-en-day.svg" width="960" alt="bothouse: the AIs on your computer, in one group chat — a team that splits its own work" />
+  <img src="docs/assets/readme/banner/hero-en-day.svg" width="100%" alt="bothouse: the AIs on your computer, in one group chat — a team that splits its own work" />
 </picture>
   </a>
 
@@ -26,7 +26,7 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
 
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/readme/demo-flow.en.gif" width="800" alt="9-second loop: you ask in the group for a forgot-password flow plus tests; the lead splits it into two workspaces — Codex writes the reset-password API, DeepSeek builds the page and its tests — both finish, you say merge, and it is merged"></p>
+<p align="center"><img src="docs/assets/readme/hero.en.png" width="100%" alt="Left: the dashboard Roles page, five roles on different CLIs, the busy ones showing their current job; right: the chat channel, where the team lead hands two jobs to Workspace 1 and Workspace 2"></p>
 
 <a id="video"></a>
 
@@ -87,9 +87,11 @@ On macOS, daemon install and restart allow a 30-second window for launchd to rem
 
 ## How it works
 
+<p align="center"><img src="docs/assets/readme/demo-flow.en.gif" width="100%" alt="9-second loop: you ask in the group for a forgot-password flow plus tests; the lead splits it into two workspaces — Codex writes the reset-password API, DeepSeek builds the page and its tests — both finish, you say merge, and it is merged"></p>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/info/flow-en-night.jpg" />
-  <img src="docs/assets/readme/info/flow-en-day.jpg" width="960" alt="How one job gets done: 1 you say one thing; 2 the team-lead AI writes a handoff carrying your exact words and what done looks like; 3 the work happens in its own channel while your chat keeps going, with progress checked every 10 minutes; 4 the result is handed back with proof and checked, and missing items are sent back. You are asked only for decisions; a task board shows every job; the team desk shows who is doing what" />
+  <img src="docs/assets/readme/info/flow-en-day.jpg" width="100%" alt="How one job gets done: 1 you say one thing; 2 the team-lead AI writes a handoff carrying your exact words and what done looks like; 3 the work happens in its own channel while your chat keeps going, with progress checked every 10 minutes; 4 the result is handed back with proof and checked, and missing items are sent back. You are asked only for decisions; a task board shows every job; the team desk shows who is doing what" />
 </picture>
 
 Only three ideas to learn:
@@ -98,7 +100,7 @@ Only three ideas to learn:
 - **Workspaces** — big jobs (more than about ten minutes, or code changes and tests) go to a separate job channel with a handoff that carries your original words, the scope and what "done" looks like. Chat never stalls; one workspace, one job. The lead keeps a task board, and the bridge looks at every job every ten minutes. Results come back with proof, and only decisions that need you come back to chat. This is what we call **team mode**.
 - **Shared memory** — every role reads and writes the same Markdown notes, so whoever picks up a job already knows the background. See [Memory](#memory).
 
-<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="720" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
+<p align="center"><img src="docs/assets/readme/shot-handoff.en.png" width="100%" alt="In the chat channel the team-lead AI hands two tasks to Workspace 1 and Workspace 2"></p>
 
 Jobs can return results in batches: accepting a batch keeps the job and workspace open, while accepting the final report closes the job. Workspace agents use `ws-up --report <draft> --batch` for intermediate results and `--final` (the default) for the final handback; see the [workspace playbook](bridge/contrib/lead/PLAYBOOK.zh-CN.md).
 
@@ -106,7 +108,7 @@ More detail — who replies when nobody is named, the nightly review, guardrails
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/architecture-en-night.svg" />
-  <img src="docs/assets/readme/architecture-en-day.svg" width="960" alt="bothouse architecture: on the left, where you chat (Discord, Feishu, QQ, DSH desktop or web); in the middle, bothouse on your own computer: platform adapters, the engine with one session per channel, the team lead and the task board with workspaces, CLI adapters and the memory gate; below, the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, OpenCode, DSH, Antigravity); on the right, shared memory as a Markdown folder with the memory forum, pushed with Git to your private GitHub repo" />
+  <img src="docs/assets/readme/architecture-en-day.svg" width="100%" alt="bothouse architecture: on the left, where you chat (Discord, Feishu, QQ, DSH desktop or web); in the middle, bothouse on your own computer: platform adapters, the engine with one session per channel, the team lead and the task board with workspaces, CLI adapters and the memory gate; below, the AI command-line tools you already signed in to (Claude Code, Codex, Gemini CLI, OpenCode, DSH, Antigravity); on the right, shared memory as a Markdown folder with the memory forum, pushed with Git to your private GitHub repo" />
 </picture>
 
 <a id="features"></a>
@@ -129,16 +131,11 @@ Also: [team desk](docs/readme-details.en.md#team-desk) — a pixel office that s
 
 <a id="screenshots"></a>
 
-<table>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-workspace.en.png"><img src="docs/assets/readme/shot-workspace.en.png" alt="Workspace 1 task board listing running and finished tasks by role"></a><br><b>Task board</b>: what each workspace is doing and what landed today, at a glance.</td>
-    <td width="50%"><a href="docs/assets/readme/shot-desk.png"><img src="docs/assets/readme/shot-desk.png" alt="Team desk in DSH: a pixel office where each role sits at a desk with its current task, next to a live feed of handoffs, returns and send-backs"></a><br><b>Team desk</b>: who is working on what, live; every light is a real event.</td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/assets/readme/shot-roles.en.jpg"><img src="docs/assets/readme/shot-roles.en.jpg" alt="Dashboard Roles page: five roles on different CLIs with status, current work and model"></a><br><b>Roles</b>: which CLI each role runs, what it is busy with, which model — pause or restart in one click.</td>
-    <td width="50%"><a href="docs/assets/readme/shot-library.en.jpg"><img src="docs/assets/readme/shot-library.en.jpg" alt="Library page: persona cards from the default pack with avatars and one-line descriptions"></a><br><b>Library</b>: personas and avatars come in packs; pick one and it is ready to work.</td>
-  </tr>
-</table>
+<p align="center"><img src="docs/assets/readme/shot-board-desk.en.png" width="100%" alt="Left: Workspace 1 task board listing running and finished tasks by role; right: team desk in DSH, a pixel office where each role sits at a desk with its current task, next to a live feed of handoffs, returns and send-backs"></p>
+<p align="center"><sub><b>Task board</b>: what each workspace is doing and what landed today, at a glance.<br><b>Team desk</b>: who is working on what, live; every light is a real event.</sub></p>
+
+<p align="center"><img src="docs/assets/readme/shot-roles-library.en.png" width="100%" alt="Left: dashboard Roles page, five roles on different CLIs with status, current work and model; right: Library page, persona cards from the default pack with avatars and one-line descriptions"></p>
+<p align="center"><sub><b>Roles</b>: which CLI each role runs, what it is busy with, which model — pause or restart in one click.<br><b>Library</b>: personas and avatars come in packs; pick one and it is ready to work.</sub></p>
 
 _Top left: real channel footage. The rest: the author's own team desk and dashboard._
 
