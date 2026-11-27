@@ -79,6 +79,11 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	if !okKey && !okID {
 		return res, fmt.Errorf("workspace exit: %s: %w", res.Workspace, ErrWorkspaceExitNoTask)
 	}
+	if e.notWorkspaceOwner(p, res.Workspace, res.Board) {
+		// #2094: 龙娘, called in by a quoted @, handed back 彩虹猫's task before it was on line.
+		slog.Warn("team exit: refused, the caller is not the task's owner", "workspace", res.Workspace, "board", res.Board, "caller", e.name)
+		return res, fmt.Errorf("workspace exit: %s #%d: %w", res.Workspace, res.Board, ErrWorkspaceExitNotOwner)
+	}
 
 	// The draft's headline is also the forwarding path's task identity. Never select
 	// a newer task from the workspace: an older report must not return that task.
@@ -215,6 +220,8 @@ func (s *APIServer) handleTeamWorkspaceExit(w http.ResponseWriter, r *http.Reque
 	switch {
 	case errors.Is(err, ErrWorkspaceExitNoTask):
 		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, ErrWorkspaceExitNotOwner):
+		http.Error(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, ErrTeamTaskTransition):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case err != nil:

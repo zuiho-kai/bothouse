@@ -78,6 +78,12 @@ func (e *Engine) quotaReassignMention(p Platform, msg *Message, until time.Time)
 		return false
 	}
 	session := teamChatKey(msg.SessionKey)
+	if e.isTeamWorkspaceChat(session) {
+		// A workspace's task is its owner's (team_workspace_owner.go): a call there is not work to
+		// hand on (#2094: 橘's cooling handed 彩虹猫's quoted @ to 龙娘 as work).
+		slog.Info("quota reassign: a call in a workspace is not handed on", "from", e.name, "session", session)
+		return false
+	}
 	target, earliest := e.quotaReassignPick(session, msg.Content)
 	who := e.DisplayName()
 	if target == nil {

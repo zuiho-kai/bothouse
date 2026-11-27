@@ -995,6 +995,16 @@ func (s *APIServer) handleTimerAdd(w http.ResponseWriter, r *http.Request) {
 		ReplyBoard:   req.ReplyBoard,
 		CreatedAt:    time.Now(),
 	}
+	if job.Handoff && job.TaskHandoff == "" {
+		// A workspace wake belongs to the task just handed there, not to the workspace (#2098:
+		// #2082's wake, held 16:49→18:40 by a cooldown, ran in 工作区6 after #2082 had closed and
+		// #2094 had the workspace). deliverToTask runs it only while that task is still there.
+		s.mu.RLock()
+		if e := s.engines[project]; e != nil {
+			job.TaskHandoff = e.workspaceHandoffID(sessionKey)
+		}
+		s.mu.RUnlock()
+	}
 
 	// Anti-spin only for jobs created through the API (CLI/model); internal wake-ups
 	// (relay drain, watch, auto-return) add timers directly and must not be blocked.
