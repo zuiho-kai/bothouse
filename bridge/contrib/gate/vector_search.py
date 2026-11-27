@@ -16,7 +16,8 @@ URL = os.environ.get("GATE_VECTOR", "").strip().rstrip("/")
 URL = "" if URL.lower() == "off" else URL
 RRF_K = 60  # 来源：RRF 原论文（Cormack 2009）的常数，qmd 同；离线实验用的就是它
 DEPTH_KW, DEPTH_VEC = 3000, 1000  # 来源：离线实验 run.py，两路各取这么深再合并
-WAIT = 1  # 秒：查询向量实测中位 21ms（0.6B，Mac），超过就当服务卡住，这一轮只用关键词
+# 秒：查询向量实测中位 21ms（0.6B，Mac）；模型空闲卸载后第一句要重新加载，实测约 1.6 秒，留到 3 秒；再慢就当服务卡住，这一轮只用关键词
+WAIT = 3
 SYNC_WAIT = 30  # 秒：发全表给服务只是登记，算向量在服务后台做
 
 _FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 同 ctxsvc._FLOOR_TAG：楼层标注不进向量

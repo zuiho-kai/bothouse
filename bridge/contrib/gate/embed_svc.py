@@ -4,7 +4,16 @@
     pip install torch transformers numpy
     python3 embed_svc.py            # 地址见下面 PORT，模型默认 Qwen/Qwen3-Embedding-0.6B（第一次自动下载）
 再在 bothouse 配置里打开：[gate] vector = true（服务地址不是默认的再写 vector_url）。
-环境变量：EMBED_MODEL（模型名或本地目录）、EMBED_PORT、EMBED_DIR（向量表存哪，默认本文件旁的 vec/）。
+环境变量：EMBED_MODEL（模型名或本地目录）、EMBED_PORT、EMBED_DIR（向量表存哪，默认本文件旁的 vec/）、
+EMBED_IDLE（空闲多少秒卸载模型，0 = 不卸）、EMBED_MAX_MB（进程内存上限，0 = 不限）。
+
+长期跑不涨内存（用户 11-27「搞一个内存限制…长期这样搞的话，我怕他会炸」）：
+- 空闲卸载：模型空闲 EMBED_IDLE 秒就卸掉、还回显存，下次查询再加载（实测冷加载约 1.6 秒）；向量表留着（约 0.1GB）。
+  照 Ollama（docs/faq.mdx「By default models are kept in memory for 5 minutes before being unloaded」，OLLAMA_KEEP_ALIVE 可改）
+  和 qmd（README「Embedding/reranking contexts are disposed after 5 min idle and transparently recreated on the next request」）。
+- 内存上限：每 10 秒量一次本进程内存，超了先卸模型、清显存缓存；还超就退出，由守护（launchd KeepAlive / systemd Restart）拉起。
+  它是独立进程，回收它不影响 gate：这期间 gate 只用关键词推。
+- 每算完一批清 MPS/CUDA 缓存：长度不同的批次各开一块缓存不还，是 rerank_svc 11-14 涨到 89G 的原因。
 
     POST /sync   {"table": 名, "rows": {键: 文本, ...}}  → {"ok": true, "n": 现有行数, "todo": 待算行数}
                  只算新键、删掉 rows 里没有的键；在后台算，算完存盘（重启不重算）。
@@ -14,7 +23,7 @@
 做法照模型卡和离线实验 gen-memory/amr/v5/run.py：查询前加任务说明，取最后一个 token 的隐层，归一化。
 离线实验实测（Mac Studio，0.6B）：2.67 万行建表 192 秒、表 109MB、每句查询中位 21ms、进程约 1.7GB。
 """
-import json, os, threading
+import gc, json, os, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -29,27 +38,89 @@ DIR = Path(os.environ.get("EMBED_DIR") or Path(__file__).resolve().parent / "vec
 INS = "Instruct: Given a user request to an AI assistant, retrieve memory notes that help answer it\nQuery: "
 BATCH, MAX_TOK, Q_CHARS = 64, 2048, 2000  # 来源：离线实验 run.py 的同名设置
 DEV = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+IDLE = float(os.environ.get("EMBED_IDLE") or 300)  # 来源：Ollama 默认 keep_alive 5 分钟（docs/faq.mdx），qmd 同为空闲 5 分钟释放
+MAX_MB = float(os.environ.get("EMBED_MAX_MB") or 4096)  # 来源：离线实验实测进程峰值约 1.7GB，上限取它的两倍多，正常建表、查询碰不到
+CHECK = 10  # 秒：多久量一次内存、看一次空闲；来源：同 IDLE 比够细（5 分钟里看 30 次），ps 一次几毫秒
 
 tok = AutoTokenizer.from_pretrained(MODEL, padding_side="left")
-model = AutoModel.from_pretrained(MODEL, torch_dtype=torch.float32 if DEV == "cpu" else torch.bfloat16).to(DEV).eval()
-_model = threading.Lock()  # 模型一次只跑一批：查询插在建表的两批之间
+model, _used = None, time.time()
+_model = threading.Lock()  # 模型一次只跑一批：查询插在建表的两批之间；加载、卸载也在这把锁里
+
+
+def _free():
+    gc.collect()
+    if DEV == "mps":
+        torch.mps.empty_cache()
+    elif DEV == "cuda":
+        torch.cuda.empty_cache()
+
+
+def _load():
+    """锁内调：模型没加载就加载。"""
+    global model, _used
+    if model is None:
+        t0 = time.time()
+        model = AutoModel.from_pretrained(MODEL, torch_dtype=torch.float32 if DEV == "cpu" else torch.bfloat16).to(DEV).eval()
+        print(f"embed_svc: loaded {MODEL} in {time.time() - t0:.1f}s", flush=True)
+    _used = time.time()
+    return model
+
+
+def unload(why):
+    global model
+    with _model:
+        if model is None:
+            return
+        model = None
+        _free()
+    print(f"embed_svc: unloaded model ({why}), memory {mem_mb():.0f}MB", flush=True)
+
+
+def mem_mb():
+    """本进程占的内存（MB）：常驻内存 + MPS 驱动占的显存（Mac 上统一内存，常驻里不全算它）。"""
+    try:
+        if sys.platform == "linux":
+            rss = int(open("/proc/self/statm").read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**20
+        else:
+            rss = int(subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True).stdout) / 1024
+    except (OSError, ValueError):
+        return 0.0
+    return rss + (torch.mps.driver_allocated_memory() / 2**20 if DEV == "mps" else 0)
+
+
+def _watch():
+    while True:
+        time.sleep(CHECK)
+        if model is not None and IDLE > 0 and time.time() - _used >= IDLE:
+            unload(f"idle {IDLE:.0f}s")
+        if MAX_MB > 0 and mem_mb() > MAX_MB:
+            unload(f"over {MAX_MB:.0f}MB")
+            m = mem_mb()
+            if m > MAX_MB:  # 卸了模型还超：只剩重启能还内存，守护会拉起，向量表从盘上读回
+                print(f"embed_svc: still {m:.0f}MB > {MAX_MB:.0f}MB after unloading, exiting for a restart", flush=True)
+                os._exit(75)
 
 
 def enc(texts):
-    out = np.zeros((len(texts), model.config.hidden_size), np.float32)
+    out = None
     order = np.argsort([len(t) for t in texts])
     for s in range(0, len(texts), BATCH):
         ix = order[s:s + BATCH]
         with _model, torch.no_grad():
+            m = _load()
+            if out is None:
+                out = np.zeros((len(texts), m.config.hidden_size), np.float32)
             b = tok([texts[i] for i in ix], padding=True, truncation=True, max_length=MAX_TOK, return_tensors="pt").to(DEV)
-            out[ix] = torch.nn.functional.normalize(model(**b).last_hidden_state[:, -1].float(), dim=-1).cpu().numpy()
+            out[ix] = torch.nn.functional.normalize(m(**b).last_hidden_state[:, -1].float(), dim=-1).cpu().numpy()
+            del b
+            _free()
     return out
 
 
 class Table:
     def __init__(self, name):
         self.name, self.lock, self.busy = name, threading.Lock(), False
-        self.keys, self.E, self.ready, self.todo = [], np.zeros((0, model.config.hidden_size), np.float32), False, 0
+        self.keys, self.E, self.ready, self.todo = [], np.zeros((0, 0), np.float32), False, 0
         f = DIR / f"{name}.npz"
         if f.exists():
             try:
@@ -73,6 +144,7 @@ class Table:
     def _build(self, rows, new):
         try:
             E_new = enc([rows[k] for k in new]) if new else np.zeros((0, self.E.shape[1]), np.float32)
+            _free()
             with self.lock:
                 pos = {k: i for i, k in enumerate(self.keys)}
                 keep = [k for k in self.keys if k in rows]
@@ -133,5 +205,6 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"embed_svc: {MODEL} on {DEV}, 127.0.0.1:{PORT}", flush=True)
+    print(f"embed_svc: {MODEL} on {DEV}, 127.0.0.1:{PORT}, unload after {IDLE:.0f}s idle, memory cap {MAX_MB:.0f}MB", flush=True)
+    threading.Thread(target=_watch, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
