@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "note": "Deterministic test vectors for bothouse tunnel relay v1 (#2314 items 1.1, 2.2, 2.3)",
+  "identity": {
+    "ed25519SeedHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "publicKey": "MCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+    "hostId": "646d6be49d9f0048f94f67749eca35156eed4f7a7be18e4fc4a94bfd44e300b0",
+    "x25519SeedHex": "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "encKey": "MCowBQYDK2VuAyEAWGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+    "encKeySig": "xV26JQ3guQNUhI+DQOlnj0bSniOV7/Ggn5OS4bx+kDuzhoG5FrypRQxUUFBlzGNm21qVPi4p2SPwz1DDFTg6BQ=="
+  },
+  "envelope": {
+    "ephemeralSeedHex": "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60",
+    "nonceHex": "a1a2a3a4a5a6a7a8a9aaabac",
+    "nowMs": 1764288000000,
+    "ttlMs": 90000,
+    "plaintextRequest": {
+      "method": "POST",
+      "path": "/collab/api/rooms/1/messages",
+      "headers": {
+        "authorization": "Bearer test-token-vector",
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"text\":\"hello relay\"}"
+    },
+    "sealed": {
+      "v": 1,
+      "ephemeral": "MCowBQYDK2VuAyEAZLEBsdC+WocEvQePmJUAH8A+jp+VIvGI3RKNmEbUhGY=",
+      "nonce": "oaKjpKWmp6ipqqus",
+      "expires": 1764288090000,
+      "ciphertext": "GjU9hggndc1ZV3HXl9xU5kCrTxpgnEnn+x3ueu6DEjgBqqEzqFzkbvq/cPUhLViU1LvGExfUobYeWRYHj0cYvy+4Eql5jCyQz9VlWG3Axs62C0QUhjldoFIqVVmmtuMBkLOHAJ3JaUmT0KU0h16UoufeTfrpcIE+pgihXxztP2ZseLwVIyzDZVdwx6lBG7WKmLG5hdegCjZzRaeaEPiIjUefASleUkdA6ho6zB1SEanpIhwAniJSpHLf68oE+nCc8rZG/9uvuU7l+w=="
+    },
+    "replyKeyHex": "78af8e558a1242ee0084361097a892d6c7bedcafb1b30c320f6bccf7f93788d2",
+    "plaintextResponse": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "bodyText": "{\"ok\":true}"
+    },
+    "sealedResponseBase64": "AQAAAEwiG0hSESKoGzg0foyLibIVxNiC9z2U9pEC1wQNFHAE9xGIKLDj+1cgFc3XfilZzLNk/QmI1StdRWv2hiXVP0P4MARr58YVo36RF/eqAgAAABtFFlC5+KhM9DbXR6pi8rwJCRcAoJYQJNOjUNgDAAAAEDTZjTx+30mA5+98cK8nqp0="
+  }
+}

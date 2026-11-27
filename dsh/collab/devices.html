@@ -50,6 +50,28 @@
   .dur select { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .empty { color: var(--muted); padding: 6px 0; }
+  details.relay-box { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  details.relay-box summary { cursor: pointer; font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; list-style: none; }
+  details.relay-box summary::-webkit-details-marker { display: none; }
+  details.relay-box summary::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+  details.relay-box[open] summary::before { content: '▾'; }
+  .relay-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .relay-note { font-size: 13px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 12px; }
+  .relay-cfg { display: grid; grid-template-columns: 1fr 220px auto auto; gap: 8px; align-items: center; margin-bottom: 10px; }
+  @media (max-width: 760px) { .relay-cfg { grid-template-columns: 1fr; } }
+  .relay-cfg input, input.link-input { font: inherit; width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .relay-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
+  .tag.bad { color: var(--bad); }
+  .relay-sub { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .relay-sub h3 { margin: 0 0 6px; font-size: 14px; color: var(--text); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .link-out { width: 100%; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .qr-wrap { display: flex; justify-content: center; margin: 10px 0 6px; }
+  .qr-wrap svg { border-radius: 8px; border: 1px solid var(--line); max-width: 100%; height: auto; }
+  .preview-box { margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px dashed var(--line); background: var(--card); }
+  .preview-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; margin: 3px 0; align-items: baseline; }
+  .preview-row .muted { white-space: nowrap; flex-shrink: 0; }
+  .preview-row b { word-break: break-all; text-align: right; }
   #viewer { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; }
   #viewer.on { display: flex; }
   #viewer header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
@@ -100,6 +122,58 @@
       <ul class="list" id="links"><li class="empty">还没有连着的电脑</li></ul>
     </section>
   </div>
+  <details id="relayBox" class="relay-box">
+    <summary><span>不在同一个网络？用中继</span><span class="tag" id="relaySummaryTag">没填</span></summary>
+    <div class="relay-body">
+      <p class="relay-note">中继是别人或你自己运营的服务器，它看不到内容，但看得到你的 IP 和流量大小。</p>
+      <div class="relay-cfg">
+        <input id="relayUrl" type="url" placeholder="中继地址，例如 https://relay.example.com" autocomplete="off">
+        <input id="relayAdmission" type="password" placeholder="准入码（选填，公开中继留空）" autocomplete="off">
+        <button class="primary" id="saveRelay">保存并连接</button>
+        <button id="clearRelay">清除</button>
+      </div>
+      <div class="relay-status">
+        <span class="tag" id="relayStateTag">没填</span>
+        <span class="muted" id="relayStatusText">填好中继地址后可经公网端到端加密连接</span>
+        <span class="muted mono" id="relaySelfFp"></span>
+      </div>
+      <div class="grid">
+        <div class="relay-sub" id="relayHost">
+          <h3>经中继让别的电脑连我</h3>
+          <p class="hint">连上中继后生成一条一次性连接串（5 分钟有效），复制或扫码给另一台电脑。</p>
+          <div id="tunnelHostIdle"><button class="primary" id="newTunnelCode">生成连接串</button></div>
+          <div id="tunnelCodeBox" hidden>
+            <div class="row">
+              <input class="link-out grow" id="tunnelLinkText" readonly>
+              <button id="copyTunnelLink">复制</button>
+            </div>
+            <div class="qr-wrap" id="tunnelQr"></div>
+            <p class="center muted" id="tunnelCodeLeft"></p>
+            <div class="center"><button id="cancelTunnelCode">取消</button></div>
+          </div>
+          <p class="err" id="relayHostErr"></p>
+        </div>
+        <div class="relay-sub" id="relayCtl">
+          <h3>粘贴连接串连到另一台电脑</h3>
+          <p class="hint">粘贴对方生成的连接串，核对中继地址和指纹后确认连接。</p>
+          <input class="link-input" id="tunnelLinkInput" type="text" placeholder="粘贴连接串（bhrelay1:...）" autocomplete="off">
+          <div class="preview-box" id="tunnelPreview" hidden>
+            <div class="preview-row"><span class="muted">中继地址</span><b class="mono" id="previewRelay"></b></div>
+            <div class="preview-row"><span class="muted">对方指纹</span><b class="mono" id="previewFp"></b></div>
+            <div class="preview-row" id="previewNameRow" hidden><span class="muted">对方电脑</span><b id="previewName"></b></div>
+            <label class="mode"><input type="radio" name="tmode" value="temp" checked><span><b>临时</b><br><span class="muted">断开后下次要重新生成连接串。</span></span></label>
+            <div class="dur" id="tdur">
+              <label><input type="radio" name="tdur" value="until" checked>直到我断开<span class="muted">（任一台点「断开」，或关掉 DSH 窗口）</span></label>
+              <label><input type="radio" name="tdur" value="custom">自定义时长：<input type="number" id="tdurNum" min="1" step="1" value="1" inputmode="numeric"><select id="tdurUnit"><option value="60000">分钟</option><option value="3600000" selected>小时</option></select><span class="muted">到时自动断</span></label>
+            </div>
+            <label class="mode"><input type="radio" name="tmode" value="remember"><span><b>记住这台电脑</b><br><span class="muted">以后打开就能直接经中继连，对方随时可踢掉。</span></span></label>
+            <div class="row" style="margin-top:10px"><button class="primary" id="doTunnelConnect">确认连接</button></div>
+          </div>
+          <p class="err" id="relayCtlErr"></p>
+        </div>
+      </div>
+    </div>
+  </details>
 </main>
 <div id="viewer">
   <header>
@@ -205,15 +279,20 @@ $('newCode').onclick = async () => {
 };
 $('cancelCode').onclick = async () => { try { await del('api/pair/code'); } catch { /* ignore */ } hideCode(''); };
 
+function channelLabel(ch) {
+  return ch === 'tunnel' ? '中继' : 'Tailscale';
+}
 function renderDevices(devices) {
   const ul = $('devices');
   ul.replaceChildren();
   if (!devices.length) { ul.append(el('li', { class: 'empty' }, '还没有别的电脑连进来')); return; }
   for (const d of devices) {
     ul.append(el('li', { 'data-id': d.id },
-      el('div', { class: 'grow' }, el('div', { class: 'name' }, d.name), el('div', { class: 'muted' }, `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`)),
+      el('div', { class: 'grow' },
+        el('div', { class: 'row' }, el('span', { class: 'name' }, d.name), el('span', { class: 'tag' }, channelLabel(d.channel))),
+        el('div', { class: 'muted' }, `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`)),
       el('button', { class: 'danger', onclick: async () => {
-        if (!confirm(`踢掉「${d.name}」？它要重新输数字才能再连。`)) return;
+        if (!confirm(`踢掉「${d.name}」？它要重新配对才能再连。`)) return;
         try { await del(`api/pair/devices/${d.id}`); loadDevices(); } catch (e) { $('hostErr').textContent = e.message; }
       } }, '踢掉')));
   }
@@ -353,16 +432,198 @@ async function loadLinks() {
     ul.replaceChildren();
     if (!links.length) { ul.append(el('li', { class: 'empty' }, '还没有连着的电脑')); return; }
     for (const l of links) {
+      const sub = l.channel === 'tunnel' && l.fingerprint ? `${lasts(l)} · 指纹 ${l.fingerprint}` : lasts(l);
       ul.append(el('li', null,
-        el('div', { class: 'grow' }, el('div', { class: 'name' }, l.name), el('div', { class: 'muted' }, lasts(l))),
+        el('div', { class: 'grow' },
+          el('div', { class: 'row' }, el('span', { class: 'name' }, l.name), el('span', { class: 'tag' }, channelLabel(l.channel))),
+          el('div', { class: 'muted' }, sub)),
         el('button', { class: 'primary', onclick: () => open(l, '') }, '打开'),
         el('button', { onclick: async () => {
-          if (!confirm(`断开「${l.name}」？下次要重新输数字。`)) return;
+          if (!confirm(`断开「${l.name}」？下次要重新配对。`)) return;
           try { await del(`api/remote/links/${l.id}`); loadLinks(); } catch (e) { $('ctlErr').textContent = e.message; }
         } }, '断开')));
     }
   } catch (e) { $('ctlErr').textContent = e.message; }
 }
+
+// ---- 中继通道（#2314 第二阶段） ----
+let tunnelTimer, tunnelPoll, inspectedTunnel;
+const RELAY_STATE = {
+  unconfigured: { label: '没填', cls: 'tag' },
+  connecting: { label: '连接中', cls: 'tag warn' },
+  connected: { label: '已连上', cls: 'tag ok' },
+  limited: { label: '被限额', cls: 'tag warn' },
+  blocked: { label: '已拒绝', cls: 'tag bad' },
+  error: { label: '连不上', cls: 'tag bad' },
+  disconnected: { label: '已断开', cls: 'tag' },
+};
+function renderRelayStatus(s) {
+  if (!s) return;
+  const info = RELAY_STATE[s.state] || RELAY_STATE.error;
+  for (const id of ['relaySummaryTag', 'relayStateTag']) {
+    $(id).textContent = info.label;
+    $(id).className = info.cls;
+  }
+  if (s.relay_url && !$('relayUrl').value) $('relayUrl').value = s.relay_url;
+  $('relayAdmission').placeholder = s.has_admission_code ? '已保存准入码（留空保持不变）' : '准入码（选填，公开中继留空）';
+  if (s.state === 'connected') $('relayStatusText').textContent = `已连上 ${s.relay_url}`;
+  else if (s.state === 'unconfigured') $('relayStatusText').textContent = '填好中继地址后可经公网端到端加密连接';
+  else if (s.error) $('relayStatusText').textContent = s.error;
+  else if (s.state === 'connecting') $('relayStatusText').textContent = `正在连 ${s.relay_url || '中继'}…`;
+  else $('relayStatusText').textContent = s.relay_url || '';
+  $('relaySelfFp').textContent = s.fingerprint ? `本机指纹：${s.fingerprint}` : '';
+  $('newTunnelCode').disabled = s.state !== 'connected';
+}
+async function loadRelayStatus() {
+  try { renderRelayStatus(await api('api/pair/relay')); } catch { /* old server or stub */ }
+}
+$('saveRelay').onclick = async () => {
+  $('relayHostErr').textContent = '';
+  $('saveRelay').disabled = true;
+  try {
+    const relay_url = $('relayUrl').value.trim();
+    const admission_code = $('relayAdmission').value;
+    const s = await api('api/pair/relay', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ relay_url, ...(admission_code ? { admission_code } : {}) }),
+    });
+    $('relayAdmission').value = '';
+    renderRelayStatus(s);
+    if (s.state !== 'connected' && s.error) $('relayHostErr').textContent = s.error;
+  } catch (e) { $('relayHostErr').textContent = e.message; }
+  finally { $('saveRelay').disabled = false; }
+};
+$('clearRelay').onclick = async () => {
+  $('relayHostErr').textContent = '';
+  try {
+    const s = await api('api/pair/relay', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ relay_url: '', clear_admission: true }),
+    });
+    $('relayUrl').value = '';
+    $('relayAdmission').value = '';
+    hideTunnelCode('');
+    renderRelayStatus(s);
+  } catch (e) { $('relayHostErr').textContent = e.message; }
+};
+function showTunnelCode(r) {
+  $('tunnelHostIdle').hidden = true;
+  $('tunnelCodeBox').hidden = false;
+  $('tunnelLinkText').value = r.link;
+  $('tunnelQr').innerHTML = r.qr_svg || '';
+  clearInterval(tunnelTimer);
+  const tick = () => {
+    const left = Math.max(0, Math.round((r.expires_at - Date.now()) / 1000));
+    $('tunnelCodeLeft').textContent = left > 0 ? `还剩 ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}，只能用一次` : '已过期';
+    if (left <= 0) hideTunnelCode('这条连接串过期了，需要的话再生成一条。');
+  };
+  tick();
+  tunnelTimer = setInterval(tick, 1000);
+  clearInterval(tunnelPoll);
+  const before = new Set([...document.querySelectorAll('#devices li[data-id]')].map(li => li.dataset.id));
+  tunnelPoll = setInterval(async () => {
+    try {
+      const s = await api('api/pair/code');
+      if (!s.tunnel_waiting) {
+        const { devices } = await api('api/pair/devices');
+        renderDevices(devices);
+        const fresh = devices.find(d => !before.has(d.id));
+        hideTunnelCode(fresh ? '' : '这条连接串已失效，需要的话再生成一条。');
+        if (fresh) { $('relayHostErr').innerHTML = ''; $('relayHostErr').append(el('span', { class: 'ok' }, `已经中继连上：${fresh.name}`)); }
+      }
+    } catch { /* keep showing */ }
+  }, 2000);
+}
+function hideTunnelCode(note) {
+  clearInterval(tunnelTimer); clearInterval(tunnelPoll);
+  $('tunnelHostIdle').hidden = false; $('tunnelCodeBox').hidden = true;
+  $('tunnelLinkText').value = ''; $('tunnelQr').innerHTML = '';
+  $('relayHostErr').textContent = note || '';
+}
+$('newTunnelCode').onclick = async () => {
+  $('relayHostErr').textContent = '';
+  $('newTunnelCode').disabled = true;
+  try {
+    const r = await post('api/pair/code', { channel: 'tunnel' });
+    showTunnelCode(r);
+  } catch (e) { $('relayHostErr').textContent = e.message; }
+  finally { $('newTunnelCode').disabled = false; }
+};
+$('cancelTunnelCode').onclick = async () => {
+  try { await del('api/pair/code?channel=tunnel'); } catch { /* ignore */ }
+  hideTunnelCode('');
+};
+$('copyTunnelLink').onclick = async () => {
+  const val = $('tunnelLinkText').value;
+  if (!val) return;
+  try {
+    await navigator.clipboard?.writeText(val);
+    $('copyTunnelLink').textContent = '已复制';
+    setTimeout(() => { $('copyTunnelLink').textContent = '复制'; }, 1500);
+  } catch {
+    $('tunnelLinkText').select?.();
+  }
+};
+for (const r of document.querySelectorAll('input[name=tmode]')) {
+  r.addEventListener('change', () => {
+    const checked = document.querySelector('input[name=tmode]:checked');
+    $('tdur').hidden = checked && checked.value !== 'temp';
+  });
+}
+$('tdurNum').addEventListener('focus', () => {
+  const c = document.querySelector('input[name=tdur][value=custom]');
+  if (c) c.checked = true;
+});
+async function inspectTunnelInput() {
+  const raw = $('tunnelLinkInput').value.trim();
+  inspectedTunnel = undefined;
+  $('relayCtlErr').textContent = '';
+  if (!raw) { $('tunnelPreview').hidden = true; return; }
+  try {
+    const info = await post('api/remote/links/inspect', { link: raw });
+    inspectedTunnel = { raw, info };
+    $('previewRelay').textContent = info.relay_url;
+    $('previewFp').textContent = info.fingerprint;
+    $('previewNameRow').hidden = !info.name;
+    $('previewName').textContent = info.name || '';
+    $('tunnelPreview').hidden = false;
+  } catch (e) {
+    $('tunnelPreview').hidden = true;
+    $('relayCtlErr').textContent = e.message;
+  }
+}
+$('tunnelLinkInput').addEventListener('input', inspectTunnelInput);
+$('doTunnelConnect').onclick = async () => {
+  if (!inspectedTunnel) { await inspectTunnelInput(); if (!inspectedTunnel) return; }
+  const modeEl = document.querySelector('input[name=tmode]:checked');
+  const mode = modeEl ? modeEl.value : 'temp';
+  let duration_ms = null;
+  const durEl = document.querySelector('input[name=tdur]:checked');
+  if (mode === 'temp' && durEl && durEl.value === 'custom') {
+    const n = Number($('tdurNum').value);
+    if (!Number.isInteger(n) || n <= 0) { $('relayCtlErr').textContent = '自定义时长要填大于 0 的整数'; return; }
+    duration_ms = n * Number($('tdurUnit').value);
+  }
+  $('doTunnelConnect').disabled = true; $('relayCtlErr').textContent = '';
+  try {
+    const { link } = await post('api/remote/links', {
+      channel: 'tunnel',
+      tunnel_link: inspectedTunnel.raw,
+      mode,
+      name: inspectedTunnel.info.name || undefined,
+      duration_ms,
+    });
+    $('tunnelLinkInput').value = '';
+    $('tunnelPreview').hidden = true;
+    inspectedTunnel = undefined;
+    await loadLinks();
+    open(link, '');
+  } catch (e) { $('relayCtlErr').textContent = e.message; }
+  finally { $('doTunnelConnect').disabled = false; }
+};
+$('relayBox').addEventListener('toggle', () => { if ($('relayBox').open) loadRelayStatus(); });
 
 // ---- 看那台电脑 ----
 function open(link, tab, jump = true) {
@@ -399,7 +660,7 @@ for (const b of document.querySelectorAll('#viewer [data-tab]')) b.onclick = () 
 $('back').onclick = () => { $('viewer').classList.remove('on'); $('frame').src = 'about:blank'; viewing = undefined; remember(undefined); loadLinks(); };
 
 (async () => {
-  loadDevices(); loadPeers();
+  loadDevices(); loadPeers(); loadRelayStatus();
   await loadLinks();
   const back = links?.find(l => l.id === remembered());
   if (back) open(back, '', false); else remember(undefined);

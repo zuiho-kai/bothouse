@@ -10,6 +10,7 @@
 - **成员**：DSH 模型成员和本机 CLI 成员（Claude Code、Codex、Gemini）都存在这里的成员表里，各自作为一个 bothouse 角色运行（见上节）。
 - **外部 Agent（cc-connect）**：实现 cloud_web WebSocket 服务端（`/cloud-web/ws`）与离线补历史接口（`GET /api/rooms/{id}/messages`），协议行为照搬 `role-household/rh/cloudweb.py`，cc-connect 无需改代码。
 - **最简消息页**：`/collab`，Discord 式三栏，SSE 实时更新。用 DSH 网页的登录 cookie 鉴权，跨源请求被 DSH 的 Host/Origin 校验拒绝。
+- **跨机连接（「其他电脑」`/collab/devices`）**：支持 Tailscale 内网 6 位数字配对，也支持经自托管/社区中继端到端加密连接（见 [中继跨机使用指南](../../docs/remote-relay.md) / [English](../../docs/remote-relay.en.md) 与 [协议说明](../../docs/tunnel-relay-protocol.md)）。
 
 ## 数据存在哪里
 

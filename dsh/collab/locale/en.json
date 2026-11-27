@@ -2,5 +2,35 @@
   "meta": {
     "title": "bothouse",
     "description": "DSH models and local Claude Code or Codex in one group. The first row, \"bothouse\", is the background service the others need; leave it on. Channels, team desk, bothouse panel and other computers switch on separately."
+  },
+  "relay": {
+    "summary": "Not on the same network? Use a relay",
+    "privacyNotice": "A relay is a server operated by you or someone else. It cannot read your content, but it can see your IP address and traffic volume.",
+    "urlLabel": "Relay address",
+    "urlPlaceholder": "https://relay.example.com",
+    "admissionLabel": "Admission code (optional)",
+    "admissionPlaceholder": "Leave blank for open relays; enter the operator's code for private relays",
+    "saveButton": "Save & connect",
+    "clearButton": "Clear",
+    "stateUnconfigured": "Not configured",
+    "stateConnecting": "Connecting",
+    "stateConnected": "Connected",
+    "stateLimited": "Rate / quota limited",
+    "stateBlocked": "Rejected",
+    "stateError": "Disconnected",
+    "hostTitle": "Let another computer connect via relay",
+    "hostHint": "Once connected to the relay, generate a one-time connection string (valid for 5 minutes) and paste or scan it on the other computer.",
+    "generateLink": "Generate connection string",
+    "copyLink": "Copy string",
+    "copied": "Copied",
+    "cancelLink": "Cancel",
+    "controllerTitle": "Paste connection string to connect",
+    "controllerHint": "Paste the string generated on the other computer, verify the relay address and fingerprint, then confirm.",
+    "pastePlaceholder": "Paste connection string (bhrelay1:...)",
+    "confirmRelay": "Relay",
+    "confirmFingerprint": "Fingerprint",
+    "confirmButton": "Confirm & connect",
+    "channelTailscale": "Tailscale",
+    "channelTunnel": "Relay"
   }
 }

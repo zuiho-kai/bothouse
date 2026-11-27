@@ -15,6 +15,11 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'n
 import { createServer, request as httpRequest } from 'node:http';
 import { hostname } from 'node:os';
 import { dirname } from 'node:path';
+import { ChannelRegistry, createTailscaleChannel, httpRequestJSON } from './channels.mjs';
+import { formatFingerprint } from './tunnel-identity.mjs';
+import { TunnelLinkError, encodeTunnelLink, generateLongCode, parseTunnelLink } from './tunnel-link.mjs';
+import { TunnelClientError } from './tunnel-client.mjs';
+import { renderQRSvg } from './qr-svg.mjs';
 
 // 来源：用户 11-04 16:4x 认可的 C酱 方案，示例码「482 913」为 6 位数字、只能用一次。
 export const CODE_DIGITS = 6;
@@ -53,7 +58,12 @@ export class PairError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 // 来源：HTTP 状态码语义（RFC 9110 / RFC 6585 429）。
-export const PAIR_STATUS = { 'no-code': 410, expired: 410, wrong: 403, locked: 429, mode: 400, unreachable: 502, refused: 403, missing: 404, tailnet: 503 };
+export const PAIR_STATUS = {
+  'no-code': 410, expired: 410, wrong: 403, locked: 429, mode: 400, unreachable: 502, refused: 403, missing: 404, tailnet: 503,
+  'relay-unreachable': 502, 'host-offline': 503, 'relay-busy': 429, 'relay-timeout': 504,
+  'identity-changed': 409, 'identity-mismatch': 409, 'too-large': 413,
+  'relay-unconfigured': 400, 'relay-offline': 503, 'host-error': 502,
+};
 
 const sha256 = s => createHash('sha256').update(String(s)).digest();
 function sameHash(a, b) { return a.length === b.length && timingSafeEqual(a, b); }
@@ -109,6 +119,7 @@ export class PairHost {
     this.now = now;
     this.codeTtl = codeTtl;
     this.code = undefined;
+    this.tunnelCode = undefined;
     this.lastRevokeAt = undefined;
     this.devices = new Map();
     // Responses still open per device (event streams, proxied requests): cut when it is dropped,
@@ -116,11 +127,13 @@ export class PairHost {
     this.open = new Map();
     const saved = loadJSON(file);
     for (const d of Array.isArray(saved?.devices) ? saved.devices : []) {
-      if (typeof d?.id === 'string' && typeof d.token_hash === 'string') this.devices.set(d.id, { ...d, mode: 'remember', expires_at: null });
+      if (typeof d?.id === 'string' && typeof d.token_hash === 'string') {
+        this.devices.set(d.id, { ...d, channel: d.channel || 'tailscale', mode: 'remember', expires_at: null });
+      }
     }
   }
 
-  /** A fresh number; any earlier one stops working. */
+  /** A fresh 6-digit Tailscale number; any earlier Tailscale number stops working. */
   newCode() {
     // 10^CODE_DIGITS numbers, leading zeros kept.
     const code = String(randomInt(0, 10 ** CODE_DIGITS)).padStart(CODE_DIGITS, '0');
@@ -130,35 +143,63 @@ export class PairHost {
 
   cancelCode() { this.code = undefined; }
 
-  /** Whether a number is waiting to be typed in. */
+  /** Whether a Tailscale 6-digit number is waiting to be typed in. */
   codeLive() {
     if (this.code !== undefined && this.code.expires_at <= this.now()) this.code = undefined;
     return this.code !== undefined;
   }
 
+  /** A fresh 128-bit relay pairing secret (#2314 item 2.6); separate from the Tailscale 6-digit slot. */
+  newTunnelCode() {
+    const code = generateLongCode();
+    this.tunnelCode = { hash: sha256(code), expires_at: this.now() + this.codeTtl, attempts: 0 };
+    return { code, expires_at: this.tunnelCode.expires_at, ttl_ms: this.codeTtl, max_attempts: MAX_ATTEMPTS };
+  }
+
+  cancelTunnelCode() { this.tunnelCode = undefined; }
+
+  /** Whether a relay long code is currently live. */
+  tunnelCodeLive() {
+    if (this.tunnelCode !== undefined && this.tunnelCode.expires_at <= this.now()) this.tunnelCode = undefined;
+    return this.tunnelCode !== undefined;
+  }
+
   /**
-   * Check a typed number and, if right, let the device in.
-   * @param {{ code: string, mode: string, name: string, address?: string, duration_ms?: number|null }} claim
+   * Check a pairing code (6-digit for Tailscale, 128-bit long code for tunnel) and, if right, let the device in.
+   * @param {{ code: string, mode: string, name: string, address?: string, duration_ms?: number|null, kind?: string, channel?: string }} claim
    * @returns {{ token: string, device: object }}
    */
-  claim({ code, mode, name, address, duration_ms, kind }) {
+  claim({ code, mode, name, address, duration_ms, kind, channel = 'tailscale' }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
     const duration = tempDuration(mode, duration_ms);
-    if (this.code === undefined) throw new PairError('no-code', '那台电脑现在没有在等配对，请在那台电脑上点「让别的电脑连我」');
-    if (this.code.expires_at <= this.now()) { this.code = undefined; throw new PairError('expired', '这串数字已过期，请在那台电脑上重新生成'); }
-    const typed = String(code ?? '').replace(/\D/g, '');
-    if (!sameHash(sha256(typed), this.code.hash)) {
-      this.code.attempts += 1;
-      const left = MAX_ATTEMPTS - this.code.attempts;
-      if (left <= 0) { this.code = undefined; throw new PairError('locked', '输错次数太多，这串数字已作废，请在那台电脑上重新生成'); }
-      throw new PairError('wrong', `数字不对，还能再试 ${left} 次`);
+    const isTunnel = channel === 'tunnel';
+    const slot = isTunnel ? this.tunnelCode : this.code;
+    const clearSlot = () => { if (isTunnel) this.tunnelCode = undefined; else this.code = undefined; };
+    if (slot === undefined) {
+      throw new PairError('no-code', isTunnel
+        ? '那台电脑现在没有在等中继配对，请在那台电脑上重新「生成连接串」'
+        : '那台电脑现在没有在等配对，请在那台电脑上点「让别的电脑连我」');
     }
-    this.code = undefined;
+    if (slot.expires_at <= this.now()) {
+      clearSlot();
+      throw new PairError('expired', isTunnel ? '这条连接串已过期，请在那台电脑上重新生成' : '这串数字已过期，请在那台电脑上重新生成');
+    }
+    const candidate = isTunnel ? String(code ?? '').trim() : String(code ?? '').replace(/\D/g, '');
+    if (!candidate || !sameHash(sha256(candidate), slot.hash)) {
+      slot.attempts += 1;
+      const left = MAX_ATTEMPTS - slot.attempts;
+      if (left <= 0) {
+        clearSlot();
+        throw new PairError('locked', isTunnel ? '配对失败次数太多，这条连接串已作废，请在那台电脑上重新生成' : '输错次数太多，这串数字已作废，请在那台电脑上重新生成');
+      }
+      throw new PairError('wrong', isTunnel ? `连接串里的配对码不对，还能再试 ${left} 次` : `数字不对，还能再试 ${left} 次`);
+    }
+    clearSlot();
     const token = randomBytes(32).toString('base64url');
     const now = this.now();
     const device = {
       id: randomUUID(), name: String(name ?? '').trim().slice(0, 80) || (kind === 'browser' ? '手机浏览器' : '另一台电脑'), address: String(address ?? ''),
-      kind: kind === 'browser' ? 'browser' : 'dsh', mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
+      kind: !isTunnel && kind === 'browser' ? 'browser' : 'dsh', channel, mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
       expires_at: duration === null ? null : now + duration,
     };
     this.devices.set(device.id, device);
@@ -213,15 +254,18 @@ export class PairHost {
   /** Whether the tailnet listener has anything to serve. */
   active() { return this.codeLive() || this.list().length > 0; }
 
+  /** Whether any Tailscale pairing code or Tailscale-paired device needs the tailnet TCP listener. */
+  activeTailscale() { return this.codeLive() || this.list().some(d => d.channel === 'tailscale'); }
+
   /** Just kicked something: stay up a little so this machine can answer "was I kicked?". */
   // Same clock and length the number itself uses (a constructor may override codeTtl in tests).
   kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < this.codeTtl; }
 
-  view(d) { return { id: d.id, name: d.name, address: d.address, kind: d.kind ?? 'dsh', mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
+  view(d) { return { id: d.id, name: d.name, address: d.address, kind: d.kind ?? 'dsh', channel: d.channel ?? 'tailscale', mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
 
   save() {
     saveJSON(this.file, { devices: [...this.devices.values()].filter(d => d.mode === 'remember')
-      .map(({ id, name, address, kind, token_hash, created_at, last_seen }) => ({ id, name, address, kind, token_hash, created_at, last_seen })) });
+      .map(({ id, name, address, kind, channel, token_hash, created_at, last_seen }) => ({ id, name, address, kind, channel: channel ?? 'tailscale', token_hash, created_at, last_seen })) });
   }
 }
 
@@ -276,69 +320,115 @@ export async function tailnetPeers(run = tailscale) {
   })).filter(p => p.ip);
 }
 
-/** Small JSON request to another machine. */
-export function requestJSON({ host, port, path, method = 'GET', body, headers = {}, timeout = 4000 }) {
-  return new Promise((resolve, reject) => {
-    const payload = body === undefined ? undefined : JSON.stringify(body);
-    const req = httpRequest({ host, port, path, method, timeout,
-      headers: { accept: 'application/json', ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}), ...headers } }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        let value;
-        try { value = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null'); } catch { value = undefined; }
-        resolve({ status: res.statusCode ?? 0, body: value });
-      });
-    });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', reject);
-    req.end(payload);
-  });
-}
+/** Small JSON request to another machine (re-exported from channels.mjs for callers and tests). */
+export const requestJSON = httpRequestJSON;
 
 /**
  * Controller side: machines this DSH paired with. Remembered links persist (the credential has
  * to, file mode 0600); temporary ones live in memory only.
  */
 export class PairClient {
-  constructor({ file, now = Date.now, port = PAIR_PORT, request = requestJSON, name = hostname(), grace = UNTIL_GRACE_MS }) {
+  constructor({ file, now = Date.now, port = PAIR_PORT, request = requestJSON, channels, name = hostname(), grace = UNTIL_GRACE_MS }) {
     this.grace = grace;
     this.file = file;
     this.now = now;
     this.port = port;
     this.request = request;
+    this.channels = channels instanceof ChannelRegistry ? channels : new ChannelRegistry();
+    if (!this.channels.has('tailscale')) {
+      this.channels.register(createTailscaleChannel({ requestJSON: request, defaultPort: port }));
+    }
     this.name = name;
     this.links = new Map();
     this.refreshing = undefined;
     const saved = loadJSON(file);
     for (const l of Array.isArray(saved?.links) ? saved.links : []) {
-      if (typeof l?.id === 'string' && typeof l.token === 'string' && typeof l.host === 'string') this.links.set(l.id, { ...l, mode: 'remember', expires_at: null });
+      if (typeof l?.id !== 'string' || typeof l.token !== 'string') continue;
+      const ch = l.channel || 'tailscale';
+      if (ch === 'tunnel') {
+        if (typeof l.relay_url === 'string' && typeof l.host_id === 'string' && typeof l.public_key === 'string' && typeof l.enc_key === 'string') {
+          this.links.set(l.id, { ...l, channel: 'tunnel', mode: 'remember', expires_at: null });
+        }
+      } else if (typeof l.host === 'string') {
+        this.links.set(l.id, { ...l, channel: ch, mode: 'remember', expires_at: null });
+      }
     }
+  }
+
+  _channelFor(name = 'tailscale') {
+    const ch = this.channels.get(name || 'tailscale');
+    if (!ch) throw new PairError('mode', `不支持的连接通道：${name}`);
+    return ch;
   }
 
   /** Ask a host whether it runs DSH pairing and is waiting for a number. */
   async hello(host, port = this.port) {
     try {
-      const r = await this.request({ host, port, path: '/collab/pair/hello', timeout: 1500 });
+      const r = await this._channelFor('tailscale').requestJSON({ host, port }, { path: '/collab/pair/hello', timeout: 1500 });
       return r.status === 200 && r.body?.app === 'dsh-collab' ? r.body : undefined;
     } catch { return undefined; }
   }
 
-  /** Send the number once; on success keep the credential. */
-  async connect({ host, port = this.port, code, mode, name, duration_ms }) {
+  /** Send a Tailscale (or injected channel) pairing code once; on success keep the credential. */
+  async connect({ host, port = this.port, code, mode, name, duration_ms, channel = 'tailscale' }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
     const duration = tempDuration(mode, duration_ms);
+    const ch = this._channelFor(channel);
     let r;
     try {
-      r = await this.request({ host, port, path: '/collab/pair/claim', method: 'POST', body: { code: String(code ?? ''), mode, name: this.name, duration_ms: duration } });
+      r = await ch.requestJSON({ host, port }, { path: '/collab/pair/claim', method: 'POST', body: { code: String(code ?? ''), mode, name: this.name, duration_ms: duration } });
     } catch {
       throw new PairError('unreachable', '连不上那台电脑：确认它开着 DSH、连着 Tailscale，并且点了「让别的电脑连我」');
     }
     if (r.status !== 200 || typeof r.body?.token !== 'string') {
       throw new PairError(r.body?.code ?? 'refused', r.body?.error ?? '那台电脑拒绝了配对');
     }
-    const link = { id: randomUUID(), name: String(name || r.body.host_name || host), host, port, token: r.body.token,
-      mode, created_at: this.now(), expires_at: r.body.device?.expires_at ?? null, alive_at: this.now() };
+    const link = {
+      id: randomUUID(), channel, name: String(name || r.body.host_name || host), host, port, token: r.body.token,
+      mode, created_at: this.now(), expires_at: r.body.device?.expires_at ?? null, alive_at: this.now(),
+    };
+    this.links.set(link.id, link);
+    if (mode === 'remember') this.save();
+    return this.view(link);
+  }
+
+  /** Connect to another computer via a community relay connection string (#2314 items 2.5 + 2.6). */
+  async connectTunnel({ link: rawLink, mode, name, duration_ms, allowLoopback = true }) {
+    if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
+    const duration = tempDuration(mode, duration_ms);
+    const parsed = parseTunnelLink(rawLink, { now: this.now, allowLoopback });
+    const ch = this._channelFor('tunnel');
+    const key = await ch.fetchHostKey({ relayUrl: parsed.relayUrl, hostId: parsed.hostId });
+    const target = {
+      relay_url: parsed.relayUrl,
+      host_id: parsed.hostId,
+      public_key: key.publicKey,
+      enc_key: key.encKey,
+      skipKeyCheck: true,
+    };
+    const r = await ch.requestJSON(target, {
+      path: '/collab/pair/claim',
+      method: 'POST',
+      body: { code: parsed.code, mode, name: this.name, duration_ms: duration },
+      timeout: 10_000,
+    });
+    if (r.status !== 200 || typeof r.body?.token !== 'string') {
+      throw new PairError(r.body?.code ?? 'refused', r.body?.error ?? '那台电脑拒绝了配对');
+    }
+    const link = {
+      id: randomUUID(),
+      channel: 'tunnel',
+      name: String(name || r.body.host_name || parsed.name || formatFingerprint(parsed.hostId)),
+      relay_url: parsed.relayUrl,
+      host_id: parsed.hostId,
+      public_key: key.publicKey,
+      enc_key: key.encKey,
+      token: r.body.token,
+      mode,
+      created_at: this.now(),
+      expires_at: r.body.device?.expires_at ?? null,
+      alive_at: this.now(),
+    };
     this.links.set(link.id, link);
     if (mode === 'remember') this.save();
     return this.view(link);
@@ -382,8 +472,13 @@ export class PairClient {
       const dropped = [];
       try {
         await Promise.all([...this.links.values()].map(async l => {
-          const r = await this.request({ host: l.host, port: l.port, path: '/collab/pair/whoami', headers: { authorization: `Bearer ${l.token}` }, timeout: 1500 })
-            .catch(() => undefined);
+          const ch = this.channels.get(l.channel ?? 'tailscale');
+          if (!ch) return;
+          const r = await ch.requestJSON(l, {
+            path: '/collab/pair/whoami',
+            headers: { authorization: `Bearer ${l.token}` },
+            timeout: l.channel === 'tunnel' ? 4000 : 1500,
+          }).catch(() => undefined);
           if (r?.status === 401 && r.body?.code === 'revoked') { this.drop(l.id); dropped.push(l.id); }
         })).catch(() => {}); // best effort: a broken host must not turn the list into an error
       } finally {
@@ -400,7 +495,17 @@ export class PairClient {
     if (l === undefined) return false;
     this.links.delete(id);
     if (l.mode === 'remember') this.save();
-    try { await this.request({ host: l.host, port: l.port, path: '/collab/pair/forget', method: 'POST', headers: { authorization: `Bearer ${l.token}` }, timeout: 2000 }); } catch { /* host off: it expires or is kicked there */ }
+    try {
+      const ch = this.channels.get(l.channel ?? 'tailscale');
+      if (ch) {
+        await ch.requestJSON(l, {
+          path: '/collab/pair/forget',
+          method: 'POST',
+          headers: { authorization: `Bearer ${l.token}` },
+          timeout: l.channel === 'tunnel' ? 4000 : 2000,
+        });
+      }
+    } catch { /* host off: it expires or is kicked there */ }
     return true;
   }
 
@@ -412,11 +517,34 @@ export class PairClient {
     if (l.mode === 'remember') this.save();
   }
 
-  view(l) { return { id: l.id, name: l.name, host: l.host, mode: l.mode, created_at: l.created_at, expires_at: l.expires_at }; }
+  view(l) {
+    const channel = l.channel ?? 'tailscale';
+    return {
+      id: l.id,
+      channel,
+      name: l.name,
+      ...(channel === 'tunnel'
+        ? { relay_url: l.relay_url, host_id: l.host_id, fingerprint: formatFingerprint(l.host_id) }
+        : { host: l.host }),
+      mode: l.mode,
+      created_at: l.created_at,
+      expires_at: l.expires_at,
+    };
+  }
 
   save() {
-    saveJSON(this.file, { links: [...this.links.values()].filter(l => l.mode === 'remember')
-      .map(({ id, name, host, port, token, created_at }) => ({ id, name, host, port, token, created_at })) });
+    saveJSON(this.file, {
+      links: [...this.links.values()].filter(l => l.mode === 'remember').map(l => {
+        const channel = l.channel ?? 'tailscale';
+        if (channel === 'tunnel') {
+          return {
+            id: l.id, channel, name: l.name, relay_url: l.relay_url, host_id: l.host_id,
+            public_key: l.public_key, enc_key: l.enc_key, token: l.token, created_at: l.created_at,
+          };
+        }
+        return { id: l.id, channel, name: l.name, host: l.host, port: l.port, token: l.token, created_at: l.created_at };
+      }),
+    });
   }
 }
 
@@ -435,10 +563,10 @@ export function rewriteRemoteHTML(html, mount) {
 }
 
 /**
- * Forward one controller request under /collab/remote/<id>/ to the paired host.
+ * Forward one controller request under /collab/remote/<id>/ to the paired host via its channel.
  * @returns {Promise<void>|undefined} undefined when the path is not a remote path.
  */
-export function remoteProxyRoute(req, res, url, { client, request = httpRequest }) {
+export function remoteProxyRoute(req, res, url, { client, request = httpRequest, channels }) {
   if (url.pathname !== REMOTE_PREFIX && !url.pathname.startsWith(`${REMOTE_PREFIX}/`)) return undefined;
   const m = /^\/collab\/remote\/([0-9a-f-]{36})(\/.*)?$/.exec(url.pathname);
   const link = m === null ? undefined : client.get(m[1]);
@@ -448,47 +576,63 @@ export function remoteProxyRoute(req, res, url, { client, request = httpRequest 
   const rest = m[2] === '/' ? '' : m[2];
   const headers = { authorization: `Bearer ${link.token}` };
   for (const h of PASS_REQUEST) if (req.headers[h] !== undefined) headers[h] = req.headers[h];
-  return new Promise(resolve => {
-    const up = request({ host: link.host, port: link.port, method: req.method, path: `/collab${rest}${url.search}`, headers }, upRes => {
-      const status = upRes.statusCode ?? 502;
-      if (status === 401 && upRes.headers['x-collab-pair'] === 'revoked') {
-        client.drop(link.id);
-        upRes.resume();
-        sendError(req, res, 401, { error: '连接已断开（那台电脑点了断开、把这台移出，或临时连接到时间了），请重新配对', code: 'revoked' });
-        return resolve();
+  const channelName = link.channel ?? 'tailscale';
+  const reg = channels ?? client.channels;
+  const ch = (channelName === 'tailscale' && request !== httpRequest)
+    ? createTailscaleChannel({ requestStream: request })
+    : reg?.get(channelName) ?? createTailscaleChannel({ requestStream: request });
+
+  return (async () => {
+    let up;
+    try {
+      up = await ch.proxyStream(link, { method: req.method, path: `/collab${rest}${url.search}`, headers, req });
+    } catch (err) {
+      if (!res.headersSent) {
+        const formatted = typeof ch.formatProxyError === 'function'
+          ? ch.formatProxyError(err)
+          : { status: 502, code: 'unreachable', error: '连不上那台电脑：它可能关机、DSH 没开、Tailscale 断了，或已经把这台踢掉' };
+        sendError(req, res, formatted.status ?? 502, { error: formatted.error, code: formatted.code });
+      } else {
+        res.destroy();
       }
-      const out = {};
-      for (const h of PASS_RESPONSE) if (upRes.headers[h] !== undefined) out[h] = upRes.headers[h];
-      if (status >= 300 && status < 400 && typeof upRes.headers.location === 'string') {
-        out.location = upRes.headers.location.replace(/^\/collab(?=\/|$)/, mount);
-      }
-      if (String(upRes.headers['content-type'] ?? '').startsWith('text/html')) {
+      return;
+    }
+
+    const status = up.status ?? 502;
+    const upHeaders = up.headers ?? {};
+    if (status === 401 && upHeaders['x-collab-pair'] === 'revoked') {
+      client.drop(link.id);
+      up.stream.resume?.();
+      sendError(req, res, 401, { error: '连接已断开（那台电脑点了断开、把这台移出，或临时连接到时间了），请重新配对', code: 'revoked' });
+      return;
+    }
+    const out = {};
+    for (const h of PASS_RESPONSE) if (upHeaders[h] !== undefined) out[h] = upHeaders[h];
+    if (status >= 300 && status < 400 && typeof upHeaders.location === 'string') {
+      out.location = upHeaders.location.replace(/^\/collab(?=\/|$)/, mount);
+    }
+
+    await new Promise(resolve => {
+      res.on('close', () => { if (!res.writableEnded) up.abort?.(); });
+      if (String(upHeaders['content-type'] ?? '').startsWith('text/html')) {
         const chunks = [];
-        upRes.on('data', c => chunks.push(c));
-        upRes.on('end', () => {
+        up.stream.on('data', c => chunks.push(c));
+        up.stream.on('end', () => {
           const body = Buffer.from(rewriteRemoteHTML(Buffer.concat(chunks).toString('utf8'), mount));
           res.writeHead(status, { ...out, 'content-length': body.length });
           res.end(body);
           resolve();
         });
-        upRes.on('error', () => { res.destroy(); resolve(); });
+        up.stream.on('error', () => { res.destroy(); resolve(); });
         return;
       }
       res.writeHead(status, out);
       res.flushHeaders?.();
-      upRes.pipe(res);
-      upRes.on('end', resolve);
-      upRes.on('error', () => { res.destroy(); resolve(); });
+      up.stream.pipe(res);
+      up.stream.on('end', resolve);
+      up.stream.on('error', () => { res.destroy(); resolve(); });
     });
-    up.on('error', () => {
-      if (!res.headersSent) sendError(req, res, 502, { error: '连不上那台电脑：它可能关机、DSH 没开、Tailscale 断了，或已经把这台踢掉', code: 'unreachable' });
-      else res.destroy();
-      resolve();
-    });
-    // Stop the upstream stream (SSE) when the page goes away.
-    res.on('close', () => { if (!res.writableEnded) up.destroy(); });
-    req.pipe(up);
-  });
+  })();
 }
 
 /** A page navigation gets a readable page; fetch() callers get JSON. */
@@ -602,36 +746,36 @@ function withHTMLTail(res, tail) {
 }
 
 /**
- * Host listener request handler: pairing endpoints for anyone in the tailnet, everything else
- * under /collab only with a device credential, handed to the plugin's own route as the owner.
- * @param {{ host: PairHost, name: string, route: (req, res) => any, whois?: (ip: string) => Promise<string|undefined>, allowLoopback?: boolean }} deps
+ * Channel-agnostic host request dispatcher (#2314 item 2.1): handles pairing claim, credential
+ * verification, local-only endpoint guards, and routing into the plugin's own route as owner.
+ * Tailscale calls this after verifying the tailnet source address; tunnel calls this after
+ * decrypting and authenticating the end-to-end encrypted envelope.
  */
-export function hostHandler({ host, name, route, whois = whoisName, allowLoopback = false }) {
-  return async (req, res) => {
-    const peer = req.socket.remoteAddress;
-    if (!isTailnetAddress(peer) && !(allowLoopback && isLoopback(peer))) return sendJSON(res, 403, { error: 'tailnet only' });
+export function dispatchHostRequest({ host, name, route, whois = whoisName }) {
+  return async (req, res, { channel = 'tailscale', peer = req.socket?.remoteAddress, allowBrowser = channel === 'tailscale' } = {}) => {
+    const isTunnel = channel === 'tunnel';
     const url = new URL(req.url ?? '/', 'http://pair.invalid');
     try {
-      if (url.pathname === '/collab/pair/hello' && req.method === 'GET') {
+      if (!isTunnel && url.pathname === '/collab/pair/hello' && req.method === 'GET') {
         return sendJSON(res, 200, { app: 'dsh-collab', name, waiting: host.codeLive() });
       }
-      // #1327: a phone browser pairs here directly and keeps the credential as a cookie.
-      if (url.pathname === '/collab/pair/browser' && req.method === 'POST') {
+      // #1327: a phone browser pairs over Tailscale directly and keeps the credential as a cookie.
+      if (allowBrowser && !isTunnel && url.pathname === '/collab/pair/browser' && req.method === 'POST') {
         const body = await readBody(req);
         const named = isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
-        const { token, device } = host.claim({ code: body?.code, mode: body?.remember === true ? 'remember' : 'temp', name: named, address: peer, kind: 'browser' });
+        const { token, device } = host.claim({ code: body?.code, mode: body?.remember === true ? 'remember' : 'temp', name: named, address: peer, kind: 'browser', channel });
         res.setHeader('set-cookie', pairCookie(token, device));
         return sendJSON(res, 200, { ok: true, device, host_name: name, to: '/collab' });
       }
       if (url.pathname === '/collab/pair/claim' && req.method === 'POST') {
         const body = await readBody(req);
-        const named = isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
-        const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer, duration_ms: body?.duration_ms });
+        const named = !isTunnel && isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
+        const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer, duration_ms: body?.duration_ms, channel });
         return sendJSON(res, 200, { token, device, host_name: name });
       }
-      const fromCookie = bearer(req) === undefined ? cookieToken(req) : undefined;
+      const fromCookie = (allowBrowser && !isTunnel && bearer(req) === undefined) ? cookieToken(req) : undefined;
       const device = host.verify(bearer(req) ?? fromCookie);
-      if (url.pathname === '/' && req.method === 'GET') {
+      if (allowBrowser && !isTunnel && url.pathname === '/' && req.method === 'GET') {
         if (device !== undefined) { res.writeHead(302, { location: '/collab', 'cache-control': 'no-store' }); return res.end(); }
         // A cookie this machine no longer knows: the phone was kicked (or its time ran out).
         const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
@@ -649,12 +793,16 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
         return sendJSON(res, 200, { ok: true, device: host.view(device), host_name: name });
       }
       if (url.pathname === '/collab/pair/forget' && req.method === 'POST') {
+        if (isTunnel && device === undefined) {
+          res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' });
+          return res.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
+        }
         if (device !== undefined) host.revoke(device.id);
         return sendJSON(res, 200, { ok: true });
       }
       if (device === undefined) {
         // A phone opening a page without (or with a dead) credential goes to the number page.
-        if (wantsHTML(req) && bearer(req) === undefined) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }); return res.end(); }
+        if (allowBrowser && !isTunnel && wantsHTML(req) && bearer(req) === undefined) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }); return res.end(); }
         res.writeHead(401, { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' });
         return res.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
       }
@@ -675,6 +823,20 @@ export function hostHandler({ host, name, route, whois = whoisName, allowLoopbac
       if (err instanceof PairError) return sendJSON(res, PAIR_STATUS[err.code] ?? 400, { error: err.message, code: err.code });
       if (!res.headersSent) sendJSON(res, 500, { error: 'internal error' });
     }
+  };
+}
+
+/**
+ * Tailscale host listener request handler: verifies the source address is in the tailnet (or
+ * loopback in tests), then delegates to dispatchHostRequest().
+ * @param {{ host: PairHost, name: string, route: (req, res) => any, whois?: (ip: string) => Promise<string|undefined>, allowLoopback?: boolean }} deps
+ */
+export function hostHandler({ host, name, route, whois = whoisName, allowLoopback = false }) {
+  const dispatch = dispatchHostRequest({ host, name, route, whois });
+  return async (req, res) => {
+    const peer = req.socket.remoteAddress;
+    if (!isTailnetAddress(peer) && !(allowLoopback && isLoopback(peer))) return sendJSON(res, 403, { error: 'tailnet only' });
+    return dispatch(req, res, { channel: 'tailscale', peer, allowBrowser: true });
   };
 }
 
@@ -711,7 +873,8 @@ export class PairListener {
 
   /** Stop when nothing is left to serve. */
   async settle() {
-    if (this.server === undefined || this.host.active() || this.host.kickGrace?.() === true) return;
+    const busy = typeof this.host.activeTailscale === 'function' ? this.host.activeTailscale() : this.host.active();
+    if (this.server === undefined || busy || this.host.kickGrace?.() === true) return;
     await this.close();
     this.logger?.info?.('conest-collab: pairing listener stopped');
   }
@@ -730,22 +893,80 @@ export class PairListener {
  * Owner routes on this machine's own DSH (/collab/api/pair/* host side, /collab/api/remote/*
  * controller side). The caller checks the owner first.
  */
-export function pairApiRoute(req, res, url, { host, client, listener, peers = tailnetPeers, readJSON = readBody }) {
+export function pairApiRoute(req, res, url, { host, client, listener, tunnelHost, hostName = hostname(), peers = tailnetPeers, readJSON = readBody }) {
   const p = url.pathname.replace(/\/+$/, '');
   if (!p.startsWith('/collab/api/pair') && !p.startsWith('/collab/api/remote')) return undefined;
   const run = async () => {
     try {
+      if (p === '/collab/api/pair/relay' && req.method === 'GET') {
+        return sendJSON(res, 200, tunnelHost ? tunnelHost.status() : {
+          channel: 'tunnel', configured: false, relay_url: null, has_admission_code: false,
+          host_id: null, fingerprint: null, state: 'unconfigured', error: null, retry_at: null,
+        });
+      }
+      if (p === '/collab/api/pair/relay' && (req.method === 'PUT' || req.method === 'POST')) {
+        if (!tunnelHost) throw new PairError('mode', '当前实例未启用中继功能');
+        const body = await readJSON(req);
+        await tunnelHost.configure({
+          relayUrl: body?.relay_url,
+          admissionCode: body?.admission_code,
+          clearAdmission: body?.clear_admission === true,
+        });
+        const settled = tunnelHost.configured ? await tunnelHost.waitForSettled(4000) : tunnelHost.status();
+        return sendJSON(res, 200, settled);
+      }
       if (p === '/collab/api/pair/code' && req.method === 'POST') {
+        const body = req.on ? await readJSON(req).catch(() => ({})) : {};
+        if (body?.channel === 'tunnel') {
+          if (!tunnelHost || !tunnelHost.configured) {
+            throw new PairError('relay-unconfigured', '请先在下面填写并保存中继地址');
+          }
+          if (!tunnelHost.connected) {
+            await tunnelHost.waitForSettled(3000);
+          }
+          if (!tunnelHost.connected) {
+            throw new PairError('relay-offline', tunnelHost.error || '还没连上中继服务器，请确认中继地址和准入码');
+          }
+          const issued = host.newTunnelCode();
+          const link = encodeTunnelLink({
+            relayUrl: tunnelHost.relayUrl,
+            hostId: tunnelHost.identity.hostId,
+            code: issued.code,
+            expiresAt: issued.expires_at,
+            name: hostName,
+          }, { allowLoopback: tunnelHost.allowLoopback });
+          return sendJSON(res, 200, {
+            channel: 'tunnel',
+            link,
+            qr_svg: renderQRSvg(link),
+            relay_url: tunnelHost.relayUrl,
+            host_id: tunnelHost.identity.hostId,
+            fingerprint: tunnelHost.identity.fingerprint,
+            expires_at: issued.expires_at,
+            ttl_ms: issued.ttl_ms,
+            max_attempts: issued.max_attempts,
+          });
+        }
         const bound = await listener.ensure();
         return sendJSON(res, 200, { ...host.newCode(), listening: bound });
       }
       if (p === '/collab/api/pair/code' && req.method === 'DELETE') {
+        if (url.searchParams.get('channel') === 'tunnel') {
+          host.cancelTunnelCode();
+          return sendJSON(res, 200, { ok: true });
+        }
         host.cancelCode();
         await listener.settle();
         return sendJSON(res, 200, { ok: true });
       }
       if (p === '/collab/api/pair/code' && req.method === 'GET') {
-        return sendJSON(res, 200, { waiting: host.codeLive(), expires_at: host.code?.expires_at ?? null, listening: listener.bound ?? null });
+        return sendJSON(res, 200, {
+          waiting: host.codeLive(),
+          expires_at: host.code?.expires_at ?? null,
+          listening: listener?.bound ?? null,
+          tunnel_waiting: host.tunnelCodeLive(),
+          tunnel_expires_at: host.tunnelCode?.expires_at ?? null,
+        });
       }
       if (p === '/collab/api/pair/devices' && req.method === 'GET') return sendJSON(res, 200, { devices: host.list() });
       const dev = /^\/collab\/api\/pair\/devices\/([0-9a-f-]{36})$/.exec(p);
@@ -767,6 +988,17 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
         return sendJSON(res, 200, { peers: probed });
       }
       if (p === '/collab/api/remote/alive' && req.method === 'POST') { client.alive(); return sendJSON(res, 200, { ok: true }); }
+      if (p === '/collab/api/remote/links/inspect' && req.method === 'POST') {
+        const body = await readJSON(req);
+        const parsed = parseTunnelLink(body?.link, { allowLoopback: true });
+        return sendJSON(res, 200, {
+          relay_url: parsed.relayUrl,
+          host_id: parsed.hostId,
+          fingerprint: parsed.fingerprint,
+          expires_at: parsed.expiresAt,
+          name: parsed.name || null,
+        });
+      }
       if (p === '/collab/api/remote/links' && req.method === 'GET') {
         // Reading the list is the moment a kicked machine must disappear from it, before the
         // person opens that link (remoteProxyRoute drops it then, too).
@@ -775,6 +1007,15 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
       }
       if (p === '/collab/api/remote/links' && req.method === 'POST') {
         const body = await readJSON(req);
+        if (typeof body?.tunnel_link === 'string' || body?.channel === 'tunnel') {
+          const link = await client.connectTunnel({
+            link: body?.tunnel_link ?? body?.link,
+            mode: body?.mode,
+            name: body?.name,
+            duration_ms: body?.duration_ms,
+          });
+          return sendJSON(res, 200, { link });
+        }
         const ip = String(body?.host ?? '').trim();
         if (!isTailnetAddress(ip) && !isLoopback(ip)) throw new PairError('mode', '只能连同一个 Tailscale 网络里的电脑');
         const link = await client.connect({ host: ip, port: Number.isInteger(body?.port) ? body.port : undefined, code: body?.code, mode: body?.mode, name: body?.name, duration_ms: body?.duration_ms });
@@ -788,6 +1029,8 @@ export function pairApiRoute(req, res, url, { host, client, listener, peers = ta
       return sendJSON(res, 404, { error: 'not found' });
     } catch (err) {
       if (err instanceof PairError) return sendJSON(res, PAIR_STATUS[err.code] ?? 400, { error: err.message, code: err.code });
+      if (err instanceof TunnelLinkError) return sendJSON(res, PAIR_STATUS[err.code] ?? 400, { error: err.message, code: err.code });
+      if (err instanceof TunnelClientError) return sendJSON(res, err.status ?? PAIR_STATUS[err.code] ?? 502, { error: err.message, code: err.code });
       return sendJSON(res, 500, { error: String(err?.message ?? err) });
     }
   };
