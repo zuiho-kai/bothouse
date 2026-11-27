@@ -43,6 +43,12 @@ func (a Addressee) String() string {
 // PrivateRoom. A message that calls this role and someone else calls this role.
 func (e *Engine) addresseeOf(p Platform, msg *Message) Addressee {
 	switch {
+	case msg.Mentioned && msg.FromBot && notWorkspaceOwner(e, p, msg.SessionKey, 0):
+		// In a workspace only the task's owner takes a teammate's call (#2094: a progress post
+		// that quoted @鲸鱼娘 @橘 woke both, and the work was taken from the owner).
+		slog.Info("gate: a teammate's call in a workspace is not this role's task; listening only",
+			"session", msg.SessionKey, "project", e.name, "from", msg.UserName)
+		return AddrOther
 	case msg.Mentioned:
 		return AddrSelf
 	case msg.FromBot:
