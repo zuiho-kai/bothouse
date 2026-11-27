@@ -39,6 +39,7 @@ TAG = re.compile(r"(?:[。．.]\s*)?[（(](?:推论|推断|判断|推测)[）)]\
 
 
 TRAIL = re.compile(r"[。．.]\s*$")  # 句末句号不算内容：行尾标记两种写法（「X（推论）。」「X。（推论）」）剥完要能对上
+TRAIL_CHARS = ("", "。", "．", ".")  # what TRAIL can have taken off a line's end, for kept_split's cuts
 
 
 def norm(line):
@@ -46,20 +47,40 @@ def norm(line):
     return TRAIL.sub("", WIKILINK.sub("[[]]", MDLINK.sub("]()", l)))
 
 
+def flat(line):
+    """A content line without its bullet marker and spaces: what kept_split compares."""
+    return re.sub(r"\s+", "", re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", line))
+
+
 def kept_split(line, pages):
-    """`line` split into consecutive whole lines of one page (lint.wrap()): equal without bullet markers and spaces."""
-    flat = lambda l: re.sub(r"\s+", "", re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", l))
-    f = flat(line)
-    for ls in pages:
-        cuts, text = {0}, ""
-        for l in ls:
-            text += flat(l)
-            cuts.add(len(text))
-        i = text.find(f)
-        while f and i >= 0:
-            if i in cuts and i + len(f) in cuts:
-                return True
-            i = text.find(f, i + 1)
+    """`line` split into consecutive whole lines of one page (lint.wrap()): equal without bullet markers and spaces.
+    The 「。」 TRAIL takes off a line's end is only the old line's own last one: at a cut it is content, and the page side
+    has lost it, so a piece may stand for the old line's piece plus that one character (2026-11-28 #2103: a sentence
+    ending exactly at a cut made lint --wrap's split look lost to pre-commit)."""
+    return _kept_split(flat(line), [[flat(l) for l in ls] for ls in pages])
+
+
+def _kept_split(f, pages):
+    """kept_split over pages already run through flat() (`missing()` flattens once for every line it checks)."""
+    if not f:
+        return False
+    for parts in pages:
+        for i, first in enumerate(parts):
+            todo, seen = set(), set()
+            for end in TRAIL_CHARS if first else TRAIL_CHARS[:1]:  # an empty piece takes no character of its own
+                if f.startswith(first + end):
+                    todo.add((i + 1, len(first) + len(end)))
+            while todo:
+                k, pos = todo.pop()
+                if pos == len(f):
+                    return True
+                if k >= len(parts) or pos > len(f) or (k, pos) in seen:
+                    continue
+                seen.add((k, pos))
+                part = parts[k]
+                for end in TRAIL_CHARS if part else TRAIL_CHARS[:1]:
+                    if f.startswith(part + end, pos):
+                        todo.add((k + 1, pos + len(part) + len(end)))
     return False
 
 
@@ -106,6 +127,7 @@ def missing(old, new):
     unchanged is skipped (its lines are trivially there)."""
     pages = [content(p, t) for p, t in new.items()]
     have = {l for ls in pages for l in ls}
+    flats = [[flat(l) for l in ls] for ls in pages]  # once, not per missing line: a rejected commit checks many
     out = []
     for p, t in old.items():
         if new.get(p) == t:
@@ -114,7 +136,7 @@ def missing(old, new):
         for l in content(p, t):
             if l not in have and l not in seen:
                 seen.add(l)
-                if not kept_split(l, pages):
+                if not _kept_split(flat(l), flats):
                     out.append((p, l))
     return out
 
