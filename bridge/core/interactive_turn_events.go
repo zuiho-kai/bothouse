@@ -1078,6 +1078,7 @@ func (e *Engine) onTurnResult(turn *interactiveTurn, p Platform, rv richCardView
 	if !e.deliverTurnResult(turn, r) {
 		return turnFlowReturn
 	}
+	postTurnReplyToTaskThread(e, turn, r)
 	if !e.finishTurnResult(turn, r) {
 		return turnFlowReturn
 	}

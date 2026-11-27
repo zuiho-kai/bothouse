@@ -23,8 +23,6 @@ type cardViewPrefs struct {
 	mu    sync.Mutex
 	path  string              // "" keeps the choices in memory only
 	modes map[string]cardView // channel ID -> chosen view
-	// start: a channel's view before anyone chose one (task threads start detailed); in memory.
-	start map[string]cardView
 }
 
 var (
@@ -72,9 +70,6 @@ func (s *cardViewPrefs) get(channelID string) cardView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := s.modes[channelID]; ok {
-		return m
-	}
-	if m, ok := s.start[channelID]; ok {
 		return m
 	}
 	return cardViewDefault

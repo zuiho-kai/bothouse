@@ -2125,7 +2125,8 @@ func (p *Platform) resolveMentionsInContent(ctx context.Context, chatID, content
 		// does NOT notify the target, which defeats bot-to-bot mentions.
 		escapedName := html.EscapeString(name)
 		atTag := fmt.Sprintf(`<at user_id="%s">%s</at>`, openID, escapedName)
-		result = strings.ReplaceAll(result, pattern, atTag)
+		// An @ name in code is an example, not a call (#2099).
+		result = core.MapOutsideCode(result, func(s string) string { return strings.ReplaceAll(s, pattern, atTag) })
 	}
 	return result
 }

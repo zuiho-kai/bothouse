@@ -219,6 +219,10 @@ type compactProgressWriter struct {
 	// 「点开这个任务子频道可以看到他具体在干什么」); mirrorFor finds it once that card has a thread.
 	mirror    *compactProgressWriter
 	mirrorFor func() *compactProgressWriter
+	// maomao fork: the agent's own words (narration between steps) also go here as messages of
+	// their own — the task thread shows them under its card, so the course reads in stages and
+	// not only as tool calls (#2099; user 11-27 「他那帖子那边也没中间过程啊」). nil = none.
+	onNote func(string)
 	// moved: the card now lives only in that thread; this one was taken down (user 10-30: one
 	// task's three cards become the one in its thread). Steps still feed onStep.
 	moved bool
@@ -447,6 +451,9 @@ func (w *compactProgressWriter) appendStructured(item ProgressCardEntry, fallbac
 	item.Status = strings.TrimSpace(item.Status)
 	if w.onStep != nil {
 		w.onStep(item)
+	}
+	if w.onNote != nil && item.Kind == ProgressEntryInfo && text != "" {
+		w.onNote(text)
 	}
 
 	switch w.style {
