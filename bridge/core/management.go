@@ -326,6 +326,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	// System
 	mux.HandleFunc(prefix+"/version", m.handlePublicVersion)
 	mux.HandleFunc(prefix+"/status", m.wrap(m.handleStatus))
+	mux.HandleFunc(prefix+"/activity", m.wrap(m.handleActivity))
 	mux.HandleFunc(prefix+"/restart", m.wrap(m.handleRestart))
 	mux.HandleFunc(prefix+"/update", m.wrap(m.handleUpdate))
 	mux.HandleFunc(prefix+"/update/apply", m.wrap(m.handleUpdateApply))
