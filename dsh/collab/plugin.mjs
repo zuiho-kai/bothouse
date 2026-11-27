@@ -263,13 +263,14 @@ export async function apply(ctx, rawConfig) {
   const tunnelHost = r.tunnelHost = new TunnelHost({
     configFile: join(config.dataDir, 'tunnel-config.json'),
     identity: tunnelIdentity,
+    pairHost,
     dispatch: hostDispatch,
     logger: ctx.logger,
     allowLoopback: true,
   });
   const pairChannels = new ChannelRegistry([
     createTailscaleChannel({ listener: pairListener, defaultPort: pairPort }),
-    createTunnelChannel({ tunnelHost }),
+    createTunnelChannel({ tunnelHost, clientIdentity: tunnelIdentity }),
   ]);
   const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort, channels: pairChannels });
   if (pairHost.activeTailscale()) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));

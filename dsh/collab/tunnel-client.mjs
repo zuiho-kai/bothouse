@@ -5,7 +5,8 @@
 // chunked AES-256-GCM response stream (including SSE event streams). Verifies hostId = sha256(key)
 // and pins the host's Ed25519 + X25519 public keys so a relay cannot impersonate the host.
 import { PassThrough } from 'node:stream';
-import { verifyEncryptionBundle } from './tunnel-identity.mjs';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { computeHostId, verifyEncryptionBundle } from './tunnel-identity.mjs';
 import { TunnelCryptoError, createResponseOpener, sealRequest } from './tunnel-crypto.mjs';
 
 // Raw inner request body cap so base64 + JSON envelope stays comfortably within relay's 1 MiB limit.
@@ -94,7 +95,7 @@ export async function fetchAndVerifyHostKey({
 }
 
 function mapOuterRelayFailure(status, body) {
-  const code = body?.error ?? body?.code;
+  const code = body?.code ?? body?.error;
   if (status === 503 || code === 'HOST_OFFLINE') {
     return new TunnelClientError('host-offline', '对方电脑现在不在线（可能关机、DSH 没开，或还没连上中继）', 503);
   }
@@ -106,6 +107,12 @@ function mapOuterRelayFailure(status, body) {
   }
   if (status === 504 || code === 'RELAY_TIMEOUT') {
     return new TunnelClientError('relay-timeout', '等待对方电脑响应超时', 504);
+  }
+  if (status === 403 && code === 'UNPAIRED_CLIENT') {
+    return new TunnelClientError('unpaired-client', body?.error || '未配对的设备公钥，请求已被对方拒绝', 403);
+  }
+  if (status === 401 && code === 'CLIENT_SIG_INVALID') {
+    return new TunnelClientError('client-sig-invalid', body?.error || '本机签名校验失败', 401);
   }
   if (status === 409 && (code === 'ENVELOPE_EXPIRED' || code === 'ENVELOPE_REPLAY')) {
     return new TunnelClientError('envelope-rejected', body?.error || '加密请求被对方拒绝，请检查两台电脑的系统时间', 409);
@@ -119,15 +126,30 @@ function mapOuterRelayFailure(status, body) {
   return new TunnelClientError('relay-unreachable', `经中继转发失败（${status}）`, 502);
 }
 
+function createEphemeralIdentity() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const pubB64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  const hostId = computeHostId(pubB64);
+  return {
+    publicKey: pubB64,
+    hostId,
+    signChallenge: msg => sign(null, Buffer.from(String(msg), 'utf8'), privateKey).toString('base64'),
+  };
+}
+
 /**
  * Create the controller-side (and optionally host-side) tunnel channel object for ChannelRegistry.
+ * Signs every outgoing request envelope with `clientIdentity` (this machine's persistent Ed25519
+ * identity) so the host enforces mutual public-key pinning before decryption.
  */
 export function createTunnelChannel({
   tunnelHost,
+  clientIdentity,
   fetchImpl = globalThis.fetch,
   now = Date.now,
   keyVerifyTtlMs = DEFAULT_KEY_VERIFY_TTL_MS,
 } = {}) {
+  const identity = clientIdentity ?? tunnelHost?.identity ?? createEphemeralIdentity();
   const verifiedAt = new Map();
 
   async function ensurePinnedKey(target, { force = false, timeout = 5000 } = {}) {
@@ -160,7 +182,7 @@ export function createTunnelChannel({
       await ensurePinnedKey(target, { timeout: Math.min(timeout ?? 5000, 5000) });
     }
 
-    const { envelope, aad, replyKey } = sealRequest({ encKey, method, path, headers, body, now });
+    const { envelope, aad, replyKey } = sealRequest({ encKey, clientIdentity: identity, method, path, headers, body, now });
     const payload = Buffer.from(JSON.stringify(envelope), 'utf8');
     if (payload.length > 1024 * 1024) {
       throw new TunnelClientError('too-large', '请求太大，超过了中继单次转发上限（1 MB）', 413);
@@ -190,6 +212,19 @@ export function createTunnelChannel({
       clearTimeout(timer);
       let errBody;
       try { errBody = await res.json(); } catch { errBody = undefined; }
+      // When a previously paired link is rejected with UNPAIRED_CLIENT on a non-claim request,
+      // the host has revoked our paired public key -> surface the standard 401 revoked stream so
+      // PairClient.refresh() and remoteProxyRoute drop the stale link cleanly.
+      if (res.status === 403 && errBody?.code === 'UNPAIRED_CLIENT' && path !== '/collab/pair/claim') {
+        const revokedStream = new PassThrough();
+        revokedStream.end(JSON.stringify({ error: 'device not paired', code: 'revoked' }));
+        return {
+          status: 401,
+          headers: { 'content-type': 'application/json; charset=utf-8', 'x-collab-pair': 'revoked' },
+          stream: revokedStream,
+          abort: () => revokedStream.destroy(),
+        };
+      }
       const mapped = mapOuterRelayFailure(res.status, errBody);
       // If the host could not decrypt our envelope, re-check its key to surface identity changes clearly.
       if (mapped.code === 'envelope-invalid' && target.public_key) {
@@ -283,6 +318,7 @@ export function createTunnelChannel({
 
   return {
     name: 'tunnel',
+    clientIdentity: identity,
     fetchHostKey: ({ relayUrl, hostId, pinned, timeout }) =>
       fetchAndVerifyHostKey({ relayUrl, hostId, pinned, fetchImpl, timeout }),
     verifyHostKey: (target, opts) => ensurePinnedKey(target, { force: true, ...opts }),

@@ -202,6 +202,7 @@ test('2.8 three-process E2E: enrol -> link -> proxied page + POST + progressive 
   const tunnelHost = new TunnelHost({
     configFile: join(hostDir, 'tunnel-config.json'),
     identity: tunnelIdentity,
+    pairHost,
     dispatch: hostDispatch,
     baseReconnectMs: 50,
     maxReconnectMs: 200,
@@ -246,9 +247,10 @@ test('2.8 three-process E2E: enrol -> link -> proxied page + POST + progressive 
   assert.ok(issued.json.link.startsWith('bhrelay1:'));
   assert.ok(issued.json.qr_svg.includes('<svg '));
 
-  // Controller instance (separate data dir).
+  // Controller instance (separate data dir, with its own persistent Ed25519 identity).
   const ctlDir = dir();
-  const tunnelChannel = createTunnelChannel({ keyVerifyTtlMs: 0 });
+  const ctlIdentity = new TunnelIdentity({ file: join(ctlDir, 'tunnel-identity.json') });
+  const tunnelChannel = createTunnelChannel({ clientIdentity: ctlIdentity, keyVerifyTtlMs: 0 });
   const ctlChannels = new ChannelRegistry([createTailscaleChannel(), tunnelChannel]);
   const pairClient = new PairClient({ file: join(ctlDir, 'pair-links.json'), channels: ctlChannels, name: 'travel-laptop' });
   const ctlServer = createServer((req, res) => {
@@ -344,14 +346,135 @@ test('2.8 three-process E2E: enrol -> link -> proxied page + POST + progressive 
   assert.equal(await until(() => sse.text.includes('data: event-2')), true);
   assert.ok(sse.chunks.length >= 2, 'SSE chunks arrive progressively rather than buffered');
 
-  // Kick the device on host -> active SSE closes immediately, next request returns 401 and clears list.
-  const devId = (await httpCall(hostApiPort, '/collab/api/pair/devices')).json.devices[0].id;
-  assert.equal((await httpCall(hostApiPort, `/collab/api/pair/devices/${devId}`, { method: 'DELETE' })).status, 200);
+  // Kick the device on host -> active SSE closes immediately, paired client public key is removed,
+  // and next request is dropped pre-decryption on host while controller clears its link list.
+  const devList = (await httpCall(hostApiPort, '/collab/api/pair/devices')).json.devices;
+  assert.equal(devList[0].client_id, ctlIdentity.hostId, 'host must pin controller Ed25519 key');
+  const droppedBeforeKick = tunnelHost.droppedUnpairedCount;
+  assert.equal((await httpCall(hostApiPort, `/collab/api/pair/devices/${devList[0].id}`, { method: 'DELETE' })).status, 200);
   assert.equal(await until(() => sse.closed), true, 'kicked device SSE stream must close immediately');
   const kicked = await httpCall(ctlPort, `/collab/remote/${link.id}/api/state`);
   assert.equal(kicked.status, 401);
   assert.match(kicked.json.error, /重新配对/);
+  assert.ok(tunnelHost.droppedUnpairedCount > droppedBeforeKick, 'revoked key must be dropped pre-decryption on host');
   assert.deepEqual((await httpCall(ctlPort, '/collab/api/remote/links')).json.links, []);
+});
+
+test('mutual public-key security gate: unpaired stranger, leaked hostId, brute-force and stolen token are all rejected', async t => {
+  const relay = createRelay();
+  const relayPort = await listen(relay.server);
+  const relayUrl = `http://127.0.0.1:${relayPort}`;
+  t.after(() => relay.close());
+
+  const hostDir = dir();
+  const pairHost = new PairHost({ file: join(hostDir, 'hd.json') });
+  let routeHits = 0;
+  const route = (req, res) => {
+    routeHits += 1;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{"secret":"ok"}');
+  };
+  const hostIdentity = new TunnelIdentity({ file: join(hostDir, 'hid.json') });
+  const tunnelHost = new TunnelHost({
+    configFile: join(hostDir, 'hcfg.json'),
+    identity: hostIdentity,
+    pairHost,
+    dispatch: dispatchHostRequest({ host: pairHost, name: 'guarded-host', route }),
+  });
+  t.after(() => tunnelHost.stop());
+  await tunnelHost.configure({ relayUrl });
+  assert.equal((await tunnelHost.waitForSettled(3000)).state, 'connected');
+
+  const keyBundle = await (await fetch(`${relayUrl}/h/${hostIdentity.hostId}/key`)).json();
+  const target = {
+    relay_url: relayUrl,
+    host_id: hostIdentity.hostId,
+    public_key: keyBundle.publicKey,
+    enc_key: keyBundle.encKey,
+  };
+
+  // 1) Stranger learns hostId and tries hitting host with no pairing window open -> dropped BEFORE decryption!
+  const strangerId = new TunnelIdentity({ file: join(dir(), 'stranger.json') });
+  const strangerCh = createTunnelChannel({ clientIdentity: strangerId, keyVerifyTtlMs: 0 });
+  const strangerProbe = await strangerCh.requestJSON(target, { path: '/collab/api/state', method: 'GET' });
+  assert.equal(strangerProbe.status, 401);
+  assert.equal(routeHits, 0, 'unpaired stranger must never reach host routes');
+  assert.equal(tunnelHost.droppedUnpairedCount, 1, 'dropped pre-decryption at host gate');
+
+  // Even a direct claim attempt with no live code is dropped pre-decryption.
+  await assert.rejects(
+    strangerCh.requestJSON(target, { path: '/collab/pair/claim', method: 'POST', body: { code: 'guess', mode: 'temp' } }),
+    e => e.code === 'unpaired-client',
+  );
+  assert.equal(tunnelHost.droppedUnpairedCount, 2);
+
+  // 2) Host opens a 5-min pairing window -> stranger STILL cannot reach non-claim routes!
+  const tc = pairHost.newTunnelCode();
+  const duringWindow = await strangerCh.requestJSON(target, { path: '/collab/api/state', method: 'GET' });
+  assert.equal(duringWindow.status, 401);
+  assert.equal(routeHits, 0);
+  assert.equal(tunnelHost.droppedUnpairedCount, 3);
+
+  // 3) Brute-forcing claim locks after 5 attempts and immediately closes the window.
+  for (let i = 0; i < 4; i++) {
+    const r = await strangerCh.requestJSON(target, { path: '/collab/pair/claim', method: 'POST', body: { code: `wrong-${i}`, mode: 'temp' } });
+    assert.equal(r.status, 403);
+  }
+  const locked = await strangerCh.requestJSON(target, { path: '/collab/pair/claim', method: 'POST', body: { code: 'wrong-final', mode: 'temp' } });
+  assert.equal(locked.status, 429);
+  assert.equal(pairHost.tunnelCodeLive(), false, 'pairing window closed after 5 failed guesses');
+  // 6th attempt is dropped pre-decryption!
+  const beforeSixth = tunnelHost.droppedUnpairedCount;
+  await assert.rejects(
+    strangerCh.requestJSON(target, { path: '/collab/pair/claim', method: 'POST', body: { code: tc.code, mode: 'temp' } }),
+    e => e.code === 'unpaired-client',
+  );
+  assert.equal(tunnelHost.droppedUnpairedCount, beforeSixth + 1);
+
+  // 4) Legitimate computers A and B pair cleanly; B stealing A's Bearer token is rejected by key binding!
+  const idA = new TunnelIdentity({ file: join(dir(), 'idA.json') });
+  const idB = new TunnelIdentity({ file: join(dir(), 'idB.json') });
+  const chA = createTunnelChannel({ clientIdentity: idA, keyVerifyTtlMs: 0 });
+  const chB = createTunnelChannel({ clientIdentity: idB, keyVerifyTtlMs: 0 });
+  const clientA = new PairClient({ file: join(dir(), 'clA.json'), channels: new ChannelRegistry([chA]), name: 'dev-A' });
+  const clientB = new PairClient({ file: join(dir(), 'clB.json'), channels: new ChannelRegistry([chB]), name: 'dev-B' });
+
+  const tcA = pairHost.newTunnelCode();
+  const linkA = await clientA.connectTunnel({
+    link: encodeTunnelLink({ relayUrl, hostId: hostIdentity.hostId, code: tcA.code, expiresAt: tcA.expires_at }),
+    mode: 'remember',
+  });
+  const tokenA = JSON.parse(readFileSync(clientA.file, 'utf8')).links[0].token;
+
+  const tcB = pairHost.newTunnelCode();
+  await clientB.connectTunnel({
+    link: encodeTunnelLink({ relayUrl, hostId: hostIdentity.hostId, code: tcB.code, expiresAt: tcB.expires_at }),
+    mode: 'remember',
+  });
+
+  // A succeeds with its own key + token.
+  const okA = await chA.requestJSON(target, { path: '/collab/api/state', headers: { authorization: `Bearer ${tokenA}` } });
+  assert.equal(okA.status, 200);
+  assert.equal(routeHits, 1);
+
+  // B tries replaying A's stolen Bearer token under B's Ed25519 key -> rejected!
+  const stolenByB = await chB.requestJSON(target, { path: '/collab/api/state', headers: { authorization: `Bearer ${tokenA}` } });
+  assert.equal(stolenByB.status, 401);
+  assert.equal(routeHits, 1, 'stolen token with mismatched client public key must never reach route');
+
+  // Stranger tries replaying A's stolen Bearer token -> dropped pre-decryption!
+  const beforeStolen = tunnelHost.droppedUnpairedCount;
+  const stolenByStranger = await strangerCh.requestJSON(target, { path: '/collab/api/state', headers: { authorization: `Bearer ${tokenA}` } });
+  assert.equal(stolenByStranger.status, 401);
+  assert.equal(tunnelHost.droppedUnpairedCount, beforeStolen + 1);
+  assert.equal(routeHits, 1);
+
+  // Paired client keys persist across host restart!
+  const reloadedHost = new PairHost({ file: pairHost.file });
+  assert.equal(reloadedHost.hasPairedClientKey(idA.hostId), true);
+  assert.equal(reloadedHost.hasPairedClientKey(idB.hostId), true);
+  assert.equal(reloadedHost.hasPairedClientKey(strangerId.hostId), false);
+  assert.ok(linkA.id);
 });
 
 test('2.5 error distinction, key substitution rejection, and relay restart auto-recovery', async t => {
@@ -372,6 +495,7 @@ test('2.5 error distinction, key substitution rejection, and relay restart auto-
   const tunnelHost = new TunnelHost({
     configFile: join(hostDir, 'cfg.json'),
     identity: tunnelIdentity,
+    pairHost,
     dispatch: hostDispatch,
     baseReconnectMs: 50,
     maxReconnectMs: 150,
@@ -381,7 +505,8 @@ test('2.5 error distinction, key substitution rejection, and relay restart auto-
   assert.equal((await tunnelHost.waitForSettled(3000)).state, 'connected');
 
   const ctlDir = dir();
-  const tunnelChannel = createTunnelChannel({ keyVerifyTtlMs: 0 });
+  const ctlIdentity = new TunnelIdentity({ file: join(ctlDir, 'cid.json') });
+  const tunnelChannel = createTunnelChannel({ clientIdentity: ctlIdentity, keyVerifyTtlMs: 0 });
   const channels = new ChannelRegistry([createTailscaleChannel(), tunnelChannel]);
   let now = Date.now();
   const client = new PairClient({ file: join(ctlDir, 'cl.json'), channels, name: 'ctl', now: () => now });
@@ -475,6 +600,7 @@ test('2.8 coexistence: Tailscale and tunnel links between the same two instances
   const tunnelHost = new TunnelHost({
     configFile: join(hostDir, 'tcfg.json'),
     identity: tunnelIdentity,
+    pairHost,
     dispatch: dispatchHostRequest({ host: pairHost, name: 'dual-host', route }),
   });
   t.after(() => tunnelHost.stop());
@@ -482,9 +608,10 @@ test('2.8 coexistence: Tailscale and tunnel links between the same two instances
   assert.equal((await tunnelHost.waitForSettled(3000)).state, 'connected');
 
   const ctlDir = dir();
+  const ctlIdentity = new TunnelIdentity({ file: join(ctlDir, 'cid.json') });
   const channels = new ChannelRegistry([
     createTailscaleChannel({ defaultPort: tsPort }),
-    createTunnelChannel(),
+    createTunnelChannel({ clientIdentity: ctlIdentity }),
   ]);
   const client = new PairClient({ file: join(ctlDir, 'cl.json'), port: tsPort, channels, name: 'dual-ctl' });
   const ctlServer = createServer((req, res) => remoteProxyRoute(req, res, new URL(req.url, 'http://x'), { client, channels }) ?? (res.writeHead(404), res.end()));

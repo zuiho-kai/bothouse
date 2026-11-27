@@ -49,17 +49,23 @@
 
 ## 4. 加密信封与请求转发（`POST /h/<hostId>/t`）
 
-### 4.1 请求信封
+### 4.1 双向公钥认证与请求信封
 
-每个请求使用一把全新的临时 X25519 密钥对与 12 字节随机 `nonce`：
-- `aad = UTF8("bothouse-tunnel-v1:" + ephemeral + ":" + nonce + ":" + expires)`
-- `shared = X25519(ephemeralPriv, hostEncPub)`
-- `material = HKDF-SHA256(ikm=shared, salt=nonce, info=aad, len=64)`
-  - `reqKey = material[0..32]`（加密请求）
-  - `replyKey = material[32..64]`（加密应答流）
+- 两台电脑各自持有持久 Ed25519 身份密钥（`0600` 权限）。配对时交换双方公钥：访问端校验并固定宿主 `publicKey`/`encKey`，宿主校验并固定访问端 `clientKey`（`clientId = hex(sha256(der(clientKey)))`）。
+- 每个请求使用一把全新的临时 X25519 密钥对与 12 字节随机 `nonce`：
+  - `aad = UTF8("bothouse-tunnel-v1:" + ephemeral + ":" + nonce + ":" + expires + ":" + clientId)`
+  - `clientSig = base64(Ed25519.sign(aad, clientPrivateKey))`
+  - `shared = X25519(ephemeralPriv, hostEncPub)`
+  - `material = HKDF-SHA256(ikm=shared, salt=nonce, info=aad, len=64)`
+    - `reqKey = material[0..32]`（加密请求）
+    - `replyKey = material[32..64]`（加密应答流）
 - 明文 JSON：`{ method, path, headers, body?(base64) }`，其中 `path` 必须是 `/collab` 或 `/collab/*`。
-- 外层 JSON：`{ v: 1, ephemeral, nonce, expires, ciphertext }`，其中 `ciphertext = base64(AES-256-GCM(reqKey, nonce, aad, plaintext) || tag16)`。
-- 宿主校验 `expires >= now && expires <= now + 120000`，并用 `sha256(aad)` 去重防重放。
+- 外层 JSON：`{ v: 1, ephemeral, nonce, expires, clientKey, clientSig, ciphertext }`，其中 `ciphertext = base64(AES-256-GCM(reqKey, nonce, aad, plaintext) || tag16)`。
+- **宿主解密前门闸（防泄露 `hostId` 与防爆破）**：
+  1. 先验 `expires`（120 秒窗口）与 `clientKey`/`clientSig`（Ed25519 验签）；签名无效直接丢弃（`401 CLIENT_SIG_INVALID`）。
+  2. 检查 `clientId` 是否在已配对设备公钥白名单中：未配对且当前未开启 5 分钟一次性配对窗口时，**在执行任何 X25519/AES 解密或业务路由前直接丢弃**（`403 UNPAIRED_CLIENT`）。
+  3. 仅在宿主主动生成一次性 128 位长码的 5 分钟窗口内允许未配对公钥提交 `POST /collab/pair/claim`（其余路径一律直接丢弃）；长码错 5 次立即作废并关闭窗口。
+  4. 配对后每次请求同时校验外层 `clientId` 与内层 `Bearer` 凭据绑定一致，防止凭据被其他机器复用；宿主用 `sha256(aad)` 防重放。
 
 ### 4.2 中继帧
 

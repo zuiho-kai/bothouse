@@ -29,7 +29,7 @@ When two computers are on different networks and cannot share a Tailscale tailne
 | --- | --- |
 | Client/host IP addresses, timestamps, byte counts, and host fingerprint (`hostId`) | Paths (`/collab/...`), headers, device credentials, pairing long code, messages, and response content |
 
-Every request uses a fresh ephemeral X25519 key + HKDF-SHA256 + AES-256-GCM with per-chunk authenticated streaming. The controller verifies `sha256(publicKey) === hostId` and pins the host's keys locally, so a relay cannot impersonate the host.
+Every request uses a fresh ephemeral X25519 key + HKDF-SHA256 + AES-256-GCM with per-chunk authenticated streaming, and both computers exchange and pin each other's Ed25519 public keys during pairing. The controller verifies `sha256(publicKey) === hostId` so a relay cannot impersonate the host, and the host verifies the caller's Ed25519 signature against its paired-device whitelist before decrypting — dropping unpaired requests at the door even if `hostId` leaks. One-time 128-bit pairing codes expire after 5 minutes and lock after 5 failed attempts.
 
 ## Troubleshooting
 

@@ -14,7 +14,10 @@ import {
   generateKeyPairSync,
   hkdfSync,
   randomBytes,
+  sign,
+  verify,
 } from 'node:crypto';
+import { computeHostId } from './tunnel-identity.mjs';
 
 export const ENVELOPE_DOMAIN = 'bothouse-tunnel-v1';
 export const ENVELOPE_TTL_MS = 120_000;
@@ -77,8 +80,13 @@ export class ReplayGuard {
   }
 }
 
-function buildAAD(ephemeral, nonce, expires) {
-  return Buffer.from(`${ENVELOPE_DOMAIN}:${ephemeral}:${nonce}:${expires}`, 'utf8');
+function buildAAD(ephemeral, nonce, expires, clientId = '') {
+  return Buffer.from(
+    clientId
+      ? `${ENVELOPE_DOMAIN}:${ephemeral}:${nonce}:${expires}:${clientId}`
+      : `${ENVELOPE_DOMAIN}:${ephemeral}:${nonce}:${expires}`,
+    'utf8',
+  );
 }
 
 function deriveKeys(shared, nonceBuf, aad) {
@@ -101,10 +109,13 @@ function toX25519PublicKey(keyOrBase64) {
 
 /**
  * Controller side: seal an inner HTTP request into an end-to-end encrypted envelope.
- * Optional `ephemeralKeyPair` and `nonce` allow deterministic test-vector verification.
+ * When `clientIdentity` ({ publicKey, privateKey|signChallenge }) is supplied, binds the
+ * controller's Ed25519 identity into AAD and signs the outer envelope so the host can verify
+ * paired keys and drop unpaired requests BEFORE decryption.
  */
 export function sealRequest({
   encKey,
+  clientIdentity,
   method = 'GET',
   path,
   headers = {},
@@ -126,7 +137,21 @@ export function sealRequest({
   if (nonceBuf.length !== 12) throw new TunnelCryptoError('ENVELOPE_INVALID', 'nonce 必须是 12 字节', 400);
   const nonceB64 = nonceBuf.toString('base64');
   const expires = Math.trunc((typeof now === 'function' ? now() : now) + ttlMs);
-  const aad = buildAAD(ephemeral, nonceB64, expires);
+
+  let clientKey;
+  let clientId = '';
+  if (clientIdentity) {
+    clientKey = clientIdentity.publicKey;
+    clientId = clientIdentity.hostId ?? computeHostId(clientKey);
+  }
+  const aad = buildAAD(ephemeral, nonceB64, expires, clientId);
+  let clientSig;
+  if (clientIdentity) {
+    clientSig = typeof clientIdentity.signChallenge === 'function'
+      ? clientIdentity.signChallenge(aad.toString('utf8'))
+      : sign(null, aad, clientIdentity.privateKey).toString('base64');
+  }
+
   const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: hostPub });
   const { reqKey, replyKey } = deriveKeys(shared, nonceBuf, aad);
 
@@ -155,25 +180,85 @@ export function sealRequest({
   ]).toString('base64');
 
   return {
-    envelope: { v: 1, ephemeral, nonce: nonceB64, expires, ciphertext },
+    envelope: {
+      v: 1,
+      ephemeral,
+      nonce: nonceB64,
+      expires,
+      ...(clientKey ? { clientKey, clientSig } : {}),
+      ciphertext,
+    },
     aad,
     replyKey,
+    clientId,
   };
 }
 
 /**
+ * Host pre-decryption gate: verify outer envelope fields, expiry, and the controller's Ed25519
+ * public key + signature over AAD BEFORE performing X25519 DH or AES-256-GCM decryption.
+ * Returns `{ clientId, clientPublicKey, aad }` so the host can check its paired-key whitelist
+ * and immediately drop unpaired callers.
+ */
+export function verifyEnvelopeClient(envelope, { now = Date.now, maxTtlMs = ENVELOPE_TTL_MS } = {}) {
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
+    throw new TunnelCryptoError('ENVELOPE_INVALID', '加密信封格式无效', 401);
+  }
+  const { v, ephemeral, nonce, expires, ciphertext, clientKey, clientSig } = envelope;
+  if (
+    v !== 1 ||
+    typeof ephemeral !== 'string' || ephemeral.length === 0 || ephemeral.length > 128 ||
+    typeof nonce !== 'string' || nonce.length === 0 || nonce.length > 32 ||
+    !Number.isSafeInteger(expires) ||
+    typeof ciphertext !== 'string' || ciphertext.length === 0 || ciphertext.length > 1_400_000
+  ) {
+    throw new TunnelCryptoError('ENVELOPE_INVALID', '加密信封字段无效', 401);
+  }
+  const current = typeof now === 'function' ? now() : now;
+  if (expires < current || expires > current + maxTtlMs) {
+    throw new TunnelCryptoError('ENVELOPE_EXPIRED', '加密请求已过期', 409);
+  }
+  if (typeof clientKey !== 'string' || clientKey.length === 0 || clientKey.length > 256 ||
+      typeof clientSig !== 'string' || clientSig.length === 0 || clientSig.length > 128) {
+    throw new TunnelCryptoError('CLIENT_SIG_INVALID', '缺少来访设备公钥或签名，已拒绝', 401);
+  }
+  let clientId;
+  let edPub;
+  try {
+    clientId = computeHostId(clientKey);
+    edPub = createPublicKey({ key: Buffer.from(clientKey, 'base64'), format: 'der', type: 'spki' });
+  } catch {
+    throw new TunnelCryptoError('CLIENT_SIG_INVALID', '来访设备公钥格式无效', 401);
+  }
+  const aad = buildAAD(ephemeral, nonce, expires, clientId);
+  let sigOk = false;
+  try {
+    sigOk = verify(null, aad, edPub, Buffer.from(clientSig, 'base64'));
+  } catch {
+    sigOk = false;
+  }
+  if (!sigOk) {
+    throw new TunnelCryptoError('CLIENT_SIG_INVALID', '来访设备签名校验失败，已拒绝', 401);
+  }
+  return { clientId, clientPublicKey: clientKey, aad };
+}
+
+/**
  * Host side: decrypt, authenticate, validate expiry & path, and check replay for one envelope.
+ * If `requireClientAuth` is true (default when `clientKey` is present, or forced by TunnelHost),
+ * verifies the controller's Ed25519 signature over AAD first.
  */
 export function openRequest(envelope, {
   privateKey,
   replayGuard,
   now = Date.now,
   maxTtlMs = ENVELOPE_TTL_MS,
+  requireClientAuth = false,
 }) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
     throw new TunnelCryptoError('ENVELOPE_INVALID', '加密信封格式无效', 401);
   }
-  const { v, ephemeral, nonce, expires, ciphertext } = envelope;
+  const { v, ephemeral, nonce, expires, ciphertext, clientKey } = envelope;
   if (
     v !== 1 ||
     typeof ephemeral !== 'string' || ephemeral.length === 0 || ephemeral.length > 128 ||
@@ -189,13 +274,21 @@ export function openRequest(envelope, {
     throw new TunnelCryptoError('ENVELOPE_EXPIRED', '加密请求已过期', 409);
   }
 
+  let clientId = '';
+  let clientPublicKey;
+  if (requireClientAuth || clientKey !== undefined) {
+    const verified = verifyEnvelopeClient(envelope, { now: current, maxTtlMs });
+    clientId = verified.clientId;
+    clientPublicKey = verified.clientPublicKey;
+  }
+
   const nonceBuf = Buffer.from(nonce, 'base64');
   const cipherBuf = Buffer.from(ciphertext, 'base64');
   if (nonceBuf.length !== 12 || cipherBuf.length < 17) {
     throw new TunnelCryptoError('ENVELOPE_INVALID', '加密信封校验失败', 401);
   }
 
-  const aad = buildAAD(ephemeral, nonce, expires);
+  const aad = buildAAD(ephemeral, nonce, expires, clientId);
   let inner;
   let replyKey;
   try {
@@ -242,7 +335,7 @@ export function openRequest(envelope, {
     }
   }
 
-  return { request: { method, path, headers, body }, aad, replyKey };
+  return { request: { method, path, headers, body }, aad, replyKey, clientId, clientPublicKey };
 }
 
 function recordIV(seq) {

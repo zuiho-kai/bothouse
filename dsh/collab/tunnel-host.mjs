@@ -14,6 +14,7 @@ import {
   TunnelCryptoError,
   createResponseSealer,
   openRequest,
+  verifyEnvelopeClient,
 } from './tunnel-crypto.mjs';
 import { normalizeRelayUrl } from './tunnel-link.mjs';
 
@@ -167,6 +168,7 @@ export class TunnelHost {
   constructor({
     configFile,
     identity,
+    pairHost,
     dispatch,
     logger,
     now = Date.now,
@@ -179,6 +181,7 @@ export class TunnelHost {
   }) {
     this.configFile = configFile;
     this.identity = identity;
+    this.pairHost = pairHost;
     this.dispatch = dispatch;
     this.logger = logger;
     this.now = now;
@@ -191,6 +194,7 @@ export class TunnelHost {
 
     this.replayGuard = new ReplayGuard();
     this.inFlight = new Map();
+    this.droppedUnpairedCount = 0;
     this.ws = undefined;
     this.retryTimer = undefined;
     this.handshakeTimer = undefined;
@@ -498,23 +502,62 @@ export class TunnelHost {
       return;
     }
 
+    const sendReject = (status, code, message) => {
+      const payload = Buffer.from(JSON.stringify({ error: message, code }), 'utf8');
+      this._send(ws, { type: 'head', id, status });
+      this._send(ws, { type: 'chunk', id, data: payload.toString('base64') });
+      this._send(ws, { type: 'end', id });
+    };
+
+    let envelope;
+    try {
+      envelope = JSON.parse(Buffer.from(frame.body, 'base64').toString('utf8'));
+    } catch {
+      return sendReject(401, 'ENVELOPE_INVALID', '加密请求无效');
+    }
+
+    // Hard security gate (Tailscale / Syncthing mutual public-key model):
+    // 1. Verify the caller's Ed25519 public key and signature over AAD BEFORE any DH/AES decryption.
+    let verifiedClient;
+    try {
+      verifiedClient = verifyEnvelopeClient(envelope, { now: this.now });
+    } catch (err) {
+      this.droppedUnpairedCount += 1;
+      const status = err instanceof TunnelCryptoError ? err.status : 401;
+      const code = err instanceof TunnelCryptoError ? err.code : 'CLIENT_SIG_INVALID';
+      const message = err instanceof TunnelCryptoError ? err.message : '来访设备签名校验失败';
+      return sendReject(status, code, message);
+    }
+
+    // 2. Only paired public keys are accepted; unpaired keys are dropped IMMEDIATELY before decryption,
+    //    except during an active 5-minute pairing window when the host owner explicitly generated a
+    //    one-time 128-bit connection string (and even then strictly limited to POST /collab/pair/claim).
+    const isPaired = this.pairHost ? this.pairHost.hasPairedClientKey(verifiedClient.clientId) : false;
+    const pairingOpen = this.pairHost ? this.pairHost.tunnelCodeLive() : false;
+    if (this.pairHost && !isPaired && !pairingOpen) {
+      this.droppedUnpairedCount += 1;
+      return sendReject(403, 'UNPAIRED_CLIENT', '未配对的设备公钥，请求已被宿主直接拒绝');
+    }
+
     let opened;
     try {
-      const envelope = JSON.parse(Buffer.from(frame.body, 'base64').toString('utf8'));
       opened = openRequest(envelope, {
         privateKey: this.identity.x25519PrivateKey,
         replayGuard: this.replayGuard,
         now: this.now,
+        requireClientAuth: true,
       });
     } catch (err) {
       const status = err instanceof TunnelCryptoError ? err.status : 401;
       const code = err instanceof TunnelCryptoError ? err.code : 'ENVELOPE_INVALID';
       const message = err instanceof TunnelCryptoError ? err.message : '加密请求无效';
-      const payload = Buffer.from(JSON.stringify({ error: message, code }), 'utf8');
-      this._send(ws, { type: 'head', id, status });
-      this._send(ws, { type: 'chunk', id, data: payload.toString('base64') });
-      this._send(ws, { type: 'end', id });
-      return;
+      return sendReject(status, code, message);
+    }
+
+    // During an open pairing window, an unpaired key may ONLY hit POST /collab/pair/claim.
+    if (this.pairHost && !isPaired && !(opened.request.method === 'POST' && opened.request.path === '/collab/pair/claim')) {
+      this.droppedUnpairedCount += 1;
+      return sendReject(403, 'UNPAIRED_CLIENT', '未配对设备只能提交一次性配对申请，其他请求已直接拒绝');
     }
 
     const sendFrame = (msg) => this._send(ws, { ...msg, id });
@@ -527,7 +570,13 @@ export class TunnelHost {
     this.inFlight.set(id, active);
 
     try {
-      await this.dispatch(active.req, active.res, { channel: 'tunnel', peer: 'tunnel', allowBrowser: false });
+      await this.dispatch(active.req, active.res, {
+        channel: 'tunnel',
+        peer: 'tunnel',
+        allowBrowser: false,
+        clientPublicKey: opened.clientPublicKey,
+        clientId: opened.clientId,
+      });
     } catch {
       if (!active.res.headersSent && !active.res.destroyed) {
         active.res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });

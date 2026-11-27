@@ -287,10 +287,13 @@ function renderDevices(devices) {
   ul.replaceChildren();
   if (!devices.length) { ul.append(el('li', { class: 'empty' }, '还没有别的电脑连进来')); return; }
   for (const d of devices) {
+    const detail = d.client_fingerprint
+      ? `${lasts(d)} · 公钥 ${d.client_fingerprint} · 最近活动 ${ago(d.last_seen)}`
+      : `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`;
     ul.append(el('li', { 'data-id': d.id },
       el('div', { class: 'grow' },
         el('div', { class: 'row' }, el('span', { class: 'name' }, d.name), el('span', { class: 'tag' }, channelLabel(d.channel))),
-        el('div', { class: 'muted' }, `${lasts(d)} · 最近活动 ${ago(d.last_seen)}`)),
+        el('div', { class: 'muted' }, detail)),
       el('button', { class: 'danger', onclick: async () => {
         if (!confirm(`踢掉「${d.name}」？它要重新配对才能再连。`)) return;
         try { await del(`api/pair/devices/${d.id}`); loadDevices(); } catch (e) { $('hostErr').textContent = e.message; }

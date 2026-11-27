@@ -12,7 +12,12 @@ import {
   openRequest,
   sealRequest,
   validateTunnelPath,
+  verifyEnvelopeClient,
 } from './tunnel-crypto.mjs';
+import { TunnelIdentity } from './tunnel-identity.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const vectors = JSON.parse(readFileSync(new URL('../../tunnel-relay/test/vectors.json', import.meta.url), 'utf8'));
 const X_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
@@ -171,4 +176,37 @@ test('1 MiB chunked response round-trips intact across arbitrary byte splits', (
   opener.finish();
   assert.equal(headStatus, 200);
   assert.ok(Buffer.concat(received).equals(original));
+});
+
+test('mutual client Ed25519 signature binds clientKey to AAD and rejects forged/missing signatures pre-decryption', () => {
+  const host = generateKeyPairSync('x25519');
+  const encKey = host.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  const clientId = new TunnelIdentity({ file: join(mkdtempSync(join(tmpdir(), 'collab-cid-')), 'id.json') });
+  const otherId = new TunnelIdentity({ file: join(mkdtempSync(join(tmpdir(), 'collab-cid-')), 'id2.json') });
+
+  const { envelope } = sealRequest({
+    encKey,
+    clientIdentity: clientId,
+    method: 'GET',
+    path: '/collab/api/state',
+  });
+  const verified = verifyEnvelopeClient(envelope);
+  assert.equal(verified.clientId, clientId.hostId);
+  assert.equal(verified.clientPublicKey, clientId.publicKey);
+
+  const opened = openRequest(envelope, { privateKey: host.privateKey, requireClientAuth: true });
+  assert.equal(opened.clientId, clientId.hostId);
+
+  // Missing clientKey/clientSig rejected when requireClientAuth is set.
+  const unsigned = { ...envelope };
+  delete unsigned.clientKey;
+  delete unsigned.clientSig;
+  assert.throws(() => verifyEnvelopeClient(unsigned), e => e instanceof TunnelCryptoError && e.code === 'CLIENT_SIG_INVALID');
+  assert.throws(() => openRequest(unsigned, { privateKey: host.privateKey, requireClientAuth: true }), e => e.code === 'CLIENT_SIG_INVALID');
+
+  // Swapped clientKey or tampered clientSig rejected before decryption.
+  assert.throws(() => verifyEnvelopeClient({ ...envelope, clientKey: otherId.publicKey }), e => e.code === 'CLIENT_SIG_INVALID');
+  const badSig = Buffer.from(envelope.clientSig, 'base64');
+  badSig[0] ^= 0xff;
+  assert.throws(() => verifyEnvelopeClient({ ...envelope, clientSig: badSig.toString('base64') }), e => e.code === 'CLIENT_SIG_INVALID');
 });

@@ -16,7 +16,7 @@ import { createServer, request as httpRequest } from 'node:http';
 import { hostname } from 'node:os';
 import { dirname } from 'node:path';
 import { ChannelRegistry, createTailscaleChannel, httpRequestJSON } from './channels.mjs';
-import { formatFingerprint } from './tunnel-identity.mjs';
+import { computeHostId, formatFingerprint } from './tunnel-identity.mjs';
 import { TunnelLinkError, encodeTunnelLink, generateLongCode, parseTunnelLink } from './tunnel-link.mjs';
 import { TunnelClientError } from './tunnel-client.mjs';
 import { renderQRSvg } from './qr-svg.mjs';
@@ -63,6 +63,7 @@ export const PAIR_STATUS = {
   'relay-unreachable': 502, 'host-offline': 503, 'relay-busy': 429, 'relay-timeout': 504,
   'identity-changed': 409, 'identity-mismatch': 409, 'too-large': 413,
   'relay-unconfigured': 400, 'relay-offline': 503, 'host-error': 502,
+  'unpaired-client': 403, 'client-sig-invalid': 401,
 };
 
 const sha256 = s => createHash('sha256').update(String(s)).digest();
@@ -169,7 +170,7 @@ export class PairHost {
    * @param {{ code: string, mode: string, name: string, address?: string, duration_ms?: number|null, kind?: string, channel?: string }} claim
    * @returns {{ token: string, device: object }}
    */
-  claim({ code, mode, name, address, duration_ms, kind, channel = 'tailscale' }) {
+  claim({ code, mode, name, address, duration_ms, kind, channel = 'tailscale', clientPublicKey, clientId }) {
     if (!MODES.includes(mode)) throw new PairError('mode', '连接方式只能是「临时」或「记住这台电脑」');
     const duration = tempDuration(mode, duration_ms);
     const isTunnel = channel === 'tunnel';
@@ -197,23 +198,37 @@ export class PairHost {
     clearSlot();
     const token = randomBytes(32).toString('base64url');
     const now = this.now();
+    const pinnedClientId = isTunnel && clientPublicKey ? (clientId || computeHostId(clientPublicKey)) : undefined;
     const device = {
       id: randomUUID(), name: String(name ?? '').trim().slice(0, 80) || (kind === 'browser' ? '手机浏览器' : '另一台电脑'), address: String(address ?? ''),
       kind: !isTunnel && kind === 'browser' ? 'browser' : 'dsh', channel, mode, token_hash: sha256(token).toString('hex'), created_at: now, last_seen: now,
       expires_at: duration === null ? null : now + duration,
+      ...(pinnedClientId ? { client_public_key: clientPublicKey, client_id: pinnedClientId } : {}),
     };
     this.devices.set(device.id, device);
     if (mode === 'remember') this.save();
     return { token, device: this.view(device) };
   }
 
-  /** The device a credential belongs to, or undefined (unknown, revoked or expired). */
-  verify(token) {
+  /** True if a live paired tunnel device has pinned this Ed25519 client public-key fingerprint. */
+  hasPairedClientKey(clientId) {
+    if (typeof clientId !== 'string' || !clientId) return false;
+    const now = this.now();
+    for (const d of [...this.devices.values()]) {
+      if (d.expires_at !== null && d.expires_at <= now) { this.drop(d.id); continue; }
+      if (d.channel === 'tunnel' && d.client_id === clientId) return true;
+    }
+    return false;
+  }
+
+  /** The device a credential belongs to, or undefined (unknown, revoked, expired, or key mismatch). */
+  verify(token, { clientId } = {}) {
     if (typeof token !== 'string' || token === '') return undefined;
     const hash = sha256(token);
     for (const d of this.devices.values()) {
       if (!sameHash(Buffer.from(d.token_hash, 'hex'), hash)) continue;
       if (d.expires_at !== null && d.expires_at <= this.now()) { this.drop(d.id); return undefined; }
+      if (clientId !== undefined && d.client_id && d.client_id !== clientId) return undefined;
       d.last_seen = this.now();
       return d;
     }
@@ -261,11 +276,20 @@ export class PairHost {
   // Same clock and length the number itself uses (a constructor may override codeTtl in tests).
   kickGrace() { return this.lastRevokeAt !== undefined && this.now() - this.lastRevokeAt < this.codeTtl; }
 
-  view(d) { return { id: d.id, name: d.name, address: d.address, kind: d.kind ?? 'dsh', channel: d.channel ?? 'tailscale', mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at }; }
+  view(d) {
+    return {
+      id: d.id, name: d.name, address: d.address, kind: d.kind ?? 'dsh', channel: d.channel ?? 'tailscale',
+      mode: d.mode, created_at: d.created_at, last_seen: d.last_seen, expires_at: d.expires_at,
+      ...(d.client_id ? { client_id: d.client_id, client_fingerprint: formatFingerprint(d.client_id) } : {}),
+    };
+  }
 
   save() {
     saveJSON(this.file, { devices: [...this.devices.values()].filter(d => d.mode === 'remember')
-      .map(({ id, name, address, kind, channel, token_hash, created_at, last_seen }) => ({ id, name, address, kind, channel: channel ?? 'tailscale', token_hash, created_at, last_seen })) });
+      .map(({ id, name, address, kind, channel, token_hash, created_at, last_seen, client_public_key, client_id }) => ({
+        id, name, address, kind, channel: channel ?? 'tailscale', token_hash, created_at, last_seen,
+        ...(client_id ? { client_public_key, client_id } : {}),
+      })) });
   }
 }
 
@@ -752,7 +776,7 @@ function withHTMLTail(res, tail) {
  * decrypting and authenticating the end-to-end encrypted envelope.
  */
 export function dispatchHostRequest({ host, name, route, whois = whoisName }) {
-  return async (req, res, { channel = 'tailscale', peer = req.socket?.remoteAddress, allowBrowser = channel === 'tailscale' } = {}) => {
+  return async (req, res, { channel = 'tailscale', peer = req.socket?.remoteAddress, allowBrowser = channel === 'tailscale', clientPublicKey, clientId } = {}) => {
     const isTunnel = channel === 'tunnel';
     const url = new URL(req.url ?? '/', 'http://pair.invalid');
     try {
@@ -768,13 +792,19 @@ export function dispatchHostRequest({ host, name, route, whois = whoisName }) {
         return sendJSON(res, 200, { ok: true, device, host_name: name, to: '/collab' });
       }
       if (url.pathname === '/collab/pair/claim' && req.method === 'POST') {
+        if (isTunnel && (!clientPublicKey || !clientId)) {
+          return sendJSON(res, 401, { error: '中继配对必须交换设备公钥', code: 'client-sig-invalid' });
+        }
         const body = await readBody(req);
         const named = !isTunnel && isTailnetAddress(peer) ? await whois(String(peer).replace(/^::ffff:/, '')) : undefined;
-        const { token, device } = host.claim({ code: body?.code, mode: body?.mode, name: named || body?.name, address: peer, duration_ms: body?.duration_ms, channel });
+        const { token, device } = host.claim({
+          code: body?.code, mode: body?.mode, name: named || body?.name, address: peer,
+          duration_ms: body?.duration_ms, channel, clientPublicKey, clientId,
+        });
         return sendJSON(res, 200, { token, device, host_name: name });
       }
       const fromCookie = (allowBrowser && !isTunnel && bearer(req) === undefined) ? cookieToken(req) : undefined;
-      const device = host.verify(bearer(req) ?? fromCookie);
+      const device = host.verify(bearer(req) ?? fromCookie, isTunnel ? { clientId } : undefined);
       if (allowBrowser && !isTunnel && url.pathname === '/' && req.method === 'GET') {
         if (device !== undefined) { res.writeHead(302, { location: '/collab', 'cache-control': 'no-store' }); return res.end(); }
         // A cookie this machine no longer knows: the phone was kicked (or its time ran out).
