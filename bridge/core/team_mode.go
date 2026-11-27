@@ -120,7 +120,7 @@ func (e *Engine) contextRules(rules, sessionKey string, session *Session, agent 
 	if e.skipTeamModeRules.Load() {
 		rules = ""
 	}
-	if house := readHouseRules(e.dataDir, e.houseRulesAudience(sessionKey)); house != "" {
+	if house := readHouseRules(e.dataDir, houseRulesAudience(e, sessionKey)); house != "" {
 		if rules == "" {
 			rules = house
 		} else {
@@ -182,7 +182,7 @@ func HouseRulesPathFor(dataDir, audience string) string {
 // houseRulesAudience follows the session the way the rules above it do: a workspace channel gets
 // the workspace rules whoever the role is (rulesForSession), otherwise the position from
 // configuration picks lead or member (RoleDutyLayer). Outside a team: "" (house.md).
-func (e *Engine) houseRulesAudience(sessionKey string) string {
+func houseRulesAudience(e *Engine, sessionKey string) string {
 	switch {
 	case sessionKey != "" && e.isTeamWorkspaceChat(sessionKey):
 		return HouseAudienceWorkspace
@@ -276,7 +276,7 @@ func (e *Engine) noticeHouseRulesOver(sessionKey string, fromBot bool) {
 	if fromBot || e.dataDir == "" || sessionKey == "" {
 		return
 	}
-	path, b := houseRulesFile(e.dataDir, e.houseRulesAudience(sessionKey))
+	path, b := houseRulesFile(e.dataDir, houseRulesAudience(e, sessionKey))
 	if path == "" || len(b) <= HouseRulesWarnBytes {
 		return
 	}

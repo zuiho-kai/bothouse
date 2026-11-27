@@ -208,7 +208,7 @@ func TestHouseRulesPerAudienceDelivered(t *testing.T) {
 func TestHouseRulesAudienceOutsideTeam(t *testing.T) {
 	e, _, _ := exitFixture(t, nil)
 	e.SetTeam("", "", false)
-	if got := e.houseRulesAudience("discord:1:2"); got != "" {
+	if got := houseRulesAudience(e, "discord:1:2"); got != "" {
 		t.Fatalf("outside a team: got %q", got)
 	}
 }
