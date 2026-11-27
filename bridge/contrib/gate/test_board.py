@@ -246,6 +246,22 @@ class Board(unittest.TestCase):
         self.assertEqual(cli("hold", "2"), (0, "为发布暂停：#2"))  # 点名的照标
         self.assertEqual(cli("unhold"), (0, "去掉为发布暂停：#2"))
 
+    def test_unhold_landed_moves_to_review(self):
+        """#2095：为发布暂停的活已随发布上线、没交接可续（#2069）：unhold --landed 转待上线验收给派活人，不留成「工作区已释放」。"""
+        self.assertEqual(cli("add", "修完待装", "x", "进行中", "橘"), (0, "#1"))
+        rows = board._read()
+        rows[0]["ws"], rows[0]["dispatcher"] = "discord:ws1", "maomao"
+        board._write(rows)
+        self.assertEqual(cli("hold", "1")[0], 0)
+        mark = board._read()[0]["release_hold"]
+        self.assertNotEqual(cli("unhold", "1", "--landed", "不是提交")[0], 0)
+        self.assertEqual(cli("unhold", "1", "--at", mark["at"], "--landed", "a395e8e49"), (0, "去掉为发布暂停：#1"))
+        it = board._read()[0]
+        self.assertNotIn("release_hold", it)
+        self.assertEqual((it["reviewer"], it["deployed"]["commit"]), ("maomao", "a395e8e49"))
+        self.assertTrue(it["returned_at"])
+        self.assertIn("待上线验收", it["status"])
+
     def test_done_record_status_is_done(self):
         # #597 N3：结束的条目进 board-done.jsonl 时 status 要是「已完成」，不能带着原来的「进行中」
         board.add("写 hello.py", "-", "进行中", "橘")

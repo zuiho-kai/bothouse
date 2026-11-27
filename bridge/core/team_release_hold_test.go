@@ -97,29 +97,21 @@ func TestReleaseHoldTitleNumberSkipsOtherWorkspaceItem(t *testing.T) {
 
 // No open handoff yet (another engine has not loaded it, or the workspace was parked): the mark
 // is kept for one more pass and reported, never cleared on the first miss (#984 review 2).
-// claimers returns the phrase in msg that claims the release mark was already cleared, if any:
-// resumeReleaseHoldsPass keeps the mark on the first pass and clears it on the second, so the
-// first notice must not say it is gone.
-func claimers(msg string) string {
-	for _, p := range []string{"已撤掉", "標記已撤掉", "the mark is cleared", "印を解除しました", "se quitó la marca"} {
-		if strings.Contains(msg, p) {
-			return p
-		}
-	}
-	return ""
-}
-
-func TestReleaseHoldKeepsMarkOnePassThenClears(t *testing.T) {
+// #2095: a held item with no handoff left is done and live (#2069 16:24): no line in the user's chat
+// on either pass, and the second pass clears the mark with the live commit so board.py moves it to
+// 待上线验收 for its dispatcher.
+func TestReleaseHoldKeepsMarkOnePassThenLandsForReview(t *testing.T) {
 	e, p, _, _ := watchFixture(t, "", "别的活")
-	oldDelay, oldEvery, oldUnhold := releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold
+	oldDelay, oldEvery, oldUnhold, oldCommit := releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold, CurrentCommit
 	t.Cleanup(func() {
-		releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold = oldDelay, oldEvery, oldUnhold
+		releaseHoldResumeDelay, releaseHoldRetryEvery, releaseHoldUnhold, CurrentCommit = oldDelay, oldEvery, oldUnhold, oldCommit
 	})
 	releaseHoldResumeDelay, releaseHoldRetryEvery = 0, 0
+	CurrentCommit = "a395e8e49"
 	releaseHoldMisses = map[string]int{}
 	var cleared []string
-	releaseHoldUnhold = func(_ *Engine, _ string, id int, at string) error {
-		cleared = append(cleared, strconv.Itoa(id)+"@"+at)
+	releaseHoldUnhold = func(_ *Engine, _ string, id int, at, landed string) error {
+		cleared = append(cleared, strconv.Itoa(id)+"@"+at+"@"+landed)
 		return nil
 	}
 	before := StartTime.Add(-time.Minute).UTC().Format(time.RFC3339Nano)
@@ -128,17 +120,11 @@ func TestReleaseHoldKeepsMarkOnePassThenClears(t *testing.T) {
 	if n := e.resumeReleaseHoldsPass(); n != 1 || len(cleared) != 0 {
 		t.Fatalf("first pass keeps the mark and asks for a retry: left=%d cleared=%v", n, cleared)
 	}
-	if sent := p.sentTo("discord:chatA"); len(sent) != 1 || !strings.Contains(sent[0], "42") {
-		t.Fatalf("one notice about the item nobody resumes, got %q", sent)
-	} else if said := claimers(sent[0]); said != "" {
-		// The mark is only cleared on the second pass, so the first notice must not claim it was.
-		t.Fatalf("first notice says %q, but the mark is kept for one more pass: %q", said, sent[0])
+	if n := e.resumeReleaseHoldsPass(); n != 0 || len(cleared) != 1 || cleared[0] != "42@"+before+"@a395e8e49" {
+		t.Fatalf("second pass clears the mark with its own time and the live commit: left=%d cleared=%v", n, cleared)
 	}
-	if n := e.resumeReleaseHoldsPass(); n != 0 || len(cleared) != 1 || cleared[0] != "42@"+before {
-		t.Fatalf("second pass clears the mark with its own time: left=%d cleared=%v", n, cleared)
-	}
-	if sent := p.sentTo("discord:chatA"); len(sent) != 1 {
-		t.Fatalf("the notice is not repeated every pass: %q", sent)
+	if sent := p.sentTo("discord:chatA"); len(sent) != 0 {
+		t.Fatalf("nothing in the user's chat for a held item that went live: %q", sent)
 	}
 }
 
@@ -149,7 +135,7 @@ func TestReleaseHoldResumesAfterRestart(t *testing.T) {
 	t.Cleanup(func() { releaseHoldResumeDelay, releaseHoldUnhold = oldDelay, oldUnhold })
 	releaseHoldResumeDelay = 0
 	var cleared []string
-	releaseHoldUnhold = func(_ *Engine, _ string, id int, at string) error {
+	releaseHoldUnhold = func(_ *Engine, _ string, id int, at, _ string) error {
 		cleared = append(cleared, at)
 		return nil
 	}

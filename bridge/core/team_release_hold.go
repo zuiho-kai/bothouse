@@ -118,23 +118,31 @@ func (e *Engine) resumeReleaseHoldsPass() int {
 			if !e.isTeamLead() || e.releaseHoldCovered(it.ID) {
 				continue // another engine's handoff (or one not ready yet): its own pass resumes it
 			}
-			// Nobody holds a handoff for it: nothing to wake. Say so once and keep the mark for
-			// the next pass; a mark still uncovered then is cleared rather than left 等发布 forever.
+			// Nobody holds a handoff for it: nothing to wake. Keep the mark for the next pass (a
+			// handoff of another engine may not be loaded yet); a mark still uncovered then is
+			// cleared. The release it was held for has gone live (this process is that release), so
+			// the item moves to 待上线验收 for its dispatcher, like board deployed does for an
+			// AwaitDeploy item — not a 「②停了…工作区已释放」 to the user, and no 「还要做请重新交活」
+			// in the user's chat on the first miss (#2095: #2069 was done and live at 16:24; the user
+			// got both lines, user 11-25「有些比如做完了，你还催个屁用，也特别吵」).
 			miss := strconv.Itoa(it.ID) + "|" + it.ReleaseHold.At
 			if releaseHoldMisses[miss] == 0 {
 				releaseHoldMisses[miss] = 1
 				slog.Warn("release hold: not resumed yet, no open handoff for it", "board", it.ID)
-				e.notifyReleaseHoldUnresumed(chat, it)
 				left++
 				continue
 			}
 			delete(releaseHoldMisses, miss)
-			if err := releaseHoldUnhold(e, chat, it.ID, it.ReleaseHold.At); err != nil {
+			landed := strings.TrimSpace(CurrentCommit)
+			if !deployCommitRE.MatchString(landed) {
+				landed = "" // dev build: only clear the mark
+			}
+			if err := releaseHoldUnhold(e, chat, it.ID, it.ReleaseHold.At, landed); err != nil {
 				slog.Warn("release hold: unhold failed", "board", it.ID, "error", err)
 				left++
 				continue
 			}
-			slog.Warn("release hold: cleared, no open handoff left for it", "board", it.ID)
+			slog.Warn("release hold: cleared, no open handoff left for it; moved to review after deploy", "board", it.ID, "commit", landed)
 			continue
 		}
 		delete(releaseHoldMisses, strconv.Itoa(it.ID)+"|"+it.ReleaseHold.At)
@@ -159,25 +167,13 @@ func (e *Engine) resumeReleaseHoldsPass() int {
 			continue
 		}
 		slog.Info("release hold: resuming", "board", it.ID, "workspace", a.key)
-		if err := releaseHoldUnhold(e, chat, it.ID, it.ReleaseHold.At); err != nil {
+		if err := releaseHoldUnhold(e, chat, it.ID, it.ReleaseHold.At, ""); err != nil {
 			// Woken already; the stale mark no longer holds the watch (activeReleaseHold), so the
 			// item is watched normally. Only the board row keeps showing it until cleared.
 			slog.Warn("release hold: unhold failed after resume", "board", it.ID, "error", err)
 		}
 	}
 	return left
-}
-
-// notifyReleaseHoldUnresumed tells the item's chat channel that a held item had nobody to resume it.
-func (e *Engine) notifyReleaseHoldUnresumed(chat string, it teamTaskBoardItem) {
-	plat, _, _ := strings.Cut(chat, ":")
-	p := e.lookupReadyPlatform(plat)
-	if p == nil {
-		return
-	}
-	if err := newHandoffWatch(e).send(p, chat, e.i18n.Tf(MsgReleaseHoldUnresumed, it.ID, teamTaskBoardShort(it))); err != nil {
-		slog.Warn("release hold: notice failed", "board", it.ID, "error", err)
-	}
 }
 
 // releaseHoldCovered: some open handoff or script watch, of any engine, works on board item id.
@@ -203,10 +199,15 @@ func (e *Engine) releaseHoldCovered(id int) bool {
 	return false
 }
 
-// releaseHoldUnhold clears one release mark through board.py (it owns board.jsonl's lock); a
-// variable so tests need no Python.
-var releaseHoldUnhold = func(e *Engine, chat string, id int, at string) error {
-	out, err := e.runLeadScript(chat, "board", "unhold", strconv.Itoa(id), "--at", at)
+// releaseHoldUnhold clears one release mark through board.py (it owns board.jsonl's lock); landed
+// (a commit, or ""): the release went live in it with nobody to resume the item, so board.py moves
+// it to 待上线验收 for its dispatcher. A variable so tests need no Python.
+var releaseHoldUnhold = func(e *Engine, chat string, id int, at, landed string) error {
+	args := []string{"unhold", strconv.Itoa(id), "--at", at}
+	if landed != "" {
+		args = append(args, "--landed", landed)
+	}
+	out, err := e.runLeadScript(chat, "board", args...)
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
