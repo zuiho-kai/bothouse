@@ -14,7 +14,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, sqlite3, threading, time, urllib.request
+import collections, hashlib, json, math, os, re, sqlite3, sys, threading, time, urllib.request
 from pathlib import Path
 
 try:
@@ -635,13 +635,39 @@ def _search_cmd(root):
     return cmd + "<关键词>"
 
 
+_LOG_HEAD = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] (ingest|dream)\b", re.M)
+_last_runs = {}  # log.md 路径 → (mtime, {"ingest": 日期, "dream": 日期})
+
+
+def last_runs(root):
+    """wiki 的 log.md 里最近一次自动整理（ingest）和夜里反思（dream）的日期，没有就不出现。
+    记忆能力说明照这个写实际状态，不写设计（#2065：鲸鱼娘照「定时整理、夜里反思」答人，她的 wiki 10-28 后就没整理过）。"""
+    log = root / "log.md"
+    try:
+        mt = log.stat().st_mtime
+    except OSError:
+        return {}
+    hit = _last_runs.get(log)
+    if hit and hit[0] == mt:
+        return hit[1]
+    out = {}
+    for d, kind in _LOG_HEAD.findall(_read(log)):
+        if d > out.get(kind, ""):
+            out[kind] = d
+    _last_runs[log] = (mt, out)
+    return out
+
+
 def memory_caps(roots, own):
     rows = []
     for root in roots:
         if not (root / "bin" / "search.py").exists():
             continue
         what = "你自己的记忆 wiki" if own and _same(root, own) else "主 wiki（团队共用）"
-        rows.append(f"- {what}（llm wiki）：{_shown('.', root).removesuffix('/.')}。会话和日记定时整理进去，夜里做一次反思；"
+        last = last_runs(root)
+        runs = "；".join(f"{name}最近一次 {last[k]}" for k, name in (("ingest", "自动整理"), ("dream", "夜里反思")) if k in last) \
+            or "没有自动整理过"
+        rows.append(f"- {what}（llm wiki）：{_shown('.', root).removesuffix('/.')}。{runs}（照 log.md 实写；离今天远的就是现在没在整理，别说成在跑）；"
                     f"查：`{_search_cmd(root)}`")
     if not rows:
         return []
@@ -785,9 +811,18 @@ def decision_items(text, key=""):
             break
         by.setdefault(rel, []).append(row)
         rows.setdefault(rel, []).append(_row(rel, line, row, rel, ln=ln))
-    body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
-    if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
+    # 同一 key 累计到 DEC_KEY_CHARS：发得下的页先发，发不下的从相关度最低的页往前丢，丢了记一笔（#2047 第 5 条：原来超一点整块不发）
+    left = DEC_KEY_CHARS - _dec_used.get(key, 0)
+    dropped = []
+    while by and sum(len(rel) + 1 + sum(len(r) + 1 for r in v) for rel, v in by.items()) > left:
+        rel, _ = by.popitem()
+        rows.pop(rel, None)
+        dropped.append(rel)
+    if dropped:
+        print(f"ctxsvc: 定案块 {key} 累计到 {DEC_KEY_CHARS} 字上限，这轮没推：{', '.join(dropped)}", file=sys.stderr, flush=True)
+    if not by:
         return []
+    body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
     _dec_used[key] = _dec_used.get(key, 0) + len(body)
     return [_render({"path": f"【已定的方向和做法 {tag}】", "sep": "\n",
                      "head": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索",

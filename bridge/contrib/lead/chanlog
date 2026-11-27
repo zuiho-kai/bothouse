@@ -25,7 +25,10 @@ import sys
 from pathlib import Path
 
 DATA = Path(os.environ.get("CC_DATA_DIR") or Path.home() / ".bothouse")
-NAMES = {"maomao": "橘", "longniang": "龙娘", "jingyu": "鲸鱼娘", "caihongmao": "彩虹猫", "grok": "grok娘"}
+sys.path.insert(0, str(Path(os.environ.get("GATE_DIR") or Path(__file__).resolve().parent.parent / "gate").expanduser()))
+import datadir  # noqa: E402  gate/datadir.py：config.toml 只解析这一处
+# 项目名 → 群里叫的名字：config.toml 每个 [[projects]] 的 team_name（没写就用项目名）。原来写死作者的五个角色（#2047 第 8 条）
+NAMES = {p["name"]: str(p.get("team_name") or p["name"]) for p in datadir.projects() if p.get("name")}
 MARK = "（最新，回这条）"
 INSERTED = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\][^\[]*\[回复 ([^：:\]]{1,40})[：:](.*)\]\s*↪ 已插入")
 LINE = re.compile(r"^\[(\d{1,2}:\d{2})[^\]]*\]\s*([^:：\n]{1,40})[:：]\s?")

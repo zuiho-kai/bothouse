@@ -61,7 +61,7 @@ def role_project(wiki, data_dir):
 
 
 FIRST = 86400  # 首晚只看最近一天，沿用 ingest.py dream()（time.time() - 86400）
-MAX_CHARS = 240_000  # 一次调用的上下文上限，沿用 ingest.py MAX_CHARS
+from budget import MAX_CHARS  # noqa: E402  每次模型调用的输入上限，只在 budget.py 定义
 MIN_SESSIONS = 2  # 交接总目标原话「同一套操作在 2 个以上会话里各自从头摸索」
 # 连着几步在找才算摸索：交接两例实测，找 go 连着 3 步、找嘉立创上一棒脚本连着 6 步；一步就找到不算
 MIN_STEPS = 2

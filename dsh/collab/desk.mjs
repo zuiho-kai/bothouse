@@ -112,14 +112,18 @@ export function deskReplay({ store, boardDir, from, to }) {
     merged.push({ ts, event: { ...entry, type: 'task' } });
   }
   const rows = store.db.prepare('SELECT * FROM messages WHERE deleted = 0 AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT ?')
-    .all(fromMs / 1000, toMs / 1000, REPLAY_MAX);
+    .all(fromMs / 1000, toMs / 1000, REPLAY_MAX + 1); // one more than kept: tells whether older ones were left out
+  let truncated = rows.length > REPLAY_MAX;
+  if (truncated) rows.length = REPLAY_MAX;
   for (const row of rows.reverse()) {
     const message = publicMessage(row, store);
     merged.push({ ts: row.created_at * 1000, event: { type: 'message', message } });
   }
   merged.sort((a, b) => a.ts - b.ts);
-  const kept = merged.length > REPLAY_MAX ? merged.slice(-REPLAY_MAX) : merged;
-  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event) };
+  if (merged.length > REPLAY_MAX) truncated = true;
+  const kept = truncated ? merged.slice(-REPLAY_MAX) : merged;
+  // truncated: the window held more than REPLAY_MAX; the page says only the latest ones are shown (#2047 item 20).
+  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), events: kept.map(m => m.event), truncated };
 }
 
 /**

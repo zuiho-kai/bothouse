@@ -46,6 +46,8 @@ RISKY_PATH = re.compile(
     r"|(?:^|/)(?:线上|真钱|花钱|费用)(?:/|$)"
     r"|(?:^|/)\.github/workflows(?:/|$)", re.IGNORECASE)
 REVIEW_SIZE_LOG = os.path.join(REVIEWS, "dispatch-review-size.log")  # 查不到改动量的派审记在这里
+# 来源：2026-10-26 橘提议「派审稿前按改动大小拦，小改动只用脚本验」，用户回「改」；30 行是那次方案里定的线（#616，
+# ~/wiki/tooling/workflow/workflow/pr-delivery.md）。被拦的人看 rules/dispatch-review-guard.zh.md，数字写在那（#2047 第 15 条）。
 REVIEW_SIZE_LIMIT = 30
 
 
@@ -244,6 +246,8 @@ def doc_tagged(session, path):
         return False
 
 
+# 来源：作者 2026-10-28「主命令如果简单的话，就直接可以直接改」（#577）；守则 R-small 写「十几行内」，这里取 10 行，
+# 数字写进 rules/dispatch-review-guard.zh.md 让被拦的人查得到（#2047 第 15 条）。
 SMALL_EDIT_LINES = 10
 
 

@@ -150,5 +150,18 @@ func aboutLocalSetup(cfg *config.Config, cfgErr error, path, self string, zh boo
 	if len(all) > 0 {
 		fmt.Fprintf(&b, t("Connected platforms: %s\n", "已接平台：%s\n"), strings.Join(all, ", "))
 	}
+	// #2065: the notes above describe every feature; a role asked "how does your setup work" told people about
+	// per-member GitHub logins this machine has switched off. List what is off here, from the same switches.
+	var off []string
+	for _, s := range config.FeatureStates(cfg, nil) {
+		if s.On || (s.Project != "" && s.Project != self) {
+			continue
+		}
+		off = append(off, t(s.NameEN, s.Name))
+	}
+	if len(off) > 0 {
+		fmt.Fprintf(&b, t("Switched off on this machine (described above, but not in use here: do not present them as part of our setup): %s\n",
+			"本机关着的功能（上面说明里有，但这台机器没开，说「我们这套」时别说成在用）：%s\n"), strings.Join(off, t(", ", "、")))
+	}
 	return b.String()
 }

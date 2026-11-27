@@ -1973,6 +1973,130 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
+  /dsh-pet-7340/pet-size:
+    post:
+      tags: [Config]
+      operationId: setPetSize
+      summary: 改单只宠物的大小
+      description: |
+        bothouse fork（一个角色一只桌宠）：按宠物 id 只换它的 `size`，写法同 `POST /pet-display`
+        （宿主反查层归属、白名单重建后写回，再异步重启桌面窗口）。桌面端右键「大小」走它。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, size]
+              properties:
+                id:
+                  type: string
+                  description: 宠物实例 id（合并后全局唯一）
+                size:
+                  type: number
+                  description: 新大小，取整后必须是正数
+      responses:
+        "200":
+          description: "改动成功 → 改动后的成品聚合（同 `GET /config`）；业务失败 → `{ ok: false, reason, message }`（`pet-required`、`bad-request`、`unknown-pet`、`generate-error`）。"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/PetConfigEntry"
+                  - $ref: "#/components/schemas/FailureResponse"
+        "400":
+          description: "请求体不是合法 JSON（`reason: invalid-json`）。"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureResponse"
+  /dsh-pet-7340/skins:
+    get:
+      tags: [Config]
+      operationId: listSkins
+      summary: 列出内置和推荐形象
+      description: bothouse fork：形象列表，`POST /skins/select` 换、`POST /skins/install` 装推荐的。
+      responses:
+        "200":
+          description: "`{ ok: true, ... }`，其余字段是 listSkins() 的结果。"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                additionalProperties: true
+  /dsh-pet-7340/skins/select:
+    post:
+      tags: [Config]
+      operationId: selectSkin
+      summary: 换形象
+      description: "请求体 `{ id }`；空 id = 跟绑定角色走。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: "成功 `{ ok: true }`；失败 `{ ok: false, reason: bad-request, message }`。"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [ok]
+                    properties:
+                      ok:
+                        type: boolean
+                  - $ref: "#/components/schemas/FailureResponse"
+        "400":
+          description: "请求体不是合法 JSON（`reason: invalid-json`）。"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureResponse"
+  /dsh-pet-7340/skins/install:
+    post:
+      tags: [Config]
+      operationId: installSkin
+      summary: 装推荐形象（下载完才返回）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: "成功 `{ ok: true }`；下载或安装失败 `{ ok: false, reason: internal-error, message }`。"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [ok]
+                    properties:
+                      ok:
+                        type: boolean
+                  - $ref: "#/components/schemas/FailureResponse"
+        "400":
+          description: "请求体不是合法 JSON（`reason: invalid-json`）。"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureResponse"
   /dsh-pet-7340/pet-display:
     post:
       tags: [Config]

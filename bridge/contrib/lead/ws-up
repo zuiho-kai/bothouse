@@ -267,7 +267,7 @@ def in_git_tree(path: Path) -> bool:
     return any((d / ".git").exists() for d in path.parents)
 
 
-def named_deliverables(text, handoff, bound):
+def named_deliverables(text, handoff, bound, too_big=None):
     """#1097：汇报正文写了路径、这件活期间写出的成品文档 → 自动当 --file 带上，不靠正文措辞猜「产出了文档」。
     11-24 #1095 写「两份英文定稿和中文对照已写好」附路径，没带 --file，主角色 ws-pass --verdict 放行后用户只收到文字
     （「你没发我定稿啊 为什么会这样」）。选「自动登记」不选「拒交」：工作区已经写明了是哪份，再退回只多一轮，漏的还是同一件。
@@ -286,7 +286,11 @@ def named_deliverables(text, handoff, bound):
             st = p.stat()
         except OSError:
             continue
-        if not p.is_file() or not 0 < st.st_size <= FILE_MAX or st.st_mtime < bound or in_git_tree(p):
+        if not p.is_file() or not st.st_size or st.st_mtime < bound or in_git_tree(p):
+            continue
+        if st.st_size > FILE_MAX:  # 带不上，但要让用户知道（#2047 第 6 条：原来悄悄跳过，视频类产物最常见）
+            if too_big is not None and sp not in too_big:
+                too_big.append(sp)
             continue
         out.append(sp)
     return out
@@ -363,8 +367,13 @@ def hand_back(draft, notes, failed: bool, text=None, files=(), batch=False):
         if why:
             sys.exit(f"ws-up: 没有交回（草稿在 {draft}，处理后跑 ws-up --notes {path} --report {draft}）：\n{why}")
     have = {files[i + 1] for i in range(0, len(files), 2)}
+    too_big = []
     auto = [f for f in named_deliverables(Path(draft).read_text(encoding="utf-8"), path,
-                                          bound_of(int(headline[1]) if headline else 0)) if f not in have]
+                                          bound_of(int(headline[1]) if headline else 0), too_big) if f not in have]
+    if too_big:
+        note = f"\n太大没随交回带上（超过 {FILE_MAX >> 20} MiB，要看去本机这几个路径拿）：" + "、".join(too_big) + "\n"
+        print("ws-up:" + note.strip(), file=sys.stderr)
+        Path(draft).write_text(Path(draft).read_text(encoding="utf-8").rstrip("\n") + "\n" + note, encoding="utf-8")
     if auto:
         print("ws-up: 汇报里写了路径的成品自动随交回带上（等同 --file）：" + "、".join(auto), file=sys.stderr)
         files = list(files) + [x for f in auto for x in ("--file", f)]

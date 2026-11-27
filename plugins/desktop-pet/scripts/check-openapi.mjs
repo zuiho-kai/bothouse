@@ -2,7 +2,7 @@
  * OpenAPI 文档校验，随发布链的 prepack 门禁运行：YAML 可解析、所有 $ref 都能解析到、
  * 路径/操作/响应符合 3.1 基本要求、文档里每条路径都真实存在于宿主半侧的路由实现里（防文档漂移）。
  * 只做静态比对，不起服务、不发请求，也不校验示例内容的语义。
- * 路径一律从本文件位置解析而非 CWD：文档在仓库根，本文件在 dsh-pet/scripts/。
+ * 路径一律从本文件位置解析而非 CWD：文档在 desktop-pet/docs/，本文件在 desktop-pet/scripts/。
  * 必须始终：任何一项失败都以非零退出码结束，坏文档不能进发布链。
  * @module dsh-pet/scripts/check-openapi
  */
@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const yaml = require('js-yaml');
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // dsh-pet/scripts
-const SPEC_PATH = join(HERE, '..', '..', 'openapi.yaml'); // 仓库根
+const SPEC_PATH = join(HERE, '..', 'docs', 'openapi.yaml'); // desktop-pet/docs（原写 ../../，文件不在那，校验一跑就崩：#2047 同类条）
 const ROUTES_DIR = join(HERE, '..', 'src', 'host', 'routes');
 
 const doc = yaml.load(readFileSync(SPEC_PATH, 'utf8'));

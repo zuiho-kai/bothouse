@@ -43,7 +43,7 @@ CLAUDE_PROJECTS = Path(os.environ.get("CLAUDE_PROJECTS_DIR", HOME / ".claude" / 
 FILL_SCRIPT = Path(os.environ.get("CODEMAP_FILL_SCRIPT") or DATA / "hooks" / "codemap-fill.py").expanduser()
 # 推了但这轮没说话：等到同角色同频道下一次推送，或过了一天交给 score_night 夜里兜底（它每天 05:30 跑一次）
 GIVE_UP = 24 * 3600
-MAX_CHARS = 240_000  # 沿用 score_night.MAX_CHARS（~/wiki/bin/ingest.py）：每次 model 调用的输入上限
+from score_night import MAX_CHARS  # noqa: E402  每次 model 调用的输入上限，gate 里只在 score_night.py 定义
 PATHLINE = re.compile(r"[\w./~-]+\.(?:go|py|ts|tsx|js|md|sh|toml|json|kicad_\w+|c|h|cpp|swift|rs)(?::\d+)")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
