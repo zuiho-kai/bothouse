@@ -414,8 +414,24 @@ TIDY_PROMPT = """下面是一份给 AI 编码助手看的操作手册（skill）
 """
 
 
+HISTORY = "rules/history/manuals"  # 改写前的手册原文（相对 WIKI），一份手册一页，旧版靠 git 历史
+
+
+def keep_old(name, old, day):
+    """改写前的原文写进 wiki 历史页并提交，不在手册旁边留 SKILL.md.bak-*（用户 11-26「备份让他全滚蛋」）。返回页路径。"""
+    rel = f"{HISTORY}/{name}.md"
+    page = WIKI / rel
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(old)
+    if (WIKI / ".git").exists() and not os.environ.get("MANUALS_NO_COMMIT"):
+        subprocess.run(["git", "-C", str(WIKI), "add", rel], capture_output=True)
+        subprocess.run(["git", "-C", str(WIKI), "commit", "-m", f"manuals: {day} 改写前留 {name} 原文", "--", rel],
+                       capture_output=True)
+    return rel
+
+
 def tidy(f, day, ask_fn=None):
-    """一份手册合成一份「起步/坑/出处」：校验过才写（旧文留 SKILL.md.bak-时间），不过保留原文。返回 True=改写了。"""
+    """一份手册合成一份「起步/坑/出处」：校验过才写（旧文进 wiki 的 git，见 keep_old），不过保留原文。返回 True=改写了。"""
     old = f.read_text()
     head, body, notes = split_doc(old)
     retry = ""
@@ -424,10 +440,9 @@ def tidy(f, day, ask_fn=None):
         nb = (ans.get("body") or "").strip()
         why = check_tidy(old, nb)
         if not why:
-            bak = f.with_name(f"SKILL.md.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-            bak.write_text(old)
+            hist = keep_old(f.parent.name if f.name == "SKILL.md" else f.stem, old, day)
             note = (notes[0] if notes else f"<!-- 夜里自动起草（~/wiki/bin/manuals.py） -->")
-            f.write_text(head + nb + f"\n\n{note}\n<!-- 自动合并 {day}，旧文 {bak.name} -->\n")
+            f.write_text(head + nb + f"\n\n{note}\n<!-- 自动合并 {day}，旧文在 wiki 的 {hist}（git log 查各版） -->\n")
             return True
         retry = "上一次整理没通过程序检查，原因：" + "；".join(why) + "。这次改掉。\n"
     log(f"tidy {f.parent.name} kept original: " + "；".join(why))
