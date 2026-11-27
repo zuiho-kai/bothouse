@@ -1,5 +1,47 @@
 # bothouse 软件架构
 
+## 模块总览
+
+按 develop 2026-11-27 核过（行数不含测试）。每个模块的「符号 文件:行」见代码地图。
+
+```
+                 聊天平台（Discord / 飞书 / QQ / Slack / Telegram / 企微 / 微信 / 自建网页 / DSH 聊天页）
+                                   │  收发消息
+                     bridge/platform/*  ── 只依赖 core（接口）
+                                   │
+  bridge/cmd ──起桥、装配──▶  bridge/core（Engine、会话、团队模式、管理 API、向导）──▶ bridge/core/team
+     │  命令行 send/cron/…          │  每轮注入、gate 对接           ▲
+     │                             │                               │ HTTP（/decide、/context）
+  bridge/config                bridge/agent/*  ── 只依赖 core     bridge/contrib/gate（Python：谁接话、上下文、记忆论坛、任务板）
+                                   │  起本机 CLI / ACP                     │
+                    Claude Code、Codex、Gemini、DSH……           ~/wiki（bridge/contrib/wiki 整理）
+                                   │
+            bridge/contrib/hooks（CLI hook）、bridge/contrib/lead（派活脚本，桥写到数据目录 runtime/lead）
+```
+
+| 模块 | 行数 | 职责 | 入口 | 出口（对外接口） |
+| --- | --- | --- | --- | --- |
+| `bridge/cmd/cc-connect` | 1.9 万 | 主程序、全部子命令 | `main.go` `runMain` | 命令行；经 api.sock 调运行中的桥 |
+| `bridge/config` | 0.7 万 | config.toml 结构与默认值 | `config.Load` | 给 cmd 装配 |
+| `bridge/core` | 14 万 | Engine 消息主链路、会话、团队模式（工作区、任务板、交回、看门）、额度、管理 API、安装向导 | `Engine.handleMessage` | `Agent`/`Platform` 等接口（`interfaces.go`）、api.sock、管理 HTTP |
+| `bridge/core/team` | 0.2 万 | 等外部的事件叫醒 | `wait_external.go` | 被 core 调用 |
+| `bridge/agent/*` | 3.6 万 | 每个 CLI 一个目录：启动、事件、权限、会话恢复 | 各包 `New` 注册到 core | 实现 core 的 `Agent` 接口；dsh、devin 复用 acp |
+| `bridge/platform/*` | 3.9 万 | 每个平台一个目录：身份、收发、卡片 | 各包 `New` 注册到 core | 实现 core 的 `Platform` 及可选能力接口 |
+| `bridge/web` | 2.4 万 | 管理网页（TypeScript），编译进二进制 | `src/App.tsx` | 管理 HTTP |
+| `bridge/contrib/gate` | 0.9 万 | 可选 Python 服务：谁接话、每轮上下文、记忆论坛打分、任务板 `board.py` | `gate.py`、`ctxsvc.py` | HTTP；本机线上副本在 `~/.bothouse/gate-exp` |
+| `bridge/contrib/lead` | 0.25 万 | 派活与交回脚本：ws-handoff、ws-up、ws-forward、board、later、d10、merge-gate、safe-restart | 各脚本 | 由 `embed_lead.go` 内嵌，桥写到数据目录 `collaboration/runtime/lead` |
+| `bridge/contrib/hooks` | 0.5 万 | 各 CLI 的 hook：`run.py` 统一入口、守卫、代码地图注入与回填 | `run.py` | 由 `core/agent_hooks.go` 装进各 CLI |
+| `bridge/contrib/wiki` | 1.4 万 | 记忆 wiki 整理程序 llmwiki（ingest、dream、反思、画像） | `llmwiki/ingest.py` | 写 wiki 目录 |
+| `bridge/contrib` 其它 | 0.4 万 | discord-voice 会议助手、routine 定时、tools、qq-gate、task-events、cwip-example | — | — |
+| `dsh/` | 1.8 万 | DSH 插件：collab 协作网关与成员（`collab/`）、聊天页（`packages/client-ui-discord`） | `collab/plugin.mjs` | 打包副本在 `bridge/core/dsh_bundle`，改 `dsh/` 后同步 |
+| `plugins/` | 5.7 万 | desktop-pet 桌宠（Electron 应用，5.6 万）、bothouse-role-* 角色事件样例、template | 样例插件 `index.mjs`；桌宠见其 README | 读桥的角色事件 SSE |
+| `role-household/rh` | 0.5 万 | 自建网页频道 hub，经 cloud_web WebSocket 接角色 | `rh/hub.py` | 发版时 `make hubsrc` 嵌进二进制 |
+| `integrations/`、`jiuwenswarm/`、`patches/` | 0.2 万 | DSH/QQ 集成补丁、九问 swarm 插件包 | — | — |
+
+依赖方向：cmd → core、config、agent、platform；agent 和 platform 只依赖 core（及 core/model），彼此不互相导入；core 不导入 agent 和 platform。Python、Node 部分和 Go 之间只走 HTTP、api.sock、文件和子进程。
+
+单文件最大（不含测试）：`platform/feishu/feishu.go` 6704 行、`contrib/wiki/llmwiki/ingest.py` 6274、`core/i18n.go` 5164、`config/config.go` 4400、`core/setup_wizard.go` 3068、`contrib/gate/board.py` 2830、`core/team_workspace.go` 2586、`cmd/cc-connect/main.go` 2504。
+
 ## 会话与进程寿命
 
 原生会话号和历史属于对话，agent 进程属于轮次。支持 `StrictResumeAgent` 的适配器，在轮次结束、队列为空且没有后台任务或存活子任务时关闭进程；发送失败也结束进程，下一条消息按保存的会话号恢复。ACP 还须通过 `ResumableSession` 暴露服务器实际声明的恢复能力。未提供这些能力的适配器保留原有关闭策略。
@@ -72,20 +114,7 @@ DSH 忙时插话（steer）要给 dsh-acp 打 dsh/runtime-patches/dsh-acp-steer.
 
 子 Agent 状态仍由适配器采集，经可选 core.SubTaskReporter 交给现有表格渲染。Codex 原生协作事件直接映射；DSH 由 ACP 自有通知通道转发生命周期元数据，父会话 ID 与运行 ID 共同隔离事件。core 不解析各后端协议，普通工具完成不代表子任务完成。见[集成说明](../integrations/dsh-acp-subtasks/README.md)。
 
-## 模块与数据归属
-
-主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。off/observe 不受理推断任务，记录决策后仍将消息交回原聊天路由和门闸，不附加主动授权。自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
-
-`proactive_authorization.go` 的项目级私有日志保存策略版本、平台账户绑定、决策、角色/后端分配及撤回通知。Task 日志暂存受理意图，随后转移到既有 turn journal；两次落盘之间中断仍可恢复同一 Task。队列、恢复、进度令牌与后台输出保留原 decision 引用，不能借续验后的决策继续旧操作。任务卡和本地日志沿现有平台能力与工作区规则展示。外部上下文事件永远是 ContextOnly，只复核原任务权限。管理接口、限制与例子见[主动授权](PROACTIVE_AUTHORIZATION.md)。
-
-| 模块 | 职责 |
-| --- | --- |
-| `bridge/core/` | Engine、频道会话、队列、管理 API、向导、技能及上下文注入 |
-| `bridge/agent/` | 各 CLI / ACP 后端的启动、事件、权限与会话恢复 |
-| `bridge/platform/` | 各聊天平台的身份、收发消息与卡片 |
-| `bridge/contrib/gate/` | 可选的消息判定与 wiki 检索服务 |
-| `role-household/rh/hub.py` | 随程序分发的自建网页频道，通过 cloud_web WebSocket 接入角色 |
-| `integrations/`、`skills/` | 智能体集成与工作约定 |
+## 工作区与数据归属
 
 DSH 自定义成员头像由 collab 的 owner 专用上传接口接收：浏览器缩放为 256×256 PNG，服务端检查 PNG 文件头、IHDR 尺寸和 256KB 上限，原子写入 `<dataDir>/avatars/<memberId>.png`，成员记录只存 `upload:<memberId>.png`。图片通过 owner 鉴权的静态路由读取；成员事件携带缓存版本，替换后列表和历史消息同步刷新。恢复默认或删除成员会清理本地图片。
 
@@ -120,9 +149,21 @@ QQ 独立手写记忆可经 [qq-memory-quote](../integrations/qq-memory-quote/RE
 
 协议与使用方法见 [自建平台协议](../bridge/docs/cloud-web.md)、[wiki 配置](ccm-and-wiki.md)、[公开进展](PUBLIC_PROGRESS.md)、[工具代批](DELEGATED_PERMISSIONS.md)。
 
-## 构建与发布
+## 主动接单
+
+主动接单在可信平台回调进入 Engine 前经过 `proactive_ingress.go`：没有安装策略时保留既有路由；明确点名、私聊和命令仍走原权限路径。off/observe 不受理推断任务，记录决策后仍将消息交回原聊天路由和门闸，不附加主动授权。自动模式将匹配规则的源事件绑定到不可变决策和 Task，再进入已有执行队列。gate 不负责授予权限。
+
+`proactive_authorization.go` 的项目级私有日志保存策略版本、平台账户绑定、决策、角色/后端分配及撤回通知。Task 日志暂存受理意图，随后转移到既有 turn journal；两次落盘之间中断仍可恢复同一 Task。队列、恢复、进度令牌与后台输出保留原 decision 引用，不能借续验后的决策继续旧操作。任务卡和本地日志沿现有平台能力与工作区规则展示。外部上下文事件永远是 ContextOnly，只复核原任务权限。管理接口、限制与例子见[主动授权](PROACTIVE_AUTHORIZATION.md)。
+
+## 任务文本投递
 
 绑定任务的文本投递复用 PublicProgress 的同一任务日志与轮询周期：正文和分片计划在私有记录中持久化，Task 查询只投影状态、目标、正文哈希与逐片回执。发送前先写 sending，进程中断恢复为 unknown，不重跑 agent；明确未受理才重试。平台通过 TaskTextSender 提供一次调用一个分片的能力。卡片事实、工作区 handback、原生 DSH 和语音不进入这个文本队列。详见 [任务文本投递](TASK_TEXT_DELIVERY.md)。
+
+## QQ 群静默收集
+
+QQ's optional group collector intercepts configured groups in the platform adapter before allow-list checks, attachment parsing and engine dispatch. A private SQLite store under the platform data directory keeps owner events, keyword-selected text and durable batch ownership. One Chat Completions request per nonempty batch records its returned usage in that store, independently of conversational agent usage; useful results use OneBot private delivery with a stored receipt. Neither collected events nor these sends create engine sessions. Calls or sends interrupted without a receipt remain recorded and are not replayed automatically. Configuration and inspection are documented in [QQ setup](platforms/qq.md#静默监听群消息).
+
+## 构建与发布
 
 `make hubsrc` 把自建平台源码复制到 Go 嵌入目录，前端构建后随 cc-connect 二进制分发。安装脚本只下载当前仓库 Release 里的预编译包。发布从审核合入 main 的提交构建，流程见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
@@ -136,8 +177,6 @@ The DSH adapter maps runtime session identity to `CC_SESSION` before subprocess
 credential filtering. Gate services and platform credentials are configured separately.
 
 ## Usage ledger
-
-QQ's optional group collector intercepts configured groups in the platform adapter before allow-list checks, attachment parsing and engine dispatch. A private SQLite store under the platform data directory keeps owner events, keyword-selected text and durable batch ownership. One Chat Completions request per nonempty batch records its returned usage in that store, independently of conversational agent usage; useful results use OneBot private delivery with a stored receipt. Neither collected events nor these sends create engine sessions. Calls or sends interrupted without a receipt remain recorded and are not replayed automatically. Configuration and inspection are documented in [QQ setup](platforms/qq.md#静默监听群消息).
 
 The bridge entry point creates one `core.UsageLedger` per configured data directory and shares it with all engines and the management API. Agent adapters emit authoritative per-turn token categories on terminal events; core does not infer billing from context-window snapshots. Daily files contain individual records plus date/hour/role/model buckets. Read-only management endpoints provide dashboard aggregations with optional configured pricing. Unknown usage remains explicit. See [usage API](api/usage.md).
 

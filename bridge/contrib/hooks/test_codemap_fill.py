@@ -54,16 +54,26 @@ class T(unittest.TestCase):
         self.assertEqual(cf.extract("## 地图要补的条目(x.md)\n正文\n- 不收\n"), [])
         self.assertEqual(cf.extract("没有这节\n- a\n"), [])
 
-    def test_dedupe_and_append(self):
+    def test_dedupe_and_place(self):
         with redirect_stderr(io.StringIO()):
-            done = cf.fill(REPORT.format(path=self.map), "子 agent t", today="2026-10-30")
+            done = cf.fill(REPORT.format(path=self.map), "子 agent t")
         self.assertEqual(done, [(self.map, 1)])
         body = Path(self.map).read_text(encoding="utf-8")
-        self.assertTrue(body.endswith("\n## 自动补（2026-10-30，子 agent t）\n- 入口 foo core/a.go:10\n"), body)
+        # 同目录 core/ 的条目后面，不另起「自动补」节
+        self.assertEqual(body, "# m\n\n## 旧节\n- 已有条目 core/b.go:2 续行说明\n- 入口 foo core/a.go:10\n")
         # 再来一次：全重复，不加节
         with redirect_stderr(io.StringIO()):
             self.assertEqual(cf.fill(REPORT.format(path=self.map), "again"), [])
         self.assertEqual(Path(self.map).read_text(encoding="utf-8"), body)
+
+    def test_replace_same_symbol(self):
+        Path(self.map).write_text("# m\n\n## core\n- foo core/a.go:10 旧说明\n- bar core/a.go:30\n\n## web\n- Page web/p.ts:3\n", encoding="utf-8")
+        rep = "## 地图要补的条目（m.md）\n- foo core/a.go:12 新说明\n- Nav web/n.ts:1\n- run tools/x.py:5\n"
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(cf.fill(rep, "s"), [(self.map, 3)])
+        self.assertEqual(Path(self.map).read_text(encoding="utf-8"),
+                         "# m\n\n## core\n- foo core/a.go:12 新说明\n- bar core/a.go:30\n\n## web\n- Page web/p.ts:3\n- Nav web/n.ts:1\n\n"
+                         + cf.OTHER + "\n- run tools/x.py:5\n")
 
     def test_relative_name(self):
         with redirect_stderr(io.StringIO()):
