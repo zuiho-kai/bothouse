@@ -81,6 +81,7 @@ class BothouseRoleRail(DeepAgentRail):
 
     def init(self, agent: Any) -> None:
         self._agent = agent
+        feishu_workflow.ensure_watchdog()
 
     def uninit(self, agent: Any) -> None:
         builder = getattr(self._agent, "system_prompt_builder", None)

@@ -7,22 +7,62 @@
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import logging
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from . import forum_memory
 
 DEFAULT_STUCK_SECS = 600.0
+WATCH_INTERVAL_SECS = 60.0  # 数据/实测：每分钟扫一次就够，卡住判定本身用 DEFAULT_STUCK_SECS（文章图 10 分钟）
+_watchdog_lock = threading.Lock()
+_watchdog_started = False
+log = logging.getLogger(__name__)
 
 
 def _tasks_dir() -> Path:
     return forum_memory.team_memory_root() / "tasks"
+
+
+@contextmanager
+def _task_lock():
+    """Serialize stuck checks across colleagues/processes so one alert is sent once."""
+    lock_path = _tasks_dir() / ".check.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _watch_loop() -> None:
+    while True:
+        time.sleep(WATCH_INTERVAL_SECS)
+        try:
+            check_stuck_tasks()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[bothouse] stuck watchdog failed: %s", exc)
+
+
+def ensure_watchdog() -> None:
+    """Start one background stuck checker per process (the agent loop may be idle when a task stalls)."""
+    global _watchdog_started
+    with _watchdog_lock:
+        if _watchdog_started:
+            return
+        threading.Thread(target=_watch_loop, name="bothouse-stuck-watchdog", daemon=True).start()
+        _watchdog_started = True
 
 
 def _task_path(task_id: str) -> Path:
@@ -401,6 +441,7 @@ def start_topic_task(
     agent_id: str = "",
 ) -> dict[str, Any]:
     """Start task: open a dedicated Feishu topic and post one main-group Progress Card."""
+    ensure_watchdog()
     task = load_task(task_id) if task_id else None
     if task is None and not task_id and chat_id:
         task = latest_pending_task(chat_id)
@@ -575,10 +616,16 @@ def ask_main_group(*, task_id: str, question: str, agent_id: str = "") -> dict[s
 
 def check_stuck_tasks(*, threshold_secs: float | None = None, agent_id: str = "") -> dict[str, Any]:
     """Check in-progress tasks: 10min idle -> remind in topic; 20min idle -> escalate to main group."""
-    thresh = threshold_secs if threshold_secs is not None else float(os.environ.get("BOTHOUSE_STUCK_SECS", DEFAULT_STUCK_SECS))
     tdir = _tasks_dir()
     if not tdir.is_dir():
         return {"checked": 0, "alerts": []}
+    with _task_lock():
+        return _check_stuck_locked(threshold_secs=threshold_secs, agent_id=agent_id)
+
+
+def _check_stuck_locked(*, threshold_secs: float | None = None, agent_id: str = "") -> dict[str, Any]:
+    thresh = threshold_secs if threshold_secs is not None else float(os.environ.get("BOTHOUSE_STUCK_SECS", DEFAULT_STUCK_SECS))
+    tdir = _tasks_dir()
 
     now = time.time()
     alerts: list[dict[str, Any]] = []
