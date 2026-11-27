@@ -113,7 +113,7 @@ func (e *Engine) postToTaskThreadContext(ctx context.Context, p Platform, sessio
 	if t == nil {
 		return
 	}
-	if !e.noteThreadPost(t.ThreadID, text) {
+	if !noteThreadPost(t.ThreadID, text) {
 		return // already there: the narration a turn ends with is also its final reply
 	}
 	rc, ok := target.TaskThreadReplyCtx(t)
@@ -149,7 +149,7 @@ var threadPosts = struct {
 
 const threadPostsKept = 8 // 本次加的：一轮里最后几段叙述和最终回复会重合，记最近 8 条够去重
 
-func (e *Engine) noteThreadPost(thread, text string) bool {
+func noteThreadPost(thread, text string) bool {
 	threadPosts.Lock()
 	defer threadPosts.Unlock()
 	for _, t := range threadPosts.last[thread] {
@@ -169,7 +169,7 @@ func (e *Engine) noteThreadPost(thread, text string) bool {
 // notes an agent ends a turn with (「PR 已开、在等测试」) were seen only in the workspace
 // (#2099: workspace 6's 18:36 reply never reached the #2094 post). Only the part the turn had
 // not already put on its card is sent; the card's narration reached the thread as it came.
-func (e *Engine) postTurnReplyToTaskThread(turn *interactiveTurn, r *interactiveResult) {
+func postTurnReplyToTaskThread(e *Engine, turn *interactiveTurn, r *interactiveResult) {
 	if r == nil || r.isSilent || turn == nil || !e.isTeamWorkspaceChat(turn.sessionKey) {
 		return
 	}
