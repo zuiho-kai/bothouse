@@ -11,8 +11,8 @@ FALLBACK_WINDOW = 90 * 60
 # 来源：沿用夜间两个任务现有的默认时限（jobs.json 的 daf7d694/cf68c6a3 没有 timeout_mins，即 bridge/core/cron.go
 # defaultCronJobTimeout 的 30 分钟）。
 FALLBACK_NIGHT_WINDOW = 30 * 60
-# 每次模型调用的输入上限（字）：ingest、invalidate、profiles、manuals 都读这一个（原来 6 处各抄一份，#2047 第 11 条）。
-# gate 的 score_night.MAX_CHARS 沿用同一个数（gate 和 wiki 分开装，读不到这里；test_wiki_limits 比对两边）。
+# 每次模型调用的输入上限（字），以这里为准（#2047 第 11 条：原来 6 处各抄一份、没人比对）。ingest 直接读它；invalidate、profiles、
+# manuals 会被单独装进主 wiki 的 bin/、gate 的 score_night/reflector 和 wiki 分开装，都读不到这里，各留一行，由 gate/test_wiki_limits.py 比对。
 MAX_CHARS = 240_000
 
 _fallback_end = None  # this run's own end (epoch), only when the scheduler passed no deadline
