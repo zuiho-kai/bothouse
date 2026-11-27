@@ -35,11 +35,12 @@ const (
 	TaskForumTagReview  = "待验收"
 	TaskForumTagPaused  = "暂停"
 	TaskForumTagRelease = "等发布"
+	TaskForumTagHold    = "在等"
 	TaskForumTagDone    = "完成"
 )
 
 // Source: handoff #783 puts the states needing a person first.
-var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
+var taskForumTags = []string{TaskForumTagWaiting, TaskForumTagReview, TaskForumTagRelease, TaskForumTagHold, TaskForumTagRunning, TaskForumTagPaused, TaskForumTagDone}
 
 func TaskForumTagEmoji(tag string) string {
 	switch tag {
@@ -49,6 +50,8 @@ func TaskForumTagEmoji(tag string) string {
 		return "👀"
 	case TaskForumTagRelease:
 		return "📦"
+	case TaskForumTagHold:
+		return "⏳"
 	case TaskForumTagRunning:
 		return "⚙️"
 	case TaskForumTagPaused:
@@ -274,7 +277,12 @@ func taskForumTagOf(it teamTaskBoardItem, now time.Time) (string, string) {
 		return TaskForumTagPaused, "暂停" + taskForumWhy(firstNonEmpty(why, it.PauseWhy))
 	case teamTaskRelease:
 		return TaskForumTagRelease, firstNonEmpty(why, "等集中发布上线")
+	case teamTaskOnHold:
+		return TaskForumTagHold, "在等：" + why
 	case teamTaskStuck:
+		if it.Paused != "" {
+			return TaskForumTagRunning, why // a 在等 past its time: say so, not 「交出后还没有进展回报」
+		}
 		return TaskForumTagRunning, "交出后还没有进展回报"
 	case teamTaskHidden:
 		if it.Backlog != "" {

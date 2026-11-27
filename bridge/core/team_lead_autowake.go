@@ -197,6 +197,9 @@ func (e *Engine) wakeStuckLeads(st *teamChatState, items []teamTaskBoardItem, no
 			continue
 		}
 		key := fmt.Sprintf("%d@s%s", it.ID, it.Bound)
+		if it.Paused != "" {
+			key += "p" + it.PausedAt // a 在等 past its time: once per wait, not per old binding
+		}
 		if _, ok := st.StuckWoke[key]; ok {
 			continue
 		}
