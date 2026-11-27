@@ -48,6 +48,17 @@ class ManualsPending(unittest.TestCase):
         self.assertEqual(active.read_text(), old)
         self.assertEqual((manuals.PENDING / 'guide.md').read_text(), 'TIDIED')
 
+    def test_tidy_keeps_old_text_in_wiki_history_not_bak_beside_skill(self):
+        manuals.WIKI = self.root / 'wiki'
+        active = self.approved()
+        active.write_text(active.read_text() + '\n## 补充\nDuplicate.\n')
+        old = active.read_text()
+        with patch.object(manuals, 'check_tidy', lambda *_a: []):
+            self.assertTrue(manuals.tidy(active, '2026-11-27', ask_fn=lambda _p: {'body': 'TIDIED'}))
+        self.assertEqual(sorted(p.name for p in active.parent.iterdir()), ['SKILL.md'])
+        self.assertEqual((manuals.WIKI / manuals.HISTORY / 'guide.md').read_text(), old)
+        self.assertIn('rules/history/manuals/guide.md', active.read_text())
+
     def test_standalone_ask_uses_configured_wiki_runner(self):
         calls = []
         engine = types.SimpleNamespace(profile_ask=lambda text: calls.append(text) or {'groups': []})

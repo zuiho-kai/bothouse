@@ -30,10 +30,6 @@ type installManagedSkillRequest struct {
 	Project string `json:"project"`
 }
 
-func (m *ManagementServer) SetDownloadSkillPreset(fn func(string) (string, error)) {
-	m.downloadSkillPreset = fn
-}
-
 func (m *ManagementServer) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
 	if m.wizardDataDir == "" {
 		mgmtError(w, http.StatusServiceUnavailable, "bothouse data directory is not configured")
@@ -339,4 +335,8 @@ func decodeSkillJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+func (m *ManagementServer) SetDownloadSkillPreset(fn func(string) (string, error)) {
+	m.downloadSkillPreset = fn
 }

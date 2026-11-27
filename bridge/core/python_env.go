@@ -93,16 +93,6 @@ func ProductPython(dataDir string) (string, error) {
 	return p, nil
 }
 
-// ProductPythonBinDir returns a directory holding `python3` = ProductPython, for a role's PATH: the lead
-// scripts (contrib/lead) run `python3` by name. On Windows it is the interpreter's own directory.
-func ProductPythonBinDir(dataDir string) (string, error) {
-	py, err := ProductPython(dataDir)
-	if err != nil {
-		return "", err
-	}
-	return productPythonLink(dataDir, py)
-}
-
 // productPythonLink makes <dataDir>/tools/bin/python3 point at py (on Windows: py's own directory, nothing
 // is written) and returns that directory.
 func productPythonLink(dataDir, py string) (string, error) {
@@ -445,4 +435,14 @@ func extractNamed(data []byte, archive, name string) ([]byte, error) {
 			return io.ReadAll(tr)
 		}
 	}
+}
+
+// ProductPythonBinDir returns a directory holding `python3` = ProductPython, for a role's PATH: the lead
+// scripts (contrib/lead) run `python3` by name. On Windows it is the interpreter's own directory.
+func ProductPythonBinDir(dataDir string) (string, error) {
+	py, err := ProductPython(dataDir)
+	if err != nil {
+		return "", err
+	}
+	return productPythonLink(dataDir, py)
 }

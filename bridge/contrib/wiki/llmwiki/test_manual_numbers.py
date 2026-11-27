@@ -1,4 +1,5 @@
-"""#757: the manuals (SOP_*) quote the numbers lint.py holds; the split line is the --warn line."""
+"""#757: the manuals (SOP_*) quote the numbers lint.py holds. The split line sits above the --warn line
+(A2: weekly split moved 0.8 → 0.9 so a merged page is not split again at once); lint holds both."""
 import os
 from pathlib import Path
 import re
@@ -16,9 +17,9 @@ import lint  # noqa: E402
 
 
 class ManualNumbers(unittest.TestCase):
-    def test_split_line_is_the_warn_line(self):
-        self.assertEqual(I.SPLIT_AT, lint.WARN)
-        self.assertEqual(lint.SPLIT_AT, lint.WARN)
+    def test_split_line_comes_from_lint(self):
+        self.assertEqual(I.SPLIT_AT, lint.SPLIT_AT)
+        self.assertGreaterEqual(lint.SPLIT_AT, lint.WARN)
 
     def test_manuals_quote_program_values(self):
         for name in [n for n in dir(I) if n.startswith("SOP_") and isinstance(getattr(I, n), str)]:

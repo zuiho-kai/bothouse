@@ -247,7 +247,7 @@ class ReviewFixes(OldBudget):
              mock.patch.object(I, 'model_pass', side_effect=RuntimeError('rule classification failed: quota')), \
              mock.patch.object(I, 'reflect', return_value=False) as reflect:
             I.dream(db, time.time() + 3600)
-        reflect.assert_called_once()
+        self.assertEqual(reflect.call_count, 2)  # a failed reflection is retried once before the alert (#1807)
         self.assertIn('FAILED: RuntimeError', I.LOG.read_text())
         self.assertEqual(db.execute("select count(*) from dreamed where id='aaaaaaaa'").fetchone()[0], 0)
 

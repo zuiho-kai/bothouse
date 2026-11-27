@@ -6,6 +6,9 @@ package core
 // that usage_prices in the config does not price.
 // Source: cc-switch model_pricing table (~/.cc-switch/cc-switch.db), exported 2026-10-24.
 // Columns: input, output, cache_read, cache_creation (-> CacheWrite).
+// Gemini 4 rows: Vertex AI pricing page (global, standard), fetched 2026-11-26.
+// Argon/Carbon use the list price; the 50% credit-back promo through
+// 2026-11-30 is refunded later, so a spend cap must not count on it.
 var defaultUsagePrices = map[string]TokenPrice{
 	"claude-3-5-haiku-20241022":  {Input: 0.8, Output: 4.0, CacheRead: 0.08, CacheWrite: 1.0},
 	"claude-3-5-sonnet-20241022": {Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75},
@@ -80,7 +83,10 @@ var defaultUsagePrices = map[string]TokenPrice{
 	"gemini-3.6-flash":                    {Input: 0.75, Output: 3.75, CacheRead: 0.075, CacheWrite: 0.0},
 	"gemini-3.7-flash":                    {Input: 0.75, Output: 3.75, CacheRead: 0.075, CacheWrite: 0.0},
 	"gemini-3.8-flash":                    {Input: 0.75, Output: 3.75, CacheRead: 0.075, CacheWrite: 0.0},
-	"gemini-4-argon":                      {Input: 2.0, Output: 10.0, CacheRead: 0.1, CacheWrite: 0.0},
+	"gemini-4-argon":                      {Input: 4.0, Output: 20.0, CacheRead: 0.2, CacheWrite: 0.0},
+	"gemini-4-carbon":                     {Input: 4.0, Output: 20.0, CacheRead: 0.2, CacheWrite: 0.0},
+	"gemini-4-hydrogen":                   {Input: 1.5, Output: 7.5, CacheRead: 0.075, CacheWrite: 1.875},
+	"gemini-4-neon":                       {Input: 3.0, Output: 15.0, CacheRead: 0.15, CacheWrite: 3.75},
 	"gemini-flash-latest":                 {Input: 0.75, Output: 3.75, CacheRead: 0.075, CacheWrite: 0.0},
 	"gemini-flash-lite-latest":            {Input: 0.3, Output: 2.5, CacheRead: 0.03, CacheWrite: 0.0},
 	"glm-4.6":                             {Input: 0.6, Output: 2.2, CacheRead: 0.11, CacheWrite: 0.0},

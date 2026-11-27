@@ -149,7 +149,7 @@ func TestHandleMessageCreate_BareStopThreadIsolationNoNewThread(t *testing.T) {
 	if started {
 		t.Fatal("bare 停 in a thread started a thread")
 	}
-	if got == nil || !got.StopAll || got.SessionKey != buildThreadSessionKey("thr") {
+	if got == nil || !got.StopAll || got.SessionKey != "discord:thr" {
 		t.Fatalf("thread bare 停 = %+v", got)
 	}
 }

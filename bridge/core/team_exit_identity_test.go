@@ -45,6 +45,28 @@ func TestWorkspaceLegacyReportKeepsNamedTask(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLegacyReportFallbackRecordsDelivery(t *testing.T) {
+	e, _, p := exitFixture(t, mapParent{"ws1": "chat1"})
+	e.SetTeam(t.TempDir(), "orange", true)
+	e.markPlatformReady(p)
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", "", "Research", 65); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewBoard(t, e, teamTaskBoardItem{ID: 65, What: "Research", WS: "discord:ws1", Chat: "discord:chat1"})
+	e.teamExit.bounces = map[string]int{exitWSKey: team.ExitRules.Bounce.WakeLimit}
+	const report = "[report] #65 背景：旧预算核验。\n做了什么：用量复算完成。\n\n细节：\n入口自验：https://example.com/brief"
+	result, err := e.WorkspaceExit(e.ctx, exitWSKey, team.ExitKindReport, report)
+	if err != nil || result.Board != 65 || result.State != string(TeamTaskReturned) {
+		t.Fatalf("workspace exit = %+v, %v", result, err)
+	}
+	if !e.exitReportedBefore(65) {
+		t.Fatal("the fallback reached chat without a delivery receipt for task 65")
+	}
+	if got := len(p.sentTo("discord:chat1")); got != 1 {
+		t.Fatalf("fallback posts = %d, want one", got)
+	}
+}
+
 func TestWorkspaceRewriteUnknownOrUnmarkedIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name, reply string

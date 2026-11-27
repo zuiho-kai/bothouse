@@ -10,7 +10,7 @@ LLMWIKI = HERE.parent / "wiki" / "llmwiki"
 _tmp = tempfile.TemporaryDirectory()
 WIKI = Path(_tmp.name) / "wiki"
 (WIKI / "bin").mkdir(parents=True)
-for f in ("invalidate.py", "lossless.py"):  # 同 setup_wiki.py：llmwiki/*.py 装进主 wiki 的 bin/
+for f in ("invalidate.py", "lossless.py", "wikiroot.py"):  # 同 setup_wiki.py：llmwiki/*.py 装进主 wiki 的 bin/
     (WIKI / "bin" / f).write_bytes((LLMWIKI / f).read_bytes())
 os.environ["GATE_WIKI"] = str(WIKI)
 for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):  # score_night 自己提交 wiki

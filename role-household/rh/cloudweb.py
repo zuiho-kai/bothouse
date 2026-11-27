@@ -71,6 +71,8 @@ HEARTBEAT = 30.0  # 来源：沿用 hub.py HEARTBEAT。
 WS_BAD_REGISTER = 4002  # 来源：沿用 hub.py WS_BAD_HELLO（RFC 6455 应用自定义关闭码段）。
 WS_REPLACED = 4003  # 来源：沿用 hub.py WS_REPLACED。
 MAX_FRAME = MAX_TEXT_CHARS * 64  # bot 的一条回复可能很长。来源：实现者定，单条 128K 字以内。
+# WebSocket 帧上限按字节算（aiohttp max_msg_size）：JSON 里一个字最坏转义成 \uXXXX 6 字节，再留 4KB 给外壳（#2047 第 2 条）。
+MAX_FRAME_BYTES = MAX_FRAME * 6 + 4096
 # bot 一条消息最多多少字：一帧装得下的都存成一条。cc-connect 发来的回复已经按 4000 字、不切断代码块地分好段
 # （conest bridge/core/engine.go maxPlatformMessageLen、SplitMessageCodeFenceAware），hub 再按 2000 字硬切会切断代码块。
 MAX_BOT_CHARS = MAX_FRAME
@@ -493,7 +495,8 @@ class CloudWeb:
             msg, _ = self.hub.create(room, {"author_kind": "role", "author": bot.id, "name": bot.name,
                                             "text": text, "status": "done"}, MAX_BOT_CHARS,
                                      from_turn=d.get("agent") is True)
-        except Conflict:   # 频道刚被归档（rh/hub.py 多频道）：丢掉这条，连接不断
+        except Conflict:   # 频道刚被归档（rh/hub.py 多频道）：这条进不了频道，连接不断；在开着的频道里报一句（#2065）
+            await self.hub.tell_undelivered(room, bot.name, text)
             return
         await self.hub.broadcast({"type": "message", "message": msg}, room)
         await self.hub.notify_new(msg)
@@ -504,7 +507,7 @@ class CloudWeb:
         token = h[len("Bearer "):] if h.startswith("Bearer ") else request.query.get("token")
         if not self.hub.bot_token_ok(token):
             raise web.HTTPUnauthorized(text="unauthorized")
-        ws = web.WebSocketResponse(heartbeat=HEARTBEAT, max_msg_size=MAX_FRAME)
+        ws = web.WebSocketResponse(heartbeat=HEARTBEAT, max_msg_size=MAX_FRAME_BYTES)
         await ws.prepare(request)
         try:
             first = await ws.receive(timeout=REGISTER_TIMEOUT)

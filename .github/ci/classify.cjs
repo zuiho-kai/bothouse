@@ -3,9 +3,9 @@
 // Unknown paths fail open to full coverage. Only allowlisted prose and client
 // assets can suppress tests; scripts, manifests and embedded input stay covered.
 function classify(files, event = 'pull_request') {
-  const full = () => ({ go: true, companion: true, dsh: true, docs_only: false });
+  const full = () => ({ go: true, dsh: true, docs_only: false });
   if (event !== 'pull_request' || !files.length) return full();
-  const result = { go: false, companion: false, dsh: false, docs_only: true };
+  const result = { go: false, dsh: false, docs_only: true };
   for (const file of files) {
     const paths = typeof file === 'string'
       ? [file]
@@ -19,7 +19,6 @@ function classify(files, event = 'pull_request') {
           /^\.github\/(ISSUE_TEMPLATE\/|PULL_REQUEST_TEMPLATE\.md$)/.test(path)) continue;
       result.docs_only = false;
       if (/^dsh\/packages\/client-ui-discord\//.test(path)) result.dsh = true;
-      else if (/^companion\//.test(path)) result.companion = true;
       else if (/^bridge\//.test(path) && /\.(go|tsx?|css)$/.test(path)) {
         result.go = true;
         result.dsh = true;

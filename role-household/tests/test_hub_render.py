@@ -6,7 +6,6 @@ import asyncio
 import json
 import unittest
 
-from tests import test_hub as th
 from tests.test_hub import AUTH, TOKEN, HubBase, async_playwright, wait_for
 
 # 无头浏览器静音（用户禁令「不让板子或 Mac 出声」）。
@@ -55,9 +54,8 @@ class HubRest(HubBase):
             self.assertEqual(r.status, 404)
 
 
-class HostAfterDelete(HubBase):
-    """审查 1：主机已处理到第 N 条，用户删了第 N 条，主机重连不能误判“云端库被清空”、已读位置不能退回。"""
-    make_host, start_host, stop_host = th.HostClient.make_host, th.HostClient.start_host, th.HostClient.stop_host
+class LastIdAfterDelete(HubBase):
+    """审查 1：用户删了最后一条，last_id 仍按已删的那条算，不能退回。"""
 
     async def test_last_id_counts_deleted(self):
         _, a = await self.post("一")
@@ -68,15 +66,6 @@ class HostAfterDelete(HubBase):
         ws = await self.web_client(); ready = await self.recv(ws)
         self.assertEqual(ready["last_id"], b["id"])
 
-    async def test_host_cursor_kept_after_last_message_deleted(self):
-        _, a = await self.post("一")
-        _, b = await self.post("二")
-        (self.dir / "host-state.json").write_text(json.dumps({"cursor": b["id"]}))
-        async with self.http.delete(f"{self.url}/api/messages/{b['id']}", headers=AUTH) as r:
-            self.assertEqual(r.status, 200)
-        host, task, m = await self.start_host()
-        self.assertEqual(host.cursor, b["id"])
-        await self.stop_host(host, task, m)
 
 
 @unittest.skipIf(async_playwright is None, "没装 playwright（uv sync 的 dev 组）")

@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 )
@@ -242,7 +244,7 @@ func TestFeishuTaskCardPostThenEdit(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	task := &core.Task{ID: "task-1", Title: "整理周报", SessionKey: "feishu:oc_chat:ou_u", ChannelID: "oc_chat", State: core.TaskStateInProgress, LatestProgress: "开始读数据"}
+	task := &model.Task{ID: "task-1", Title: "整理周报", SessionKey: "feishu:oc_chat:ou_u", ChannelID: "oc_chat", State: model.TaskStateInProgress, LatestProgress: "开始读数据"}
 
 	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
 		t.Fatalf("first EnsureTaskCard: %v", err)
@@ -259,7 +261,7 @@ func TestFeishuTaskCardPostThenEdit(t *testing.T) {
 
 	first := task.MessageID
 	task.LatestProgress = "写完第二节"
-	task.State = core.TaskStateCompleted
+	task.State = model.TaskStateCompleted
 	if err := p.EnsureTaskCard(ctx, task, core.LangChinese); err != nil {
 		t.Fatalf("second EnsureTaskCard: %v", err)
 	}
@@ -277,8 +279,8 @@ func TestFeishuTaskCardLostAckDoesNotDuplicate(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	a := &core.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
-	b := &core.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
+	a := &model.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
+	b := &model.Task{ID: "task-2", Title: "t", ChannelID: "oc_chat"}
 	if err := p.EnsureTaskCard(ctx, a, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +296,7 @@ func TestFeishuTaskCardDeletedIsPostedAgain(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	task := &core.Task{ID: "task-3", Title: "t", ChannelID: "oc_chat"}
+	task := &model.Task{ID: "task-3", Title: "t", ChannelID: "oc_chat"}
 	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +317,7 @@ func TestFeishuTaskCardRepostFailureKeepsOldID(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	task := &core.Task{ID: "task-5", Title: "t", ChannelID: "oc_chat"}
+	task := &model.Task{ID: "task-5", Title: "t", ChannelID: "oc_chat"}
 	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}
@@ -345,8 +347,8 @@ func TestFeishuPublishTaskFactRepliesInThread(t *testing.T) {
 	f := newFakeFeishuIM()
 	p := newFakeFeishuPlatform(t, f)
 	ctx := context.Background()
-	task := &core.Task{ID: "task-4", Title: "t", ChannelID: "oc_chat", MessageID: "om_card"}
-	ev := core.TaskEvent{ID: "task-4:1", TaskID: "task-4", Seq: 1, Summary: "读完了数据"}
+	task := &model.Task{ID: "task-4", Title: "t", ChannelID: "oc_chat", MessageID: "om_card"}
+	ev := model.TaskEvent{ID: "task-4:1", TaskID: "task-4", Seq: 1, Summary: "读完了数据"}
 	if err := p.PublishTaskFact(ctx, task, ev, core.LangChinese); err != nil {
 		t.Fatalf("PublishTaskFact: %v", err)
 	}
@@ -357,7 +359,7 @@ func TestFeishuPublishTaskFactRepliesInThread(t *testing.T) {
 	if r["root"] != "om_card" || r["reply_in_thread"] != true || r["uuid"] == "" {
 		t.Fatalf("reply body = %v", r)
 	}
-	if err := p.PublishTaskFact(ctx, &core.Task{ID: "x"}, ev, core.LangChinese); err == nil {
+	if err := p.PublishTaskFact(ctx, &model.Task{ID: "x"}, ev, core.LangChinese); err == nil {
 		t.Fatal("fact before card accepted")
 	}
 }
@@ -495,7 +497,7 @@ func TestFeishuPermanentRefusalIsUnrecoverable(t *testing.T) {
 		f.refuse = &ref
 		p := newFakeFeishuPlatform(t, f)
 		ctx := context.Background()
-		task := &core.Task{ID: "task-p", Title: "t", ChannelID: "oc_chat"}
+		task := &model.Task{ID: "task-p", Title: "t", ChannelID: "oc_chat"}
 		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%v: create card err = %v", ref, err)
 		}
@@ -506,7 +508,7 @@ func TestFeishuPermanentRefusalIsUnrecoverable(t *testing.T) {
 		if len(f.creates) != 0 {
 			t.Fatalf("%v: chat-level refusal treated as deleted card, reposted", ref)
 		}
-		ev := core.TaskEvent{ID: "e", TaskID: task.ID, Seq: 1, Summary: "x"}
+		ev := model.TaskEvent{ID: "e", TaskID: task.ID, Seq: 1, Summary: "x"}
 		if err := p.PublishTaskFact(ctx, task, ev, core.LangEnglish); !errors.Is(err, core.ErrTaskFactUndeliverable) || !errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%v: fact err = %v", ref, err)
 		}
@@ -525,7 +527,7 @@ func TestFeishuTransientRefusalIsRetryable(t *testing.T) {
 	f := newFakeFeishuIM()
 	f.refuse = &fakeRefusal{status: http.StatusInternalServerError, code: 1, msg: "chat not exist"}
 	p := newFakeFeishuPlatform(t, f)
-	task := &core.Task{ID: "task-t", Title: "t", ChannelID: "oc_chat", MessageID: "om_x"}
+	task := &model.Task{ID: "task-t", Title: "t", ChannelID: "oc_chat", MessageID: "om_x"}
 	err := p.EnsureTaskCard(context.Background(), task, core.LangEnglish)
 	if err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) || isFeishuMessageGone(err) {
 		t.Fatalf("err = %v", err)
@@ -546,7 +548,7 @@ func TestFeishuRateLimitHTTP400IsNotPermanent(t *testing.T) {
 		f.refuse = &fakeRefusal{status: http.StatusBadRequest, code: code, msg: "rate limited"}
 		p := newFakeFeishuPlatform(t, f)
 		ctx := context.Background()
-		task := &core.Task{ID: "task-r", Title: "t", ChannelID: "oc_chat"}
+		task := &model.Task{ID: "task-r", Title: "t", ChannelID: "oc_chat"}
 		if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err == nil || errors.Is(err, core.ErrDeliveryUnrecoverable) {
 			t.Fatalf("%d: create card err = %v", code, err)
 		}
@@ -578,7 +580,7 @@ func TestFeishuExpiredCardIsPostedAgain(t *testing.T) {
 	if err != nil || again == "" || again == id || len(f.pins) != 2 || f.pins[1] != again {
 		t.Fatalf("expired board not reposted+pinned: %q, %v, pins=%v", again, err, f.pins)
 	}
-	task := &core.Task{ID: "task-e", Title: "t", ChannelID: "oc_chat"}
+	task := &model.Task{ID: "task-e", Title: "t", ChannelID: "oc_chat"}
 	if err := p.EnsureTaskCard(ctx, task, core.LangEnglish); err != nil {
 		t.Fatal(err)
 	}

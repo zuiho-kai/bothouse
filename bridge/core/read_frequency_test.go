@@ -63,7 +63,7 @@ func TestBuildReadFrequencyReport(t *testing.T) {
 	}
 	report := BuildReadFrequencyReport(events, ReadFrequencyOptions{
 		Source:     "events",
-		SmallChars: DefaultReadFrequencySmallChars,
+		SmallChars: DefaultReadFrequencySmallChars(),
 		LargeBytes: DefaultReadFrequencyLargeBytes,
 		MinReads:   DefaultReadFrequencyMinReads,
 		Top:        DefaultReadFrequencyTop,

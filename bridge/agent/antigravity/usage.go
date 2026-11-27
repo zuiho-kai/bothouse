@@ -12,7 +12,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,18 +117,10 @@ func (q *nativeQuota) get(ctx context.Context, model string) (*core.UsageReport,
 
 // addresses is called with q.mu held; discovery is restricted to our child PID.
 func (q *nativeQuota) addresses(ctx context.Context) ([]string, error) {
-	addresses := []string{q.address}
-	if q.address == "" {
-		// Inspect only the exact subprocess PID, never other apps or agents. lsof
-		// is supplied by macOS and is an explicit prerequisite on other platforms.
-		cmd := exec.CommandContext(ctx, "lsof", "-nP", "-a", "-p", strconv.Itoa(q.pid), "-iTCP", "-sTCP:LISTEN", "-Fn")
-		raw, err := cmd.Output()
-		if err != nil {
-			return nil, errors.New("quota: cannot discover CLI listener (lsof required)")
-		}
-		addresses = nativeQuotaAddresses(string(raw))
+	if q.address != "" {
+		return []string{q.address}, nil
 	}
-	return addresses, nil
+	return cliListenAddrs(ctx, q.pid)
 }
 
 func nativeQuotaAddresses(raw string) []string {

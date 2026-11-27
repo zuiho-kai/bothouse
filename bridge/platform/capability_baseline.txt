@@ -8,8 +8,6 @@ ChannelBoardPoster cloud-web
 ChannelDispatchModeProvider discord
 ChannelDispatchModeProvider feishu
 ChannelNameResolver cloud-web
-ChatPoster cloud-web
-ChatPoster feishu
 CommandRegistrar cloud-web
 CommandRegistrar feishu
 ConfiguredTeamLeadSelf cloud-web

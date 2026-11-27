@@ -17,7 +17,7 @@ body:
       options:
         - Core / Engine
         - Agent (Claude Code, Codex, Cursor, Gemini, etc.)
-        - Platform (Feishu, DingTalk, Telegram, Slack, etc.)
+        - Platform (Feishu, Telegram, Slack, etc.)
         - Session Management
         - API Provider Management
         - Voice / Speech-to-Text

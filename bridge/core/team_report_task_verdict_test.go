@@ -127,7 +127,7 @@ func TestTaskVerdictPassScanClosesBoardItem(t *testing.T) {
 		t.Run(map[bool]string{false: "done", true: "waiting outside"}[waiting], func(t *testing.T) {
 			e, p, _, item := heldFixture(t)
 			log := filepath.Join(t.TempDir(), "board-args")
-			bin := filepath.Join(e.dataDir, "collaboration", "lead", "board")
+			bin := filepath.Join(e.dataDir, "collaboration", "runtime", "lead", "board")
 			if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 				t.Fatal(err)
 			}

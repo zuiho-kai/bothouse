@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -475,17 +474,6 @@ func teamTaskBoardHasEntries(items []teamTaskBoardItem, chat string) bool {
 	return false
 }
 
-// teamEntryIsDM: the session is a direct message. A DM channel has no name, so the platform's
-// ChatName is empty or falls back to the channel id (Discord ResolveChannelName).
-func teamEntryIsDM(s *teamEntry) bool {
-	name := strings.TrimSpace(s.Chat)
-	if name == "" {
-		return true
-	}
-	_, id, _ := strings.Cut(chatOf(s.Key), ":")
-	return id != "" && name == id
-}
-
 // teamBoardKind: what board a channel gets.
 type teamBoardKind int
 
@@ -552,157 +540,7 @@ func readTeamFiles(dir string, now time.Time) []teamFile {
 	return files
 }
 
-// renderTeamBoard renders one line per teammate for the board in chat. Times are wall-clock
-// ("10:42 起") rather than elapsed, so the text only changes when someone's state changes.
-// A teammate busy in another channel shows that channel (a link, teamChatRef) and its task.
-func renderTeamBoard(files []teamFile, chat string) string {
-	return renderTeamBoardMembers(files, chat, nil)
-}
-
 var teamMemberStatus = map[string]string{
 	"queued": "待开始", "running": "进行中", "waiting": "等待中",
 	"completed": "已完成", "failed": "失败", "cancelled": "已取消", "interrupted": "已中断",
-}
-
-// boardMember picks the teammate's task-card row in this chat: live rows
-// first, then the latest progress. Native children share their owner's bot
-// account and are not roster entries.
-func boardMember(f teamFile, members []teamTaskMember) *teamTaskMember {
-	var best *teamTaskMember
-	for i := range members {
-		m := &members[i]
-		if m.ParentID != "" {
-			continue
-		}
-		if m.ReporterProject != "" {
-			if m.ReporterProject != f.Project {
-				continue
-			}
-		} else if m.Name == "" || m.Name != f.Name {
-			continue
-		}
-		if best == nil || (m.live() && !best.live()) || (m.live() == best.live() && m.UpdatedAt.After(best.UpdatedAt)) {
-			best = m
-		}
-	}
-	return best
-}
-
-func (m *teamTaskMember) live() bool {
-	return m.Status == "queued" || m.Status == "running" || m.Status == "waiting"
-}
-
-func renderTeamBoardMembers(files []teamFile, chat string, members []teamTaskMember) string {
-	text, _ := teamBoardMembers(files, chat, members)
-	return text
-}
-
-// teamBoardMembers renders the member lines and reports whether one of them shows live work
-// (busy 🔧, or a task-card row 📋/⏳ still in work), from the same pick as the line.
-func teamBoardMembers(files []teamFile, chat string, members []teamTaskMember) (string, bool) {
-	lines := []string{"**谁在干啥**"}
-	live := false
-	now := time.Now()
-	for _, f := range files {
-		quotaNote := f.quotaDispatchNote(now)
-		var best *teamEntry
-		rank := 0
-		for i := range f.Sessions {
-			s := &f.Sessions[i]
-			if !s.Worked {
-				continue
-			}
-			r := 1 // recently done elsewhere: not worth showing
-			switch {
-			case s.Busy && chatOf(s.Key) == chat:
-				r = 4
-			case s.Busy:
-				r = 3
-			case chatOf(s.Key) == chat:
-				r = 2
-			}
-			// Entries come from a map snapshot. Prefer the latest work within
-			// the same rank so an older success cannot hide a newer failure.
-			newer := false
-			if best != nil {
-				if s.Busy {
-					newer = s.Since.After(best.Since)
-				} else {
-					newer = s.DoneAt.After(best.DoneAt)
-				}
-			}
-			if r > rank || (r == rank && newer) {
-				best, rank = s, r
-			}
-		}
-		line := "💤 空闲"
-		lineLive := rank == 4 // busy in another channel is not busy here
-		if best != nil {
-			task := boardTask(best.Task)
-			switch rank {
-			case 4:
-				line = fmt.Sprintf("🔧 %s（%s 起）", task, best.Since.Local().Format("15:04"))
-			case 3:
-				// Busy in another channel: which one (a link), on what (user, 2026-10-26: 「谁在干啥卡
-				// 关联其他频道角色情况」). Not 🔧: that icon means busy here (TeamBoardActive).
-				// A DM: no task text (private) and no channel link (it would show as an unknown channel).
-				if teamEntryIsDM(best) {
-					line = fmt.Sprintf("↗️ 在私聊忙（%s 起）", best.Since.Local().Format("15:04"))
-				} else {
-					line = fmt.Sprintf("↗️ 在%s忙：%s（%s 起）", teamChatRef(best.Key, best.Chat), task, best.Since.Local().Format("15:04"))
-				}
-				if quotaNote == "" {
-					line += teamElsewhereNote
-				}
-			case 2:
-				switch best.Outcome {
-				case teamWorkFailed:
-					line = fmt.Sprintf("❌ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
-				case teamWorkUnconfirmed:
-					line = fmt.Sprintf("⚠️ %s（%s）", task, best.DoneAt.Local().Format("15:04"))
-				default:
-					line = fmt.Sprintf("✅ 做完：%s（%s）", task, best.DoneAt.Local().Format("15:04"))
-				}
-			}
-		}
-		// A task-card assignment in this chat outranks being busy elsewhere
-		// or idle; a live turn here still shows what is happening right now.
-		if m := boardMember(f, members); m != nil && rank < 4 && (m.live() || rank < 2 || m.UpdatedAt.After(best.DoneAt)) {
-			icon := "📋"
-			lineLive = true
-			switch m.Status {
-			case "completed":
-				icon, lineLive = "✅", false
-			case "failed", "cancelled", "interrupted":
-				icon, lineLive = "❌", false
-			case "waiting":
-				icon = "⏳"
-			}
-			status := teamMemberStatus[m.Status]
-			if status == "" {
-				status = taskIndexLabel(m.Status, 12)
-			}
-			line = fmt.Sprintf("%s %s（%s · %s）", icon, boardTask(taskIndexLabel(m.Title, teamBoardTaskRunes*2)), status, m.UpdatedAt.Local().Format("15:04"))
-		}
-		if quotaNote != "" {
-			if line == "💤 空闲" {
-				line = quotaNote
-			} else {
-				line += "；" + quotaNote
-			}
-		}
-		lines = append(lines, fmt.Sprintf("**%s**　%s", f.Name, line))
-		live = live || lineLive
-	}
-	return strings.Join(lines, "\n"), live
-}
-
-func boardTask(task string) string {
-	if task == "" {
-		return "处理中"
-	}
-	if r := []rune(task); len(r) > teamBoardTaskRunes {
-		return string(r[:teamBoardTaskRunes]) + "…"
-	}
-	return task
 }

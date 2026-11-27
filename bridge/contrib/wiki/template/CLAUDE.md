@@ -44,8 +44,9 @@ Claude Code's memory system adds `node_type`/`originSessionId`/`modified` under
 
 ## Rules
 
-- **Current, not chronological.** A topic page says what is true now. Superseded facts are deleted
-  (git and log.md keep history). No session lists on topic pages — those go to log.md.
+- **Current, not chronological; never forget.** A topic page says what is true now. A superseded line is moved,
+  unchanged, to the page's optional last `## 历史` section — never deleted, never to log.md. No session lists on
+  topic pages — those go to log.md.
 - **Keep overturned decisions.** When a decision or belief is reversed, Decisions & pitfalls keeps one line:
   `Was X → changed to Z because Y (YYYY-MM-DD)`, so it isn't re-proposed. Plain fact changes need no such line.
 - **Date volatile facts.** Facts that can go stale (running services, versions, external status, pending

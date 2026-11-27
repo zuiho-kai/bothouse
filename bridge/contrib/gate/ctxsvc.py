@@ -14,7 +14,7 @@ lead 也带 ?bot=，也查她自己的；bot 为空或不在 bots.json 里只查
 
 POST /context {key, text, bot}  → {wiki: [{path, desc}]}，desc = 页描述 | 行号: 原文 | …（cc-connect 原样拼成「- path — desc」）
 """
-import collections, hashlib, json, math, os, re, sqlite3, threading, time, urllib.request
+import collections, hashlib, json, math, os, re, sqlite3, sys, threading, time, urllib.request
 from pathlib import Path
 
 try:
@@ -400,31 +400,69 @@ def _by_project(hits, prof, rule=False, focus=""):
 # ---- 相关度下限：不相关的记忆不硬推，宁可少推（作者 11-13 定）----
 # 查询带着前两轮的话（with_prev），排在前面的行可能只和旧话题沾边、和这一句一个词都不共享。这类行照样占它排到的名额，
 # 但不推、不从后面补位：试过先筛候选再补位，补上来的多是凑数的规矩页。
+# #2031 起改为先筛再补位：判法换成「这句+前两轮」问重排、线提到 RERANK_MIN，补上来的也得过这条线，不再是凑数的；
+# 原来那条 0.005 的线几乎不拦，才会补上凑数行。
 # GATE_RERANK = 重排服务地址（可选，本机自己起）：POST {"q": 这轮的话, "docs": [行…]} → {"p": [每行相关的概率…]}。
 # 没设、连不上、超时或答的条数不对，都退回词法判法：和这轮的话一个词都不共享才算不相关（同 Elasticsearch minimum_should_match=1）。
 RERANK_URL = os.environ.get("GATE_RERANK", "").strip()
 RERANK_URL = "" if RERANK_URL.lower() == "off" else RERANK_URL
-RERANK_MIN = 0.005  # 来源：11-13 用 505 轮真实对话重放（Qwen3-Reranker-0.6B 的 P(yes)）：低于它的砍掉无关行 48%、错杀有用行 7.9%
+RERANK_MIN = 0.2  # #2031：拿「这句+前两轮」问重排（Qwen3-Reranker-0.6B 的 P(yes)），241 题公平标签回放定的线，见 gen-memory/logs/rr-thresh-2031.txt
+# 原 0.005 只拿这一句问：口语短问（「为什么要训」「颗粒度那么粗吗」）本身没话题，对的行只得 0.01、字面撞词的壁纸行反倒 0.03，门槛等于没有
+RERANK_Q = 1500  # 问重排时这句+前两轮最多取这么多字
+# 门槛跟模型走：重排服务答话里带 model（rerank_svc.py），表里有的用表里的线，没有（旧服务不带 model）用 RERANK_MIN。
+# 4B 的 0.5 同样来自 241 题回放：前 5 命中 97.1%、推出行里无关的 6%（0.6B 在 0.2 是 15%），见 gen-memory/logs/rr-thresh-2031.txt
+RERANK_MIN_OF = {"Qwen3-Reranker-4B": 0.5}
+# 4B 一行约 35 毫秒、服务一次只判一批，整轮只给 2 秒：按排好的顺序一批 RERANK_CHUNK 行地判，够 RERANK_ENOUGH 行就停；
+# 同一句、同一行判过的分记住（几个角色回同一条消息、经验和推页撞同一行时不重算）
+RERANK_CHUNK = 8
+RERANK_ENOUGH = 8  # 推页最多 5 行，多留几行给帖去重、历史节、页名额挤掉的
+_rr_memo = collections.OrderedDict()
+RR_MEMO_KEEP = 4096
+_rr_lock = threading.Lock()  # gate 每个请求一个线程
 RERANK_WAIT = 2  # 秒；同推送判定的 2 秒限时，超了按词法判
 
 
-def weak_lines(need, lines):
-    """每行是不是和 need（这轮的话）不相关。need 空 = 不判（终端 hook 等不给 need 的调用方）。"""
+def weak_lines(need, lines, topic=""):
+    """每行是不是和 need（这轮的话）不相关。need 空 = 不判（终端 hook 等不给 need 的调用方）。
+    topic = 这句+前两轮（turn_query 的结果）：重排按它判——口语追问自己不带话题，话题在前两轮（#2031）；词法退路仍只看这句。"""
     if not need or not lines:
         return [False] * len(lines)
     docs = [_bare(l) for l in lines]
     if RERANK_URL:
+        q = (topic or need)[:RERANK_Q]
+        with _rr_lock:
+            todo = [d for d in dict.fromkeys(docs) if (q, d) not in _rr_memo]
         try:
-            req = urllib.request.Request(RERANK_URL, json.dumps({"q": need, "docs": docs}).encode(),
-                                         {"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
-                ps = json.loads(r.read())["p"]
-            if len(ps) == len(docs):
-                return [p < RERANK_MIN for p in ps]
+            if todo:
+                req = urllib.request.Request(RERANK_URL, json.dumps({"q": q, "docs": todo}).encode(),
+                                             {"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=RERANK_WAIT) as r:
+                    got = json.loads(r.read())
+                if len(got["p"]) != len(todo):
+                    raise ValueError("条数不对")
+                lo = RERANK_MIN_OF.get(str(got.get("model") or ""), RERANK_MIN)
+                with _rr_lock:
+                    for d, p in zip(todo, got["p"]):
+                        _rr_memo[(q, d)] = p < lo
+                    while len(_rr_memo) > RR_MEMO_KEEP:
+                        _rr_memo.popitem(last=False)
+            with _rr_lock:
+                return [_rr_memo[(q, d)] for d in docs]
         except Exception:  # 服务没起是立刻连接被拒，不等；卡住的最多等 RERANK_WAIT
             pass
     nt = set(search.toks(need))
     return [bool(nt) and not (nt & set(search.toks(d))) for d in docs]
+
+
+def relevant(need, hits, topic, line_of, enough):
+    """按 hits 的顺序一批 RERANK_CHUNK 行地判相关，留下相关的；攒够 enough 行就不再往下判。"""
+    keep = []
+    for i in range(0, len(hits), RERANK_CHUNK):
+        part = hits[i:i + RERANK_CHUNK]
+        keep += [h for h, weak in zip(part, weak_lines(need, [line_of(h) for h in part], topic)) if not weak]
+        if len(keep) >= enough:
+            break
+    return keep
 
 
 def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", focus="", need=""):
@@ -445,9 +483,12 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
     if key and _same(root, WIKI):  # 按项目排序只对主 wiki（角色 wiki 是各角色自己的经验，不分项目）
-        hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), focus)
+        # 要判相关时就不再按「和这句有没有共同字」往前提：那正是字面撞词（「颗粒度」→ 壁纸行）的来路（#2031）
+        hits = _by_project(hits, _profiles().get(key, ()), any(x in q for x in RULE_HINTS), "" if need else focus)
+    if need:  # 先判相关、不相关的直接去掉，再排名额（#2031：不相关的行占着前三页，对题的行排在后面挤不进来）
+        hits = relevant(need, hits, q, lambda h: h[2], RERANK_ENOUGH)
     shown_th = set()
-    weak_of = weak_lines(need, [line for _, _, line in hits])
+    weak_of = [False] * len(hits)
     for (rel, ln, line), weak in zip(hits, weak_of):  # 按首次出现排页
         if in_history(rel, ln, root) or (FORUM and FORUM.collapsed(FORUM.entry_id(rel, line, None if _same(root, WIKI) else root))):
             continue  # 被取代挪进历史的、被踩到折叠的不推（#1978）；论坛页和手动搜照样看得到
@@ -489,13 +530,8 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     items = list(pages.items())
     if len(items) > k and not defer:  # 没有旧说法要沉底：多留的那页不推
         items = items[:k]
-    # 历史词只用于找候选；明确的本句话题不能靠旧话题行占推送额度。
-    # 来源：沿用 rare_toks 的索引实词、FRAG_CH/COMMON 和 PREV_TOKS；无实词的短回复仍用历史。
-    terms = set(search.toks(rare_toks(focus))) if focus else set()
-    if terms:
-        items = [(rel, dict(it, rows=[r for r in it["rows"] if terms & set(search.toks(r["text"]))]))
-                 for rel, it in items]
-        items = [(rel, it) for rel, it in items if it["rows"]]  # 只收紧选定行，不用别页补满
+    # 旧话题行占名额只由 need 的相关度判定（weak_lines）一处管，这里不再按本句稀有词另筛一道：
+    # #1972 的稀有词筛法多是二字碎片、比对的又只有标题，#2031 用 241 题公平标签回放，前 5 命中从 85% 掉到 28%。
     return [_render(dict(it, path=_shown(rel, root))) for rel, it in items]
 
 
@@ -534,11 +570,11 @@ def _thread_rows(th, rel, root, hit=None, mark=""):
     if not found:
         return []
     top = found[0]
-    # 票数和最高分楼一样时推命中的那一楼：多楼帖九成以上各楼同票，同票按「新楼在前」等于随便挑一楼
-    #（11-11 抽查：1097 个多楼帖里 1020 个同票）。别的楼票数真更高才换。
+    # 命中的那一楼在帖里（没折叠、不在历史节）就推它的编号：这轮查到的是它。票更高的别的楼换上来时，
+    # 推的编号取出来不是这轮要的那条（#2031 回放：241 题里 27 题因此没中）；帖标题照旧，票照样能投到这一楼。
     if hit is not None:
         mine = [t for t in found if _bare(t[1][2]) == _bare(hit)]
-        if mine and FORUM.rank_key(mine[0][0]["id"]) == FORUM.rank_key(top[0]["id"]):
+        if mine:
             top = mine[0]
     f, (file, n, line) = top
     here = ((root or WIKI) / rel).resolve()
@@ -570,13 +606,16 @@ def context(req):
     if WIKI is None:
         return only_new({"wiki": [x for x in (who, pb, dm) if x] + board_items(req.get("key") or "")}, req)
     roots = [WIKI] + ([own] if own and not _same(own, WIKI) else [])
-    dec = decision_items(text, key)
+    notices = []
+    dec = decision_items(text, key, notices)
     out = {"wiki": [x for x in (who, pb, dm) if x] + memory_caps(roots, own) + standing_items(roots) + profile_items(roots, req.get("sender"), bot) + corrected_items(bot, key) + board_items(key)
            + proposal_items(text, bot, key)
-           + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
+           + with_lessons(match_wiki(tq, skip=skip, prepared=True, key=key, focus=query(text), need=need), tq, skip, prepared=True, need=need) + mine + dec}  # 主 wiki 在前；经验并进 wiki 推荐，按话题命中才出
     if MEMVOTE.exists() and any(EXP_TAG.search(w.get("desc", "")) for w in out["wiki"]):
         out["wiki"].append(VOTE_ITEM)  # 固定 path：每个会话只推一次（gate.go turnContext 按 path 去重）
     out = only_new(out, req, own_paths={w["path"] for w in mine})  # 去重后再在两库间分配额度
+    if notices:
+        out["notice"] = notices  # 给人看的提醒，gate.go turnContext 发到这个聊天（静音群转主人私聊）
     try:
         exp_log(key, bot, text, out["wiki"], tq, ep=str(req.get("epoch") or ""))
     except Exception:
@@ -599,13 +638,39 @@ def _search_cmd(root):
     return cmd + "<关键词>"
 
 
+_LOG_HEAD = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\] (ingest|dream)\b", re.M)
+_last_runs = {}  # log.md 路径 → (mtime, {"ingest": 日期, "dream": 日期})
+
+
+def last_runs(root):
+    """wiki 的 log.md 里最近一次自动整理（ingest）和夜里反思（dream）的日期，没有就不出现。
+    记忆能力说明照这个写实际状态，不写设计（#2065：鲸鱼娘照「定时整理、夜里反思」答人，她的 wiki 10-28 后就没整理过）。"""
+    log = root / "log.md"
+    try:
+        mt = log.stat().st_mtime
+    except OSError:
+        return {}
+    hit = _last_runs.get(log)
+    if hit and hit[0] == mt:
+        return hit[1]
+    out = {}
+    for d, kind in _LOG_HEAD.findall(_read(log)):
+        if d > out.get(kind, ""):
+            out[kind] = d
+    _last_runs[log] = (mt, out)
+    return out
+
+
 def memory_caps(roots, own):
     rows = []
     for root in roots:
         if not (root / "bin" / "search.py").exists():
             continue
         what = "你自己的记忆 wiki" if own and _same(root, own) else "主 wiki（团队共用）"
-        rows.append(f"- {what}（llm wiki）：{_shown('.', root).removesuffix('/.')}。会话和日记定时整理进去，夜里做一次反思；"
+        last = last_runs(root)
+        runs = "；".join(f"{name}最近一次 {last[k]}" for k, name in (("ingest", "自动整理"), ("dream", "夜里反思")) if k in last) \
+            or "没有自动整理过"
+        rows.append(f"- {what}（llm wiki）：{_shown('.', root).removesuffix('/.')}。{runs}（照 log.md 实写；离今天远的就是现在没在整理，别说成在跑）；"
                     f"查：`{_search_cmd(root)}`")
     if not rows:
         return []
@@ -712,8 +777,9 @@ def decisions(text, root=None):
 # 带派活/接手/开工/交接字样）。
 _START = re.compile(r"^\[[^\]\n]+ → [^\]\n]+\]|派活|派给|接手|开工|交接")
 DEC_BLOCK = 2600  # 单块上限：加上块头约 2.8k，守住作者定的单轮 3000 字
-DEC_KEY_CHARS = 6000  # 每个会话 key 累计上限：约两次开工的量；交接文件那轮算新活，清零重计
+DEC_KEY_CHARS = 6000  # 每个会话 key 累计提醒线（不是上限，过了照发）：约两次开工的量；交接文件那轮算新活，清零重计
 _dec_used = {}
+_dec_noticed = set()  # 已在频道报过越线的 key
 
 
 def _handoff_named(q):
@@ -726,14 +792,15 @@ def is_start(text):
     return _handoff_named(q) or bool(_START.search(q))
 
 
-def decision_items(text, key=""):
-    """开工那一轮按话题附一块定案（is_start）；同一 key 累计不超过 DEC_KEY_CHARS。
+def decision_items(text, key="", notices=None):
+    """开工那一轮按话题附一块定案（is_start）；同一 key 累计过 DEC_KEY_CHARS 照发，往 notices 里放一条提醒（每次清零后只报一次）。
     path 带话题页的指纹：同一话题一个会话只推一次（gate.go turnContext）。"""
     try:
         if not is_start(text):
             return []
         if _handoff_named(query(text)):
             _dec_used[key] = 0
+            _dec_noticed.discard(key)
         pages, hits = decisions(text)
     except Exception:  # 读坏了不挡推页
         return []
@@ -749,10 +816,15 @@ def decision_items(text, key=""):
             break
         by.setdefault(rel, []).append(row)
         rows.setdefault(rel, []).append(_row(rel, line, row, rel, ln=ln))
+    # 同一 key 累计过 DEC_KEY_CHARS 也整份照发，不砍；第一次越线在频道里报一次（gate.go 读 notice 发出去）。
+    # 用户 11-26「超限照发不砍并在频道里报警，不只写日志」；同 core/team_mode.go 本机守则（#2271），交接文件那轮清零后再越线再报。
     body = "\n".join(f"{rel}\n" + "\n".join(v) for rel, v in by.items())
-    if _dec_used.get(key, 0) + len(body) > DEC_KEY_CHARS:
-        return []
-    _dec_used[key] = _dec_used.get(key, 0) + len(body)
+    used = _dec_used.get(key, 0) + len(body)
+    if used > DEC_KEY_CHARS and key not in _dec_noticed and notices is not None:
+        _dec_noticed.add(key)
+        notices.append(f"📏 这个会话推的「已定的方向和做法」累计 {used} 字，超过提醒线 {DEC_KEY_CHARS} 字。仍整份照发，"
+                       f"但上下文会多占；定案页太多就合并几条。")
+    _dec_used[key] = used
     return [_render({"path": f"【已定的方向和做法 {tag}】", "sep": "\n",
                      "head": f"定过的方向和坑，只列标题（路径相对 {_shown('.').removesuffix('/.')}，按行号读细节），照做别重新探索",
                      "rows": [r for rel in by for r in rows[rel]]})]
@@ -762,8 +834,10 @@ def decision_items(text, key=""):
 # 跨话题的固定做法（用什么工具、谁来做、怎么跑），按话题检索拉不到（离线对比漏的 5 条里 4 条是这类），
 # 所以写成一个短块，每个会话都带。块由 agent 自己维护；每轮校验，坏了当场让它修。
 STANDING = "STANDING.md"
-STANDING_LINES = 20  # 最多几条：短块要每会话常带，按约 1500 字封顶倒推（每条约 70 字）
-STANDING_CHARS = 1500
+# 最多几条、几字：短块要每会话常带，按约 1500 字封顶倒推（每条约 70 字）。数字只写在同目录 standing_limits.json，
+# 桥的读频报告（core/read_frequency.go）读同一份（#2051 第 5 件）。
+_LIMITS = json.loads(Path(__file__).with_name("standing_limits.json").read_text(encoding="utf-8"))
+STANDING_LINES, STANDING_CHARS = int(_LIMITS["lines"]), int(_LIMITS["chars"])
 STANDING_HOW = ("每个会话都带的跨话题固定做法（工具、谁来做、怎么跑），照做。这块由你维护：用户定了跨话题的做法就加一行，"
                 f"过时就删；改 {{path}}，每条一行、以「- 」开头，最多 {STANDING_LINES} 条、{STANDING_CHARS} 字；话题内的定案写进话题页，不写这里")
 
@@ -874,7 +948,7 @@ def corrected_items(bot, key):
     d = store_dir()
     try:
         raw = (d.parent / "session_memory" / "corrected.jsonl").read_text(encoding="utf-8")
-    except (AttributeError, OSError):  # 没装 datadir（终端 hook）或还没封存过
+    except OSError:  # 还没封存过
         return []
     mark = _ingest_mark()
     rows = []
@@ -956,7 +1030,7 @@ def lessons(root=None):
 LESSON_MIN_TOKENS = 2  # 命中门槛：和这句话至少共享 2 个词（离线试：闲聊 0 个，「嘉立创下单参数」2 个、「交板子前查什么」4 个）
 
 
-def lesson_hits(text, skip=None, prepared=False):
+def lesson_hits(text, skip=None, prepared=False, k=None):
     """按这轮话题挑经验：不固定取论坛分最高前三，
     和这句话共享词够多才算命中，命中的按共享词 idf 和排，再按论坛分（lessons() 的顺序）取前 LESSON_TOP。"""
     if WIKI is None:
@@ -972,32 +1046,38 @@ def lesson_hits(text, skip=None, prepared=False):
         sh = q & set(search.toks(e[2]))
         if len(sh) >= LESSON_MIN_TOKENS:
             hits.append((-sum(idf.get(t, 0) for t in sh), i, e))
-    return [e for _, _, e in sorted(hits)[:LESSON_TOP]]
+    return [e for _, _, e in sorted(hits)[:k or LESSON_TOP]]
 
 
-def with_lessons(pages, text, skip=None, prepared=False):
-    """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。"""
+def with_lessons(pages, text, skip=None, prepared=False, need=""):
+    """命中的经验并进 wiki 推荐：同一页就接在那页后面，否则作为一页附上（只给标题+编号，同推页格式 | 行号: 标题 [#编号]）。
+    need = 这轮的话：经验行和推页行过同一道相关度判定（weak_lines），不相关的标 weak、占名额不推（#2031：经验原来绕开这道判定，
+    靠前两轮的词或「什么」「怎么」这类虚词就能混进来）。"""
     try:
-        hits = lesson_hits(text, skip, prepared)
+        hits = lesson_hits(text, skip, prepared, k=LESSON_TOP * 4 if need else None)
     except Exception:  # 教训表读坏了不挡推页
         return pages
-    for rel, n, ln, k, d in hits:
+    if need:  # 同 match_wiki：先去掉不相关的，再取前 LESSON_TOP（#2031：共享两个字就进前三，对题的经验反被挤掉）
+        hits = relevant(need, hits, text if prepared else query(text), lambda h: h[2], LESSON_TOP)[:LESSON_TOP]
+    for (rel, n, ln, k, d) in hits:
+        weak = False
         path, row = _shown(rel), f"{n}: {_title(ln)}{exp_tag(rel, ln)}"
         page = next((p for p in pages if p["path"] == path), None)
+        r = dict(_row(rel, ln, row, ln=n), **({"weak": True} if weak else {}))
         if page is None:
-            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [_row(rel, ln, row, ln=n)]}))
+            pages.append(_render({"path": path, "head": "教训表（经验）", "sep": " | ", "rows": [r]}))
         elif f"| {n}: " not in page["desc"]:
-            page["rows"].append(_row(rel, ln, row, ln=n))
+            page["rows"].append(r)
             _render(page)
     return pages
 
 
 def _existing_mod():
-    """开工清单程序（~/.bothouse/collaboration/lead/_existing.py，ws-handoff 交活时用的同一份）；没装就 None。"""
+    """开工清单程序（<数据目录>/collaboration/runtime/lead/_existing.py，ws-handoff 交活时用的同一份）；没装就 None。"""
     import importlib.util
     here = Path(__file__).resolve().parent
-    for f in (EXP.parent / "collaboration/lead/_existing.py", here.parent / "collaboration/lead/_existing.py",
-              here.parent / "lead/_existing.py", Path.home() / ".bothouse/collaboration/lead/_existing.py"):
+    for f in (EXP.parent / "collaboration/runtime/lead/_existing.py", here.parent / "collaboration/runtime/lead/_existing.py",
+              here.parent / "lead/_existing.py", Path.home() / ".bothouse/collaboration/runtime/lead/_existing.py"):
         if f.exists():
             try:
                 spec = importlib.util.spec_from_file_location("_existing", f)
@@ -1175,12 +1255,9 @@ HOWTO = {"path": "【取正文】", "desc": f"下面的材料只给标题和 [#�
 
 
 def store_dir():
-    """正文库目录：<数据目录>/ctx（同 core/ctxstore.go ctxStoreDir）；datadir 没装（终端 hook 只装了 ctxsvc）就 None。"""
-    try:
-        import datadir
-    except ImportError:
-        return None
-    return Path(getattr(datadir, "guard", lambda p: p)(datadir.data_dir())) / "ctx"  # 旧 datadir 没有 guard
+    """正文库目录：<数据目录>/ctx（同 core/ctxstore.go ctxStoreDir）。datadir 和 ctxsvc 一起装（gate 目录、终端 hook 目录都有）。"""
+    import datadir
+    return Path(datadir.data_dir()) / "ctx"
 
 
 _pruned = [0.0]
@@ -1189,8 +1266,6 @@ _pruned = [0.0]
 def stash(cid, body):
     """编号 cid 的正文写进正文库（body 可以是函数，库里已有就不调）。写坏了不挡推送。"""
     d = store_dir()
-    if d is None:
-        return
     f = d / f"{cid}.md"
     try:
         if f.exists():
@@ -1434,8 +1509,20 @@ def _refs(items):
                     rel = ln.strip()
         else:
             rel = p[len(base):] if p.startswith(base) else p
-            out += [_ref_id(rel, n) for n in re.findall(r"\| (\d+): ", d)]
+            # 行写成「| 行号: 」；别的页的楼、沉底到别页后面的旧说法写成「| 路径:行号: 」；页头为空时第一行没有「| 」（#2031：这两类原来漏记）
+            for where, n in _ROW_REF.findall(d):
+                out.append(_ref_id(_rel_of(where, base) if where else rel, n))
     return out
+
+
+_ROW_REF = re.compile(r"(?:^|\| )(?:(\S+?\.md):)?(\d+): ")
+
+
+def _rel_of(shown, base):
+    """推送里写出的页路径（~/wiki/… 或绝对路径）→ 相对主 wiki 的路径；不在主 wiki 下的原样返回。"""
+    full = str(Path(shown).expanduser())
+    b = str(Path(base).expanduser()).rstrip("/") + "/"
+    return full[len(b):] if full.startswith(b) else shown
 
 
 def _ref_id(rel, n):

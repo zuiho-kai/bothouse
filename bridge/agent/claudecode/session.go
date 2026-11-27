@@ -43,7 +43,6 @@ type claudeSession struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	alive           atomic.Bool
-	voiceOnly       atomic.Bool
 
 	// maomao fork: on --resume the CLI reports background tasks the previous
 	// process left behind (system/task_notification before the first init) and
@@ -52,6 +51,11 @@ type claudeSession struct {
 	// of ending the user's turn with "(empty response)".
 	sawInit       atomic.Bool
 	startupNotice atomic.Bool
+
+	// #2042: the CLI's current API retry attempt (0 = not retrying), polled by
+	// the engine for the progress card's wait line (APIRetryAttempt). Kept out of
+	// the event channel on purpose, see the api_retry case (#1562).
+	apiRetry atomic.Int64
 
 	// maomao fork: background tasks still running (see bgtasks.go).
 	bgTasks        atomic.Int32
@@ -657,6 +661,9 @@ func (cs *claudeSession) handleReadLoopLine(line string) {
 	eventType, _ := raw["type"].(string)
 	slog.Debug("claudeSession: event", "type", eventType)
 
+	if eventType == "assistant" || eventType == "result" || eventType == "stream_event" {
+		cs.apiRetry.Store(0) // #2042: the model answered, the retry is over
+	}
 	switch eventType {
 	case "system":
 		cs.handleSystem(raw)
@@ -725,6 +732,11 @@ func (cs *claudeSession) handleSystem(raw map[string]any) {
 			cs.sessionID.Store(sid)
 		}
 		slog.Info("claudeSession: CLI retrying an API request", "attempt", raw["attempt"], "status", raw["error_status"], "error", raw["error"])
+		n, _ := raw["attempt"].(float64)
+		if n < 1 {
+			n = float64(cs.apiRetry.Load() + 1)
+		}
+		cs.apiRetry.Store(int64(n))
 		return
 	case "compact_boundary":
 		evt := core.Event{Type: core.EventText, Metadata: map[string]any{core.MetaContextCompacted: true}}
@@ -772,13 +784,6 @@ var apiErrorResultGrace = 10 * time.Second
 
 // armAPIErrorFallback is called when an assistant event carries an API error.
 func (cs *claudeSession) armAPIErrorFallback(raw map[string]any) {
-	if cs.voiceOnly.Load() {
-		select {
-		case cs.events <- core.Event{Type: core.EventError, Content: "voice provider failed", SessionID: cs.CurrentSessionID()}:
-		case <-cs.ctx.Done():
-		}
-		return
-	}
 	msg, _ := raw["message"].(map[string]any)
 	text := assistantText(msg)
 	errKind, _ := raw["error"].(string)
@@ -1166,17 +1171,6 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		case <-cs.ctx.Done():
 		}
 		return
-	}
-	if cs.voiceOnly.Load() && !isCompaction {
-		isError, _ := raw["is_error"].(bool)
-		stop, _ := raw["stop_reason"].(string)
-		if resultSubtype(raw) != "success" || isError || (stop != "" && stop != "end_turn") {
-			select {
-			case cs.events <- core.Event{Type: core.EventError, Content: "voice reply did not finish normally", SessionID: cs.CurrentSessionID()}:
-			case <-cs.ctx.Done():
-			}
-			return
-		}
 	}
 	if isCompaction {
 		slog.Info("claudeSession: mid-turn compaction event; continuing turn", "subtype", resultSubtype(raw))
@@ -1791,3 +1785,7 @@ func (cs *claudeSession) ProcessID() int {
 
 // ProcessGroupID is the CLI's process group id (0 when unknown).
 func (cs *claudeSession) ProcessGroupID() int { return processGroupOf(cs.ProcessID()) }
+
+// APIRetryAttempt implements core.APIRetryReporter (#2042): which retry of the
+// current API request the CLI is on, 0 when it is not retrying.
+func (cs *claudeSession) APIRetryAttempt() int { return int(cs.apiRetry.Load()) }

@@ -9,15 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestDiscordSubTaskTableEmbed(t *testing.T) {
 	start := time.Unix(1792312901, 0)
-	content := core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{
-		{ID: "a1", Description: "前台跑两个 sleep 命令", Status: core.SubTaskCompleted, StartedAt: start, EndedAt: start.Add(11 * time.Second),
+	content := core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{
+		{ID: "a1", Description: "前台跑两个 sleep 命令", Status: model.SubTaskCompleted, StartedAt: start, EndedAt: start.Add(11 * time.Second),
 			Step: "Running sleep 3; echo b", Summary: "两条命令已按先 a 后 b 的顺序依次运行,没有并行。"},
-		{ID: "a2", Description: "后台跑两个 sleep 命令", Background: true, Status: core.SubTaskRunning, StartedAt: start,
+		{ID: "a2", Description: "后台跑两个 sleep 命令", Background: true, Status: model.SubTaskRunning, StartedAt: start,
 			Step: "Running Sleep 3 seconds then print b"},
 	})
 	msg := buildDiscordPreviewMessage(content)
@@ -43,9 +45,9 @@ func TestDiscordSubTaskTableEmbed(t *testing.T) {
 func TestDiscordProgressCardSubAgentWaitLine(t *testing.T) {
 	payload := &core.ProgressCardPayload{
 		Lang: "zh", State: core.ProgressCardStateRunning, Steps: 1, ElapsedSec: 75, LineLen: 80,
-		Items: []core.ProgressCardEntry{
-			{Kind: core.ProgressEntryToolUse, Tool: "Agent", Text: "前台跑两个 sleep 命令"},
-			{Kind: core.ProgressEntryInfo, Text: "等子 agent：前台跑两个 sleep 命令 — Running sleep 3; echo b"},
+		Items: []model.ProgressCardEntry{
+			{Kind: model.ProgressEntryToolUse, Tool: "Agent", Text: "前台跑两个 sleep 命令"},
+			{Kind: model.ProgressEntryInfo, Text: "等子 agent：前台跑两个 sleep 命令 — Running sleep 3; echo b"},
 		},
 	}
 	desc := buildDiscordProgressDescription(payload)
@@ -66,8 +68,8 @@ func TestDiscordSubTaskTableOnlyOnCardStyle(t *testing.T) {
 
 func TestDiscordSubTaskRowWaitingOnOwnBackgroundWork(t *testing.T) {
 	start := time.Unix(1792318365, 0)
-	row := buildDiscordSubTaskRow(core.SubTask{ID: "a", Description: "后台分两次等自己的 sleep", Background: true,
-		Status: core.SubTaskWaiting, StartedAt: start, Step: "Running Sleep 25s then print a", Summary: "第一条已在后台运行，等待完成通知。"}, true)
+	row := buildDiscordSubTaskRow(model.SubTask{ID: "a", Description: "后台分两次等自己的 sleep", Background: true,
+		Status: model.SubTaskWaiting, StartedAt: start, Step: "Running Sleep 25s then print a", Summary: "第一条已在后台运行，等待完成通知。"}, true)
 	t.Logf("\n%s", row)
 	want := "⏳ 后台 · 后台分两次等自己的 sleep · 开始于 <t:1792318365:R>\n　└ 等自己的后台任务 — 第一条已在后台运行，等待完成通知。"
 	if row != want {
@@ -107,14 +109,14 @@ func TestDiscordIsLatestMessage(t *testing.T) {
 }
 
 func TestDiscordSubTaskUnknownExecutionMode(t *testing.T) {
-	row := buildDiscordSubTaskRow(core.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: core.SubTaskRunning}, true)
+	row := buildDiscordSubTaskRow(model.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: model.SubTaskRunning}, true)
 	if !strings.Contains(row, "子 Agent") || strings.Contains(row, "前台") || strings.Contains(row, "后台") {
 		t.Fatalf("unknown mode guessed: %s", row)
 	}
 }
 
 func TestDiscordSubTaskUnknownWaitingReason(t *testing.T) {
-	row := buildDiscordSubTaskRow(core.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: core.SubTaskWaiting}, true)
+	row := buildDiscordSubTaskRow(model.SubTask{ID: "child", Description: "child", ModeUnknown: true, Status: model.SubTaskWaiting}, true)
 	if !strings.Contains(row, "等待继续") || strings.Contains(row, "自己的后台任务") {
 		t.Fatalf("guessed waiting reason: %s", row)
 	}

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -26,8 +28,8 @@ func TestSubTaskTableLikeDiscord(t *testing.T) {
 func TestSubTaskTableUsesPreview(t *testing.T) {
 	ft := &ackingTransport{waiters: map[string]chan string{}, caps: capabilitySet([]string{"text", "preview", "update_message"})}
 	p := &Platform{name: "cloud_web", tp: ft, replyCtxs: map[string]string{}}
-	table := core.BuildSubTaskTablePayload(core.LangChinese, []core.SubTask{{
-		ID: "a1", Description: "查代码", Status: core.SubTaskRunning, StartedAt: time.Now(),
+	table := core.BuildSubTaskTablePayload(core.LangChinese, []model.SubTask{{
+		ID: "a1", Description: "查代码", Status: model.SubTaskRunning, StartedAt: time.Now(),
 	}})
 	h, err := p.SendPreviewStart(context.Background(), replyContext{SessionKey: "cloud_web:room-2", ReplyCtx: "room-2"}, table)
 	if err != nil {

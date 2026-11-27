@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 // A single instance is created globally; each project engine receives a
 // lightweight BridgePlatform handle that delegates to this server.
 type BridgeServer struct {
+	host        string
 	port        int
 	token       string
 	path        string
@@ -216,6 +218,9 @@ func (bs *BridgeServer) RegisterEngine(projectName string, engine *Engine, bp *B
 	bs.engines[projectName] = &bridgeEngineRef{engine: engine, platform: bp}
 }
 
+// SetHost sets the listen address before Start. An empty host binds all interfaces.
+func (bs *BridgeServer) SetHost(host string) { bs.host = host }
+
 // Start launches the HTTP/WebSocket server.
 func (bs *BridgeServer) Start() {
 	mux := http.NewServeMux()
@@ -225,13 +230,20 @@ func (bs *BridgeServer) Start() {
 	mux.HandleFunc("/bridge/sessions", bs.corsHTTP(bs.authHTTP(bs.handleSessions)))
 	mux.HandleFunc("/bridge/sessions/", bs.corsHTTP(bs.authHTTP(bs.handleSessionRoutes)))
 
-	addr := fmt.Sprintf(":%d", bs.port)
-	bs.server = &http.Server{Addr: addr, Handler: mux}
+	addr := net.JoinHostPort(bs.host, strconv.Itoa(bs.port))
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		slog.Error("bridge: listen failed", "addr", addr, "path", bs.path, "error", err,
+			"help", "check [bridge].host and [bridge].port in config.toml")
+		return
+	}
+	server := &http.Server{Addr: listener.Addr().String(), Handler: mux}
+	bs.server = server
+	slog.Info("bridge: server started", "addr", server.Addr, "path", bs.path)
 
 	go func() {
-		slog.Info("bridge: server started", "addr", addr, "path", bs.path)
-		if err := bs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("bridge: server error", "error", err)
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			slog.Error("bridge: server error", "addr", server.Addr, "error", err)
 		}
 	}()
 }

@@ -132,6 +132,8 @@ export function physicsValid(value: unknown): boolean {
 export function fontValid(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const f = value as Record<string, unknown>;
+  // 旧版设置页存的 candy（软糖体已移出包）认作现在的内置字体，免得升级后整段 font 被判非法、字号也丢掉。
+  if (f.family === 'candy') f.family = 'notoserif';
   if (typeof f.family !== 'string' || !FONT_FAMILY_SET.has(f.family)) return false;
   const size = Number(f.size);
   if (!Number.isFinite(size) || size < FONT_SIZE_MIN || size > FONT_SIZE_MAX) return false;

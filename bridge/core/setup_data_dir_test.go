@@ -130,7 +130,7 @@ func TestSetupDataDirBridgeDefaultIsNotIsolated(t *testing.T) {
 
 func TestApplyWizardIsolatedMainWiki(t *testing.T) {
 	useRepoWiki(t)
-	noHardware(t)
+	noLocalGate(t)
 	home, data := t.TempDir(), t.TempDir()
 	testutil.SetHome(t, home)
 	t.Setenv("BOTHOUSE_DATA_DIR", data)

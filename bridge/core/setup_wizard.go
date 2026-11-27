@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -214,7 +213,6 @@ type WizardResult struct {
 	JevReason       string             `json:"jev_reason,omitempty"` // why the jev in this request was not saved
 	JevInUse        string             `json:"jev_in_use,omitempty"` // "model @ url" of the jev in effect after this request ("" = none)
 	JevHint         string             `json:"jev_hint"`
-	Hardware        bool               `json:"hardware"`
 	RestartRequired bool               `json:"restart_required"`
 	// HotLoad: a running service started the roles this save added (handleSetupApply), so no restart
 	// is needed for them. nil = not tried (dry run, wizard outside a running service).
@@ -432,9 +430,6 @@ const (
 	defaultGateURL = "http://127.0.0.1:9930/decide"
 )
 
-// 来源：role-household roles.example.toml [xiaozhi] port = 8791（固件默认 OTA 端口）。变量便于测试替换。
-var roleHouseholdAddr = "127.0.0.1:8791"
-
 func readJSONFile(path string, v any) bool {
 	b, err := os.ReadFile(path)
 	return err == nil && json.Unmarshal(b, v) == nil
@@ -460,15 +455,6 @@ func LoadJevConfig(dataDir string) (JevConfig, bool) {
 	return j, ok
 }
 
-// HardwarePresent reports whether a role-household host (board server) is running locally.
-func HardwarePresent() bool {
-	c, err := net.DialTimeout("tcp", roleHouseholdAddr, 300*time.Millisecond) // 本机连接，300ms 足够（timeout）
-	if err != nil {
-		return false
-	}
-	c.Close()
-	return true
-}
 
 // SystemReplyLanguage is the reply-language code of the process locale (LC_ALL / LC_MESSAGES /
 // LANG, e.g. "ja_JP.UTF-8" → "ja"); "C", "POSIX" or none → "en".
@@ -517,48 +503,27 @@ func SystemLanguage() string {
 // place go to the fallback role (gate.py scorer → rules; core/gate.go fallback);
 // with a board, channel picking falls back to name matching by sound.
 // Full details: docs/connect-discord-feishu.md「jev 和主角色」.
-func JevHint(lang string, usable bool, hardware bool, fallbackName string) string {
+func JevHint(lang string, usable bool, fallbackName string) string {
 	zhName, enName := "", ""
 	if fallbackName != "" {
 		zhName, enName = "「"+fallbackName+"」", " \""+fallbackName+"\""
 	}
 	if isJA(lang) {
 		if usable {
-			if hardware {
-				return "gate はこれでメッセージにどのロールが答えるかを判断し、ボードもこれでチャンネルを選びます。"
-			}
 			return "gate はこれでメッセージにどのロールが答えるかを判断します。"
 		}
-		s := "未設定の場合：@ されたロールは普段どおり答え、誰が答えるか判断できないメッセージはメインロール" + zhName + "が答えます"
-		if hardware {
-			s += "。ボードのチャンネル選択は読みの一致で行います"
-		}
-		return s + "。"
+		return "未設定の場合：@ されたロールは普段どおり答え、誰が答えるか判断できないメッセージはメインロール" + zhName + "が答えます。"
 	}
 	if isZH(lang) {
 		if usable {
-			if hardware {
-				return "用它判断一句话该哪个角色回，板子也用它选频道。"
-			}
 			return "用它判断一句话该哪个角色回。"
 		}
-		s := "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色" + zhName + "回"
-		if hardware {
-			s += "；接了板子的，选频道按读音匹配"
-		}
-		return s + "。"
+		return "不填时：被 @ 的角色照常回，判断不了该谁回的消息由主角色" + zhName + "回。"
 	}
 	if usable {
-		if hardware {
-			return "The gate uses it to decide which role answers; the board also uses it to pick channels."
-		}
 		return "The gate uses it to decide which role answers."
 	}
-	s := "Without it: an @-mentioned role still answers; messages the gate can't place go to the primary role" + enName
-	if hardware {
-		s += "; with a board, channels are picked by matching names by sound"
-	}
-	return s + "."
+	return "Without it: an @-mentioned role still answers; messages the gate can't place go to the primary role" + enName + "."
 }
 
 // JevApplyResult says what happened to jev.json.
@@ -966,7 +931,6 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			defaultAgent = c.AgentType
 		}
 	}
-	res.Hardware = HardwarePresent()
 
 	snap, err := env.Store.Snapshot()
 	if err != nil {
@@ -1265,7 +1229,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				usable, res.JevOK, res.JevInUse = true, true, j.Model+" @ "+j.URL
 			}
 		}
-		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
+		res.JevHint = JevHint(req.Language, usable, pl.fallbackName)
 		applyWizardGlobalHooks(res, env, req, pl)
 		finishWizardResult(res, req, pl, usable)
 		return res
@@ -1421,19 +1385,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			}
 		}
 		if !r.reused && r.project == pl.fallback && LeadToolFS != nil {
-			// Only the new primary role gets collaboration tools; preserve locally edited scripts.
+			// Only the new primary role gets collaboration tools.
 			ls := fmt.Sprintf("role %d lead tools", i+1)
-			if tools, skipped, err := InstallLeadTools(env.DataDir, r.workDir, r.AgentType, false); err != nil {
+			if tools, err := InstallLeadTools(env.DataDir, r.workDir, r.AgentType); err != nil {
 				addStep(res, ls, err, "")
 			} else {
-				message := tools["tools_dir"]
-				if len(skipped) > 0 {
-					message += fmt.Sprintf(tr3(req.Language,
-						"（保留 %d 个已修改文件）",
-						"（変更済みファイル %d 件を保持）",
-						" (preserved %d modified files)"), len(skipped))
-				}
-				addStep(res, ls, nil, message)
+				addStep(res, ls, nil, tools["tools_dir"])
 			}
 		}
 	}
@@ -1498,7 +1455,7 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		res.JevOK, res.JevInUse = true, j.Model+" @ "+j.URL
 	}
 	_, usable := activeJev(env.DataDir)
-	res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
+	res.JevHint = JevHint(req.Language, usable, pl.fallbackName)
 
 	if req.Platform == "discord" {
 		applyDiscordAvatars(ctx, env.DataDir, req.Language, pl.roles, pl.team, state.Team, res)
@@ -2610,7 +2567,7 @@ func (m *ManagementServer) handleSetupPersonas(w http.ResponseWriter, r *http.Re
 }
 
 func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"system_language": SystemLanguage(), "hardware": HardwarePresent(), "data_dir": m.wizardDataDir}
+	out := map[string]any{"system_language": SystemLanguage(), "data_dir": m.wizardDataDir}
 	st := LoadSetupState(m.wizardDataDir)
 	out["setup"] = st
 	out["gate_modes"] = st.GateModes
@@ -2659,7 +2616,7 @@ func (m *ManagementServer) handleSetupState(w http.ResponseWriter, r *http.Reque
 	out["global_memory"] = GlobalHooksOn(GlobalMemory) // the wizard's two "global install" checkboxes start from these
 	out["global_guards"] = GlobalHooksOn(GlobalGuards)
 	j, ok := LoadJevConfig(m.wizardDataDir)
-	out["jev_hint"] = JevHint(r.URL.Query().Get("lang"), ok && j.Logprobs, out["hardware"].(bool), fb)
+	out["jev_hint"] = JevHint(r.URL.Query().Get("lang"), ok && j.Logprobs, fb)
 	mgmtJSON(w, http.StatusOK, out)
 }
 
@@ -2802,7 +2759,7 @@ func (m *ManagementServer) handleSetupJevTest(w http.ResponseWriter, r *http.Req
 		return
 	}
 	t := TestJevEndpoint(r.Context(), req.BaseURL, req.APIKey, req.Model)
-	out := map[string]any{"test": t, "usable": t.Logprobs, "hint": JevHint(req.Lang, t.Logprobs, HardwarePresent(), req.Fallback)}
+	out := map[string]any{"test": t, "usable": t.Logprobs, "hint": JevHint(req.Lang, t.Logprobs, req.Fallback)}
 	if !t.Logprobs {
 		reason := JevFailReason(req.Lang, t)
 		if old, ok := activeJev(m.wizardDataDir); ok {
@@ -2810,7 +2767,7 @@ func (m *ManagementServer) handleSetupJevTest(w http.ResponseWriter, r *http.Req
 			reason = withOldJev(req.Lang, reason, old.Model+" @ "+old.URL)
 		}
 		out["reason"] = reason
-		out["hint"] = JevHint(req.Lang, false, HardwarePresent(), req.Fallback)
+		out["hint"] = JevHint(req.Lang, false, req.Fallback)
 	}
 	mgmtJSON(w, http.StatusOK, out)
 }
@@ -2829,7 +2786,7 @@ func (m *ManagementServer) handleSetupJevSave(w http.ResponseWriter, r *http.Req
 	}
 	_, usable := activeJev(m.wizardDataDir)
 	mgmtJSON(w, http.StatusOK, map[string]any{"saved": out.Saved, "cleared": out.Cleared, "reason": out.Reason,
-		"in_use": out.InUse, "test": out.Test, "hint": JevHint(req.Lang, usable, HardwarePresent(), req.Fallback)})
+		"in_use": out.InUse, "test": out.Test, "hint": JevHint(req.Lang, usable, req.Fallback)})
 }
 
 func (m *ManagementServer) handleSetupApply(w http.ResponseWriter, r *http.Request) {

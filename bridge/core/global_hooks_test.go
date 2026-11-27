@@ -281,3 +281,29 @@ func TestSyncMainWikiPrograms(t *testing.T) {
 		t.Fatalf("second start updated again: %v %v", up, err)
 	}
 }
+
+func TestSyncRoleWikiPrograms(t *testing.T) {
+	_, data := globalEnv(t)
+	old := RoleWikiFS
+	RoleWikiFS = fstest.MapFS{
+		"contrib/wiki/llmwiki/ingest.py":        {Data: []byte("# new\n")},
+		"contrib/wiki/llmwiki/test_profiles.py": {Data: []byte("# test\n")},
+		"contrib/hooks/dshlog.py":               {Data: []byte("# dshlog\n")},
+	}
+	t.Cleanup(func() { RoleWikiFS = old })
+	dir := RoleWikiDir(data)
+	// never installed: nothing written
+	if up, err := SyncRoleWikiPrograms(data); err != nil || up || fileExists(filepath.Join(dir, "llmwiki")) {
+		t.Fatalf("installed without an install: %v %v", up, err)
+	}
+	writeT(t, filepath.Join(dir, "llmwiki", "ingest.py"), "# old\n")
+	if up, err := SyncRoleWikiPrograms(data); err != nil || !up || readT(t, filepath.Join(dir, "llmwiki", "ingest.py")) != "# new\n" {
+		t.Fatalf("not updated: %v %v", up, err)
+	}
+	if fileExists(filepath.Join(dir, "llmwiki", "test_profiles.py")) {
+		t.Fatal("test file copied")
+	}
+	if up, err := SyncRoleWikiPrograms(data); err != nil || up {
+		t.Fatalf("second start updated again: %v %v", up, err)
+	}
+}

@@ -32,7 +32,7 @@ function writeStatus(dir, name, value) {
 
 function status(over = {}) {
   return {
-    project: 'deep', name: '肥鱼', updated: new Date(NOW).toISOString(),
+    project: 'deep', name: '肥鱼', updated: new Date(NOW).toISOString(), stale_after_ms: 60_000,
     sessions: [{ chat: '工作区1', task: '做 A', busy: true, since: new Date(NOW - 60_000).toISOString() }],
     ...over,
   };
@@ -235,4 +235,6 @@ test('readStatusFile accepts null sessions and rejects a bad shape', () => {
   assert.equal(readStatusFile(join(dir, 'ok.json'), NOW).entry.project, 'deep');
   writeStatus(dir, 'bad.json', { project: 'deep', updated: new Date(NOW).toISOString(), sessions: 'nope' });
   assert.equal(readStatusFile(join(dir, 'bad.json'), NOW).error, 'shape');
+  writeStatus(dir, 'nowindow.json', status({ stale_after_ms: undefined }));
+  assert.equal(readStatusFile(join(dir, 'nowindow.json'), NOW).error, 'shape', 'the valid window comes from the writer');
 });

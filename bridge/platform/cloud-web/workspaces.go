@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -108,20 +110,20 @@ func (p *Platform) teamWorkspaceRequest(ctx context.Context, op, chatID, name st
 // TeamGuildChannels returns the room and every workspace of the gateway (one shared pool
 // per server, whichever room handed off to each last). All share one "category"
 // (ParentID ""), so core numbers 「工作区n」 across the whole pool.
-func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.TeamChannel, []core.TeamChannel, error) {
+func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (model.TeamChannel, []model.TeamChannel, error) {
 	ack, err := p.teamWorkspaceRequest(ctx, "list", chatID, "")
 	if err != nil {
-		return core.TeamChannel{}, nil, err
+		return model.TeamChannel{}, nil, err
 	}
 	if ack.Self == nil || ack.Self.ID == "" {
-		return core.TeamChannel{}, nil, fmt.Errorf("cloud_web: team_workspace list %s: no self", chatID)
+		return model.TeamChannel{}, nil, fmt.Errorf("cloud_web: team_workspace list %s: no self", chatID)
 	}
-	self := core.TeamChannel{ID: ack.Self.ID, Name: ack.Self.Name}
-	all := []core.TeamChannel{self}
+	self := model.TeamChannel{ID: ack.Self.ID, Name: ack.Self.Name}
+	all := []model.TeamChannel{self}
 	for _, r := range ack.Rooms {
 		if r.ID != "" && r.ID != self.ID {
 			// The channel host keeps no tasks (DSH since #1662): busy comes from the bridge's own count, as on Discord.
-			c := core.TeamChannel{ID: r.ID, Name: r.Name}
+			c := model.TeamChannel{ID: r.ID, Name: r.Name}
 			if r.Owner != nil {
 				c.Owner, c.OwnerKnown, c.Home = *r.Owner, true, r.ParentID
 			}
@@ -133,18 +135,18 @@ func (p *Platform) TeamGuildChannels(ctx context.Context, chatID string) (core.T
 
 // CreateTeamWorkspaceChannel asks the gateway for the next workspace of besideChatID. The
 // gateway may pick the name itself (collab numbers 工作区n+1 the same way); its answer wins.
-func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID, name string) (core.TeamChannel, error) {
+func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChatID, name string) (model.TeamChannel, error) {
 	ack, err := p.teamWorkspaceRequest(ctx, "create", besideChatID, name)
 	if err != nil {
-		return core.TeamChannel{}, err
+		return model.TeamChannel{}, err
 	}
 	if ack.Room == nil || ack.Room.ID == "" {
-		return core.TeamChannel{}, errors.New("cloud_web: team_workspace create: no room")
+		return model.TeamChannel{}, errors.New("cloud_web: team_workspace create: no room")
 	}
 	if ack.Room.Name != name {
 		slog.Info("cloud_web: gateway named the workspace", "asked", name, "got", ack.Room.Name)
 	}
-	return core.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name, Claim: ack.Room.Claim}, nil
+	return model.TeamChannel{ID: ack.Room.ID, Name: ack.Room.Name, Claim: ack.Room.Claim}, nil
 }
 
 // ClaimTeamWorkspaceChannel tells the gateway that chatID handed off to workspaceID, so the
@@ -204,15 +206,15 @@ func (p *Platform) ParkTeamWorkspaceChannel(ctx context.Context, workspaceID, cl
 // runs on) keeps the room and answers team_workspace "messages" frames; the self-hosted web hub
 // has no such frame and serves the page API ChannelHistory uses. One page at a time; `before` is
 // the oldest id of the page just read.
-func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
+func (p *Platform) TeamChannelMessages(ctx context.Context, channelID string) ([]model.TeamArchivedMessage, error) {
 	if p.hasCap(capTeamWorkspace) {
 		return p.gatewayChannelMessages(ctx, channelID)
 	}
 	return p.hubChannelMessages(channelID)
 }
 
-func (p *Platform) gatewayChannelMessages(ctx context.Context, channelID string) ([]core.TeamArchivedMessage, error) {
-	var out []core.TeamArchivedMessage
+func (p *Platform) gatewayChannelMessages(ctx context.Context, channelID string) ([]model.TeamArchivedMessage, error) {
+	var out []model.TeamArchivedMessage
 	before := ""
 	for {
 		ack, err := p.teamWorkspaceRequest(ctx, "messages", channelID, "", map[string]any{"before": before, "limit": teamWorkspaceArchivePage})
@@ -220,14 +222,14 @@ func (p *Platform) gatewayChannelMessages(ctx context.Context, channelID string)
 			return nil, fmt.Errorf("cloud_web: read channel messages: %w", err)
 		}
 		page := ack.Messages
-		older := make([]core.TeamArchivedMessage, 0, len(page))
+		older := make([]model.TeamArchivedMessage, 0, len(page))
 		for _, m := range page {
 			// System notices are not sent to bots live either (same rule as ChannelHistory).
 			if m.AuthorKind == "system" || (strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0) {
 				continue
 			}
 			sec, frac := math.Modf(m.CreatedAt)
-			msg := core.TeamArchivedMessage{
+			msg := model.TeamArchivedMessage{
 				ID: m.ID, Time: time.Unix(int64(sec), int64(math.Round(frac*1e9))),
 				Author: firstNonEmpty(m.Name, m.Author), Content: m.Text,
 			}
@@ -250,17 +252,17 @@ func (p *Platform) gatewayChannelMessages(ctx context.Context, channelID string)
 	return out, nil
 }
 
-func (p *Platform) hubChannelMessages(channelID string) ([]core.TeamArchivedMessage, error) {
-	var out []core.TeamArchivedMessage
+func (p *Platform) hubChannelMessages(channelID string) ([]model.TeamArchivedMessage, error) {
+	var out []model.TeamArchivedMessage
 	before := ""
 	for {
 		page, err := p.ChannelHistory(channelID, before, teamWorkspaceArchivePage)
 		if err != nil {
 			return nil, fmt.Errorf("cloud_web: read channel messages: %w", err)
 		}
-		older := make([]core.TeamArchivedMessage, 0, len(page))
+		older := make([]model.TeamArchivedMessage, 0, len(page))
 		for _, m := range page {
-			older = append(older, core.TeamArchivedMessage{ID: m.ID, Time: m.Time, Author: m.Author, Content: m.Content})
+			older = append(older, model.TeamArchivedMessage{ID: m.ID, Time: m.Time, Author: m.Author, Content: m.Content})
 		}
 		out = append(older, out...)
 		if len(page) < teamWorkspaceArchivePage {

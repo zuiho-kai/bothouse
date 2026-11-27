@@ -12,8 +12,6 @@ import (
 	"strings"
 )
 
-const sharedMemoryManifestLimit = 8 * 1024
-
 // sharedMemoryHint advertises explicitly enabled local records without reading
 // their contents. It is model context, not a user-facing message. The caller
 // must supply the effective work directory and the current session key.
@@ -44,7 +42,7 @@ func sharedMemoryHint(workDir, sessionKey string) string {
 	data, err := readSharedMemoryManifest(filepath.Join(dir, "manifest.json"))
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("shared_memory: cannot read a regular manifest within the 8 KiB limit")
+			slog.Warn("shared_memory: cannot read the manifest as a regular file")
 		}
 		return ""
 	}
@@ -87,12 +85,11 @@ func readSharedMemoryManifest(path string) ([]byte, error) {
 		return nil, fmt.Errorf("shared memory: open manifest: %w", err)
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, sharedMemoryManifestLimit+1))
+	// Read whole (#2048): an 8 KiB cap used to drop the hint for every session with no word. The
+	// safety is the fixed path and the regular-file check above, not the size.
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("shared memory: read manifest: %w", err)
-	}
-	if len(data) > sharedMemoryManifestLimit {
-		return nil, fmt.Errorf("shared memory: manifest exceeds 8 KiB")
 	}
 	return data, nil
 }

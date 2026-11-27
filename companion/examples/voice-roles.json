@@ -1,6 +1,0 @@
-{
-  "roles": [
-    {"project": "gge", "name": "G哥", "tts_voice": "uncle_fu"},
-    {"project": "grok", "name": "Grok", "tts_voice": "serena"}
-  ]
-}

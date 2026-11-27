@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -16,7 +18,7 @@ import (
 // one post per task-board item. core/team_task_forum.go decides
 // what each post says and which state tag it wears; this file only talks to Discord.
 
-var _ core.TaskForumPoster = (*Platform)(nil)
+var _ model.TaskForumPoster = (*Platform)(nil)
 
 // taskForumName retains the existing forum name within each category.
 const taskForumName = "任务"
@@ -41,17 +43,17 @@ func (p *Platform) taskForumSession() (taskForumAPI, error) {
 
 // TaskForumScope reads gateway state first, which follows channel moves. It
 // never creates categories or infers a category from a channel's name.
-func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskForum, error) {
+func (p *Platform) TaskForumScope(ctx context.Context, chat string) (model.TaskForum, error) {
 	session := p.boardSession()
 	if session == nil {
-		return core.TaskForum{}, fmt.Errorf("discord: task forum: not connected: %w", core.ErrPlatformNotReady)
+		return model.TaskForum{}, fmt.Errorf("discord: task forum: not connected: %w", core.ErrPlatformNotReady)
 	}
 	ch, err := session.State.Channel(chat)
 	if err != nil {
 		ch, err = session.Channel(chat, discordgo.WithContext(ctx))
 	}
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	if ch.IsThread() {
 		parent := ch.ParentID
@@ -60,7 +62,7 @@ func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskFo
 			ch, err = session.Channel(parent, discordgo.WithContext(ctx))
 		}
 		if err != nil {
-			return core.TaskForum{}, err
+			return model.TaskForum{}, err
 		}
 	}
 	var cat *discordgo.Channel
@@ -74,20 +76,20 @@ func (p *Platform) TaskForumScope(ctx context.Context, chat string) (core.TaskFo
 
 // The workspace category never gets a task forum (user 2026-11-16「工作区不应该开任务论坛，聊天区按分类开」):
 // a source resolving there is reported as ErrTaskForumWorkspaceCategory so core uses a chat channel instead.
-func taskForumScope(ch, cat *discordgo.Channel) (core.TaskForum, error) {
+func taskForumScope(ch, cat *discordgo.Channel) (model.TaskForum, error) {
 	if ch.GuildID == "" {
-		return core.TaskForum{}, core.ErrNotTeamChannel
+		return model.TaskForum{}, core.ErrNotTeamChannel
 	}
 	if cat != nil && cat.Name == workspaceCategoryName {
-		return core.TaskForum{}, core.ErrTaskForumWorkspaceCategory
+		return model.TaskForum{}, core.ErrTaskForumWorkspaceCategory
 	}
 	if privateChannel(ch) {
-		return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID, Channel: ch.ID}, nil
+		return model.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID, Channel: ch.ID}, nil
 	}
 	if ch.ParentID == "" {
-		return core.TaskForum{}, core.ErrTaskForumCategoryRequired
+		return model.TaskForum{}, core.ErrTaskForumCategoryRequired
 	}
-	return core.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID}, nil
+	return model.TaskForum{GuildID: ch.GuildID, CategoryID: ch.ParentID}, nil
 }
 
 // privateChannel: @everyone may not view the channel. Its posts become threads in the channel
@@ -108,57 +110,57 @@ func privateChannel(ch *discordgo.Channel) bool {
 
 // TaskForumForPost recovers a persisted post's actual parent, independently of
 // where its source chat lives now. Old posts are never moved or recreated.
-func (p *Platform) TaskForumForPost(ctx context.Context, thread string, tags []string) (core.TaskForum, error) {
+func (p *Platform) TaskForumForPost(ctx context.Context, thread string, tags []string) (model.TaskForum, error) {
 	api, err := p.taskForumSession()
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	ch, err := api.Channel(thread, discordgo.WithContext(ctx))
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	if !ch.IsThread() {
-		return core.TaskForum{}, fmt.Errorf("discord: task post %s is not a thread", thread)
+		return model.TaskForum{}, fmt.Errorf("discord: task post %s is not a thread", thread)
 	}
 	forum, err := api.Channel(ch.ParentID, discordgo.WithContext(ctx))
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	if forum.Type == discordgo.ChannelTypeGuildText {
-		return core.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Channel: forum.ID}, nil
+		return model.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Channel: forum.ID}, nil
 	}
 	if forum.Type != discordgo.ChannelTypeGuildForum {
-		return core.TaskForum{}, fmt.Errorf("discord: post %s parent is not a forum", thread)
+		return model.TaskForum{}, fmt.Errorf("discord: post %s parent is not a forum", thread)
 	}
 	ids, err := ensureForumTags(api, forum, tags, discordgo.WithContext(ctx))
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
-	return core.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Tags: ids}, nil
+	return model.TaskForum{ID: forum.ID, GuildID: forum.GuildID, CategoryID: forum.ParentID, Tags: ids}, nil
 }
 
-// EnsureTaskForum implements core.TaskForumPoster.
-func (p *Platform) EnsureTaskForum(ctx context.Context, chatChannelID, remembered string, tags []string) (core.TaskForum, error) {
+// EnsureTaskForum implements model.TaskForumPoster.
+func (p *Platform) EnsureTaskForum(ctx context.Context, chatChannelID, remembered string, tags []string) (model.TaskForum, error) {
 	api, err := p.taskForumSession()
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	f, err := p.ensureTaskForum(api, chatChannelID, remembered, tags, discordgo.WithContext(ctx))
 	return f, workspaceErr(p.missingPermissionErrIn(err, permManageChannels, chatChannelID))
 }
 
-func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered string, tags []string, options ...discordgo.RequestOption) (core.TaskForum, error) {
+func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered string, tags []string, options ...discordgo.RequestOption) (model.TaskForum, error) {
 	ch, err := api.Channel(chatChannelID, options...)
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	if ch.GuildID == "" {
-		return core.TaskForum{}, fmt.Errorf("discord: channel %s: %w", chatChannelID, core.ErrNotTeamChannel)
+		return model.TaskForum{}, fmt.Errorf("discord: channel %s: %w", chatChannelID, core.ErrNotTeamChannel)
 	}
 	if ch.IsThread() {
 		ch, err = api.Channel(ch.ParentID, options...)
 		if err != nil {
-			return core.TaskForum{}, err
+			return model.TaskForum{}, err
 		}
 	}
 	// The category is read by its own ID, not from the guild channel list: a private channel's
@@ -169,7 +171,7 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 		if cat, err = api.Channel(ch.ParentID, options...); err != nil {
 			cat = nil
 			if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
-				return core.TaskForum{}, err
+				return model.TaskForum{}, err
 			}
 			for _, c := range list {
 				if c != nil && c.ID == ch.ParentID {
@@ -180,7 +182,7 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	}
 	scope, err := taskForumScope(ch, cat)
 	if err != nil {
-		return core.TaskForum{}, err
+		return model.TaskForum{}, err
 	}
 	if scope.Channel != "" {
 		scope.ID = scope.Channel
@@ -188,7 +190,7 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 	}
 	if list == nil {
 		if list, err = api.GuildChannels(ch.GuildID, options...); err != nil {
-			return core.TaskForum{}, err
+			return model.TaskForum{}, err
 		}
 	}
 	forum := findTaskForum(list, scope.CategoryID, remembered)
@@ -203,7 +205,7 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 				forum = c
 			}
 		case !isUnknownChannel(err):
-			return core.TaskForum{}, err
+			return model.TaskForum{}, err
 		}
 	}
 	if forum == nil {
@@ -212,16 +214,16 @@ func (p *Platform) ensureTaskForum(api taskForumAPI, chatChannelID, remembered s
 			Topic: taskForumTopic,
 		}, options...)
 		if err != nil {
-			return core.TaskForum{}, err
+			return model.TaskForum{}, err
 		}
 	}
 	ids, err := ensureForumTags(api, forum, tags, options...)
 	if err != nil {
 		// The forum exists even when its tags cannot be set; return it so it is remembered
 		// and not created again next round.
-		return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID}, err
+		return model.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID}, err
 	}
-	return core.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID, Tags: ids}, nil
+	return model.TaskForum{ID: forum.ID, GuildID: ch.GuildID, CategoryID: scope.CategoryID, Tags: ids}, nil
 }
 
 func isUnknownChannel(err error) bool {
@@ -284,9 +286,9 @@ func ensureForumTags(api taskForumAPI, forum *discordgo.Channel, tags []string, 
 	return ids, nil
 }
 
-// OpenTaskPost implements core.TaskForumPoster: it finds the post this bot already opened for the
+// OpenTaskPost implements model.TaskForumPoster: it finds the post this bot already opened for the
 // item (a lost create response) by its title marker, else creates it.
-func (p *Platform) OpenTaskPost(ctx context.Context, forum core.TaskForum, post core.TaskForumPost) (string, error) {
+func (p *Platform) OpenTaskPost(ctx context.Context, forum model.TaskForum, post model.TaskForumPost) (string, error) {
 	api, err := p.taskForumSession()
 	if err != nil {
 		return "", err
@@ -295,7 +297,7 @@ func (p *Platform) OpenTaskPost(ctx context.Context, forum core.TaskForum, post 
 	return id, unrecoverableErr(p.missingPermissionErrIn(err, core.PermSendMessages, forum.ID))
 }
 
-func (p *Platform) openTaskPost(api taskForumAPI, forum core.TaskForum, post core.TaskForumPost, options ...discordgo.RequestOption) (string, error) {
+func (p *Platform) openTaskPost(api taskForumAPI, forum model.TaskForum, post model.TaskForumPost, options ...discordgo.RequestOption) (string, error) {
 	if active, err := api.GuildThreadsActive(forum.GuildID, options...); err == nil && active != nil {
 		for _, th := range active.Threads {
 			if th != nil && th.ParentID == forum.ID && th.OwnerID == p.selfID() && strings.HasPrefix(th.Name, post.Marker) {
@@ -334,16 +336,16 @@ func (p *Platform) openTaskPost(api taskForumAPI, forum core.TaskForum, post cor
 	return th.ID, nil
 }
 
-func forumTagIDs(forum core.TaskForum, tag string) []string {
+func forumTagIDs(forum model.TaskForum, tag string) []string {
 	if id := forum.Tags[tag]; id != "" {
 		return []string{id}
 	}
 	return []string{}
 }
 
-// UpdateTaskPost implements core.TaskForumPoster: the starter message (its ID is the post's) gets
+// UpdateTaskPost implements model.TaskForumPoster: the starter message (its ID is the post's) gets
 // the new 现状卡, the post the new title and its one state tag, and is archived or reopened.
-func (p *Platform) UpdateTaskPost(ctx context.Context, forum core.TaskForum, threadID string, post core.TaskForumPost) error {
+func (p *Platform) UpdateTaskPost(ctx context.Context, forum model.TaskForum, threadID string, post model.TaskForumPost) error {
 	api, err := p.taskForumSession()
 	if err != nil {
 		return err
@@ -352,7 +354,7 @@ func (p *Platform) UpdateTaskPost(ctx context.Context, forum core.TaskForum, thr
 	return unrecoverableErr(p.missingPermissionErrIn(err, core.PermSendMessages, forum.ID))
 }
 
-func (p *Platform) updateTaskPost(api taskForumAPI, forum core.TaskForum, threadID string, post core.TaskForumPost, options ...discordgo.RequestOption) error {
+func (p *Platform) updateTaskPost(api taskForumAPI, forum model.TaskForum, threadID string, post model.TaskForumPost, options ...discordgo.RequestOption) error {
 	if post.Archived {
 		// An archived post cannot be edited: write the last state first, then archive.
 		if err := p.editTaskPost(api, forum, threadID, post, false, options...); err != nil {
@@ -365,7 +367,7 @@ func (p *Platform) updateTaskPost(api taskForumAPI, forum core.TaskForum, thread
 	return p.editTaskPost(api, forum, threadID, post, true, options...)
 }
 
-func (p *Platform) editTaskPost(api taskForumAPI, forum core.TaskForum, threadID string, post core.TaskForumPost, unarchive bool, options ...discordgo.RequestOption) error {
+func (p *Platform) editTaskPost(api taskForumAPI, forum model.TaskForum, threadID string, post model.TaskForumPost, unarchive bool, options ...discordgo.RequestOption) error {
 	edit := &discordgo.ChannelEdit{Name: truncateDiscordThreadName(post.Title, 90)}
 	cardChannel := threadID
 	if forum.Channel != "" {
@@ -398,7 +400,7 @@ func (p *Platform) editTaskPost(api taskForumAPI, forum core.TaskForum, threadID
 	return err
 }
 
-// PostTaskNode implements core.TaskForumPoster: one key moment, posted in the post.
+// PostTaskNode implements model.TaskForumPoster: one key moment, posted in the post.
 func (p *Platform) PostTaskNode(ctx context.Context, threadID, text string) error {
 	api, err := p.taskForumSession()
 	if err != nil {
@@ -423,11 +425,11 @@ func postTaskNode(api taskForumAPI, threadID, text string, options ...discordgo.
 	return nil
 }
 
-// TaskPostLimit implements core.TaskForumPoster: the 现状卡 is one Discord message, held to the
+// TaskPostLimit implements model.TaskForumPoster: the 现状卡 is one Discord message, held to the
 // same limit every message this adapter sends is split at (maxDiscordLen).
 func (p *Platform) TaskPostLimit() int { return maxDiscordLen }
 
-// OwnsTaskPost implements core.TaskForumPoster: Discord lets only a message's author edit it, so
+// OwnsTaskPost implements model.TaskForumPoster: Discord lets only a message's author edit it, so
 // the post's 现状卡 is this bot's to keep current only when this bot opened the post.
 func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, error) {
 	api, err := p.taskForumSession()
@@ -441,7 +443,7 @@ func (p *Platform) OwnsTaskPost(ctx context.Context, threadID string) (bool, err
 	return th != nil && th.OwnerID != "" && th.OwnerID == p.selfID(), nil
 }
 
-// TaskPostGone implements core.TaskForumPoster: Discord answers 404 for a deleted post or forum.
+// TaskPostGone implements model.TaskForumPoster: Discord answers 404 for a deleted post or forum.
 func (p *Platform) TaskPostGone(err error) bool {
 	var rest *discordgo.RESTError
 	return errors.As(err, &rest) && rest.Response != nil && rest.Response.StatusCode == http.StatusNotFound

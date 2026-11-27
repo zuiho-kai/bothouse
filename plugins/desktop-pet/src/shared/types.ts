@@ -189,10 +189,10 @@ export interface PhysicsParams {
 }
 
 /** 字体种类预设 id（font.family 白名单；清单与对应字体栈见 shared/fonts.ts）。 */
-export type FontFamilyId = 'candy' | 'yahei' | 'youyuan' | 'kaiti' | 'simsun' | 'comic' | 'system';
+export type FontFamilyId = 'notoserif' | 'yahei' | 'youyuan' | 'kaiti' | 'simsun' | 'comic' | 'system';
 
 /** config.jsonc 的 font 段：字体（全局一份，所有宠物共用）。
- *  默认值 = shared/fonts.ts 的 DEFAULT_FONT（candy / 21 / true）。
+ *  默认值 = shared/fonts.ts 的 DEFAULT_FONT（notoserif / 21 / true）。
  *  整段替换（与 physics 同）：写了就整段用自己的，缺的子键不会从内置默认补回来——
  *  手改时必须三个子键写全，否则整段非法 → 告警并取默认。 */
 export interface FontConfig {

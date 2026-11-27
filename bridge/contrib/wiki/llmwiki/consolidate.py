@@ -24,34 +24,59 @@ A dissolved subdomain's README lines join the README it moved into, verbatim; lo
 pass, else the tree is reset (the tree must be clean before a run). log.md gets one `restructure | consolidate` entry
 listing every 「旧路径 → 新路径」.
 """
-import os, posixpath, re, subprocess, sys, time
+import json, os, posixpath, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lint, lossless  # noqa: E402
 
-WIKI = Path(__file__).resolve().parent.parent
+from wikiroot import wiki_root  # noqa: E402
+WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 SHARED_TOOL = 1  # marker: this consolidate.py takes --root; teammate/ shims refuse a tool without it
 LINK = lint.LINK
 MDLINK = re.compile(r"(\]\()([^)\s]+)(\))")
 HEAD = re.compile(r"## (.+)$")
 
 
+def git(root, *args):
+    return subprocess.run(["git", "-c", "core.quotepath=off", *args], cwd=root, capture_output=True, text=True)
+
+
+# profiles.py PROFILE_DIR / PAGE（gate 的 GATE_PROFILE 同路径）；不 import profiles：本文件也以 --root 给队友 wiki 用
+PROFILE_DIR, PROFILE_GLOB = "tooling/workflow/workflow/preferences", "profile-*.md"
+
+
 def pinned(root):
-    """Wiki-relative pages under `root` that the bridge config names as a role's life_page (橘's 小日子页 etc.): the
+    """Wiki-relative pages under `root` the bridge reads at a fixed path: a role's life_page (橘's 小日子页 etc.) from the
+    bridge config, and every person's 画像页 PROFILE_DIR/profile-*.md (gate GATE_PROFILE): the
     bridge reads that exact path every turn, so no restructure may move, merge or split it (#1578: split_pass cut
     maomao-days.md into maomao-days/ on 11-13 and the bridge injected an empty template). `root` may be ingest's
-    worktree (<wiki>/.ingest-work), whose pages stand for <wiki>'s. python 3.9: no tomllib, a regex reads the lines."""
-    cfg = Path(os.path.expanduser(os.environ.get("WIKI_BRIDGE_CONFIG", "~/.bothouse/config.toml")))
-    try:
-        text = cfg.read_text()
-    except OSError:
-        return set()
+    worktree (<wiki>/.ingest-work), whose pages stand for <wiki>'s. The bridge reads its own config for us
+    (`bothouse config get projects`, #2051): python 3.9 has no tomllib, and a second TOML reader here drifts.
+    Bridge binary found like the team scripts do (_team.cc_bin: CC_BIN, then bothouse / cc-connect on PATH);
+    none (no bridge on this machine) = only the 画像页 pinned."""
     root = Path(root).resolve()
+    # 画像页同理：gate 每轮按固定路径 <PROFILE_DIR>/profile-<平台>-<id>.md 读（GATE_PROFILE, bridge/core/gate_proc.go），
+    # dream 也按这条路径重写（profiles.py page()）。11-18 split_pass 把 profile-discord-1498889779377602672.md 拆进同名
+    # 子目录，11-19 dream 在原路径只写了新行，旧画像全留在子目录、gate 读不到，lint 报同名两页。
+    out = {p.relative_to(root).as_posix() for p in (root / PROFILE_DIR).glob(PROFILE_GLOB)}
+    bin_ = os.environ.get("CC_BIN") or shutil.which("bothouse") or shutil.which("cc-connect")
+    if not bin_:
+        return out
+    cmd = [bin_, "config", "get", "projects"]
+    if os.environ.get("WIKI_BRIDGE_CONFIG"):
+        cmd[3:3] = ["--config", os.path.expanduser(os.environ["WIKI_BRIDGE_CONFIG"])]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        projects = json.loads(r.stdout) if r.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return out
     bases = [root] + ([root.parent] if root.name == ".ingest-work" else [])
-    out = set()
-    for a, b in re.findall(r"""(?m)^\s*life_page\s*=\s*(?:"([^"\n]+)"|'([^'\n]+)')""", text):
-        page = Path(os.path.expanduser(a or b)).resolve()
+    for p in projects or []:
+        life = p.get("life_page") if isinstance(p, dict) else None
+        if not isinstance(life, str) or not life.strip():
+            continue
+        page = Path(os.path.expanduser(life)).resolve()
         for base in bases:
             try:
                 out.add(page.relative_to(base).as_posix())

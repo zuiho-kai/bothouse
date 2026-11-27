@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _team  # noqa: E402
 import _ask  # noqa: E402
+import _local  # noqa: E402  本机自己加的关卡（<数据目录>/collaboration/local/hooks.py，没有就跳过）
 import _model  # noqa: E402  交活指定模型（_model.py，#2075）
 import _source  # noqa: E402  聊天频道新原话补导、转话文本（_source.py）
 
@@ -138,6 +139,7 @@ def reject_held_report(path: str, summary: str, nid=None):
         return
     if r.returncode == 0:
         print(f"ws-forward: #{nid} 的文字汇报已打回，不会贴给用户", file=sys.stderr)
+        _local.call("on_reject", nid, summary)
     elif r.returncode != 3:  # 3：没有扣着的汇报
         print(f"ws-forward: 打回 #{nid} 的待验收汇报失败：{(r.stderr or r.stdout).strip()[:200]}", file=sys.stderr)
 
@@ -250,12 +252,9 @@ def ask_user(last: dict, nid: int, kind: str, plain: str = ""):
           f"用户答了用 ws-forward --id {it['id']} \"<用户的答复，附原话>\" 转回", file=sys.stderr)
 
 
-def early_check(last: dict, model, effort):
+def early_check(last: dict, live, model, effort):
     """活还在原工作区做着：按接活项目（recipient_project）和那个工作区会话的模型列表核，不对就不转。
     已交回、暂停让出工作区的活由 ws-handoff --resume 新认领，接活项目那时才定，桥切模型时按它核。"""
-    live = find_live(last)
-    if live is not None and (live.get("returned_at") or not live.get("ws")):
-        return
     if live is None and board.paused_item(last["file"]):
         return
     ws = str(live["ws"] if live is not None else last["channel"])
@@ -266,6 +265,11 @@ def early_check(last: dict, model, effort):
     err = _model.check(model, effort, project, ws if ":" in ws else f"discord:{ws}")
     if err:
         sys.exit(f"ws-forward: 没转。{err}")
+
+
+def resume_handoff(nid, answer):
+    script = Path(__file__).resolve().parent / "ws-handoff"
+    return subprocess.run([sys.executable, "-I", str(script), "--resume", str(nid), answer])
 
 
 def main(argv):
@@ -327,8 +331,17 @@ def main(argv):
     board.refuse_foreign([nid] if nid else last.get("board") or [], "ws-forward")  # 别的频道派的活不在这里转、不打回（#836）
     if to_user:
         return ask_user(last, nid, to_user, plain)
-    if model:  # 先核模型再动任何东西（打回扣着的汇报、记任务板）：按接活项目和它的工作区会话核（审稿 #2076 第 2 条）
-        early_check(last, model, effort)
+    blocked = _local.call("forward_block", last.get("file") or "")
+    if blocked:
+        sys.exit(f"ws-forward: {blocked}")
+    live = find_live(last)
+    task = (board.workspace_state().get("tasks") or {}).get(str(live["id"]), {}) if live else {}
+    if task.get("state") == "closed":
+        sys.exit(f"ws-forward: #{live['id']} 已结束，工作区已清空。要接着做就用 ws-handoff --resume {live['id']}")
+    returned = task.get("state") == "returned"
+    needs_resume = live is not None and (returned or live.get("returned_at") or not live.get("ws"))
+    if model and not needs_resume:  # 先核模型再动任何东西（打回扣着的汇报、记任务板）
+        early_check(last, live, model, effort)
     for i in reject_first(nid, last.get("file"), [last]):
         reject_held_report(last.get("file") or "", argv[0], i)
     done = find_done(last)
@@ -346,21 +359,23 @@ def main(argv):
             sys.exit(0)
         if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
             board.set_model(hit["id"], model, effort)
-        r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(hit["id"]), argv[0]])
+        r = resume_handoff(hit["id"], argv[0])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], hit.get("id"))
         elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
             board.set_model(hit["id"], hit.get("model"), hit.get("effort"))
         sys.exit(r.returncode)
-    live = find_live(last)
-    if live is not None and (live.get("returned_at") or not live.get("ws")):
-        # A returned/unbound task needs a new claim, even if a stale board row still
-        # names the old workspace. Its terminal state cannot run another report.
+    if needs_resume:
+        # Reconcile the stale row before board reject so it records this rework.
+        if returned and not live.get("returned_at"):
+            if not board.returned(live["id"], live.get("dispatcher") or "", at=task.get("since")):
+                sys.exit(f"ws-forward: #{live['id']} 无法登记已交回，没转、没续做")
+            live = {**live, "returned_at": task.get("since") or True}
         if reject_on_board(live, argv[0]):
             sys.exit(0)
         if model:  # 换的模型记上任务板，接回时照它切：接活工作区的项目这时才定，由桥按它核（ws-handoff start）
             board.set_model(live["id"], model, effort)
-        r = subprocess.run([str(Path(__file__).resolve().parent / "ws-handoff"), "--resume", str(live["id"]), argv[0]])
+        r = resume_handoff(live["id"], argv[0])
         if r.returncode == 0:
             reject_held_report(last["file"], argv[0], live.get("id"))
         elif model:  # 没接回（含模型没切成）：任务板的模型退回原来的，不留一个没生效的
@@ -404,10 +419,7 @@ def main(argv):
         board.append_forward(last["file"], f"{now} ⚠️ 上面这条没送到工作区（timer add 失败：{why}）。工作区没收到它，重试请原样重发这一句。")
         sys.exit(f"ws-forward: timer add 失败：{r.stderr.strip() or r.stdout.strip()}")
     reject_held_report(last["file"], argv[0], live.get("id") if live else None)  # 送到了：桥扣着的文字汇报（如有）算打回
-    # 转了新话，工作区要接着做：这件活的兜底定时器从现在重新算（board.arm_guard；暂停的活不挂）
-    for it in board.items():
-        if (it.get("where") == last["file"] or (live and it.get("id") == live.get("id"))) and it.get("ws") and not it.get("paused") and not it.get("backlog"):
-            board.arm_guard(it["id"])
+    # 不再挂 30m 兜底定时（#2052：交回本身就是事件、系统每 10 分钟也在看进展；等外部有 wait_task/pr 事件叫醒）。
     print((r.stdout.strip().splitlines() or [""])[0])  # cc-connect 第一行就是 timer id
 
 

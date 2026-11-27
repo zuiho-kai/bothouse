@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_ingest import Fake, I, jsonl, user, claude
+from test_ingest import Fake, I, jsonl, user, claude, put_lint
 import daypack as D
 import lint
 
@@ -146,6 +146,27 @@ class Reflection(Fake):
         for n in range(100):
             self.assertEqual("".join(parts).count(f"独特证据-{n:04d}"), 1)
 
+    # 2026-11-19 (#1807): the budget step took 「#常规『…发版，」 for a channel name and cut the nested 「改一处、各处跟着变」
+    # out of a pack sentence; pack_misquotes then reverted the whole night
+    def test_budget_step_keeps_nested_quote_inside_a_pack_sentence(self):
+        pack = "『还差一半：桥这边的代码已经进了开发分支，也装在这台机器上；但还没发版，「改一处、各处跟着变」的生成工具也还没进产品。』"
+        ans = json.dumps({"返工": [{"问题": "发版未完", "来源": "11-19 15:20 #常规" + pack, "根因": "r"}]}, ensure_ascii=False)
+        with mock.patch.object(I, "over_chars", lambda t: True):
+            self.assertEqual(I.reflect_render(ans, self.DAY, {}, "tooling/daily-reflection.md", pack), "")
+        text = (self.w / "tooling" / "daily-reflection.md").read_text()
+        self.assertIn("但还没发版，「改一处、各处跟着变」的生成工具", text)
+        self.assertEqual(I.pack_misquotes(pack), "")
+
+    def test_prune_drops_only_the_line_not_in_pack(self):
+        self.write_reflection(extra="  - 来源：『编出来的』\n")
+        self.assertIn("编出来的", I.pack_misquotes(self.PACK))
+        self.assertEqual(I.pack_prune(self.PACK, "reflect t"), 1)
+        self.assertEqual(I.pack_misquotes(self.PACK), "")
+        text = (self.w / "tooling" / "daily-reflection.md").read_text()
+        self.assertNotIn("编出来的", text)
+        self.assertIn("疑似缓存过期重写（来源：数据包）", text)
+        self.assertIn("line dropped, not in pack (『编出来的』)", I.LOG.read_text())
+
     def test_historical_section_can_move_verbatim(self):
         self.write_reflection(extra="  - 来源：旧日 $999.0，77 次\n")
         self.commit("prior reflection")
@@ -173,8 +194,8 @@ class Reflection(Fake):
     def test_complete_dream_reflects_even_without_new_user_lines(self):
         # Exercise real model_pass -> guard -> commit -> deliver, with an in-process fake engine.
         (self.w / "bin").mkdir()
-        (self.w / "bin" / "lint.py").write_text(Path(lint.__file__).read_text())
-        (self.w / ".gitignore").write_text(".ingest-work/\n")
+        put_lint(self.w / "bin")
+        (self.w / ".gitignore").write_text(".ingest-work/\n__pycache__/\n")
         self.commit("test runner")
         now = D.ts_of("2026-10-21T13:00:00Z")
         db = sqlite3.connect(":memory:")
@@ -183,6 +204,8 @@ class Reflection(Fake):
         calls = []
 
         def engine(instruction, stdin="", label="?", context=None):
+            if label.endswith(" invalidate"):  # 写入时过时检测（80e7b29ea，11-03）验收前问一次模型：答「没有推翻」，不算这一轮的模型调用
+                return True, '{"results": []}', 0
             calls.append(context)  # structured reflection: the model answers JSON, reflect_render writes the page
             return True, '{"钱": {"无": true}, "慢": {"无": true}, "返工": {"无": true}, "答应了没做": {"无": true}, "昨日对照": "无对照"}', 0
 

@@ -31,15 +31,6 @@ const (
 	teamWorkspaceArchiveDir = "workspace-archive"
 )
 
-// TeamArchivedMessage is one channel message as kept in a workspace archive.
-type TeamArchivedMessage struct {
-	ID          string    `json:"id"`
-	Time        time.Time `json:"time"`
-	Author      string    `json:"author"`
-	Content     string    `json:"content"`
-	Attachments []string  `json:"attachments,omitempty"`
-}
-
 // TeamChannelArchiver is implemented by platforms that can read a workspace channel's whole
 // history (oldest first) for its archive before the channel is deleted.
 type TeamChannelArchiver interface {

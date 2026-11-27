@@ -829,3 +829,36 @@ func TestSaveImagesDir(t *testing.T) {
 		t.Fatalf("saved file: %v %q", err, b)
 	}
 }
+
+func TestAutomatedMonitorNoticeMarked(t *testing.T) {
+	cases := []string{
+		"[分组恢复正常]\n分组名：gpt-s-unstable-backup\n倍率：0.12\n图片识别：正常、Ciallo：正常\n测试时首字：1.70秒\n检测时间：11-26 02:43",
+		"[检测完成] gpt-s-unstable-backup\n\nCiallo：[正常]检测通过。\n\n视觉：[正常]检测通过。",
+		"开始检测：gpt-s-unstable-backup",
+		"[检测完成] gpt-any\n\nCiallo：[运行失败]请求失败或回复不可解析，不计为降智。\n\n视觉：[降智]检测未通过。",
+		"[视觉检测] gpt-am-pro\n[正常]视觉检测通过。",
+		"[状态列表]\n分组：gpt-am-pro 0.22x\n状态：正常\n近6小时检测降智率：0.00%",
+		"[模型列表]\n分组：gpt-v-pro 0.165x\n模型：\ncodex-auto-review",
+	}
+	for _, body := range cases {
+		t.Run(strings.SplitN(body, "\n", 2)[0], func(t *testing.T) {
+			f := newFakeOneBot(t)
+			_, msgs := startTestPlatform(t, f)
+			f.push(groupMessage(111, 2002, 9101, textSegment(body)))
+			m := awaitMessage(t, msgs)
+			if !m.AutomatedNotice {
+				t.Fatalf("AutomatedNotice = false for monitor message %q", body)
+			}
+		})
+	}
+}
+
+func TestOrdinarySimilarMessageNotMarkedAutomated(t *testing.T) {
+	f := newFakeOneBot(t)
+	_, msgs := startTestPlatform(t, f)
+	f.push(groupMessage(111, 2001, 9102, textSegment("[检测完成] 我作业写完了")))
+	m := awaitMessage(t, msgs)
+	if m.AutomatedNotice {
+		t.Fatal("ordinary human message marked as automated monitor notice")
+	}
+}

@@ -93,18 +93,6 @@ func dshWebProcessOf(ctx context.Context, pid int) (dshWebProcess, bool) {
 	return p, true
 }
 
-// dshWebOwnDataDir: the data directory this bridge hands the hosts it starts — the value openDSHWeb
-// passes (BOTHOUSE_DATA_DIR), the one the launchd unit passes (CC_DATA_DIR), or what both resolve
-// from HOME when neither is set. One name is not enough: a host started by an older build, by the
-// launchd unit or by hand may carry a different one of these than the bridge process itself.
-func dshWebOwnDataDir() string {
-	dirs := dshWebOwnDataDirs()
-	if len(dirs) == 0 {
-		return ""
-	}
-	return dirs[0]
-}
-
 // dshWebOwnDataDirs is every data directory a host of this bridge may legitimately have been given.
 func dshWebOwnDataDirs() []string {
 	var dirs []string

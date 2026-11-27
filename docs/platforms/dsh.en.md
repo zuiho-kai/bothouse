@@ -30,6 +30,10 @@ The lead creates the channel and both roles in one go through the channels API (
 
 The existing bot joins the selected DSH channel and keeps its Discord connection. Bothouse reads the local gateway address and default credential automatically and reconnects if DSH Desktop changes ports. To change the selected channel, run the same setup again. A project with an existing manual Cloud Web connection will show a conflict. For a DSH gateway with a custom token, use the manual Cloud Web setup.
 
+## Download a generated file
+
+Ask the role to attach the document to the channel. From a role's active channel turn, `bothouse send --file "C:/workspace/full briefing.md"` posts a download card. The same card works in desktop, browser, and paired views. A Markdown link to a file path on the role's computer appears as a label in Channels.
+
 ## Managing DSH members
 
 The panel's Roles page can add, edit and delete DSH roster-managed members; config and external members are read-only. In an installed environment, adding a DSH role opens the daily member flow instead of reinstalling. Native members can select a DSH provider and model; Codex members can select advertised models and reasoning effort. The desired settings apply before the next turn, and the page shows their application status.

@@ -9,11 +9,12 @@
 规则：
   - 只认地图路径落在地图目录（CODEMAP_DIR，默认 bothouse 数据目录下的 codemaps/，同 codemap-inject.py）下、已存在的 .md，其余跳过。
   - 「无…」「本次…」开头的不算条目，跳过。
-  - 条目与地图里已有的「- 」行（空白归一后）相同就不再写；全被去掉就不加节。
-  - 追加一节「## 自动补（YYYY-MM-DD，<来源>）」。
+  - 条目与地图里已有的「- 」行（空白归一后）相同就不再写。
+  - 同符号同文件的旧条目直接换成新的（行号跟着更新），不留两条。
+  - 新条目插在地图里同目录最深的那组条目后面；一条同目录的都没有，放进末尾「## 待归类」节。
+  - 不再按日期追加「## 自动补」节（11-27：按日期追加把地图堆到 2750 行，大半重复和过时）。
   - 任何错误只写 stderr，退出码 0，不挡回报。
 """
-import datetime
 import json
 import os
 import re
@@ -71,9 +72,57 @@ def resolve(raw):
     return p
 
 
-def fill(text, source, today=None):
-    """返回 [(地图, 新增条数)]；跳过的路径写 stderr。"""
-    today = today or datetime.date.today().isoformat()
+PATH_TOK = re.compile(r"^[`(（]*((?:~/|/)?(?:[\w.\-]+/)*[\w.\-]+?(?:\.\w+|(?=:\d)))(?::\d+(?:-\d+)?)?[`)）,，]*$")
+OTHER = "## 待归类（codemap-fill 找不到同目录的条目时放这里，整理地图时挪走）"
+
+
+def entry_key(item):
+    """「符号 文件:行 说明」→ (符号, 文件)；找不到文件返回 None。"""
+    toks = item.split()
+    for i, t in enumerate(toks):
+        m = PATH_TOK.match(t)
+        if m and ("/" in m.group(1) or "." in m.group(1)):
+            return (" ".join(toks[:i]).strip("`"), m.group(1))
+    return None
+
+
+def place(lines, item):
+    """同符号同文件的条目换成新的（行号跟着更新）；否则插在同目录最深的那组条目后面；都没有放进待归类节。"""
+    key = entry_key(item)
+    best, best_at = 0, -1
+    for i, line in enumerate(lines):
+        b = BULLET.match(line)
+        if not b:
+            continue
+        if norm(b.group(1)) == norm(item):
+            return False
+        k = entry_key(b.group(1))
+        if not key or not k:
+            continue
+        if k == key:
+            lines[i] = f"- {item}"
+            return True
+        a, c = key[1].split("/")[:-1], k[1].split("/")[:-1]
+        n = 0
+        while n < min(len(a), len(c)) and a[n] == c[n]:
+            n += 1
+        if n == len(a) == len(c):
+            n += 1  # 同一个文件夹里的同文件、同目录优先
+        if n and n >= best:
+            best, best_at = n, i
+    if best_at >= 0:
+        lines.insert(best_at + 1, f"- {item}")
+        return True
+    if OTHER not in lines:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines += ["", OTHER]
+    lines.insert(len(lines) if lines[-1] == OTHER else lines.index(OTHER) + 1, f"- {item}")
+    return True
+
+
+def fill(text, source):
+    """返回 [(地图, 改动条数)]；跳过的路径写 stderr。条目按路径归到地图里对应的模块段，不按日期追加新节。"""
     done = []
     for raw, items in extract(text):
         path = resolve(raw)
@@ -82,23 +131,18 @@ def fill(text, source, today=None):
             continue
         with open(path, encoding="utf-8") as f:
             body = f.read()
-        seen = {norm(b.group(1)) for b in map(BULLET.match, body.splitlines()) if b}
-        new = []
+        lines = body.splitlines()
+        n = 0
         for it in items:
-            k = norm(it)
-            if NONE.match(k):
+            it = " ".join(it.split())
+            if not it or NONE.match(it):
                 continue
-            if k and k not in seen:
-                seen.add(k)
-                new.append(it.strip())
-        if not new:
+            n += place(lines, it)
+        if not n:
             continue
-        sep = "" if body.endswith("\n\n") else ("\n" if body.endswith("\n") else "\n\n")
-        src = norm(source or "未知来源").replace("）", ")")
-        block = f"{sep}## 自动补（{today}，{src}）\n" + "".join(f"- {x}\n" for x in new)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(block)
-        done.append((path, len(new)))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        done.append((path, n))
     return done
 
 

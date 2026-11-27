@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from rh.config import Role
-from rh.host import Host, room_session_dir
 from rh.brain import ClaudeBrain
 from rh.hub import MIGRATE_ARCHIVED, MIGRATE_AVATAR, MIGRATE_KEY, Hub, add_column, session_key
 from rh.meeting import Meeting
@@ -261,183 +260,6 @@ class RoomHostSubscription(RoomsBase):
         await wait_for(lambda: self.hub.message(rm["id"])["status"] == "interrupted", what="被打断")
 
 
-class HostRooms(RoomsBase):
-    """主机：每个频道一个会话。默认频道用传进来的 meeting（语音在这里），别的频道按需建。"""
-
-    def make_host(self, factory=True):
-        self.brains = {}   # 频道 id -> {角色: RecordingBrain}
-
-        def meeting_for(room_id):
-            brains = {r.id: RecordingBrain(r.name) for r in ROLES}
-            self.brains[room_id] = brains
-            return Meeting(ROLES, brains, 2, 1000.0, sleep_scale=0.01)
-
-        main = Meeting(ROLES, {r.id: RecordingBrain(r.name) for r in ROLES}, 2, 1000.0, sleep_scale=0.01)
-        self.main_brains = main.brains
-        host = Host(main, self.url, TOKEN, self.dir / "host-state.json", reconnect_min=0.05, reconnect_max=0.2,
-                    room_meeting=meeting_for if factory else None)
-        return host, main
-
-    async def run_host(self, host):
-        task = asyncio.create_task(host.run())
-        await wait_for(host.connected.is_set, what="角色主机连上")
-        return task
-
-    async def stop(self, host, task):
-        host.stop()
-        await asyncio.wait_for(task, 5)
-        for m in [host.meeting, *host.meetings.values()]:
-            await asyncio.get_running_loop().run_in_executor(None, m.wait_idle, 5)
-
-    def topic_done(self, room_id, after=0):
-        return lambda: any(r["author_kind"] == "system" and r["id"] > after for r in self.hub.history(room_id, 0))
-
-    async def test_each_room_its_own_context(self):
-        room = await self.make_room("工作")
-        host, main = self.make_host()
-        task = await self.run_host(host)
-        await self.post("大厅话题：周末去海边")
-        await wait_for(self.topic_done(1), what="大厅讨论结束")
-        _, um = await self.post("工作话题：周报怎么写", room=room["id"])
-        await wait_for(self.topic_done(room["id"], um["id"]), what="工作频道讨论结束")
-        work = [m for m in self.hub.history(room["id"], 0) if m["author_kind"] == "role"]
-        self.assertEqual([m["author"] for m in work], ["a", "b"])   # 角色回在工作频道
-        hall = [m for m in self.hub.history(1, 0) if m["author_kind"] == "role"]
-        self.assertEqual(len(hall), 2)   # 大厅没多出工作频道的发言
-        seen_work = "".join(p for b in self.brains[room["id"]].values() for p in b.prompts)
-        seen_main = "".join(p for b in self.main_brains.values() for p in b.prompts)
-        self.assertIn("周报", seen_work)
-        self.assertNotIn("海边", seen_work)    # 工作频道的会话没见过大厅的话
-        self.assertNotIn("周报", seen_main)    # 反过来也一样
-        self.assertIs(host.meetings[1], main)  # 默认频道用传进来的（有语音的）那个
-        await self.stop(host, task)
-
-    async def test_archive_clears_speaking_and_thinking(self):
-        room = await self.make_room("工作")
-        host = await self.client(kind="host", rooms="all")
-        await self.next_of(host, "ready")
-        web = await self.client(room=room["id"])
-        await self.next_of(web, "ready")
-        _, rm = await self.post("在说", room=room["id"], author_kind="role", author="a", name="A")
-        await host.send_json({"type": "thinking", "role": "b", "room": room["id"]})
-        self.assertEqual((await self.next_of(web, "thinking"))["role"], "b")
-        await self.api("DELETE", f"/api/rooms/{room['id']}")
-        self.assertEqual(self.hub.message(rm["id"])["status"], "interrupted")
-        self.assertIsNone((await self.next_of(web, "thinking"))["role"])
-        self.assertNotIn(room["id"], self.hub.thinking)
-
-    async def test_thinking_reports_room(self):
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        task = await self.run_host(host)
-        b = await self.client(room=room["id"])
-        await self.next_of(b, "ready")
-        await self.post("工作话题", room=room["id"])
-        ev = await self.next_of(b, "thinking")
-        self.assertEqual(ev["room"], room["id"])
-        await self.stop(host, task)
-
-    async def test_archived_room_meeting_stops(self):
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        task = await self.run_host(host)
-        await self.post("工作话题", room=room["id"])
-        await wait_for(lambda: room["id"] in host.meetings, what="建了工作频道的会话")
-        await self.api("DELETE", f"/api/rooms/{room['id']}")
-        await wait_for(lambda: room["id"] not in host.meetings, what="归档后停掉会话")
-        await self.stop(host, task)
-
-    async def test_host_without_factory_ignores_other_rooms(self):
-        """没给建会话的工厂（旧调用方式）：hello 不订别的频道；就算收到别的频道的消息（推送或补漏），
-        也不塞进默认频道的会话、不建新会话。"""
-        room = await self.make_room("工作")
-        host, main = self.make_host(factory=False)
-        task = await self.run_host(host)
-        self.assertFalse(any(i.get("all") for i in self.hub.subs.values() if i["kind"] == "host"))
-        await self.post("大厅话题")
-        await wait_for(self.topic_done(1), what="大厅讨论结束")
-        base = {"author_kind": "user", "author": "user", "name": "用户", "status": "user"}
-        await host._handle_message({**base, "id": 10_000, "room_id": room["id"], "text": "工作话题"})
-        await host._handle_ready({"room": {"id": 1}, "rooms": [], "messages": [
-            {**base, "id": 10_001, "room_id": room["id"], "text": "补漏的工作话题"}], "last_id": 10_001})
-        await asyncio.sleep(0.2)
-        seen = "".join(p for b in self.main_brains.values() for p in b.prompts)
-        self.assertIn("大厅话题", seen)
-        self.assertNotIn("工作话题", seen)
-        self.assertEqual(list(host.meetings), [1])
-        self.assertEqual([m for m in self.hub.history(room["id"], 0) if m["author_kind"] != "user"], [])
-        await self.stop(host, task)
-
-    async def test_reconnect_skips_archived_room(self):
-        """主机离线期间某频道有新消息、随后被归档：重连补漏时不给它建会话、不调大脑（会花真钱）。"""
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        task = await self.run_host(host)
-        await self.stop(host, task)
-        await self.post("离线时的工作话题", room=room["id"])
-        await self.api("DELETE", f"/api/rooms/{room['id']}")
-        host, _ = self.make_host()
-        task = await self.run_host(host)
-        await self.post("大厅话题")   # 等大厅的讨论走完，补漏一定处理过了
-        await wait_for(self.topic_done(1), what="大厅讨论结束")
-        self.assertNotIn(room["id"], host.meetings)
-        self.assertNotIn(room["id"], self.brains)
-        await self.stop(host, task)
-
-    async def test_other_rooms_do_not_touch_dial_or_voice(self):
-        """非默认频道纯文字：不推板子表盘，不改“最近说话的人”（语音调音量调的是她的板子）。"""
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        calls = []
-
-        class Dial:
-            def think(self, role): calls.append(("think", role))
-            def event(self, event, msg): calls.append(("event", msg.text))
-        host.dial = Dial()
-        task = await self.run_host(host)
-        _, um = await self.post("工作话题", room=room["id"])
-        await wait_for(self.topic_done(room["id"], um["id"]), what="工作频道讨论结束")
-        self.assertEqual(calls, [])
-        self.assertIsNone(host._last_speaker)
-        await self.stop(host, task)
-
-    async def test_disconnect_stops_every_room(self):
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        slow = {r.id: FakeBrain(r.name, delay=30) for r in ROLES}
-        cancelled = []
-        for b in slow.values():
-            b.cancel = (lambda orig: lambda: (cancelled.append(1), orig()))(b.cancel)
-        host.room_meeting = lambda rid: Meeting(ROLES, slow, 2, 1000.0, sleep_scale=0.01)
-        task = await self.run_host(host)
-        await self.post("工作话题", room=room["id"])
-        await wait_for(lambda: room["id"] in host.meetings and slow["a"].calls == 1, what="工作频道开始想")
-        await self.stop_hub()
-        await wait_for(lambda: not host.connected.is_set(), what="主机发现断线")
-        await wait_for(lambda: cancelled, what="工作频道的会话被停")
-        await self.start_hub()
-        await self.stop(host, task)
-
-    async def test_hub_db_swapped_drops_old_room_meetings(self):
-        """云端库换过（同一个 id 是另一个频道）：旧的频道会话全扔掉，不把旧上下文接到新频道上。"""
-        room = await self.make_room("工作")
-        host, _ = self.make_host()
-        task = await self.run_host(host)
-        _, um = await self.post("工作话题", room=room["id"])
-        await wait_for(self.topic_done(room["id"], um["id"]), what="工作频道讨论结束")
-        old = host.meetings[room["id"]]
-        await self.stop_hub()
-        self.db.unlink()
-        await self.start_hub()
-        await asyncio.sleep(0.01)
-        new = await self.make_room("另一个")   # 新库里同一个 id
-        self.assertEqual(new["id"], room["id"])
-        await wait_for(host.connected.is_set, what="主机重连")
-        await wait_for(lambda: host.meetings.get(room["id"]) is not old, what="旧会话被扔掉")
-        await self.stop(host, task)
-
-    def test_session_dir_per_room(self):
-        self.assertEqual(room_session_dir(Path("/r"), 3, "ju"), Path("/r/data/sessions/room-3/ju"))
 
 
 class SessionPersist(FakeEnv):
@@ -455,11 +277,6 @@ class SessionPersist(FakeEnv):
         last = self.argv()[-1]
         self.assertEqual(last[last.index("--resume") + 1], a.session_id)
 
-    def test_rooms_do_not_share_sessions(self):
-        a = ClaudeBrain(ROLES[0], ["X"], "haiku", 10, room_session_dir(Path(self.dir), 2, "a"))
-        a.reply("hi")
-        b = ClaudeBrain(ROLES[0], ["X"], "haiku", 10, room_session_dir(Path(self.dir), 3, "a"))
-        self.assertNotEqual(b.session_id, a.session_id)
 
     def test_failed_first_call_not_saved(self):
         os.environ["FAKE_MODE"] = "exit1_first"
@@ -598,32 +415,3 @@ if __name__ == "__main__":
     __import__("unittest").main()
 
 
-class MainLeavesOtherRoomsToBots(unittest.TestCase):
-    """线上主机（rh.host main）不在非默认频道建会话：那边由 cc-connect 经 cloud_web 接进来的 bot 回。
-    来源：2026-10-20 现场，room 2「@橘 …」收到两条回复（hub 消息 229 作者 ju = 主机的 claude -p 角色，
-    230 作者 maomao = cc-connect 的橘），同一个角色回了两遍。默认频道（大厅，语音和板子）不变。"""
-
-    def test_main_builds_host_without_room_factory(self):
-        import tempfile
-        from unittest import mock
-        import rh.host as hostmod
-
-        class Built(Exception):
-            pass
-
-        got = {}
-
-        def fake_host(*a, **kw):
-            got.update(kw)
-            raise Built
-
-        with tempfile.TemporaryDirectory() as d, \
-                mock.patch.object(hostmod, "Host", fake_host), \
-                mock.patch.object(hostmod, "build", lambda *a, **k: object()), \
-                mock.patch.dict(os.environ, {"RH_HUB_URL": "http://127.0.0.1:9", "RH_HUB_TOKEN": "t"}), \
-                mock.patch.object(sys, "argv", ["rh.host", "--no-voice", "--config", str(ROOT / "roles.example.toml"),
-                                                "--state", f"{d}/s.json", "--log", f"{d}/speech.jsonl"]):
-            with self.assertRaises(Built):
-                hostmod.main()
-        self.assertIn("room_meeting", got)   # 确实走到了建 Host 这一步
-        self.assertIsNone(got["room_meeting"])

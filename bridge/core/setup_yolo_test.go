@@ -40,7 +40,7 @@ func TestDefaultAgentYoloMode(t *testing.T) {
 
 // First-run wizard: all new roles default to their respective YOLO permission modes.
 func TestApplyWizard_FirstRunDefaultsToYolo(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -82,7 +82,7 @@ func TestApplyWizard_FirstRunDefaultsToYolo(t *testing.T) {
 
 // Append mode: newly added roles default to their respective YOLO permission mode.
 func TestApplyWizard_AppendModeDefaultsToYolo(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -117,7 +117,7 @@ func TestApplyWizard_AppendModeDefaultsToYolo(t *testing.T) {
 
 // Preserves existing role's configured mode: existing projects are NOT overwritten to YOLO.
 func TestApplyWizard_PreservesExistingRoleMode(t *testing.T) {
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()
@@ -185,7 +185,7 @@ func (s *dshTestAgentSession) RespondPermission(id string, res PermissionResult)
 // from wizard defaults and automatically approves permission requests during interactive turns.
 func TestDSH_DefaultYoloAutoApprovesPermission(t *testing.T) {
 	dshStoredKey(t)
-	noHardware(t)
+	noLocalGate(t)
 	noLocalHub(t)
 	hub := fakeHub(t, "bot-secret")
 	store := newMemStore()

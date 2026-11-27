@@ -4,3 +4,4 @@
   - a reviewed action may carry 【已审:{{REVIEWS}}/<name>.md】 naming that review file; each file can be used once.
   The main session does not edit code files itself; a subagent does. `~/.claude`, `/tmp` and the wiki directory are exempt. Before editing a document, register it with `{{PYTHON}} {{HOOKS}}/doc-ok.py <file>` (prompts, SPECs and agent definitions are not documents).
 - In HOOK_RESEARCHER_DIRS, dispatch research to researcher (or explicitly Sonnet). Unconfigured directories are unaffected. Configure teammate names through HOOK_TEAMMATES.
+- Numbers (defined at the top of {{HOOKS}}/dispatch-review-guard.py): a review of a change under 30 lines that touches no bridge, live or money path is sent back ("small change: verify with a script"); in a chat channel the main session may make an edit of up to 10 lines itself.

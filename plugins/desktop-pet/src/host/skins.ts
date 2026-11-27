@@ -4,8 +4,9 @@
  * - 内置形象：包内 `assets/roles/<id>/`（bothouse 自家角色和工作台成员，清单见 `assets/roles/skins.json`）。
  * - 推荐形象：别人家的开源形象，包里不带文件，只在 skins.json 的 recommended 里列出；用户点了才下载到
  *   `<用户根>/skins/<id>/`，装好后和内置形象一样可选。
- * - 穿哪套：用户在右键菜单「换形象」里选过就用选的（存 `<用户根>/bothouse-skin.json`）；没选 = 跟绑定的角色走
- *   （`bothouse pet run` 的 /skin），名字按清单 aliases 认；都没有就用清单的 default。
+ * - 穿哪套：用户在右键菜单「换形象」里选过就用选的（存 `<用户根>/bothouse-skin.json`）；没选 = 跟绑定走
+ *   （`bothouse pet run` 的 /skin：插件页选的形象包，或 `bothouse pet skin <角色> <形象>` 写的形象 id）；
+ *   绑定没写形象才按角色名在清单 aliases 里认；都没有就用清单的 default。
  *
  * 一套形象目录里放：同名动画（可选，推荐形象整套上游动画就是这样）、八个状态动画
  * idle/talk/think/work/happy/sleep/drag/surprise.webm（缺的退回 idle），以及 memes/（表情图 + memes.json）。
@@ -111,9 +112,11 @@ export async function resolveSkin(root = 'main'): Promise<string | undefined> {
   const main = root === 'main';
   let dir = main ? skinDir(chosenSkin()) : undefined;
   if (dir === undefined) {
-    const role = await bothouse()?.skinRole(main ? undefined : root);
-    const id = role ? skinForRole(role) : undefined;
-    dir = id ? skinDir(id) : undefined;
+    const look = await bothouse()?.skinLook(main ? undefined : root);
+    // 绑定写明了穿哪套（插件页或 `bothouse pet skin`）就穿它；没写才按角色名在清单 aliases 里认。
+    dir = look?.skin ? skinDir(look.skin) : undefined;
+    const id = dir === undefined && look?.role ? skinForRole(look.role) : undefined;
+    if (id) dir = skinDir(id);
   }
   dir ??= skinDir(manifest().default);
   if (main) currentDir = dir;

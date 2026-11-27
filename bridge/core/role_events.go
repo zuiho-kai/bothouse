@@ -184,8 +184,8 @@ func (e *Engine) observeRoleAgentEvent(session string, ev Event, textParts []str
 		}
 		if isSilentReply(text) {
 			text = ""
-		} else if stripped, ok := stripTrailingSilent(text); ok {
-			text = stripped
+		} else {
+			text = stripSilentReply(text)
 		}
 		e.publishRoleEvent(session, "celebrate", text)
 	}

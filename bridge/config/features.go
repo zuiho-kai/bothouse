@@ -150,9 +150,6 @@ var featureSwitches = []FeatureSwitch{
 	g("cron.silent", false, true, "定时任务开始时不通知", "定时任务开跑时不发「开始执行」那条消息。",
 		"Silent cron start", "Do not post the start notice when a scheduled task begins.",
 		func(c *Config) **bool { return &c.Cron.Silent }),
-	g("relay.voice_resident", false, true, "语音常驻会话", "语音对话复用同一个会话，不每句话新开一个，省等待时间。",
-		"Resident voice session", "Voice turns reuse one live session instead of starting one per turn.",
-		func(c *Config) **bool { return &c.Relay.VoiceResident }),
 	g("cleanup.enabled", true, true, "自动清理", "一周没人碰的临时目录和旧运行记录自动清掉。",
 		"Automatic cleanup", "Remove temporary dirs and old run records nobody touched for a week.",
 		func(c *Config) **bool { return &c.Cleanup.Enabled }),
@@ -220,9 +217,6 @@ var featureSwitches = []FeatureSwitch{
 	p("member_workspaces", false, false, "成员个人目录", "每个加入的真人有自己的目录，可以用自己的 GitHub 授权。",
 		"Member workspaces", "Every person who joins gets a personal directory and may authorize their own GitHub.",
 		func(p *ProjectConfig) **bool { return &p.MemberWorkspaces }),
-	pPlain("voice_desk", false, "语音总台", "语音对话时能看到队友进度，并把确认过的指令转给队友。",
-		"Voice desk", "Voice turns see teammates' progress and may hand a confirmed instruction to one.",
-		func(p *ProjectConfig) *bool { return &p.VoiceDesk }),
 	{Key: "reply_footer", Scope: FeatureScopeProject, Name: "回复页脚", Desc: "这个角色回复末尾的那几行。没设时跟全局的回复页脚。",
 		NameEN: "Reply footer", DescEN: "The lines under this role's replies. Unset follows the global switch.", def: always(true),
 		get: func(c *Config, p *ProjectConfig) bool { _, _, _, _, _, _, v, _ := EffectiveDisplay(c, p); return v },
@@ -281,11 +275,6 @@ var featureNotSwitch = map[string]string{
 	"projects.display.show_context_indicator":   "per-project display override; projects.show_context_indicator is listed",
 	"projects.display.reply_footer":             "per-project display override; projects.reply_footer is listed",
 	"projects.display.hide_agent_footer":        "per-project display override; the global switch is listed",
-}
-
-// FeatureSwitches returns the registry (a copy).
-func FeatureSwitches() []FeatureSwitch {
-	return append([]FeatureSwitch(nil), featureSwitches...)
 }
 
 // FeatureStates is every switch's value in cfg: the global ones, then each project's.
@@ -391,4 +380,9 @@ func SetFeatureSwitch(project, key string, on bool) (restart bool, err error) {
 		return false, err
 	}
 	return sw.Restart, nil
+}
+
+// FeatureSwitches returns the registry (a copy).
+func FeatureSwitches() []FeatureSwitch {
+	return append([]FeatureSwitch(nil), featureSwitches...)
 }

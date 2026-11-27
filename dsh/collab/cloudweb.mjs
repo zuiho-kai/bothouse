@@ -4,7 +4,7 @@
 //   ws(s)://<host>/cloud-web/ws?bot=<member id>&name=<display>&mention_id=<digits>&avatar=<slug|http(s) URL>
 // Rooms are addressed as "room-<id>", messages as "hub-<id>".
 import { checkAvatar } from './avatars.mjs';
-import { CollabError, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
+import { CollabError, MAX_NAME, MAX_TEXT, messageAttachments, publicMessage, quotePrefix } from './store.mjs';
 import { oversizedNote } from './attachments.mjs';
 import { ChannelApprovals, parseCard } from './approvals.mjs';
 import { credentialHash, rowToExternal } from './roster.mjs';
@@ -31,7 +31,7 @@ export function supportsWorkspaces(store) { return typeof store?.createWorkspace
  * SendFile / SendAudio). Advertised only when the gateway has an attachment store; the
  * bytes are saved there and shown in the Channel page like an uploaded attachment.
  */
-export const MEDIA_CAPABILITIES = ['image', 'file', 'audio'];
+export const MEDIA_CAPABILITIES = ['image', 'file', 'audio', 'file_receipt'];
 // `format` of an audio frame (cc-connect audioFormatHint: file extension or mime subtype)
 // -> mime type the page's <audio> element can play.
 const AUDIO_MIME = { mp3: 'audio/mpeg', mpeg: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg',
@@ -54,7 +54,6 @@ export const PROGRESS_PREFIX = '__cc_connect_progress_card_v1__:';
 // cancelled DSH job. page.html styles it like any other card state.
 const CARD_STATES = { running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', aborted: '已打断', stopped: '已停止' };
 const RESERVED_IDS = new Set(['user', 'system']);
-const MAX_NAME = 64;
 
 export function roomKey(roomId) { return `room-${roomId}`; }
 
@@ -609,18 +608,27 @@ export class CloudWebGateway {
         const room = roomOf(d, this.hub.store);
         if (typeof d.content !== 'string' || room === undefined) return;
         const content = ['ask', 'report'].includes(d.kind) ? `[${d.kind}]\n${d.content}` : d.content;
-        const text = content.trim();
-        if (!text || text.length > MAX_TEXT) return;
+        const whole = content.trim();
+        if (!whole) return;
+        // Over the store's MAX_TEXT: post it as several rows, never drop it (user 11-26: 超限照发不砍并报警).
+        const parts = [];
+        for (let i = 0; i < whole.length; i += MAX_TEXT) parts.push(whole.slice(i, i + MAX_TEXT));
+        if (parts.length > 1) console.warn(`[collab] reply from ${member.id} is ${whole.length} chars (> ${MAX_TEXT}): posted as ${parts.length} messages`);
+        const [text, ...rest] = parts;
+        const postRest = () => {
+          let id;
+          for (const t of rest) id = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: t, fromTurn: d.agent === true }).message.id;
+          return id;
+        };
         // reply_in_place (#121): the streamed preview becomes this reply; fall back to a new row if it is gone.
         // A frame with ref_id asks for the posted row's id back (bridge SentMessageRecorder).
-        const ack = id => { if (typeof d.ref_id === 'string' && d.ref_id) send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: String(id) }); };
         const h = d.preview_handle;
         if (typeof h === 'string' && /^\d+$/.test(h)) {
           const row = this.hub.commit(Number(h), 'role', member.id, text, d.agent === true);
-          if (row !== undefined) { ack(row.id); return; }
+          if (row !== undefined) { sendPostedMessageAck(bot.ws, d.ref_id, postRest() ?? row.id); return; }
         }
         const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text, fromTurn: d.agent === true });
-        ack(message.id);
+        sendPostedMessageAck(bot.ws, d.ref_id, postRest() ?? message.id);
         return;
       }
       case 'buttons': {
@@ -677,19 +685,24 @@ export class CloudWebGateway {
       case 'file':
       case 'audio': {
         const room = roomOf(d, this.hub.store);
-        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) return;
+        const refId = d.type === 'file' ? d.ref_id : undefined;
+        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) {
+          sendPostedMessageAck(bot.ws, refId);
+          return;
+        }
         const ext = String(d.format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '').replace(/[^a-z0-9]/g, '');
         const mime = d.type === 'audio' ? audioMime(d.format) : (typeof d.mime_type === 'string' && d.mime_type) || 'application/octet-stream';
         const name = typeof d.file_name === 'string' && d.file_name ? d.file_name
           : d.type === 'audio' ? `voice.${ext || 'mp3'}` : d.type === 'image' ? `image.${mime.split('/')[1] ?? 'png'}` : 'file';
-        let attachments;
+        let id;
         try {
-          attachments = this.files.save([{ name, mime, data: d.data }]);
+          const attachments = this.files.save([{ name, mime, data: d.data }]);
+          const { message } = this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+          id = message.id;
         } catch (error) {
           this.logger.warn('collab: cloud-web %s frame from %s dropped: %s', d.type, member.id, error?.message ?? error);
-          return;
         }
-        this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+        sendPostedMessageAck(bot.ws, refId, id);
         return;
       }
       case 'queue': {
@@ -797,6 +810,12 @@ function newerSeq(row, seq) {
   if (row === undefined || seq === undefined) return false;
   const stored = parseCard(row.card)?.seq;
   return !Number.isSafeInteger(stored) || seq > stored;
+}
+
+function sendPostedMessageAck(ws, refId, id) {
+  if (typeof refId === 'string' && refId) {
+    send(ws, { type: 'preview_ack', ref_id: refId, preview_handle: id === undefined ? '' : String(id) });
+  }
 }
 
 function send(ws, frame) {

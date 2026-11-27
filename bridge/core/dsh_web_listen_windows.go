@@ -95,3 +95,16 @@ func pidListeningOnPort(port string) int {
 	}
 	return 0
 }
+
+// LoopbackListenAddrsOfPID: the 127.0.0.1 "host:port" addresses pid is listening on, read from the
+// same TCP table. Callers outside core use it where unix code runs lsof -p (Antigravity's native
+// quota finds its CLI's listener this way, #2265).
+func LoopbackListenAddrsOfPID(pid int) []string {
+	var list []string
+	for _, l := range tcpListeners() {
+		if l.pid == pid && l.addr == [4]byte{127, 0, 0, 1} {
+			list = append(list, "127.0.0.1:"+strconv.Itoa(l.port))
+		}
+	}
+	return list
+}

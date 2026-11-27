@@ -241,6 +241,31 @@ func teamTaskInWorkOnLocked(dataDir string, id int, key string) (TeamTask, bool,
 	return t, ok && teamTaskInWork(t.State) && t.WS == teamChatKey(key), nil
 }
 
+// workspaceTaskMovedAway: the task last handed to workspace key is now worked on in another
+// workspace (a rework claimed elsewhere), so key owes no [report] for it. 2026-11-27 00:34:46
+// #2052 was sent back and claimed by 1575320258237956127; its old workspace 1575497425236271114
+// was still asked to hand it back, got released, and the stray wake opened a fresh session on
+// the long-closed #2048 (11-26 反思 a 类「已交回并验收的任务不再催」).
+func workspaceTaskMovedAway(dataDir, key string) bool {
+	if dataDir == "" {
+		return false
+	}
+	key = teamChatKey(key)
+	teamWorkspaceStore.mu.Lock()
+	defer teamWorkspaceStore.mu.Unlock()
+	st, err := loadTeamWorkspacesLocked(teamWorkspacePath(dataDir))
+	if err != nil {
+		return false
+	}
+	rows := st.Handoffs[key]
+	for i := len(rows) - 1; i >= 0; i-- {
+		if t, ok := st.Tasks[rows[i].Board]; rows[i].Board > 0 && ok {
+			return t.WS != "" && teamChatKey(t.WS) != key
+		}
+	}
+	return false
+}
+
 // workspaceTaskStateAt: the state of the task last handed to workspace key (its newest handoff
 // that names a board item with a state record); "" when there is none or the state is unreadable.
 // The idle watch reads handed back / asking from here (#699 C), not from the reply.

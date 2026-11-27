@@ -131,6 +131,13 @@ type FormattingInstructionProvider interface {
 	FormattingInstructions() string
 }
 
+// ChannelReplyGuidanceProvider supplies formatting guidance for a channel's replies.
+// The bridge injects it into the turn once per agent context, including for agents
+// that cannot accept a custom system prompt.
+type ChannelReplyGuidanceProvider interface {
+	ChannelReplyGuidance() string
+}
+
 // PlatformPromptInjector is an optional interface for agents that can receive
 // platform-specific prompt fragments (e.g., formatting instructions).
 // The engine calls this before StartSession when the platform provides formatting.
@@ -143,7 +150,7 @@ This conversation supports native quoted text replies. To deliberately quote a p
 
   bothouse send --reply-to <message-id> --message "your reply"
 
-Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text.`
+Use an ID supplied by this conversation, never invent one or reuse one from another chat. In [Message IDs: current=... reply_to=...], current is the incoming message and reply_to is its quoted original, when present. The bridge verifies the target belongs to this conversation. Do not imitate a quote with plain text. The command inherits your project and session; an explicit --session is also supported. After success, do not repeat the sent text; use NO_REPLY if there is nothing else to say. Ordinary replies still use normal text. When answering an earlier buffered/backlogged question, quote that original message rather than the unrelated message that woke you; if native quoting is unavailable, mention the original asker with 'bothouse send --at-users <sender-id>'.`
 
 // aboutHint points every role at the built-in product notes (`bothouse about`); part of
 // bridgeInstructions.
@@ -168,6 +175,7 @@ When you generate a local image or file that should be sent to the user, use:
 
 You may repeat --image / --file multiple times. Use this only for generated attachments that need to be delivered to the user.
 The user reads you in a chat app and usually cannot open paths on this machine. When a reply points the user to a local file they should read (a document, notes, a report, a log), send it with bothouse send --file or paste its content into the reply; never give only the local path.
+In DSH Channels, local Markdown file links display as plain text. Post the file attachment before your summary and refer to its filename after the command succeeds. If sending fails, explain the outcome and include the relevant content inline when appropriate.
 If you include --message, do not repeat the exact same sentence again in your normal reply, because your normal reply is also delivered automatically.
 
 When sending an audio (mp3/wav/m4a/ogg/opus) or video (mp4/mov/webm) clip that should render inline as a native voice bubble or video player — instead of as a generic file download — use the dedicated flags:

@@ -331,21 +331,29 @@ func (e *Engine) forwardWorkspaceExitKind(ctx context.Context, p Platform, sessi
 		rc = e.recordReplyTask(p, rc, hid)
 		return e.postExitHeadline(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, hid, hline, item)
 	}
-	if it := e.boardItemByID(hid); it != nil {
-		rc = e.recordReplyTask(p, rc, it.ID)
+	// A missing or unknown ID is not evidence that the reply belongs to the newest occupant of this
+	// workspace: only a task still on the board gets the reply tied to it.
+	if item != nil {
+		rc = e.recordReplyTask(p, rc, item.ID)
 	}
 	// The format is still wrong after the bounces: the chat channel's lead rewrites it in the same
 	// three parts and posts that (user 10-30: no longer posted as written, 「一大坨根本看不懂」).
 	// The workspace keeps the original; the 📬 copy below is only the fallback when no lead takes it.
-	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, hid, false, "") {
+	if e.wakeChatLeadContext(ctx, p, parent, ws, bot, kind, body, sessionKey, item, false, "") {
 		slog.Info("team exit: handed to the chat lead to rewrite", "kind", kind, "workspace", ws, "parent", parent)
 		// the lead rewrites the text only; the images go to the chat channel now
 		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
 		return ""
 	}
 	id, err := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, "")
-	if err == nil {
-		e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
+	if err != nil {
+		noteExitOutcome(ctx, func(o *exitOutcome) { o.dropped = err.Error() })
+		return id
+	}
+	e.postExitImages(ctx, p, rc, parent, sessionKey, body, item)
+	if kind == team.ExitKindReport && !workspaceBatchReport(ctx) {
+		e.markExitReported(hid)
+		e.endWorkspaceTask(owner, sessionKey, kind, hid, body)
 	}
 	return id
 }
@@ -493,13 +501,6 @@ func (e *Engine) postWithDetail(ctx context.Context, p Platform, rc any, name, t
 		}
 	}
 	return nil
-}
-
-// postExitOriginal copies body into the chat channel as 📬 posts (no lead took it). header
-// overrides the first post's header (a headline's details). It returns the forwarded ask id.
-func (e *Engine) postExitOriginal(ctx context.Context, p Platform, rc any, parent, ws, bot, kind, body, sessionKey, header string) string {
-	id, _ := e.postExitOriginalErr(ctx, p, rc, parent, ws, bot, kind, body, sessionKey, header)
-	return id
 }
 
 // postExitOriginalErr is postExitOriginal with the platform error, so a caller that must keep a

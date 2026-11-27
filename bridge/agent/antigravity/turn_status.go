@@ -261,20 +261,6 @@ func (n *nativeTrajectory) currentTurnEnvelopeRejection(t streamTurnEvidence, re
 	return ""
 }
 
-// confirmsHistoricalError is the narrower original proof: a clean current turn
-// whose CLI error text equals an error recorded before the turn began.
-func (n *nativeTrajectory) confirmsHistoricalError(t streamTurnEvidence, resultError, response string) bool {
-	if t.failed || n.currentTurnRejection(t, response) != "" {
-		return false
-	}
-	for _, step := range n.Trajectory.Steps[:t.start] {
-		if step.Type == "CORTEX_STEP_TYPE_ERROR_MESSAGE" && step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError == resultError {
-			return true
-		}
-	}
-	return false
-}
-
 // Long conversations exceed 8 MiB as JSON (seen at ~370 steps), which made
 // every current-turn verification fail and kept historical-error false ERRORs.
 const nativeTrajectoryLimit = 64 << 20

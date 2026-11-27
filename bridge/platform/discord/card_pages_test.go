@@ -4,15 +4,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
 // #1197: 细节 keeps every line in full and pages past the embed limit.
 func TestProgressDetailPagesKeepEveryLineInFull(t *testing.T) {
 	long := strings.Repeat("思", 900)
-	var items []core.ProgressCardEntry
+	var items []model.ProgressCardEntry
 	for i := 0; i < 12; i++ {
-		items = append(items, core.ProgressCardEntry{Kind: core.ProgressEntryThinking, Text: long})
+		items = append(items, model.ProgressCardEntry{Kind: model.ProgressEntryThinking, Text: long})
 	}
 	payload := &core.ProgressCardPayload{Lang: "zh", State: core.ProgressCardStateRunning, Steps: 3, Items: items}
 	pages := buildDiscordProgressDetailPages(payload)

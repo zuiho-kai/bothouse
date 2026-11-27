@@ -44,6 +44,24 @@ class RecallTests(unittest.TestCase):
         with patch.object(recall, 'channel_hits', return_value=rows, create=True), patch.object(recall, 'wiki_hits', return_value=[]), patch.object(recall, 'session_ids', return_value=[]):
             self.assertEqual(recall.gather(['架构图'], '2026-11-01T04:00:00'), rows)
 
+    def test_session_ids_reads_index_newest_first_capped(self):
+        # #2062：原先调 sessions.py search 不设上限，每次跑满 20 秒被掐、一条没拿到；改成只读索引取 id，按最近排、限量
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            db = sqlite3.connect(Path(d) / "index-v2.sqlite")
+            db.execute("create table sessions (id text primary key, mtime real)")
+            db.execute("create virtual table docs using fts5(id unindexed, text, tokenize='trigram')")
+            for i in range(5):
+                db.execute("insert into sessions values (?, ?)", (f"s{i}", i))
+                db.execute("insert into docs values (?, ?)", (f"s{i}", "用户说交接太慢 ws-handoff" if i != 2 else "无关"))
+            db.commit(); db.close()
+            with patch.object(recall, 'SESSIONS', Path(d) / "sessions.py"), patch.object(recall, 'SESSION_CAP', 2):
+                self.assertEqual(recall.session_ids("ws-handoff"), [("s4", "ws-handoff"), ("s3", "ws-handoff")])
+                self.assertEqual(recall.session_ids("交接"), [("s4", "交接"), ("s3", "交接")])
+                self.assertEqual(recall.session_ids("没有的词"), [])
+        with patch.object(recall, 'SESSIONS', Path("/nonexistent/sessions.py")):
+            self.assertEqual(recall.session_ids("交接"), [])
+
     def test_channel_filters_time_system_and_preserves_author(self):
         records = [
             ('2026-11-01T11:48:00.74905+09:00', '彩虹猫', 'ASCII 架构图太土', 'discord:1', 'caihongmao/s1'),

@@ -102,6 +102,12 @@ func scanPlatformCapabilities(root string) (map[string][]string, []platformCode,
 	if err != nil {
 		return nil, nil, err
 	}
+	// The interfaces platforms implement for the task board live in core/model.
+	modelFiles, err := parseGoFiles(filepath.Join(root, "core", "model"))
+	if err != nil {
+		return nil, nil, err
+	}
+	coreFiles = append(coreFiles, modelFiles...)
 	ifaces := map[string]*coreInterface{}
 	asserted := map[string]bool{}
 	// assert records an asserted type: a named interface by its name, an inline one

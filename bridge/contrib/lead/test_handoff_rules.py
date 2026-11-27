@@ -148,18 +148,14 @@ class SameResultsTest(unittest.TestCase):
         self.assertIn("照抄对象", got[0])
         self.assertEqual(node(COPIES[0], SP, texts=EX)["texts"], got)
 
-    def test_user_view_walk_is_default_and_narrow(self):
-        # #1893：界面活默认要写「用户视角走查」（从本机叠加拿回默认），但讲走查这件事本身、不含界面词的交接不再被自己触发
-        ui = GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 把记忆论坛页面改新\n")
-        walk = "- 用户视角走查：按第一次打开的用户逐页截图，交回附修前修后截图和还有哪三处不满意\n"
-        cases = [ui, ui.replace("- 改：x\n", "- 改：x\n" + walk),
-                 "## 用户总目标\n「用户视角走查的检查放宽」\n".replace("用户总目标", "用户原话") + GOOD[GOOD.index("## 总目标"):],
-                 GOOD.replace("- 改：x\n", "- 改：x\n" + walk)]
+    def test_ui_words_no_longer_block_handoff(self):
+        # #2042：交接写「KV 布局」被当成界面活拦回；界面活的走查改到交回时按实际改动文件查（_ui_gate.py），交活不看字眼
+        cases = [GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 调 KV 布局\n"),
+                 GOOD.replace("## 总目标\n- z\n", "## 总目标\n- 把记忆论坛页面的按钮布局改新\n")]
         py = [R.check(t, S) for t in cases]
-        self.assertIn("用户视角走查", py[0] or "")
-        self.assertIsNone(py[1])
-        self.assertIsNone(py[2], "只提走查二字的规则活不该被触发")
-        self.assertIsNone(py[3], "没界面词的活带着走查行也照样过")
+        self.assertEqual(py, [None, None])
+        self.assertNotIn("user_view_walk", {c["id"] for c in S["checks"]})
+        self.assertIn("user_view_walk", S.get("report", {}))
         for copy in COPIES:
             self.assertEqual(node(copy, SP, texts=cases)["texts"], py)
 

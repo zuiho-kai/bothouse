@@ -196,69 +196,6 @@ class Fix6ExternalKill(FakeEnv):
         self.assertIn("被信号 9 杀掉", m.messages[-1].text)
 
 
-class Fix7Sigterm(FakeEnv):
-    """7. 角色主机收到 SIGTERM 时，正在跑的 claude 子进程一起清掉（hub 和 host 都在本机，127.0.0.1）。"""
-
-    def test_sigterm_cleans_children(self):
-        os.environ.update(FAKE_SLEEP="30", RH_HUB_TOKEN="t")
-        port = 18000 + os.getpid() % 1000
-        url = f"http://127.0.0.1:{port}"
-        hub = subprocess.Popen([sys.executable, "-m", "rh.hub", "--port", str(port),
-                                "--db", str(Path(self.dir) / "hub.sqlite3")], cwd=ROOT,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        host = None
-        try:
-            self.wait_http(url)
-            host = subprocess.Popen([sys.executable, "-m", "rh.host", "--hub", url, "--no-voice",
-                                     "--config", str(ROOT / "roles.example.toml"),   # 不依赖本地 roles.toml
-                                     "--state", str(Path(self.dir) / "state.json"),
-                                     "--log", str(Path(self.dir) / "s.jsonl")], cwd=ROOT,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            db = Path(self.dir) / "hub.sqlite3"
-            for _ in range(200):   # 等主机连上（成员表上报进云端库了）
-                con = sqlite3.connect(db)
-                n = con.execute("SELECT COUNT(*) FROM members").fetchone()[0]
-                con.close()
-                if n:
-                    break
-                time.sleep(0.05)
-            self.hub_post(url, "/api/rooms/1/messages", {"text": "hi"})
-            for _ in range(200):
-                if self.calls():
-                    break
-                time.sleep(0.05)
-            pid = self.calls()[0][0]
-            os.kill(pid, 0)  # 假 claude 正在跑
-            host.send_signal(signal.SIGTERM)
-            host.wait(10)
-            time.sleep(0.2)
-            with self.assertRaises(ProcessLookupError):
-                os.kill(pid, 0)
-            print(f"   SIGTERM 后主机退出码 {host.returncode}，claude 子进程 {pid} 已不在")
-        finally:
-            for p in (host, hub):
-                if p is not None and p.poll() is None:
-                    p.kill()
-                    p.wait()
-
-    @staticmethod
-    def wait_http(url):
-        for _ in range(200):
-            try:
-                urllib.request.urlopen(url + "/", timeout=1).read()
-                return
-            except OSError:
-                time.sleep(0.05)
-
-    @staticmethod
-    def _req(url, path, method, body=None):
-        req = urllib.request.Request(url + path, method=method, headers={
-            "Authorization": "Bearer t", "Content-Type": "application/json"},
-            data=None if body is None else json.dumps(body).encode())
-        return json.load(urllib.request.urlopen(req, timeout=5))
-
-    def hub_post(self, url, path, body):
-        return self._req(url, path, "POST", body)
 
 
 class FixASurrogate(FakeEnv):

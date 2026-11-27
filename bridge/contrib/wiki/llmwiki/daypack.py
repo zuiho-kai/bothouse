@@ -137,6 +137,18 @@ def per_session(calls):
     return S
 
 
+# 会话中途被结束（桥重启、回合被杀）的调用：结果是下次续会话时才补记的，「发出到结果」量的是停摆时长，不是命令慢。
+# 出处：11-24 反思把 0a85c927 的 bothouse vent 记成「卡 18.5 分钟」——实为 13:12:14 桥重启砍了回合，13:30:59 续会话才补记。
+INTERRUPTED = "[Tool call interrupted"
+
+
+def interrupted(block):
+    c = block.get("content")
+    if isinstance(c, list):
+        c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+    return isinstance(c, str) and c.lstrip().startswith(INTERRUPTED)
+
+
 def slow_commands(start, end=None, root=CC, over=SLOW):
     """Bash calls sent in [start, end) that took longer than `over` seconds from tool_use to tool_result, slowest
     first: (seconds, sid, sub-agent?, command)."""
@@ -144,7 +156,7 @@ def slow_commands(start, end=None, root=CC, over=SLOW):
     for f in glob.glob(str(root / "*" / "**" / "*.jsonl"), recursive=True):
         if os.path.getmtime(f) < start:
             continue
-        sent = {}
+        sent, last = {}, 0  # last：本文件上一条结果的时间。同一条消息里并发发出的几条，排在后面的从上一条结果起算，不重复计等待
         for line in open(f, errors="ignore"):
             if '"tool_use"' not in line and '"tool_result"' not in line:
                 continue
@@ -164,8 +176,11 @@ def slow_commands(start, end=None, root=CC, over=SLOW):
                     sent[b.get("id")] = (t, (b.get("input") or {}).get("command") or "", d.get("sessionId", "?"))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in sent:
                     t0, cmd, sid = sent.pop(b["tool_use_id"])
-                    if t0 >= start and (not end or t0 < end) and t - t0 > over:
-                        out.append((t - t0, sid, "/subagents/" in f, cmd))
+                    took, last = t - max(t0, last), max(last, t)
+                    if interrupted(b):
+                        continue
+                    if t0 >= start and (not end or t0 < end) and took > over:
+                        out.append((took, sid, "/subagents/" in f, cmd))
     return sorted(out, reverse=True)
 
 
@@ -254,13 +269,16 @@ def task_part(S, tasks, n=TASK_TOP, root=CC):
         by[k]["rewrite_cost"] += v["rewrite_cost"]
         by[k]["sessions"] += 1
         by[k]["calls"] += v["calls"]  # 迭代轮次只认得到调用次数（反思 11-14 a 类）：日志里没有「第几轮」
+        by[k]["over"] += v["over_ctx"]  # 反思 11-17 a 类：过 300k 的调用按任务汇总，反思直接对照
     if not by:
         return []
     lines = [f"按任务编号（会话里跑得最多的 board 命令编号；没跑过的取开工消息里的「任务板 #编号」，再没有按会话标题或首条用户话记「未标·标题」，"
              f"两样都没有的归「未标任务」，按开销前 {n} 项）："]
     for k, v in sorted(by.items(), key=lambda x: -x[1]["cost"])[:n]:
         lines.append(f"- {k} ${v['cost']:.1f}（主会话 ${v['cost'] - v['sub']:.1f}，子 agent ${v['sub']:.1f}，"
-                     f"疑似过期重写 ${v['rewrite_cost']:.1f}）会话 {v['sessions']} 个，调用 {v['calls']} 次")
+                     f"疑似过期重写 ${v['rewrite_cost']:.1f}）会话 {v['sessions']} 个，调用 {v['calls']} 次，过 {BIG_CTX // 1000}k {v['over']} 次")
+    over = [(k, v["over"]) for k, v in sorted(by.items(), key=lambda x: -x[1]["over"])[:n] if v["over"]]
+    lines.append(f"- 过 {BIG_CTX // 1000}k 的调用按任务（前 {n} 项）：" + ("、".join(f"{k} {c} 次" for k, c in over) or "无"))
     return lines
 
 
@@ -468,12 +486,64 @@ def detour_part(signals):
     return lines + (["- 无"] if len(lines) == 1 else [])
 
 
-def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True, reply_chars=None, codex_root=None):
+# 交付后用户的话（#1447）：弯路信号只看助手自己的轨迹，被骂的做法多半只在用户事后的反应里（11-11 归类：没提醒到的 68 件
+# 里 63 件干活时没有相关信号）。每份交付带上任务板编号和跑过那件活 board 命令的会话，单独一段、单独上限，不和弯路信号
+# 抢那 60 行。用户的话写 U 编号（同「用户的话」一节，脚本回填原话），摘录截到 DETOUR_CHARS。
+REACT_PER = 3  # 每份交付最多摘几句用户的话；来源：影子回放 reacts[:4] 取到第 3 句已基本是下一件事
+BOARD_DIR = Path(os.environ.get("BOARD_DIR") or Path.home() / ".bothouse" / "team")  # 任务板（board.py 同一环境变量）
+
+
+def board_ids(titles, d=None):
+    """{📬 标题: 任务板编号}：标题对上条目的 short（ws-handoff --short），否则是 what 的开头；在做和已完成的都找。"""
+    d = Path(d or BOARD_DIR)
+    rows = []
+    for name in ("board.jsonl", "board-done.jsonl"):
+        try:
+            rows += [json.loads(l) for l in open(d / name, errors="ignore") if l.strip()]
+        except (OSError, ValueError):
+            continue
+    out = {}
+    for t in titles:
+        hit = [r for r in rows if r.get("short") == t] or [r for r in rows if t and str(r.get("what", "")).startswith(t)]
+        if hit:
+            out[t] = str(hit[-1].get("id"))
+    return out
+
+
+def react_part(rows, tasks=None, board=None):
+    """rows: [{ts, name, who, title, mail, reacts: [(ts, U 编号, text)]}]（ingest 从频道读出、编好 U 号）；tasks:
+    session_tasks() 的 {sid: Counter(编号)}，用来找出跑过那件活的会话（工作区）。"""
+    lines = ["## 交付后用户的话（频道里 📬 交付汇报之后，同频道 3 小时内、下一份交付之前用户说的，和直接回复这份交付的；"
+             "是认可、纠正、否决、打回还是新要求由你判断）"]
+    board = board_ids({r["title"] for r in rows}) if board is None else board
+    keep, n = [], 0
+    for r in sorted(rows, key=lambda r: -sum(len(x[2]) for x in r["reacts"][:REACT_PER])):  # 话多的在前，同弯路信号
+        k = 2 + min(len(r["reacts"]), REACT_PER)
+        if n + k > DETOUR_LINES:
+            continue
+        keep.append(r)
+        n += k
+    for r in sorted(keep, key=lambda r: r["ts"]):
+        no = board.get(r["title"])
+        sids = ([(0, x) for x in r["sids"]] if r.get("sids")  # a replay names its session itself
+                else sorted(((c[no], sid) for sid, c in (tasks or {}).items() if no and c.get(no)), reverse=True)[:3])
+        lines.append(f"=== 交付 [{hm(r['ts'])}] 📬「{r['title']}」"
+                     + (f" 任务 #{no}" if no else " 任务编号未对上")
+                     + (" 会话 " + "、".join(f"{sid[:8]}" for _, sid in sids) if sids else "")
+                     + f" | {r['name']}" + (f" | 交付人 {r['who']}" if r.get("who") else ""))
+        lines.append(f"- 汇报开头：『{one_line(r['mail'].split(chr(10), 1)[-1].strip(), DETOUR_CHARS)}』")
+        lines += [f"- [{hm(t)}] {key}：{one_line(text, DETOUR_CHARS)}" for t, key, text in r["reacts"][:REACT_PER]]
+    return lines + (["- 无"] if len(lines) == 1 else [])
+
+
+def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True, reply_chars=None, codex_root=None,
+          reacts=None):
     """(pack text, totals or None) for [start, end). usage False: read only the selected sessions' native Codex
     measurements when available; never show 橘's Claude Code figures for another wiki.
-    reply_chars: ingest passes DREAM_REPLY_CHARS (dream's cut of an assistant reply); None = uncut."""
+    reply_chars: ingest passes DREAM_REPLY_CHARS (dream's cut of an assistant reply); None = uncut.
+    reacts: ingest passes the day's 📬 deliveries the user reacted to (react_part); None = no such section."""
     head = [f"=== 当天数据包（脚本生成，{hm(start)} ~ {hm(end)}）==="]
-    T = None
+    T, tasks = None, {}
     if usage:
         tasks = session_tasks(start, end, root)
         cost, T = cost_part(per_session(usage_calls(start, end, root)), slow_commands(start, end, root), tasks)
@@ -481,7 +551,8 @@ def build(start, end, sessions=(), root=CC, prev=None, prev_fixes=(), usage=True
         import codex_daypack
         cost, T = codex_daypack.part(start, end, sessions, **({"root": codex_root} if codex_root else {}))
     detour = detour_part(detour_signals(start, end, root)) if usage else []
-    body = head + cost + detour + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
+    react = react_part(reacts, tasks) if reacts is not None else []
+    body = head + cost + detour + react + promise_part(sessions, reply_chars) + compare_part(prev, T, prev_fixes)
     return "\n".join(body) + "\n", T
 
 

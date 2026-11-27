@@ -30,7 +30,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from rh.host import read_dotenv  # noqa: E402
 from rh.cloudweb import FOOTER, NOTICE_PREFIXES  # noqa: E402
 
 ROOMS = [1, 2]                            # 来源：派活原话「打开大厅（room 1）和测试频道（room 2）」
@@ -101,6 +100,18 @@ JS_CHROME = """() => Object.fromEntries(['banner', 'err', 'logtop', 'toast', 'me
 JS_MEMBERS = """() => [...document.querySelectorAll('#members .member .nm')].map(n => {
   const c = n.cloneNode(true); c.querySelectorAll('.tag').forEach(t => t.remove()); return c.textContent.trim(); })"""
 
+
+
+def read_dotenv(path: Path) -> dict[str, str]:
+    """读 KEY=VALUE 的 .env；没有文件返回空。"""
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
 
 def api(url: str, token: str, path: str):
     r = urllib.request.Request(url + path, headers={"Authorization": "Bearer " + token})

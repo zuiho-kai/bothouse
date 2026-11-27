@@ -392,8 +392,10 @@ class TeamExitRealEntry(unittest.IsolatedAsyncioTestCase):
         else:
             self.fail("[report] 后龙娘的连接断了，后一条没贴进工作区")
         self.assertFalse(ln.closed)
-        self.err.seek(0)
-        self.assertIn("没贴上", self.err.read())
+        # 转不进已归档的聊天频道：在第一个频道贴系统消息报一句，不只写日志（#2065）
+        async with self.http.get(f"{self.url}/api/rooms/1/messages") as r:
+            notes = [x["text"] for x in (await r.json())["messages"] if x["author_kind"] == "system"]
+        self.assertTrue(any("因频道归档没发出" in t and "二号" in t for t in notes), notes)
 
 
 class AskEvidence(unittest.TestCase):

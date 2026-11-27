@@ -42,25 +42,6 @@ const (
 	ProgressCardStateAborted ProgressCardState = "aborted"
 )
 
-type ProgressCardEntryKind string
-
-const (
-	ProgressEntryInfo       ProgressCardEntryKind = "info"
-	ProgressEntryThinking   ProgressCardEntryKind = "thinking"
-	ProgressEntryToolUse    ProgressCardEntryKind = "tool_use"
-	ProgressEntryToolResult ProgressCardEntryKind = "tool_result"
-	ProgressEntryError      ProgressCardEntryKind = "error"
-)
-
-type ProgressCardEntry struct {
-	Kind     ProgressCardEntryKind `json:"kind"`
-	Text     string                `json:"text"`
-	Tool     string                `json:"tool,omitempty"`
-	Status   string                `json:"status,omitempty"`
-	ExitCode *int                  `json:"exit_code,omitempty"`
-	Success  *bool                 `json:"success,omitempty"`
-}
-
 // ProgressCardPayload carries structured progress entries for platforms that
 // render custom progress cards.
 type ProgressCardPayload struct {
@@ -76,30 +57,6 @@ type ProgressCardPayload struct {
 	ElapsedSec int `json:"elapsed_sec,omitempty"`
 	// maomao fork: set when the bot is configured for a multi-line card (ProgressCardSizer).
 	LineLen int `json:"line_len,omitempty"`
-}
-
-// BuildProgressCardPayload encodes progress entries into a transport string.
-// This legacy builder keeps compatibility with old callers that only send text.
-func BuildProgressCardPayload(entries []string, truncated bool) string {
-	cleaned := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry != "" {
-			cleaned = append(cleaned, entry)
-		}
-	}
-	if len(cleaned) == 0 {
-		return ""
-	}
-	payload := ProgressCardPayload{
-		Entries:   cleaned,
-		Truncated: truncated,
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return ProgressCardPayloadPrefix + string(b)
 }
 
 // BuildProgressCardPayloadV2 encodes ordered typed progress events.
@@ -920,4 +877,28 @@ func errorTurnCardState(cancelled bool) ProgressCardState {
 		return ProgressCardStateAborted
 	}
 	return ProgressCardStateFailed
+}
+
+// BuildProgressCardPayload encodes progress entries into a transport string.
+// This legacy builder keeps compatibility with old callers that only send text.
+func BuildProgressCardPayload(entries []string, truncated bool) string {
+	cleaned := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry != "" {
+			cleaned = append(cleaned, entry)
+		}
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	payload := ProgressCardPayload{
+		Entries:   cleaned,
+		Truncated: truncated,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return ProgressCardPayloadPrefix + string(b)
 }

@@ -146,6 +146,8 @@ Message was recalled; maps to `Message.Recalled`.
 
 Same types as Bridge outbound: `reply`, `reply_stream`, `card`, `buttons`, `typing_start`, `typing_stop`, `preview_start`, `update_message`, `delete_message`, `image`, `file`, `audio`.
 
+A gateway that advertises `file_receipt` accepts an optional `ref_id` on a `file` frame. It returns `preview_ack` with that `ref_id` and the posted attachment message ID in `preview_handle` after the message is stored. An empty handle means rejection. A timeout means delivery could not be confirmed. Gateways that omit `file_receipt` keep the existing send-only behavior.
+
 See [Bridge Protocol — bothouse → Adapter](./bridge-protocol.md) for full schemas.
 
 ---

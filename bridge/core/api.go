@@ -153,7 +153,6 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/events", s.handleEvents) // unified event stream (events.go)
 	s.mux.HandleFunc("/progress", s.handlePublicProgress)
 	s.mux.HandleFunc("/progress/run", s.handleProgressRun) // CLI fetches the turn token the prompt no longer carries
-	s.mux.HandleFunc("/voice/desk", s.handleVoiceDesk)
 	s.mux.HandleFunc("/task", s.handleTask)
 	s.mux.HandleFunc("/task/accept", s.handleTaskAccept)
 	s.mux.HandleFunc("/task/assign", s.handleTaskAssign)
@@ -201,15 +200,10 @@ func NewAPIServer(dataDir string) (*APIServer, error) {
 	s.mux.HandleFunc("/cron/exec", s.handleCronExec)
 	s.mux.HandleFunc("/cron/run", s.handleCronExec)
 	s.mux.HandleFunc("/relay/send", s.handleRelaySend)
-	s.mux.HandleFunc("/relay/voice/", s.handleVoiceRelay)
 	s.mux.HandleFunc("/relay/bind", s.handleRelayBind)
 	s.mux.HandleFunc("/relay/binding", s.handleRelayBinding)
 
 	return s, nil
-}
-
-func (s *APIServer) SocketPath() string {
-	return s.socketPath
 }
 
 func (s *APIServer) RegisterEngine(name string, e *Engine) {
@@ -224,10 +218,6 @@ func (s *APIServer) RegisterEngine(name string, e *Engine) {
 
 func (s *APIServer) SetRelayManager(rm *RelayManager) {
 	s.relay = rm
-}
-
-func (s *APIServer) RelayManager() *RelayManager {
-	return s.relay
 }
 
 func (s *APIServer) SetCronScheduler(cs *CronScheduler) {
@@ -1123,28 +1113,6 @@ func (s *APIServer) handleRelaySend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Mode == "voice" {
-		// Voice relays carry their own request_id for idempotent retries; only a task
-		// scope is incompatible with voice mode.
-		if req.TaskID != "" {
-			inputHTTPError(w, http.StatusBadRequest, fmt.Errorf("task scope cannot be combined with voice mode"))
-			return
-		}
-		result, code, err := s.relay.submitVoice(req)
-		if err != nil {
-			// Admission 503s occur before the worker is launched. Transport errors
-			// carry no such proof and clients must still resolve them by receipt.
-			var notSent *voiceNotSubmittedError
-			if code == http.StatusServiceUnavailable && errors.As(err, &notSent) {
-				apiJSON(w, code, map[string]any{"error": err.Error(), "submission": "not_sent"})
-				return
-			}
-			inputHTTPError(w, code, err)
-			return
-		}
-		apiJSON(w, code, result)
-		return
-	}
 	if req.Mode != "" {
 		inputHTTPError(w, 400, fmt.Errorf("unknown relay mode"))
 		return
@@ -1332,4 +1300,8 @@ func (s *APIServer) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiJSON(w, http.StatusOK, res)
+}
+
+func (s *APIServer) SocketPath() string {
+	return s.socketPath
 }

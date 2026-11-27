@@ -25,7 +25,7 @@ import (
 	"github.com/chenhg5/cc-connect/config"
 )
 
-const petUsage = `Usage: bothouse pet <start|stop|status>
+const petUsage = `Usage: bothouse pet <start|stop|status|skin>
 
 Desktop pet: bothouse's own desktop pet (plugins/desktop-pet, forked from dsh-pet by PC2005-cloud, MIT) —
 a transparent, always-on-top desktop window driven by the role events of this bothouse. Only roles bound
@@ -36,6 +36,11 @@ Commands:
   start    Start the desktop pet in the background (installs it with npm on first use)
   stop     Close the desktop pet
   status   Show whether it is running, its port and log file
+  skin [<role> [<look>]]
+           Which look each role's pet wears. No arguments lists the bindings; <role> is the project name
+           (cjiang) or role key (bridge:cjiang); <look> is a pet skin id (maomao, longniang, caihongmao,
+           dsh-pet-whale…) or an avatar pack downloaded on the plugin page; "-" clears it. Kept in the data
+           directory (plugins/role-bindings.json, the same binding the plugin page writes), so upgrades keep it.
 
 Environment:
   BOTHOUSE_PET_DIR       A built plugins/desktop-pet checkout to run (skips the install)
@@ -93,6 +98,10 @@ func runPet(args []string) {
 	}
 	paths := petPathsFor(cfg.DataDir)
 	switch args[0] {
+	case "skin":
+		if err := petSkinCmd(os.Stdout, filepath.Join(cfg.DataDir, "plugins", "role-bindings.json"), args[1:]); err != nil {
+			petFail(err)
+		}
 	case "start":
 		petStart(paths, configPath)
 	case "stop":
@@ -699,7 +708,7 @@ func (r *petRelay) handle(kind string, data []byte) {
 		r.mu.Lock()
 		pet := r.petOf(ev.RoleKey)
 		r.mu.Unlock()
-		r.send(pet, petWorkState(ev.Type), petRoleName(ev.Role))
+		r.send(pet, petWorkState(ev.Type))
 	default:
 		r.apply()
 	}
@@ -717,20 +726,20 @@ func petRoleName(role petRole) string {
 
 // apply sends every bound role's status to its own pet.
 func (r *petRelay) apply() {
-	type one struct{ pet, state, name string }
+	type one struct{ pet, state string }
 	r.mu.Lock()
 	var list []one
 	for role := range r.bound {
-		list = append(list, one{r.petOf(role), petWorkState(r.status[role]), r.names[role]})
+		list = append(list, one{r.petOf(role), petWorkState(r.status[role])})
 	}
 	r.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool { return list[i].pet < list[j].pet })
 	for _, o := range list {
-		r.send(o.pet, o.state, o.name)
+		r.send(o.pet, o.state)
 	}
 }
 
-func (r *petRelay) send(pet, state, task string) {
+func (r *petRelay) send(pet, state string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// A pet with no entry has not been sent anything yet (start, or after resend): its slot may still hold
@@ -745,14 +754,17 @@ func (r *petRelay) send(pet, state, task string) {
 		return
 	}
 	r.sent[pet] = state
-	r.emit(pet, state, task)
+	r.emit(pet, state)
 }
 
 // emit must be called with r.mu held. ?pet= writes that pet's own work-status slot (bothouse fork of
 // dsh-pet, src/host/routes/state.ts), so the pets of different roles move on their own.
-func (r *petRelay) emit(pet, state, task string) {
+// task is always null: the role's name over its own pet's head said nothing new and stayed up the whole
+// time the role worked (user 11-26「头上一直有他们名字的气泡 感觉没必要」); null also clears a name an
+// older relay left in the slot. The work animation is unchanged.
+func (r *petRelay) emit(pet, state string) {
 	if r.out != nil {
-		r.out(pet, state, task)
+		r.out(pet, state, "")
 		return
 	}
 	var err error
@@ -760,13 +772,13 @@ func (r *petRelay) emit(pet, state, task string) {
 	if state == "" {
 		err = r.pet.do("DELETE", q, nil)
 	} else {
-		err = r.pet.do("POST", q, map[string]any{"state": state, "task": task})
+		err = r.pet.do("POST", q, map[string]any{"state": state, "task": nil})
 	}
 	if err != nil {
 		r.logf("work-status %s %q: %v", pet, state, err)
 		r.sent[pet] = "?" // not delivered: the next apply sends it again
 	} else {
-		r.logf("work-status %s → %q (%s)", pet, state, task)
+		r.logf("work-status %s → %q", pet, state)
 	}
 }
 
@@ -790,7 +802,7 @@ func (r *petRelay) resend() {
 	sort.Strings(gone)
 	for _, pet := range gone {
 		r.sent[pet] = ""
-		r.emit(pet, "", "")
+		r.emit(pet, "")
 	}
 }
 
@@ -809,4 +821,105 @@ func (r *petRelay) say(role, text string) {
 	} else {
 		r.logf("bubble %s: %s", pet, text)
 	}
+}
+
+// petSkinCmd lists or sets the look a role's pet wears: the avatar_pack of its dsh-pet binding (11-26 user:
+// 「我推荐通过链接的什么cli来对应形象」). Setting it also turns the binding on. The file is the one the
+// plugin page reads and writes (core/management_role_bindings.go); other plugins' entries are kept as is.
+func petSkinCmd(w io.Writer, file string, args []string) error {
+	var doc struct {
+		Bindings map[string][]map[string]any `json:"bindings"`
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return fmt.Errorf("%s: %w", file, err)
+		}
+	}
+	if doc.Bindings == nil {
+		doc.Bindings = map[string][]map[string]any{}
+	}
+	if len(args) == 0 {
+		keys := make([]string, 0, len(doc.Bindings))
+		for k := range doc.Bindings {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			for _, b := range doc.Bindings[k] {
+				if b["plugin_id"] == petPluginID {
+					look, _ := b["avatar_pack"].(string)
+					if look == "" {
+						look = "-"
+					}
+					on := ""
+					if b["enabled"] != true {
+						on = " (off)"
+					}
+					fmt.Fprintf(w, "%s\t%s%s\n", k, look, on)
+				}
+			}
+		}
+		return nil
+	}
+	role := args[0]
+	if !strings.Contains(role, ":") {
+		role = "bridge:" + role
+	}
+	if len(args) == 1 {
+		for _, b := range doc.Bindings[role] {
+			if b["plugin_id"] == petPluginID {
+				look, _ := b["avatar_pack"].(string)
+				fmt.Fprintln(w, look)
+				return nil
+			}
+		}
+		return fmt.Errorf("%s has no pet binding", role)
+	}
+	look := strings.TrimSpace(args[1])
+	if look == "-" {
+		look = ""
+	}
+	if look != "" && (look != filepath.Base(look) || strings.HasPrefix(look, ".")) {
+		return fmt.Errorf("bad look %q", look)
+	}
+	list := doc.Bindings[role]
+	found := false
+	for _, b := range list {
+		if b["plugin_id"] == petPluginID {
+			b["enabled"] = true
+			if look == "" {
+				delete(b, "avatar_pack")
+			} else {
+				b["avatar_pack"] = look
+			}
+			found = true
+		}
+	}
+	if !found {
+		b := map[string]any{"plugin_id": petPluginID, "enabled": true}
+		if look != "" {
+			b["avatar_pack"] = look
+		}
+		doc.Bindings[role] = append(list, b)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	tmp := file + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, file); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s → %s (the running pet picks it up within a few seconds)\n", role, args[1])
+	return nil
 }

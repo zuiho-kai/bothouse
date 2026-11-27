@@ -120,7 +120,7 @@ func TestHeldReportLeadPromptCarriesAttachments(t *testing.T) {
 			t.Fatalf("attachment %s not kept for the lead (%v) or not in the prompt:\n%s", name, err, prompt)
 		}
 	}
-	for _, want := range []string{"看多少判多少，不必看完，到 " + time.Now().Add(5*time.Minute).Format("15:04") + " 前定（现在 ", "不翻工作区的中间产物", "ffmpeg -v error -i", "tile=4x3"} {
+	for _, want := range []string{"看多少判多少，但没看到的不能放行：到 " + time.Now().Add(5*time.Minute).Format("15:04") + " 前定（现在 ", "不翻工作区的中间产物", "ffmpeg -v error -i", "tile=4x3"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("lead prompt lacks %q:\n%s", want, prompt)
 		}

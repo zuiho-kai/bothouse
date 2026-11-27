@@ -172,7 +172,7 @@ func TestHeldReportPassClosesBoardItem(t *testing.T) {
 		e.dataDir = t.TempDir()
 	}
 	log := filepath.Join(t.TempDir(), "board-args")
-	bin := filepath.Join(e.dataDir, "collaboration", "lead", "board")
+	bin := filepath.Join(e.dataDir, "collaboration", "runtime", "lead", "board")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatal(err)
 	}

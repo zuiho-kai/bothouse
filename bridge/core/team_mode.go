@@ -2,15 +2,19 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	teamrules "github.com/chenhg5/cc-connect/core/team_rules"
 )
 
 // The team mode rules (teamrules.ModeRules, core/team_rules/team-mode-rules.md) are shared with DSH members: the build copies it into the DSH plugin
@@ -106,13 +110,6 @@ func (e *Engine) DispatchMode() string { return e.dispatchMode.get() }
 // character) has no channels, workspaces or task board, so the rules are noise.
 func (e *Engine) SetTeamModeRulesEnabled(on bool) { e.skipTeamModeRules.Store(!on) }
 
-// withTeamModeRules prefixes the team-mode rules of the project's mode when this
-// delivery must carry them (teamRulesOnce).
-func (e *Engine) withTeamModeRules(prompt string, session *Session, agent Agent) string {
-	e.checkRulesContext(session, agent)
-	return prefixRules(e.contextRules(e.teamLayer().WithRoleDuty(teamModeRulesFor(e.DispatchMode()), ""), session, agent), prompt)
-}
-
 // contextRules is what goes once per agent context (teamRulesOnce): the team-mode rules unless
 // inject_team_rules is off, then the local house rules (<data dir>/rules/house.md, kept even when
 // inject_team_rules is off: they are the owner's own rules), plus bridgeInstructions for agents that do
@@ -143,23 +140,36 @@ func (e *Engine) contextRules(rules string, session *Session, agent Agent) strin
 	return e.injectBlock(session, "rules", rules)
 }
 
-// houseRulesMaxBytes caps <data dir>/rules/house.md; a larger file is not sent at all (and logged),
-// so one runaway edit cannot flood every turn.
-const houseRulesMaxBytes = 4000
+// HouseRulesWarnBytes is the size of <data dir>/rules/house.md above which the owner is told to
+// trim it. The file is always sent whole: a larger file still reaches every role (#2048; before, a
+// file over 4000 bytes was dropped and only logged, and on one machine six roles went three days
+// without their rules unnoticed, #2267). The line guards cost, not delivery: the file rides in full
+// once in every new agent context (new session, after compaction, per role), and 4000 bytes is
+// about 1500 Chinese characters, behind team-mode rules of up to ~6400 bytes. 4000 is the owner's
+// own budget (11-19 「house.md 不超过 4000 字节」, standing rules sized "add one, drop one").
+// This is the only place the number lives: the rules generator asks `bothouse rules check`.
+const HouseRulesWarnBytes = 4000
 
 const houseRulesHead = "本机守则（和上面冲突时照这里）："
 
-// houseRulesPath is the local house rules file under the bridge data dir, generated from the
+// HouseRulesPath is the local house rules file under the bridge data dir, generated from the
 // owner's single rule source.
-func houseRulesPath(dataDir string) string { return filepath.Join(dataDir, "rules", "house.md") }
+func HouseRulesPath(dataDir string) string { return filepath.Join(dataDir, "rules", "house.md") }
+
+// houseRulesOver remembers, per house file, the over-line version already logged and the one
+// already announced in a chat, so six roles and many sessions in one process warn once per version.
+var houseRulesOver = struct {
+	sync.Mutex
+	logged, noticed map[string]string // path -> content hash
+}{logged: map[string]string{}, noticed: map[string]string{}}
 
 // readHouseRules returns the house rules with their heading, or "" when the data dir is unset or the
-// file is missing, empty or over houseRulesMaxBytes.
+// file is missing or empty. A file over HouseRulesWarnBytes is still returned whole.
 func readHouseRules(dataDir string) string {
 	if dataDir == "" {
 		return ""
 	}
-	path := houseRulesPath(dataDir)
+	path := HouseRulesPath(dataDir)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -167,15 +177,71 @@ func readHouseRules(dataDir string) string {
 		}
 		return ""
 	}
-	if len(b) > houseRulesMaxBytes {
-		slog.Warn("house rules: file over the cap, not sent", "path", path, "bytes", len(b), "max", houseRulesMaxBytes)
-		return ""
-	}
 	text := strings.TrimSpace(string(b))
 	if text == "" {
 		return ""
 	}
+	if len(b) > HouseRulesWarnBytes {
+		if h := houseRulesHash(b); claimHouseRulesOver(houseRulesOver.logged, path, h) {
+			slog.Warn("house rules: file over the warn line, sent whole", "path", path, "bytes", len(b), "warn_at", HouseRulesWarnBytes)
+		}
+	} else {
+		forgetHouseRulesOver(path)
+	}
 	return houseRulesHead + "\n" + text
+}
+
+func houseRulesHash(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
+}
+
+// claimHouseRulesOver records hash for path in m and reports whether it was new.
+func claimHouseRulesOver(m map[string]string, path, hash string) bool {
+	houseRulesOver.Lock()
+	defer houseRulesOver.Unlock()
+	if m[path] == hash {
+		return false
+	}
+	m[path] = hash
+	return true
+}
+
+func forgetHouseRulesOver(path string) {
+	houseRulesOver.Lock()
+	defer houseRulesOver.Unlock()
+	delete(houseRulesOver.logged, path)
+	delete(houseRulesOver.noticed, path)
+}
+
+// noticeHouseRulesOver tells the chat a person just wrote in that the house rules are over the warn
+// line, once per file version (a quiet chat sends it to the owner's private chat instead). Only a
+// person's message triggers it, so the line lands where someone reads it, not in a cron or bot
+// relay. A notice that cannot be sent is released for the next chat to try.
+func (e *Engine) noticeHouseRulesOver(sessionKey string, fromBot bool) {
+	if fromBot || e.dataDir == "" || sessionKey == "" {
+		return
+	}
+	path := HouseRulesPath(e.dataDir)
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) <= HouseRulesWarnBytes || strings.TrimSpace(string(b)) == "" {
+		return
+	}
+	h := houseRulesHash(b)
+	if !claimHouseRulesOver(houseRulesOver.noticed, path, h) {
+		return
+	}
+	text := e.i18n.Tf(MsgHouseRulesOver, len(b), HouseRulesWarnBytes, path)
+	go func() {
+		if err := e.sendNoticeOrOwnerDM(sessionKey, text); err != nil {
+			slog.Error("house rules: over-line notice not sent", "project", e.name, "session", sessionKey, "error", err)
+			houseRulesOver.Lock()
+			if houseRulesOver.noticed[path] == h {
+				delete(houseRulesOver.noticed, path)
+			}
+			houseRulesOver.Unlock()
+		}
+	}()
 }
 
 func prefixRules(rules, prompt string) string {
@@ -224,9 +290,6 @@ func (e *Engine) checkRulesContext(session *Session, agent Agent) {
 		session.noteContextTokens(tokens)
 	}
 }
-
-// TeamModeWorkspaceInstructions is the shared opening brief for a new workspace in the given mode.
-func TeamModeWorkspaceInstructions(mode string) string { return teamModeRulesFor(mode) }
 
 // ChannelDispatchModeProvider is optional; other platforms keep project configuration.
 type ChannelDispatchModeProvider interface {

@@ -33,6 +33,7 @@ type wsTransport struct {
 	mu             sync.RWMutex
 	caps           map[string]bool
 	capsKnown      bool // the gateway has told its capabilities (register or capabilities_changed)
+	dshChannels    bool // the WebSocket register acknowledgement identifies the DSH gateway
 	conn           *websocket.Conn
 	writeMu        sync.Mutex
 	cancel         context.CancelFunc
@@ -73,6 +74,12 @@ func (t *wsTransport) CapabilitiesKnown() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.capsKnown
+}
+
+func (t *wsTransport) usesDSHChannels() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.dshChannels
 }
 
 func (t *wsTransport) Start(ctx context.Context, onInbound inboundHandler) error {
@@ -186,14 +193,15 @@ func (t *wsTransport) connectOnce(ctx context.Context) error {
 		_ = conn.Close()
 		return fmt.Errorf("read register_ack: %w", err)
 	}
-	caps, err := parseRegisterAck(raw)
+	ack, err := decodeRegisterAck(raw)
 	if err != nil {
 		_ = conn.Close()
 		return err
 	}
-	t.setCaps(caps)
-
 	t.mu.Lock()
+	t.caps = ack.capabilitySet()
+	t.capsKnown = true
+	t.dshChannels = ack.Server["name"] == "conest-dsh-collab"
 	if t.conn != nil {
 		_ = t.conn.Close()
 	}

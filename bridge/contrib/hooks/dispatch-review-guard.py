@@ -20,6 +20,8 @@ import datetime, json, os, re, subprocess, sys
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.join(os.path.dirname(HERE), "gate"))  # 数据目录只认 datadir（#2051）：装好后和钩子平铺同目录，仓库里直跑在 ../gate
+import datadir  # noqa: E402
 import plan_gate  # noqa: E402  要方案未批时拦开做（用户 2026-10-28）
 NOTES_DIR = os.path.join(os.getcwd(), "notes")  # 写方案、交接稿不拦
 REVIEWS = os.path.expanduser(os.environ.get("HOOK_REVIEWS_DIR") or os.path.join(HOME, ".claude", "reviews"))
@@ -44,6 +46,8 @@ RISKY_PATH = re.compile(
     r"|(?:^|/)(?:线上|真钱|花钱|费用)(?:/|$)"
     r"|(?:^|/)\.github/workflows(?:/|$)", re.IGNORECASE)
 REVIEW_SIZE_LOG = os.path.join(REVIEWS, "dispatch-review-size.log")  # 查不到改动量的派审记在这里
+# 来源：2026-10-26 橘提议「派审稿前按改动大小拦，小改动只用脚本验」，用户回「改」；30 行是那次方案里定的线（#616，
+# ~/wiki/tooling/workflow/workflow/pr-delivery.md）。被拦的人看 rules/dispatch-review-guard.zh.md，数字写在那（#2047 第 15 条）。
 REVIEW_SIZE_LIMIT = 30
 
 
@@ -242,12 +246,9 @@ def doc_tagged(session, path):
         return False
 
 
+# 来源：作者 2026-10-28「主命令如果简单的话，就直接可以直接改」（#577）；守则 R-small 写「十几行内」，这里取 10 行，
+# 数字写进 rules/dispatch-review-guard.zh.md 让被拦的人查得到（#2047 第 15 条）。
 SMALL_EDIT_LINES = 10
-
-
-def _data_dir():
-    return os.path.expanduser(os.environ.get("BOTHOUSE_DATA_DIR") or os.environ.get("GATE_SETUP_DIR")
-                              or os.path.join(HOME, ".bothouse"))
 
 
 def in_workspace():
@@ -261,10 +262,7 @@ def in_workspace():
         chan = key.split(":")[1]
     if not chan:
         return False
-    try:
-        st = json.load(open(os.path.join(_data_dir(), "team_workspaces.json"), encoding="utf-8"))
-    except Exception:
-        return False
+    st = datadir.team_workspaces()
     ids = {w.get("id") for ws in (st.get("parents") or {}).values() for w in (ws or []) if isinstance(w, dict)}
     ids |= {k.split(":")[1] if ":" in k else k for k in (st.get("handoffs") or {})}
     return chan in ids

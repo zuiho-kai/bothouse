@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chenhg5/cc-connect/core/model"
+
 	"github.com/chenhg5/cc-connect/core"
 )
 
@@ -107,7 +109,7 @@ func TestPreviewAckArrivingDuringSendIsNotLost(t *testing.T) {
 	ft := &ackingTransport{waiters: map[string]chan string{}, caps: capabilitySet([]string{"text", "preview", "update_message"})}
 	p := &Platform{name: "cloud_web", tp: ft, replyCtxs: map[string]string{}}
 	start := time.Now()
-	card := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{{Kind: core.ProgressEntryInfo, Text: "x"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
+	card := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{{Kind: model.ProgressEntryInfo, Text: "x"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
 	h, err := p.SendPreviewStart(context.Background(), replyContext{SessionKey: "cloud_web:room-2", ReplyCtx: "room-2"}, card)
 	if err != nil {
 		t.Fatalf("SendPreviewStart: %v (after %s)", err, time.Since(start))
@@ -127,7 +129,7 @@ func TestPreviewOnlyForProgressCards(t *testing.T) {
 	if _, err := p.SendPreviewStart(context.Background(), rc, "streaming text"); err != core.ErrNotSupported {
 		t.Fatalf("plain preview: err = %v, want ErrNotSupported", err)
 	}
-	card := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{{Kind: core.ProgressEntryToolUse, Text: "ls", Tool: "Bash"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
+	card := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{{Kind: model.ProgressEntryToolUse, Text: "ls", Tool: "Bash"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
 	if _, err := p.SendPreviewStart(context.Background(), rc, card); err != nil {
 		t.Fatalf("card preview: %v", err)
 	}
@@ -138,7 +140,7 @@ func TestPreviewOnlyForProgressCards(t *testing.T) {
 func TestEmptyPreviewHandleIsAnError(t *testing.T) {
 	ft := &emptyAckTransport{ackingTransport{waiters: map[string]chan string{}, caps: capabilitySet([]string{"text", "preview", "update_message"})}}
 	p := &Platform{name: "cloud_web", tp: ft, replyCtxs: map[string]string{}}
-	card := core.BuildProgressCardPayloadV2([]core.ProgressCardEntry{{Kind: core.ProgressEntryInfo, Text: "x"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
+	card := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{{Kind: model.ProgressEntryInfo, Text: "x"}}, false, "CC", core.LangChinese, core.ProgressCardStateRunning)
 	if h, err := p.SendPreviewStart(context.Background(), replyContext{SessionKey: "s", ReplyCtx: "room-9"}, card); err == nil {
 		t.Fatalf("want error for empty handle, got %#v", h)
 	}

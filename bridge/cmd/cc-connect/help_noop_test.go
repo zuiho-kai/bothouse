@@ -44,7 +44,6 @@ var helpNoopSubcommands = [][]string{
 	{"daemon", "install"}, {"daemon", "uninstall"}, {"daemon", "start"}, {"daemon", "stop"}, {"daemon", "restart"},
 	{"feishu", "setup"}, {"feishu", "new"}, {"feishu", "bind"},
 	{"weixin", "setup"}, {"weixin", "new"}, {"weixin", "bind"},
-	{"yuanbao", "setup"}, {"yuanbao", "bind"},
 	{"setup", "apply"}, {"setup", "dsh"}, {"setup", "hub"}, {"setup", "hooks"}, {"setup", "lead"}, {"setup", "tools"},
 }
 

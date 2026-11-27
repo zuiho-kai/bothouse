@@ -61,6 +61,10 @@ type teamTaskBoardItem struct {
 	// WaitUntil to now, and the hand-back carries these lines (team_pr_events.go).
 	WatchPR []string `json:"watch_pr,omitempty"`
 	PRNews  []string `json:"pr_news,omitempty"`
+	// WaitTask: other board items the 「等外部：」 line names (#2052); WaitNews: one line per one of them that
+	// was handed back, closed or pruned — board.py set wait_until to now then (no timer, no polling).
+	WaitTask []int    `json:"wait_task,omitempty"`
+	WaitNews []string `json:"wait_news,omitempty"`
 	// PauseReq: the workspace ran `board pause` on its own task inside its own turn (board.py
 	// self_pause). Nothing was paused or parked; the turn owes a [report] (workspace_report.go).
 	PauseReq string `json:"pause_req"`
@@ -313,20 +317,6 @@ var (
 	teamTaskBoardReleaseLeadPrefix = regexp.MustCompile(`^(?:等待?|待)\s*(?:下次|这次|本次|下个|下轮)?\s*`)
 	teamTaskBoardReleaseAny        = regexp.MustCompile(`(?:集中|批量|统一)(?:发布|部署)`)
 )
-
-// teamTaskBoardWaitHours: whole hours a paused item has waited on the user, 0 below one hour or
-// when it does not wait on the user. Paused is "MM-DD HH:MM" local without a year: this year,
-// or last year when that is more than a day ahead (board.py _done_time).
-func teamTaskBoardWaitHours(it teamTaskBoardItem, now time.Time) int {
-	if !it.waitsUser() {
-		return 0
-	}
-	at, ok := teamTaskBoardLocal(it.Paused, now)
-	if !ok {
-		return 0
-	}
-	return int(now.Sub(at) / time.Hour)
-}
 
 // teamTaskBoardPlacer tells where items go: which chat a workspace belongs to and its name.
 type teamTaskBoardPlacer struct {
@@ -926,64 +916,6 @@ func teamTaskBoardBacklogLine(items []teamTaskBoardItem, chat string) string {
 	return ""
 }
 
-// renderTeamTaskBoard renders a chat channel's task-board section, or "" when it has nothing
-// there. It answers 「整体怎样、哪些等我」 — 卡住 and 等你 one item per line with their reason,
-// 在做 on one line, paused items as a count. A workspace item is marked with its workspace's
-// name. Items must be placed (placeTeamTaskBoard). Done items are not shown (user, 2026-10-28:
-// 「完成的也没必要显示」).
-func renderTeamTaskBoard(items []teamTaskBoardItem, chat string, now time.Time) string {
-	backlog := teamTaskBoardBacklogLine(items, chat)
-	items = teamTaskBoardDisplayItems(items, chat, now)
-	rows := map[teamTaskBoardState][]string{}
-	paused := 0
-	for _, it := range items {
-		if !it.shownIn(chat) {
-			continue
-		}
-		state, note := teamTaskBoardStateOf(it, now)
-		// Returned then paused: still listed (its handback is unreviewed work), but as paused.
-		if state == teamTaskPaused && !it.wsEnded && it.ReturnedAt.IsZero() {
-			paused++
-			continue
-		}
-		if state == teamTaskHidden {
-			continue
-		}
-		name := teamTaskBoardMarks[state] + " " + teamTaskBoardShort(it)
-		if it.parent == chat && it.own != chat && it.wsName != "" {
-			name += "（" + boardLabel(it.wsName) + "）"
-		}
-		if state != teamTaskRunning && note != "" {
-			name += " · " + note
-		}
-		rows[state] = append(rows[state], name)
-	}
-	if len(rows) == 0 {
-		return "" // only paused or 待办 items here: no board (paused items alone never kept one either)
-	}
-	lines := []string{"**任务板**"}
-	for _, state := range []teamTaskBoardState{teamTaskStuck, teamTaskReview, teamTaskRelease, teamTaskRunning, teamTaskWaiting, teamTaskPaused} {
-		r := rows[state]
-		if len(r) == 0 {
-			continue
-		}
-		head := fmt.Sprintf("**%s %d**", teamTaskBoardNames[state], len(r))
-		if state == teamTaskRunning {
-			lines = append(lines, head+"  "+strings.Join(r, "  "))
-			continue
-		}
-		lines = append(lines, head)
-		lines = append(lines, r...)
-	}
-	if paused > 0 {
-		lines = append(lines, fmt.Sprintf("暂停 %d 件（已收起）", paused))
-	}
-	if backlog != "" {
-		lines = append(lines, backlog)
-	}
-	return strings.Join(lines, "\n")
-}
-
 // The chat channel's pinned task table (user, 2026-10-30: 「打开任务表一眼知道有几件事、每件在干什么、
 // 哪件等你；点开一件能看到它一步步在做什么」; rows trimmed 2026-11-01: 「信息太杂乱了 不知道在说些什么
 // 我只想知道有哪些工作在干，干了多久 什么工作区之类的」; A+B workspace alignment 2026-11-01:
@@ -1374,23 +1306,6 @@ func renderTeamTaskTableAsks(items []teamTaskBoardItem, links []teamTaskLink, ch
 		lines = append(lines, backlog)
 	}
 	return strings.Join(lines, "\n")
-}
-
-// renderTeamTaskBoardFit: renderTeamTaskBoard cut by whole lines to budget runes. Running items
-// are never dropped (board.py card_text): the section keeps at least its lines up to the 在做 line,
-// so a long board above it is cut instead (withTeamTaskBoard).
-func renderTeamTaskBoardFit(items []teamTaskBoardItem, chat string, now time.Time, budget int) string {
-	s := renderTeamTaskBoard(items, chat, now)
-	lines := strings.Split(s, "\n")
-	running := "**" + teamTaskBoardNames[teamTaskRunning] + " "
-	for k, ln := range lines {
-		if strings.HasPrefix(ln, running) {
-			keep := len([]rune(strings.Join(lines[:k+1], "\n"))) + 1 + len([]rune(fmt.Sprintf("…还有 %d 件放不下", len(lines))))
-			budget = max(budget, keep)
-			break
-		}
-	}
-	return cutTeamBoardLines(s, budget, "")
 }
 
 // renderWorkspaceTaskBoardFit: a workspace's board answers only 「这里在干什么」: its own items one
