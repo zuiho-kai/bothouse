@@ -17,7 +17,7 @@ import (
 //   - Grok (`grok agent stdio`): "models" → session/set_model, plus a "reasoning_effort" config
 //     option → session/set_config_option.
 //   - dsh (DeepSeek): only a "model" config option (values like ["provider","model"]) →
-//     session/set_config_option.
+//     session/set_config_option. The catalog lists it by model id; the pair goes back on the wire.
 
 type acpModelsBlock struct {
 	CurrentModelID  string `json:"currentModelId"`
@@ -52,6 +52,30 @@ type acpModelInfo struct {
 	efforts      []string
 	currentModel string
 	currentEff   string
+	// configValues maps the catalog id we show (ModelOption.Name) to the opaque value the
+	// server advertised. DSH encodes a route as ["provider","model"], which is not an id.
+	configValues map[string]string
+}
+
+// modelRoute reads an opaque model config value: DSH sends ["provider","model"]. A plain id
+// is returned unchanged as the model, with no provider.
+func modelRoute(value string) (provider, model string) {
+	var parts []string
+	if json.Unmarshal([]byte(value), &parts) != nil || len(parts) != 2 ||
+		strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return "", value
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
+// catalogName turns an opaque value the server just reported back into the id we advertise.
+func (i acpModelInfo) catalogName(value string) string {
+	for name, raw := range i.configValues {
+		if raw == value {
+			return name
+		}
+	}
+	return value
 }
 
 type modelInfoReporter interface {
@@ -105,10 +129,24 @@ func parseModelInfo(models *acpModelsBlock, opts []acpConfigOption) acpModelInfo
 			}
 			info.viaConfig = true
 			info.currentModel = rawString(o.CurrentValue)
-			for _, c := range flattenChoices(o.Options, "") {
-				label := strings.TrimSpace(c.Group + " " + c.Name)
-				info.models = append(info.models, core.ModelOption{Name: c.Value, Alias: label, Desc: c.Description})
+			choices := flattenChoices(o.Options, "")
+			// Two providers can serve the same model id; only then keep the provider in the id.
+			counts := map[string]int{}
+			for _, c := range choices {
+				_, model := modelRoute(c.Value)
+				counts[model]++
 			}
+			info.configValues = map[string]string{}
+			for _, c := range choices {
+				provider, model := modelRoute(c.Value)
+				if counts[model] > 1 && provider != "" {
+					model = provider + "/" + model
+				}
+				label := strings.TrimSpace(c.Group + " " + c.Name)
+				info.models = append(info.models, core.ModelOption{Name: model, Alias: label, Desc: c.Description})
+				info.configValues[model] = c.Value
+			}
+			info.currentModel = info.catalogName(info.currentModel)
 		case o.ID == "reasoning_effort" || o.Category == "thought_level":
 			info.effortConfig = o.ID
 			info.currentEff = rawString(o.CurrentValue)
@@ -146,7 +184,11 @@ func (s *acpSession) applyModel(model string) {
 	case s.modelInfo.viaSetModel:
 		res, err = s.tr.call(callCtx, "session/set_model", map[string]any{"sessionId": sid, "modelId": model})
 	case s.modelInfo.viaConfig:
-		res, err = s.tr.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sid, "configId": "model", "value": model})
+		value := model
+		if raw, ok := s.modelInfo.configValues[model]; ok {
+			value = raw // the server's opaque route, not the catalog id we show
+		}
+		res, err = s.tr.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sid, "configId": "model", "value": value})
 	default:
 		slog.Warn("acp: model configured but this agent advertises no way to select one", "model", model)
 		return
@@ -192,7 +234,7 @@ func (s *acpSession) absorbConfigValues(raw json.RawMessage) {
 	for _, o := range r.ConfigOptions {
 		switch {
 		case s.modelInfo.viaConfig && (o.ID == "model" || o.Category == "model"):
-			s.modelInfo.currentModel = rawString(o.CurrentValue)
+			s.modelInfo.currentModel = s.modelInfo.catalogName(rawString(o.CurrentValue))
 		case o.ID != "" && o.ID == s.modelInfo.effortConfig:
 			s.modelInfo.currentEff = rawString(o.CurrentValue)
 		}
