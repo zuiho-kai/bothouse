@@ -263,7 +263,7 @@ QUEUE = WIKI / ".ingest.queue"  # sessions closed while a run held the lock; tha
 USAGE = WIKI / ".ingest-usage.tsv"  # per model pass: token breakdown (subscription quota, not money)
 USAGE_COLS = ["time", "label", "model", "turns", "input", "cache_read", "cache_write", "output", "thinking", "est_usd"]
 IDLE_MIN = 30
-MAX_CHARS = 240_000  # per claude -p call; whole sessions are batched up to this, only oversized ones are split
+MAX_CHARS = budget.MAX_CHARS  # per model call; whole sessions are batched up to this (budget.py, one place)
 AGENT_PY = Path(os.environ.get("WIKI_AGENT_PYTHON", sys.executable)).expanduser()
 API_DAILY_USD = float(os.environ.get("WIKI_API_DAILY_USD", 0))
 # 用户 2026-11-09「以后这种问自己兜底啊…同一原因还要跑三次啊，这种不应该马上你去触发介入去修吗」：同一原因连续

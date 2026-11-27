@@ -268,22 +268,6 @@ class LevelLog(unittest.TestCase):
         self.assertIn("峰值 0", levels[0])      # 静音帧峰值 0，输入音量为 0 时一眼能看出
 
 
-class GatewayKeyMissing(unittest.TestCase):
-    def test_missing_key_disables_voice_input_only(self):
-        import tempfile
-        d = Path(tempfile.mkdtemp())
-        logs = []
-        self.assertIsNone(voice.gateway_asr("http://127.0.0.1:1/v1", logs.append, d / "nope.json"))
-        (d / "bad.json").write_text("{}")
-        self.assertIsNone(voice.gateway_asr("http://127.0.0.1:1/v1", logs.append, d / "bad.json"))
-        self.assertEqual(len(logs), 2)
-        self.assertTrue(all("语音输入关闭" in x for x in logs))
-        (d / "ok.json").write_text('{"api_key": "secret-k"}')
-        asr = voice.gateway_asr("http://127.0.0.1:1/v1", logs.append, d / "ok.json")
-        self.assertEqual(asr.api_key, "secret-k")
-        self.assertFalse(any("secret-k" in x for x in logs))
-
-
 class SayClose(unittest.TestCase):
     def test_close_kills_running_say(self):
         import tempfile

@@ -150,11 +150,17 @@ export function createChatMemory(deps: ChatMemoryInput) {
     if (!provider || !recall) return undefined;
     let timer: NodeJS.Timeout | undefined;
     try {
-      const timeout = new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), RECALL_TIMEOUT_MS);
+      const TIMED_OUT = Symbol('timeout');
+      const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), RECALL_TIMEOUT_MS);
         timer.unref?.();
       });
       const result = await Promise.race([Promise.resolve(recall.call(provider, { petId, ...content })), timeout]);
+      if (result === TIMED_OUT) {
+        // 超时照常不改内容，但记一笔：原来超时静默，看不出是召回慢还是没召回（#2047 同类条）
+        log.warn('[dsh-pet] 记忆召回超时 id=' + provider.id + '：' + RECALL_TIMEOUT_MS + 'ms 内没回，这一轮不带召回');
+        return undefined;
+      }
       if (!result || typeof result !== 'object') return undefined;
       const patch: { system?: string; history?: readonly ChatTurn[]; userText?: string } = {};
       if (typeof result.system === 'string') patch.system = result.system;

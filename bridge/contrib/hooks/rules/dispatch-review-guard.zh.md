@@ -4,3 +4,4 @@
   - 审过的活：可写【已审:{{REVIEWS}}/<名>.md】，指向上面那份审稿文件，一份只能用一次。
   主会话不直接改代码文件，交给子 agent；`~/.claude`、`/tmp`、wiki 目录除外。改文档前先跑 `{{PYTHON}} {{HOOKS}}/doc-ok.py <文件>` 登记（提示词、SPEC、agent 定义不算文档）。
 - 在 HOOK_RESEARCHER_DIRS 配置的目录里，调研必须派 researcher（或显式 Sonnet）。目录未配置时不强制；队友称呼通过 HOOK_TEAMMATES 配置。
+- 数字（{{HOOKS}}/dispatch-review-guard.py 顶上定义）：改动不到 30 行、又没碰桥、线上、花钱路径的，派审稿会被拦回「小改动用脚本验」；聊天频道主会话一次改 10 行以内可以自己直接改。

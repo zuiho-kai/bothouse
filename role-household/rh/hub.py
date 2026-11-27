@@ -88,7 +88,7 @@ from aiohttp import WSCloseCode, WSMsgType, web
 
 from . import cloudweb, webpush
 from .errors import Conflict, WorkspaceError   # 定义在叶子模块（见 rh/errors.py），这里照旧可 from rh.hub import
-from .meeting import MAX_TEXT_CHARS, clean
+from .meeting import MAX_TEXT_CHARS, clean, clip
 from .voice import SAMPLE_RATE
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -629,7 +629,7 @@ class Hub:
         cur = self.db.execute(
             "INSERT INTO messages(room_id, author_kind, author, name, text, status, spoken, created_at, updated_at,"
             " client_key, card, from_turn) VALUES(?,?,?,?,?,?,NULL,?,?,?,?,?)",
-            (room_id, kind, author, name, clean(text, max_chars), status, now, now, key, card, 1 if from_turn else None))
+            (room_id, kind, author, name, clip(text, max_chars), status, now, now, key, card, 1 if from_turn else None))
         self.db.commit()
         return self.message(cur.lastrowid), True
 

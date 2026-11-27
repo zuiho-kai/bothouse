@@ -2207,6 +2207,7 @@ async function loadReplayWindow(auto = false) {
     const query = `from=${encodeURIComponent(new Date(from).toISOString())}&to=${encodeURIComponent(new Date(to).toISOString())}`;
     const data = await api(ROOT + '/collab/api/desk/replay?' + query);
     setReplayEvents(normalizeReplay(data));
+    if (data && data.truncated) toast(`这段时间事件太多，只回放最近 ${R.events.length} 条，更早的没载入`);
     if (auto && R.events.length) startReplay();
   } catch (error) {
     toast(`回放载入失败：${error.message}`);

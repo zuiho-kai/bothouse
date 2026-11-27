@@ -62,6 +62,15 @@ def clean(text: str, limit: int = MAX_TEXT_CHARS) -> str:
     return _CTRL.sub("", text).strip()[:limit]
 
 
+def clip(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+    """clean，但超过 limit 时在尾巴标「已截断」：用户看得出后半段没送到（#2047 第 4 条）。"""
+    full = clean(text, len(text) + 1)
+    if len(full) <= limit:
+        return full
+    mark = f"…（已截断：原文 {len(full)} 字，只收前 {limit} 字）"
+    return full[:max(0, limit - len(mark))] + mark
+
+
 def strip_own_prefix(text: str, name: str) -> str:
     """兜底：去掉开头的“本角色名字：”“名字发言：”“名字说：”，不然频道里显示、TTS 也会念出来。
     只认本角色自己的名字，别人的名字开头（如“橘说得对”）是正常的话，不动。"""

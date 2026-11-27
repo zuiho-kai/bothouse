@@ -23,7 +23,7 @@ import lossless
 from wikiroot import wiki_root  # noqa: E402
 WIKI = wiki_root(__file__, __name__)  # see wikiroot.py: one rule for every tool
 HISTORY = "历史"  # 同 ingest.HISTORY / lint.SECTIONS
-MAX_CHARS = 240_000  # 沿用 ingest.py MAX_CHARS：每次模型调用的输入上限
+MAX_CHARS = 240_000  # 每次模型调用的输入上限；同 budget.MAX_CHARS（本文件会单独装进主 wiki 的 bin/ 被 gate 引用，那里没有 budget.py；test_wiki_limits 比对）
 BULLET = re.compile(r"^(\s*)[-*+] \S")
 OVERTURNED = re.compile(r"^\s*[-*+] 曾")  # 「曾以为/曾选 X → 因 Y 改为 Z」本身就是推翻记录，按 wiki 约定「Keep overturned decisions」留在决策与踩坑，不当候选
 SKIP = {"README.md"}  # 目录索引不是事实页（lossless.ROOT_FILES 另外排除 MEMORY.md、log.md、CLAUDE.md）
