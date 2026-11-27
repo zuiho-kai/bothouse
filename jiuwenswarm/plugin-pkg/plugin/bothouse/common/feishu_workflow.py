@@ -7,7 +7,6 @@
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import os
@@ -19,6 +18,11 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+try:  # POSIX only; on Windows the lock degrades to no-op
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 from . import forum_memory
 
@@ -39,6 +43,9 @@ def _task_lock():
     lock_path = _tasks_dir() / ".check.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w", encoding="utf-8") as fh:
+        if fcntl is None:
+            yield
+            return
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
             yield
