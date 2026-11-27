@@ -11,8 +11,6 @@ import (
 // Leading-name calls, moved from platform/discord/mentions.go so platform/cloud-web reads a
 // "龙娘，…" line the same way Discord does.
 
-var codeFenceRe = regexp.MustCompile("(?s)```.*?```")
-
 // NameCalled reports whether a teammate's text calls this bot by name without an @: a line that
 // opens with her name (alone or among teammates' names, "橘，…" / "龙娘、橘 你们看看"), followed by
 // the end, a space, vocative punctuation or a word that calls her ("橘你来", "橘帮我看"). The same
@@ -20,7 +18,7 @@ var codeFenceRe = regexp.MustCompile("(?s)```.*?```")
 // in the line ("行了橘，…", "这个鲸鱼娘你来看看") is talk about her, not a call — a bot naming a
 // teammate mid-sentence made her answer what was said to someone else (user 2026-10-23「我都艾特你了，
 // 他还在判断」). "说/在/呢/去" from LEADING are left out:
-// in a bot's line "橘说得对" / "橘在忙" are about her. Text inside ``` fences is ignored.
+// in a bot's line "橘说得对" / "橘在忙" are about her. Text in code (``` fences, `spans`) is ignored.
 func NameCalled(text, botName string, team ...string) bool {
 	mine := botNames(botName)
 	if len(mine) == 0 {
@@ -31,7 +29,7 @@ func NameCalled(text, botName string, team ...string) bool {
 		all = append(all, botNames(n)...)
 	}
 	sort.Slice(all, func(i, j int) bool { return len(all[i]) > len(all[j]) }) // longest first: "Claude橘" before "橘"
-	text = codeFenceRe.ReplaceAllString(text, "")
+	text = StripCode(text)
 	for _, line := range strings.Split(text, "\n") {
 		rest, sep, me := strings.TrimSpace(line), "", false
 		for matched := true; matched; {
@@ -101,15 +99,13 @@ func LinkLeadingNames(text string, ids map[string]string, self []string, mention
 		all = append(all, n)
 	}
 	sort.Slice(all, func(i, j int) bool { return len(all[i]) > len(all[j]) })
-	parts := strings.Split(text, "```")
-	for i := 0; i < len(parts); i += 2 { // even parts are outside code fences
-		lines := strings.Split(parts[i], "\n")
+	return MapOutsideCode(text, func(plain string) string {
+		lines := strings.Split(plain, "\n")
 		for j, line := range lines {
 			lines[j] = linkLeadingLine(line, all, ids, self, mention)
 		}
-		parts[i] = strings.Join(lines, "\n")
-	}
-	return strings.Join(parts, "```")
+		return strings.Join(lines, "\n")
+	})
 }
 
 func linkLeadingLine(line string, all []string, ids map[string]string, self []string, mention func(string) string) string {

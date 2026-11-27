@@ -2098,23 +2098,42 @@ func isDiscordBotMention(m *discordgo.MessageCreate, botID string, botRoleID str
 	if respondToAtEveryoneAndHere && m.MentionEveryone {
 		return true
 	}
+	// Discord lists a mention written in code too; one that appears only in code is an
+	// example, not a call (#2099).
+	plain := core.StripCode(m.Content)
+	inCodeOnly := func(tokens ...string) bool {
+		for _, t := range tokens {
+			if strings.Contains(plain, t) {
+				return false
+			}
+		}
+		for _, t := range tokens {
+			if strings.Contains(m.Content, t) {
+				return true
+			}
+		}
+		return false
+	}
+	userCode := inCodeOnly("<@"+botID+">", "<@!"+botID+">")
 	for _, u := range m.Mentions {
-		if u != nil && u.ID == botID {
+		if u != nil && u.ID == botID && !userCode {
 			return true
 		}
 	}
-	if strings.Contains(m.Content, "<@"+botID+">") || strings.Contains(m.Content, "<@!"+botID+">") {
+	if strings.Contains(plain, "<@"+botID+">") || strings.Contains(plain, "<@!"+botID+">") {
 		return true
 	}
+	roleCode := botRoleID != "" && inCodeOnly("<@&"+botRoleID+">")
 	for _, roleID := range m.MentionRoles {
-		if roleID == botRoleID && roleID != "" {
+		if roleID == botRoleID && roleID != "" && !roleCode {
 			return true
 		}
 	}
-	return botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">")
+	return botRoleID != "" && strings.Contains(plain, "<@&"+botRoleID+">")
 }
 
 func hasExplicitDiscordBotMention(content string, botID string, botRoleID string) bool {
+	content = core.StripCode(content) // a mention in code is an example (#2099)
 	if strings.Contains(content, "<@"+botID+">") || strings.Contains(content, "<@!"+botID+">") {
 		return true
 	}
