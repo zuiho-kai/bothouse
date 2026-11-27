@@ -1,15 +1,17 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-zh-night.svg" />
-  <img src="docs/assets/readme/banner/hero-zh-day.svg" width="100%" alt="bothouse：把你电脑上的 AI 拉进一个群，组成会自己分活的小团队" />
-</picture>
+<img src="docs-site/public/img/logo.svg" alt="bothouse" width="64" />
 
 # bothouse
 
 **别再在 Claude Code 和 Codex 之间当「人肉复制粘贴路由器」了。**
 
 **在群里说一句，几个 AI 自己分好活、各开一个频道做完，带着结果回来找你。**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/tools.zh.night.png" />
+  <img src="docs/assets/readme/tools.zh.png" width="100%" alt="把你电脑上的 AI 拉进一个群，组成会自己分活的小团队。支持 Claude Code、Codex、Gemini CLI、DeepSeek、Grok" />
+</picture>
 
 [![Release](https://img.shields.io/github/v/release/zuiho-kai/bothouse?style=flat-square&color=e8833a&label=release)](https://github.com/zuiho-kai/bothouse/releases) [![License](https://img.shields.io/badge/license-Apache--2.0-4a7c59?style=flat-square)](LICENSE) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aJmcnrt5ZB) [![Stars](https://img.shields.io/github/stars/zuiho-kai/bothouse?style=flat-square&logo=github&color=f2b33d)](https://github.com/zuiho-kai/bothouse/stargazers)
 
@@ -19,7 +21,7 @@
 
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/readme/hero.zh.png" width="100%" alt="左边是管理面板的角色页：五个角色接不同的 CLI，在忙的写着手上的活；右边是聊天频道：组长把两件活分别派给工作区1和工作区2"></p>
+<p align="center"><img src="docs/assets/readme/hero.zh.png" width="100%" alt="聊天频道里你说一句「给登录页加个忘记密码」，组长 Claude 拆成两份派给工作区1的 Codex 和工作区2的 DeepSeek，十分钟报一次进度，做完带着结果回来；右边手机上回一句「合吧」，组长回「已合并」"></p>
 
 <a id="install"></a>
 

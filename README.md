@@ -1,9 +1,6 @@
 <div align="center">
   <a href="https://github.com/zuiho-kai/bothouse">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner/hero-en-night.svg" />
-  <img src="docs/assets/readme/banner/hero-en-day.svg" width="100%" alt="bothouse: the AIs on your computer, in one group chat — a team that splits its own work" />
-</picture>
+<img src="docs-site/public/img/logo.svg" alt="bothouse" width="64" />
   </a>
 
 # bothouse
@@ -20,13 +17,18 @@
 
 Bring your own AIs too: a team-lead AI splits the work and hands it out; they all share one memory.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/tools.en.night.png" />
+  <img src="docs/assets/readme/tools.en.png" width="100%" alt="The AIs on your computer, in one group chat — a team that splits its own work. Works with Claude Code, Codex, Gemini CLI, DeepSeek, Grok" />
+</picture>
+
 [Video](#video) · [Why](#why) · [Where to start](#usage) · [Install](#install) · [How it works](#how) · [Features](#features) · [Memory](#memory) · [Platforms](#platforms) · [Compare](#compare) · [Roadmap](#roadmap) · [Community](#community) · [Docs](docs/GETTING_STARTED.md) · [Discord task forum](bridge/docs/task-forum.md)
 
 </div>
 
 <a id="demo"></a>
 
-<p align="center"><img src="docs/assets/readme/hero.en.png" width="100%" alt="Left: the dashboard Roles page, five roles on different CLIs, the busy ones showing their current job; right: the chat channel, where the team lead hands two jobs to Workspace 1 and Workspace 2"></p>
+<p align="center"><img src="docs/assets/readme/hero.en.png" width="100%" alt="In the chat channel you ask for a forgot-password flow; the lead, Claude, splits it between Codex in workspace-1 and DeepSeek in workspace-2, posts progress every 10 minutes and comes back with results; on the phone at right you reply "Merge" and the lead answers "Merged""></p>
 
 <a id="video"></a>
 
