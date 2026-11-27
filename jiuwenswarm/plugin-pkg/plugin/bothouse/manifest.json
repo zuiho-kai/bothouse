@@ -42,7 +42,7 @@
       "display_name": { "en": "Feishu Need Card", "zh": "飞书需求分析卡" },
       "display_description": {
         "en": "Collects group quotes, shared memory rules, and acceptance criteria into a Feishu interactive need card.",
-        "zh": "汇总群聊原话、记忆论坛历史规则和验收标准，发出带确认按钮的飞书需求卡。"
+        "zh": "汇总群聊原话、记忆论坛历史规则和验收标准，发出可直接文字确认开工的飞书需求卡。"
       }
     },
     {

@@ -19,7 +19,7 @@ class BothouseFeishuNeedCardTool(Tool):
                 description=(
                     "在飞书群里收到「需求分析」请求时使用（需配合 bothouse-team-workflow skill）："
                     "自动检索全队共享记忆论坛里以前定过的规矩，汇总群里原话和验收标准，"
-                    "发出带「确认，开工」「再改改」按钮的需求分析卡。"
+                    "发出需求分析卡；卡底提示直接回复「开工」确认或说要改哪里（不依赖卡片按钮回调）。"
                 ),
                 input_params={
                     "type": "object",

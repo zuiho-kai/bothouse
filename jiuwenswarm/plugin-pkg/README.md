@@ -49,3 +49,21 @@ PATH=<装了 workswarm 的 venv>/bin:$PATH sh jiuwenswarm/plugin-pkg/install.sh 
 
 - `files.txt`：用 curl 安装时要下载的全部文件（含 `bridge/contrib/wiki` 里建 wiki 用的程序和模板），加文件要同步这里。
 - 加一个 workswarm 版本：在仓库根目录的 `patches/jiuwenswarm/workswarm-<版本>/` 放补丁（LF 换行），在 `patches/jiuwenswarm/manifest.json` 记原文件和打完后的 sha256，路径加进 `files.txt`。
+
+## 飞书团队流程（0.2.9 及以后）
+
+飞书群里 @ 项目助理说「需求分析」时，插件让同事：
+
+1. 发一张需求卡：群里原话、全队记忆论坛里以前定过的规矩、验收标准。卡底写「回复『开工』确认，或直接说要改哪里」，不依赖卡片按钮回调（按钮要公网回调地址，不改九问源码做不到）。
+2. 确认后开一条飞书任务话题，干活日志只发在话题里；主群只挂一张进度卡，原地刷新，不刷屏。
+3. 10 分钟没进展在话题里提醒，再没动静回主群叫派活的人；要缩范围、合入这类拍板，回主群问。
+4. 全队共用一份记忆论坛：按「[版块] 对象」归帖，搜得到、赞踩会折叠低分。被纠正的夜里归帖，用到没被纠正记赞，同类错第二次升成检查，交回时命中检查直接退回。
+
+和 BotHouse 自己的记忆论坛共用同一份数据时（管理页的那个论坛），设置：
+
+~~~sh
+export GATE_WIKI=~/wiki                                  # 论坛页读的 wiki
+export BOTHOUSE_TEAM_MEMORY_DIR=~/.bothouse/gate-exp      # 论坛页读的 votes.jsonl 所在目录
+~~~
+
+不设时用 JiuwenSwarm 数据目录下的 `bothouse/team-memory/`，同一台机器上的所有九问同事仍然共用这一份。

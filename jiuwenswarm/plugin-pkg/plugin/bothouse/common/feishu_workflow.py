@@ -232,7 +232,7 @@ def build_need_card(task: dict[str, Any]) -> dict[str, Any]:
     ] or ["• （暂无群聊原话）"]
 
     mem_lines = [
-        f"• `[#{r['cid']}]` {r['rule']}（{r['title']} · 分 {r['score']}）"
+        f"• **{r['title']}**：{r['rule']}"
         for r in (task.get("memory_rules") or [])
     ] or ["• （记忆论坛暂无命中历史规则）"]
 
@@ -240,7 +240,6 @@ def build_need_card(task: dict[str, Any]) -> dict[str, Any]:
         f"{idx}. {item}" for idx, item in enumerate(task.get("acceptance_criteria") or [], 1)
     ] or ["1. 完成核心功能并通过验收"]
 
-    task_id = str(task["task_id"])
     return {
         "config": {"wide_screen_mode": True, "update_multi": True},
         "header": {
@@ -253,21 +252,14 @@ def build_need_card(task: dict[str, Any]) -> dict[str, Any]:
             {"tag": "markdown", "content": "**二、团队项目记忆 · 以前定过的**\n" + "\n".join(mem_lines)},
             {"tag": "hr"},
             {"tag": "markdown", "content": "**三、验收标准**\n" + "\n".join(criteria_lines)},
+            {"tag": "hr"},
             {
-                "tag": "action",
-                "actions": [
+                "tag": "note",
+                "elements": [
                     {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "确认，开工"},
-                        "type": "primary",
-                        "value": {"action": "start_task", "task_id": task_id},
-                    },
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "再改改"},
-                        "type": "default",
-                        "value": {"action": "revise_task", "task_id": task_id},
-                    },
+                        "tag": "plain_text",
+                        "content": "回复「开工」确认，或直接说要改哪里",
+                    }
                 ],
             },
         ],
@@ -298,6 +290,22 @@ def build_progress_card(task: dict[str, Any]) -> dict[str, Any]:
             {"tag": "note", "elements": [{"tag": "plain_text", "content": "Agent 干活来回在任务话题内更新 · 主群不刷屏"}]},
         ],
     }
+
+
+def latest_pending_task(chat_id: str) -> dict[str, Any] | None:
+    """The most recent need card still waiting for a text confirmation in this chat."""
+    tdir = _tasks_dir()
+    if not chat_id or not tdir.is_dir():
+        return None
+    pending: list[tuple[Path, dict[str, Any]]] = []
+    for p in tdir.glob("*.json"):
+        task = load_task(p.stem)
+        if task and task.get("status") == "pending_approval" and str(task.get("chat_id")) == chat_id:
+            pending.append((p, task))
+    if not pending:
+        return None
+    newest = max(pending, key=lambda item: item[0].stat().st_mtime)
+    return newest[1]
 
 
 def create_need_card(
@@ -380,6 +388,10 @@ def start_topic_task(
 ) -> dict[str, Any]:
     """Start task: open a dedicated Feishu topic and post one main-group Progress Card."""
     task = load_task(task_id) if task_id else None
+    if task is None and not task_id and chat_id:
+        task = latest_pending_task(chat_id)
+        if task is not None:
+            task_id = str(task["task_id"])
     if task is None:
         task_id = task_id or f"task_{uuid.uuid4().hex[:8]}"
         task = {

@@ -137,8 +137,9 @@ class TestJiuwenFeishuV36(unittest.TestCase):
         self.assertEqual(need_event["body"]["msg_type"], "interactive")
         need_card_json = json.loads(need_event["body"]["content"])
         card_dump = json.dumps(need_card_json, ensure_ascii=False)
-        self.assertIn("确认，开工", card_dump)
-        self.assertIn("再改改", card_dump)
+        self.assertIn("回复「开工」确认，或直接说要改哪里", card_dump)
+        self.assertNotIn('"tag": "button"', card_dump)
+        self.assertNotIn('"tag": "action"', card_dump)
         self.assertIn("令牌桶", card_dump)
 
         task_id = need_res["task_id"]
@@ -148,7 +149,7 @@ class TestJiuwenFeishuV36(unittest.TestCase):
             topic_tool.invoke(
                 {
                     "action": "start",
-                    "task_id": task_id,
+                    "chat_id": "oc_group_1",
                     "subtasks": [
                         {"id": "1", "name": "实现令牌桶中间件", "owner": "Claude", "status": "in_progress"},
                         {"id": "2", "name": "补齐 429 单测", "owner": "Codex", "status": "pending"},
@@ -157,6 +158,7 @@ class TestJiuwenFeishuV36(unittest.TestCase):
             )
         )
         self.assertTrue(start_res["success"])
+        self.assertEqual(start_res["task_id"], task_id)
         topic_root_id = start_res["topic_root_id"]
         prog_msg_id = start_res["progress_message_id"]
 
