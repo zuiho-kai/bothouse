@@ -30,10 +30,24 @@ func TestFeishuProgressCardSizeOptions(t *testing.T) {
 	if p.ProgressUpdateInterval() != feishuProgressUpdateInterval {
 		t.Fatalf("interval = %v", p.ProgressUpdateInterval())
 	}
-	// Unset: core's defaults stay (entries <= 1 is ignored by core, no cut, thinking shown).
+	// By default keep the turn's entries and let the card cap the displayed details.
 	d := newOptionsPlatform(t, map[string]any{"progress_card_entries": "x", "progress_line_len": int64(-3)})
-	if d.ProgressCardEntries() != 0 || d.ProgressCardLineLen() != 0 || d.ProgressCardHideThinking() {
+	if d.ProgressCardEntries() != feishuProgressKeepAllEntries || d.ProgressCardLineLen() != 0 || d.ProgressCardHideThinking() {
 		t.Fatalf("defaults = %d %d %v", d.ProgressCardEntries(), d.ProgressCardLineLen(), d.ProgressCardHideThinking())
+	}
+}
+
+func TestFeishuProgressCardFitsLargeTurn(t *testing.T) {
+	items := make([]model.ProgressCardEntry, 0, 300)
+	for range 150 {
+		items = append(items,
+			model.ProgressCardEntry{Kind: model.ProgressEntryToolUse, Tool: "Read", Text: "report.txt"},
+			model.ProgressCardEntry{Kind: model.ProgressEntryToolResult, Tool: "Read", Text: strings.Repeat("进度", 5000)},
+		)
+	}
+	card := buildProgressCardJSON(&core.ProgressCardPayload{Items: items, Lang: "zh", State: core.ProgressCardStateRunning}, true)
+	if len(card) > maxRichCardJSONBytes || !strings.Contains(card, "仅显示最近更新") {
+		t.Fatalf("large progress card should fit and show a truncation notice, got %d bytes", len(card))
 	}
 }
 
