@@ -31,5 +31,17 @@ func TestMain(m *testing.M) {
 	// #134: every temporary-error re-send (at capacity included) waits a backoff step first; tests
 	// would sit out the live 15s, so they use 1ms unless they set their own.
 	rateLimitBackoffBase = time.Millisecond
+	// #2078: the DSH web self-heal reads this machine's real listeners. A test only ever looks for its
+	// own fake hosts, so it sees the ports this test process serves or has claimed — never another
+	// service on the Mac (FutuOpenD's login console took the probes as account and password).
+	dshWebListenersFn = func(ctx context.Context) []string {
+		var own []string
+		for _, p := range dshWebListenersCtx(ctx) {
+			if _, claimed := dshWebPortClaimed(p); claimed || pidListeningOnPortCtx(ctx, p) == os.Getpid() {
+				own = append(own, p)
+			}
+		}
+		return own
+	}
 	os.Exit(testutil.RunSandboxed(m))
 }

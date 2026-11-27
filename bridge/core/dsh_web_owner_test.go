@@ -53,8 +53,9 @@ func TestDSHWebSelfHealRefusesAHostOfAnotherInstance(t *testing.T) {
 	if after := readStateRaw(t); string(after) != string(before) {
 		t.Fatalf("state file was rewritten to a foreign host: %s", after)
 	}
-	if foreign.logins.Load() == 0 {
-		t.Fatal("the probe never reached the foreign host, so this proves nothing about the refusal")
+	// Ownership is decided before any request (#2078): the foreign host gets no token probe at all.
+	if n := foreign.logins.Load(); n != 0 {
+		t.Fatalf("the foreign host received %d token probes, want 0 (ownership comes first)", n)
 	}
 	// 同一台机器上的另一个 DSH 也不能被停：它是别人的会话。
 	res, err := http.Get(foreign.srv.URL + "/collab/")
