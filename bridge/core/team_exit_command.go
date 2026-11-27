@@ -79,7 +79,7 @@ func (e *Engine) WorkspaceExit(ctx context.Context, sessionKey, kind, text strin
 	if !okKey && !okID {
 		return res, fmt.Errorf("workspace exit: %s: %w", res.Workspace, ErrWorkspaceExitNoTask)
 	}
-	if e.notWorkspaceOwner(p, res.Workspace, res.Board) {
+	if notWorkspaceOwner(e, p, res.Workspace, res.Board) {
 		// #2094: 龙娘, called in by a quoted @, handed back 彩虹猫's task before it was on line.
 		slog.Warn("team exit: refused, the caller is not the task's owner", "workspace", res.Workspace, "board", res.Board, "caller", e.name)
 		return res, fmt.Errorf("workspace exit: %s #%d: %w", res.Workspace, res.Board, ErrWorkspaceExitNotOwner)

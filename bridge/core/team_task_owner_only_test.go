@@ -29,10 +29,10 @@ func TestWorkspaceExitRefusesARoleThatIsNotTheOwner(t *testing.T) {
 	if task, _, err := e.TeamTask(771); err != nil || task.State != TeamTaskDispatched {
 		t.Fatalf("task changed by a refused handback: %+v err=%v", task, err)
 	}
-	if !e.notWorkspaceOwner(p, exitWSKey, 0) {
+	if !notWorkspaceOwner(e, p, exitWSKey, 0) {
 		t.Fatal("橘 counted as the owner of caihongmao's task")
 	}
-	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", e.name, "彩虹猫的活", 771); err == nil && e.notWorkspaceOwner(p, exitWSKey, 771) {
+	if err := e.ClaimTeamWorkspaceTask("discord:chat1", "ws1", "工作区1", e.name, "彩虹猫的活", 771); err == nil && notWorkspaceOwner(e, p, exitWSKey, 771) {
 		t.Fatal("the owner named by project is not the owner")
 	}
 }

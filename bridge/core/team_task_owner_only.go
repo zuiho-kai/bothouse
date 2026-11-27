@@ -20,7 +20,7 @@ var ErrWorkspaceExitNotOwner = errors.New("the task in this workspace is not you
 
 // ownsHandoff: e is the role working handoff h — its Owner, the primary role when it names none,
 // or, when the owner is a person, the role that handed it off (as worksWorkspaceTask decides).
-func (e *Engine) ownsHandoff(p Platform, plat string, h TeamHandoff) bool {
+func ownsHandoff(e *Engine, p Platform, plat string, h TeamHandoff) bool {
 	if e.watchOwns(p, h.Owner) {
 		return true
 	}
@@ -29,7 +29,7 @@ func (e *Engine) ownsHandoff(p Platform, plat string, h TeamHandoff) bool {
 
 // workspaceOpenHandoff returns the handoff in work in workspace session: the one of task-board
 // item board when board > 0, else the newest. false: none is in work there.
-func (e *Engine) workspaceOpenHandoff(session string, board int) (TeamHandoff, bool) {
+func workspaceOpenHandoff(e *Engine, session string, board int) (TeamHandoff, bool) {
 	if e == nil || e.dataDir == "" || session == "" {
 		return TeamHandoff{}, false
 	}
@@ -53,8 +53,8 @@ func (e *Engine) workspaceOpenHandoff(session string, board int) (TeamHandoff, b
 }
 
 // notWorkspaceOwner: session is a workspace with a task in work and e is not the role working it.
-func (e *Engine) notWorkspaceOwner(p Platform, session string, board int) bool {
-	h, ok := e.workspaceOpenHandoff(session, board)
+func notWorkspaceOwner(e *Engine, p Platform, session string, board int) bool {
+	h, ok := workspaceOpenHandoff(e, session, board)
 	if !ok {
 		return false
 	}
@@ -62,5 +62,5 @@ func (e *Engine) notWorkspaceOwner(p Platform, session string, board int) bool {
 	if p == nil {
 		p = e.lookupReadyPlatform(plat)
 	}
-	return !e.ownsHandoff(p, plat, h)
+	return !ownsHandoff(e, p, plat, h)
 }
