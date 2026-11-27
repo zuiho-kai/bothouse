@@ -1097,23 +1097,27 @@ func TestBuildPreviewCardJSON_ProgressPayloadUsesStructuredCard(t *testing.T) {
 	}
 }
 
-func TestBuildPreviewCardJSON_ProgressPayloadSeparatesReasoningAndTools(t *testing.T) {
+func TestBuildProgressCardJSON_PublicProgressSeparatesReasoningAndTools(t *testing.T) {
 	exitCode := 0
-	payload := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+	encoded := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
 		{Kind: model.ProgressEntryThinking, Text: "Inspecting event routing"},
 		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
 		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "/tmp/project", ExitCode: &exitCode},
 	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
 
-	panels := collectCardPanels(t, buildPreviewCardJSON(payload))
+	payload, ok := core.ParseProgressCardPayload(encoded)
+	if !ok {
+		t.Fatal("could not parse progress payload")
+	}
+	panels := collectCardPanels(t, buildProgressCardJSONFromPayload(payload))
 	if len(panels) != 2 {
 		t.Fatalf("panel count = %d, want 2 panels: %#v", len(panels), panels)
 	}
 	if got := cardPanelTitle(panels[0]); got != "Reasoning (1)" {
 		t.Fatalf("first panel title = %q, want Reasoning (1)", got)
 	}
-	if got := cardPanelTitle(panels[1]); got != "Tools (2)" {
-		t.Fatalf("second panel title = %q, want Tools (2)", got)
+	if got := cardPanelTitle(panels[1]); got != "Tools (1)" {
+		t.Fatalf("second panel title = %q, want Tools (1)", got)
 	}
 	if panelContains(t, panels[0], "pwd") {
 		t.Fatalf("reasoning panel should not include tool content: %#v", panels[0])
@@ -1123,6 +1127,46 @@ func TestBuildPreviewCardJSON_ProgressPayloadSeparatesReasoningAndTools(t *testi
 	}
 	if !panelContains(t, panels[0], "mindmap_outlined") {
 		t.Fatalf("reasoning panel should render a reasoning icon: %#v", panels[0])
+	}
+}
+
+func TestBuildPreviewCardJSON_ProgressDetailsPairEachToolCallAndResult(t *testing.T) {
+	payload := core.BuildProgressCardPayloadV2([]model.ProgressCardEntry{
+		{Kind: model.ProgressEntryToolUse, Tool: "Bash", Text: "pwd"},
+		{Kind: model.ProgressEntryToolUse, Tool: "Read", Text: "report.txt"},
+		{Kind: model.ProgressEntryToolResult, Tool: "Bash", Text: "/tmp/project"},
+		{Kind: model.ProgressEntryToolResult, Tool: "Read", Text: "report contents"},
+	}, false, "Codex", core.LangEnglish, core.ProgressCardStateRunning)
+	panels := collectCardPanels(t, buildPreviewCardJSON(payload))
+	if len(panels) != 1 || cardPanelTitle(panels[0]) != "Details" || panels[0]["expanded"] != false {
+		t.Fatalf("want one collapsed Details panel, got %#v", panels)
+	}
+	assertPairedToolPanels(t, panels[0], [][2]string{{"pwd", "/tmp/project"}, {"report.txt", "report contents"}})
+}
+
+func TestBuildRichCard_ToolCallsAndResultsHaveSeparateFoldouts(t *testing.T) {
+	cardJSON := buildRichCard(core.CardStatusDone, "", []core.ToolStep{
+		{Kind: core.ToolStepKindTool, Name: "Bash", Summary: "pwd", Result: "/tmp/project", Done: true},
+		{Kind: core.ToolStepKindTool, Name: "Read", Summary: "report.txt", Result: "report contents", Done: true},
+	}, "done", false, "")
+	panels := collectCardPanels(t, cardJSON)
+	if len(panels) != 1 {
+		t.Fatalf("want one tool group, got %#v", panels)
+	}
+	assertPairedToolPanels(t, panels[0], [][2]string{{"pwd", "/tmp/project"}, {"report.txt", "report contents"}})
+}
+
+func assertPairedToolPanels(t *testing.T, details map[string]any, pairs [][2]string) {
+	t.Helper()
+	items, ok := details["elements"].([]any)
+	if !ok || len(items) != len(pairs) {
+		t.Fatalf("want %d tool panels, got %#v", len(pairs), details["elements"])
+	}
+	for i, pair := range pairs {
+		tool, ok := items[i].(map[string]any)
+		if !ok || tool["tag"] != "collapsible_panel" || tool["expanded"] != false || !panelContains(t, tool, pair[0]) || !panelContains(t, tool, pair[1]) {
+			t.Fatalf("tool panel %d should contain its call and result: %#v", i, items[i])
+		}
 	}
 }
 

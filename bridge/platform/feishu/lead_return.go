@@ -97,6 +97,19 @@ func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
 	return t
 }
 
+func (p *Platform) RichCardContinuationReply(turnCtx, injectedCtx any) (any, bool) {
+	turn, turnOK := turnCtx.(replyContext)
+	inserted, insertedOK := injectedCtx.(replyContext)
+	if !turnOK || !insertedOK || inserted.messageID == "" || inserted.messageID == turn.messageID || inserted.chatID != turn.chatID {
+		return nil, false
+	}
+	if turn.lead == "" {
+		turn.lead = inserted.lead
+	}
+	turn.messageID = inserted.messageID
+	return turn, true
+}
+
 // HasConfiguredTeamLead reports whether team_lead_bot is set (core.ConfiguredTeamLead).
 func (p *Platform) HasConfiguredTeamLead() bool { return p.lead() != "" }
 

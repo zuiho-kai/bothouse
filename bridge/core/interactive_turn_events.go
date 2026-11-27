@@ -312,6 +312,9 @@ func (e *Engine) handleTurnEvent(turn *interactiveTurn, event Event) turnFlow {
 		turn.state.mu.Unlock()
 		return turnFlowReturn
 	}
+	if target, ok := p.(RichCardContinuationTarget); rv.has && ok {
+		turn.continueRichCard(p, target, rv.build)
+	}
 
 	if event.Type == EventResult && event.Done && len(event.Images) > 0 {
 		var imageErr error
@@ -737,6 +740,7 @@ func (e *Engine) onTurnToolResult(turn *interactiveTurn, p Platform, rv richCard
 		cardResult = truncateIf(cardResult, cardToolResultMaxLen)
 		if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 			if rv.has {
+				turn.restoreRichToolCall(event.ToolName)
 				turn.toolSteps = mergeRichToolResult(turn.toolSteps, event, result, e.display.ToolMaxLen)
 				e.showRichStepCard(turn, p, rv, CardStatusWorking, "tool-result card", "tool-result card")
 				return turnFlowContinue

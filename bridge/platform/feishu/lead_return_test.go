@@ -351,3 +351,19 @@ func TestMergeInjectedReplyKeepsLead(t *testing.T) {
 		t.Errorf("foreign turn context changed: %v", got)
 	}
 }
+
+func TestRichCardContinuationReplyTargetsInsertedMessage(t *testing.T) {
+	p := &Platform{}
+	turn := replyContext{messageID: "om_turn", chatID: "oc_chat", sessionKey: "turn-session"}
+	inserted := replyContext{messageID: "om_inserted", chatID: "oc_chat", lead: "ou_lead"}
+	got, ok := p.RichCardContinuationReply(turn, inserted)
+	if !ok {
+		t.Fatal("no continuation target for the inserted Feishu message")
+	}
+	if rc := got.(replyContext); rc.messageID != inserted.messageID || rc.sessionKey != turn.sessionKey || rc.lead != inserted.lead {
+		t.Errorf("continuation = %+v, want inserted message with the running session and lead", rc)
+	}
+	if _, ok := p.RichCardContinuationReply(turn, replyContext{chatID: turn.chatID}); ok {
+		t.Error("synthetic input without a message ID should not move the card")
+	}
+}
