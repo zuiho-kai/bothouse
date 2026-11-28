@@ -1,10 +1,15 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { dshIsSetUp } from '@/api/modules';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, PowerOff } from 'lucide-react';
 // action: shown next to 「DSH 未运行」 (the overview passes 打开 DSH, which starts it again)
-export function DSHNotice({ status, error, action }: { status?: 'running' | 'stopped' | 'error'; error?: string; action?: ReactNode }) {
+// always: the page itself needs DSH (Wiki 星河), so 「DSH 未运行」 shows even where DSH is not set up
+export function DSHNotice({ status, error, action, always }: { status?: 'running' | 'stopped' | 'error'; error?: string; action?: ReactNode; always?: boolean }) {
   const { t } = useTranslation();
+  const [setUp, setSetUp] = useState<boolean | undefined>(undefined);
+  useEffect(() => { if (status === 'stopped' && !always) void dshIsSetUp().then(setSetUp); }, [status, always]);
   if (!status || status === 'running') return null;
+  if (status === 'stopped' && !always && setUp === false) return null; // #2113: no DSH here, nothing to start
   const text = `${status === 'error' ? t('dsh.readError', 'DSH 读取失败') : t('dsh.stopped', 'DSH 未运行')}${error ? `: ${error}` : ''}`;
   // #579: 提示条 = 左侧状态图标 + 文字 + 右侧操作；读取失败用琥珀色，未运行用中性色
   const tone = status === 'error'

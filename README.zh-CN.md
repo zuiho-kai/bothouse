@@ -22,7 +22,7 @@
 
 ## 上手
 
-把这句话丢给你的 Claude Code、Codex 或任何本地 Agent，让它自己装：
+**推荐：直接让 AI 照这个仓库装。** 把这句话丢给你的 Claude Code、Codex 或任何本地 Agent：
 
 ```text
 帮我安装 https://github.com/zuiho-kai/bothouse 并引导我接入 Discord。

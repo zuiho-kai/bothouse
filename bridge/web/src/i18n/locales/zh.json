@@ -112,6 +112,7 @@
     "headlineEmpty": "还没有角色在这里",
     "headlineBusy": "{{busy}} 个角色在忙，{{idle}} 个空闲",
     "headlineIdle": "{{count}} 个角色都在待命",
+    "headlineOffline": "{{count}} 个角色不在线",
     "needsLook": "{{count}} 件事需要看一下",
     "allGood": "一切正常",
     "busyNow": "在忙",

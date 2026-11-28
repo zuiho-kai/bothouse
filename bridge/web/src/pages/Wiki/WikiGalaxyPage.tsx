@@ -79,7 +79,7 @@ export default function WikiGalaxyPage() {
           <div className="flex flex-col items-start gap-3 p-4">
             {availability === 'checking' ? <p role="status">{t('common.loading')}</p> : (
               <>
-                <DSHNotice status={availability} />
+                <DSHNotice status={availability} always />
                 <Button variant="secondary" disabled={opening} onClick={() => {
                   setOpening(true);
                   void goToDsh(src).finally(() => setOpening(false));
