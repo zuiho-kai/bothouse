@@ -768,5 +768,20 @@
     "allFeatures": "All features",
     "more": "More",
     "addRoleHint": "Bring in another AI and put it to work in your chats"
+  },
+  "modelInput": {
+    "fetch": "Fetch models",
+    "fetching": "Fetching...",
+    "select": "Select model",
+    "search": "Search models...",
+    "noMatch": "No matching models",
+    "success": "Fetched {{count}} models",
+    "empty": "No models found",
+    "failed": "Could not fetch the model list",
+    "authFailed": "API key invalid or not allowed",
+    "notFound": "This URL has no model list endpoint: check the API URL",
+    "needConfig": "Fill in the API URL and API key first",
+    "needKey": "Fill in the API key first",
+    "needBase": "Fill in the API URL first"
   }
 }
