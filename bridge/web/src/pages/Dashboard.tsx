@@ -15,7 +15,7 @@ import { errorMessage } from '@/components/DSHNotice';
 import { dshChannelsUrl } from '@/lib/collabPages';
 import { goToDsh } from '@/lib/openDsh';
 import { getDSHStatus, openDSHDesktop } from '@/api/wizard';
-import { listModules } from '@/api/modules';
+import { dshIsSetUp } from '@/api/modules';
 import { dshOnlyRows } from '@/lib/dshMerge';
 import api from '@/api/client';
 import { formatUptime, formatTime } from '@/lib/utils';
@@ -81,8 +81,8 @@ export default function Dashboard() {
   const dshUrl = dshChannelsUrl(undefined, api.getToken());
   const [dshWait, setDshWait] = useState<number | null>(null);
   // 打开 DSH only where DSH is set up: elsewhere 「DSH 未运行」 needs no button
-  const [dshSetUp, setDshSetUp] = useState(false);
-  useEffect(() => { listModules().then((r) => setDshSetUp(r.modules.some((x) => x.name === 'dsh' && x.state === 'enabled'))).catch(() => {}); }, []);
+  const [dshSetUp, setDshSetUp] = useState<boolean | undefined>(undefined);
+  useEffect(() => { void dshIsSetUp().then(setDshSetUp); }, []);
   // the channels are in DeepSeek Harness Desktop too (setup wizard's default route): open it there first
   const [dshDesktop, setDshDesktop] = useState(false);
   useEffect(() => { if (dshSetUp) getDSHStatus().then((s) => setDshDesktop(!!s.desktop_app && !!s.desktop_plugin_installed)).catch(() => {}); }, [dshSetUp]);
@@ -135,17 +135,20 @@ export default function Dashboard() {
   if (error && status) issues.push({ key: 'err', text: error, tone: 'warn' });
   const dshState = dshError ? 'error' : dsh ? dshStatus(dsh) : undefined;
   if (dshState === 'error') issues.push({ key: 'dsh', text: `${t('dsh.readError', 'DSH 读取失败')}${dshError || dsh?.error ? `: ${dshError || dsh?.error}` : ''}`, tone: 'warn' });
-  if (dshState === 'stopped') issues.push({ key: 'dsh', text: t('dsh.stopped', 'DSH 未运行'), tone: 'mute', action: dshSetUp ? openDshButton : undefined });
+  if (dshState === 'stopped' && dshSetUp !== false) issues.push({ key: 'dsh', text: t('dsh.stopped', 'DSH 未运行'), tone: 'mute', action: dshSetUp ? openDshButton : undefined });
   for (const r of roles ?? []) {
     for (const p of r.platforms ?? []) if (p.notice) issues.push({ key: `n-${r.name}-${p.name}`, text: `${shownName(r) || r.name} · ${p.name}: ${p.notice}`, tone: 'warn' });
   }
-  for (const r of liveRows) if (r.state === 'offline') issues.push({ key: `off-${r.key}`, text: `${r.name} ${t('dashboard.isOffline', '不在线')}`, tone: 'mute' });
+  // #2113: an offline role is something to fix, not a footnote under 「一切正常」
+  for (const r of liveRows) if (r.state === 'offline') issues.push({ key: `off-${r.key}`, text: `${r.name} ${t('dashboard.isOffline', '不在线')}`, tone: 'warn' });
 
   const headline = liveRows.length === 0
     ? t('dashboard.headlineEmpty', '还没有角色在这里')
     : tally.busy > 0
       ? t('dashboard.headlineBusy', { busy: tally.busy, idle: tally.idle, defaultValue: '{{busy}} 个角色在忙，{{idle}} 个空闲' })
-      : t('dashboard.headlineIdle', { count: liveRows.length - tally.offline - tally.paused, defaultValue: '{{count}} 个角色都在待命' });
+      : liveRows.length - tally.offline - tally.paused === 0 && tally.offline > 0
+        ? t('dashboard.headlineOffline', { count: tally.offline, defaultValue: '{{count}} 个角色不在线' })
+        : t('dashboard.headlineIdle', { count: liveRows.length - tally.offline - tally.paused, defaultValue: '{{count}} 个角色都在待命' });
   const warnCount = issues.filter((i) => i.tone === 'warn').length;
 
   const metric = (label: string, value: string | number, testid?: string) => (

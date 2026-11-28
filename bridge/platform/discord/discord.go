@@ -131,6 +131,7 @@ type Platform struct {
 	decidedPermits             decidedPermits       // maomao fork: delegated approvals already decided by their requester (permit_dedupe.go)
 	self                       core.Platform
 	eventHandler               core.PlatformEventHandler // maomao fork: platform events (events.go)
+	connectErr                 atomic.Value              // #2113: why the last connect failed ("" once connected), for the panel (PlatformNotice)
 	membersIntent              atomic.Int32              // maomao fork: Server Members Intent on this connect (members.go)
 	membersDenied              atomic.Bool               // maomao fork: Discord closed with 4014 once; stop asking for it
 
@@ -1070,6 +1071,7 @@ func (p *Platform) connectLoop(ctx context.Context) {
 			p.mu.Lock()
 			p.session = session
 			p.everConnected = true
+			p.connectErr.Store("")
 			handler := p.lifecycleHandler
 			p.mu.Unlock()
 
@@ -1099,6 +1101,7 @@ func (p *Platform) connectLoop(ctx context.Context) {
 			continue
 		}
 
+		p.connectErr.Store(err.Error())
 		slog.Warn("discord: connect attempt failed",
 			"attempt", attempt,
 			"backoff", backoff,

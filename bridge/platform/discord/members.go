@@ -3,6 +3,7 @@ package discord
 import (
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/chenhg5/cc-connect/core"
@@ -85,8 +86,21 @@ func (p *Platform) reportMembersIntent() {
 
 // PlatformNotice implements core.PlatformNoticer (panel roles page).
 func (p *Platform) PlatformNotice() string {
+	// #2113: an offline bot said nothing about why on the panel; the reason is the first thing to fix
+	if e, _ := p.connectErr.Load().(string); e != "" {
+		return connectErrNotice(e)
+	}
 	if p.membersIntent.Load() != membersOff {
 		return ""
 	}
 	return "没开 SERVER MEMBERS INTENT，收不到进群、退群事件（member.joined / member.left）：到 Discord 开发者后台 → Bot → Privileged Gateway Intents 打开它并保存，再重启 bothouse。" + p.membersIntentFixURL()
+}
+
+// connectErrNotice: what the panel says about a failed Discord login. 4004 = Discord's
+// "Authentication failed" close code: the token is wrong or was reset.
+func connectErrNotice(err string) string {
+	if strings.Contains(err, "4004") || strings.Contains(err, "Authentication failed") {
+		return "连不上 Discord：机器人 token 不对或已被重置。到 Discord 开发者后台 → Bot → Reset Token 复制新的，换进这个角色的 Discord 配置再重启 bothouse。"
+	}
+	return "连不上 Discord：" + err
 }

@@ -1041,6 +1041,7 @@ func buildProject(cfg *config.Config, configPath string, rootOpts rootCLIOptions
 			proj.Agent.Options["run_as_env"] = proj.RunAsEnv
 		}
 	}
+	fixDisplayNameModels(&proj)
 	agent, err := core.CreateAgent(proj.Agent.Type, buildAgentOptions(cfg.DataDir, proj))
 	if errors.Is(err, core.ErrCLINotFound) { // #1662: the other roles still run; this one waits for its CLI
 		slog.Error("project not started: its agent CLI is not installed", "project", proj.Name, "error", err)

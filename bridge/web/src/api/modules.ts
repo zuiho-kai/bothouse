@@ -20,3 +20,12 @@ export interface PlatformModules {
 export async function listModules(): Promise<PlatformModules> {
   return api.get<PlatformModules>('/modules');
 }
+
+// #2113: whether DSH is set up on this machine (its module enabled). 「DSH 未运行」 is noise for
+// someone who never chose DSH, so the notices ask this first; one request per page load.
+// undefined = could not tell (the notice then shows, as before).
+let dshSetUpOnce: Promise<boolean | undefined> | null = null;
+export function dshIsSetUp(): Promise<boolean | undefined> {
+  dshSetUpOnce ??= listModules().then((r) => r.modules.some((x) => x.name === 'dsh' && x.state === 'enabled')).catch(() => { dshSetUpOnce = null; return undefined; });
+  return dshSetUpOnce;
+}

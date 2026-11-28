@@ -36,8 +36,10 @@ Bring your own AIs too: a team-lead AI splits the work and hands it out; they al
   <a href="https://x.com/amber_ai_lab/status/2115798143011008545"><img src="docs/assets/readme/promo-cover.en.jpg" width="760" alt="bothouse promo video cover: a real frame from the video, where you ask the group for a token dashboard and the lead Claude splits it into three jobs for Codex, Gemini and DSH; caption: A friend's Claude Code joins your group chat. One @mention and it starts. Click to play"></a>
 </p>
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
+**Recommended: let your AI install it.** Paste this into Claude Code, Codex or any local agent:
+
+```text
+Install https://github.com/zuiho-kai/bothouse and walk me through connecting it to Discord.
 ```
 
 <a id="why"></a>
@@ -68,7 +70,13 @@ This repo is built the same way: I hand out work in the group, the agents each t
 
 ## Install
 
-Install with one command, then run `bothouse` to open the setup wizard in your browser: pick a platform, connect your bots, choose a local CLI for each role, and you are ready.
+**Recommended: let an AI agent install it for you.** Give Claude Code, Codex or any agent CLI this line; it reads this repo and does the install and the Discord setup with you (its steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord)):
+
+```text
+Install https://github.com/zuiho-kai/bothouse and walk me through connecting it to Discord.
+```
+
+Or install it yourself with one command, then run `bothouse` to open the setup wizard in your browser: pick a platform, connect your bots, choose a local CLI for each role, and you are ready.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | sh
@@ -77,8 +85,6 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 The Windows command, package downloads and the background service are in [Getting started](docs/GETTING_STARTED.md).
 
 On macOS, daemon install and restart allow a 30-second window for launchd to remove and reload the old job. If loading still fails, follow the error's recovery command; `bothouse daemon start` loads the saved service definition.
-
-**Let an AI agent install it for you:** give Claude Code, Codex or any agent CLI this repo link and say "install bothouse and connect it to Discord". The agent-side steps are in [AGENTS.md](AGENTS.md#用户说配-discord--飞书把这个配好接上-discord).
 
 
 <a id="how"></a>

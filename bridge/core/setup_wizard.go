@@ -960,6 +960,12 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 			if err := validateWizardProvider(*r.Provider); err != nil {
 				return fail(step+" provider", err)
 			}
+			// #2113: write the relay's model ID, never a display name such as "Opus 4.7"
+			id, err := ResolveModelID(ctx, wizardListBase(*r.Provider), r.Provider.APIKey, r.Provider.Model)
+			if err != nil {
+				return fail(step+" provider", err)
+			}
+			r.Provider.Model = id
 		}
 		if req.Platform == "discord" {
 			switch {
@@ -2768,6 +2774,23 @@ func (m *ManagementServer) handleSetupJevTest(w http.ResponseWriter, r *http.Req
 		}
 		out["reason"] = reason
 		out["hint"] = JevHint(req.Lang, false, req.Fallback)
+	}
+	mgmtJSON(w, http.StatusOK, out)
+}
+
+// handleSetupProviderModels (POST /setup/provider/models, body = the role's provider): the model IDs
+// the endpoint lists, for the wizard's model box (#2113). A failed list is not an error: the box
+// stays free text and ApplyWizard still checks the model.
+func (m *ManagementServer) handleSetupProviderModels(w http.ResponseWriter, r *http.Request) {
+	var req WizardProvider
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	ids, err := WizardProviderModels(r.Context(), req)
+	out := map[string]any{"models": ids}
+	if err != nil {
+		out["models"] = []string{}
+		out["error"] = err.Error()
 	}
 	mgmtJSON(w, http.StatusOK, out)
 }

@@ -394,6 +394,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/setup/cloudweb/start", m.wrap(m.handleSetupCloudWebStart))
 	mux.HandleFunc(prefix+"/setup/cloudweb/test", m.wrap(m.handleSetupCloudWebTest))
 	mux.HandleFunc(prefix+"/setup/jev/test", m.wrap(m.handleSetupJevTest))
+	mux.HandleFunc(prefix+"/setup/provider/models", m.wrap(m.handleSetupProviderModels))
 	mux.HandleFunc(prefix+"/setup/jev/save", m.wrap(m.handleSetupJevSave))
 	// 闸门设置页 (#217): 装好以后也能改谁在什么时候接话，以及闸门模型 API（jev）
 	mux.HandleFunc(prefix+"/forum", m.wrap(m.handleForum))
@@ -1606,6 +1607,13 @@ func (m *ManagementServer) handleProjectProviders(w http.ResponseWriter, r *http
 			mgmtError(w, http.StatusBadRequest, "name is required")
 			return
 		}
+		// #2113: a display name ("Opus 4.7") becomes the endpoint's model ID before it is saved
+		model, err := ResolveModelID(r.Context(), body.BaseURL, body.APIKey, body.Model)
+		if err != nil {
+			mgmtError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		body.Model = model
 		prov := ProviderConfig{
 			Name:     body.Name,
 			APIKey:   body.APIKey,
@@ -2149,6 +2157,9 @@ func (m *ManagementServer) handleGlobalProviders(w http.ResponseWriter, r *http.
 			mgmtError(w, http.StatusBadRequest, "name is required")
 			return
 		}
+		if !resolveGlobalProviderModel(w, r, &body) {
+			return
+		}
 		if err := m.addGlobalProvider(body); err != nil {
 			if strings.Contains(err.Error(), "already exists") {
 				mgmtError(w, http.StatusConflict, err.Error())
@@ -2162,6 +2173,43 @@ func (m *ManagementServer) handleGlobalProviders(w http.ResponseWriter, r *http.
 	default:
 		mgmtError(w, http.StatusMethodNotAllowed, "GET or POST only")
 	}
+}
+
+// resolveGlobalProviderModel: #2113 — the provider's model, and each per-agent model, as the
+// endpoint's model ID; a display name with no match answers 400.
+func resolveGlobalProviderModel(w http.ResponseWriter, r *http.Request, body *GlobalProviderInfo) bool {
+	model, err := ResolveModelID(r.Context(), body.BaseURL, body.APIKey, body.Model)
+	if err == nil {
+		body.Model = model
+		for at, am := range body.AgentModels {
+			base := body.BaseURL
+			if ep := body.Endpoints[at]; ep != "" {
+				base = ep
+			}
+			if am, err = ResolveModelID(r.Context(), base, body.APIKey, am); err != nil {
+				break
+			}
+			body.AgentModels[at] = am
+		}
+	}
+	// the model lists the switcher offers: an entry's model is sent to the API as is
+	for i := 0; err == nil && i < len(body.Models); i++ {
+		body.Models[i].Model, err = ResolveModelID(r.Context(), body.BaseURL, body.APIKey, body.Models[i].Model)
+	}
+	for at, list := range body.AgentModelLists {
+		base := body.BaseURL
+		if ep := body.Endpoints[at]; ep != "" {
+			base = ep
+		}
+		for i := 0; err == nil && i < len(list); i++ {
+			list[i].Model, err = ResolveModelID(r.Context(), base, body.APIKey, list[i].Model)
+		}
+	}
+	if err != nil {
+		mgmtError(w, http.StatusBadRequest, err.Error())
+		return false
+	}
+	return true
 }
 
 func (m *ManagementServer) handleGlobalProviderRoutes(w http.ResponseWriter, r *http.Request) {
@@ -2196,6 +2244,9 @@ func (m *ManagementServer) handleGlobalProviderRoutes(w http.ResponseWriter, r *
 		var body GlobalProviderInfo
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			mgmtError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		if !resolveGlobalProviderModel(w, r, &body) {
 			return
 		}
 		if err := m.updateGlobalProvider(name, body); err != nil {
