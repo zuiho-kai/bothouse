@@ -59,5 +59,12 @@ scraping until you fill in its `play_url()` with one of them.
 
 ### websearch
 
-`search "query" [n] [engine]` with engine `auto` (default), `global`, `cn`, `baidu`, `sogou`, `so360`, `zhihu`, `bili`.
-Optional `WEBSEARCH_CN_PROXY` for the Chinese engines. Zhihu answers that need a login come back partial.
+`search "query" [n] [engine]` with engine `auto` (default), `global`, `cn`, `baidu`, `sogou`, `so360`, `zhihu`, `bili`,
+`keenable`. Optional `WEBSEARCH_CN_PROXY` for the Chinese engines. Zhihu answers that need a login come back partial.
+
+`fetch URL [chars] [backend]` with backend `local` (default: download the page here, main text via trafilatura) or
+`keenable`.
+
+`keenable` is the [Keenable](https://keenable.ai) search and fetch API. It is used only when you name it (`keenable`,
+or combined like `keenable+cn`) and needs no key (1000 requests per hour per IP); `KEENABLE_API_KEY` raises the
+limits. The query or URL is sent to api.keenable.ai.
