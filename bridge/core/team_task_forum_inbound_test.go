@@ -50,8 +50,10 @@ func TestTaskForumReplyLookup(t *testing.T) {
 		})
 	}
 	e.team.inject = false
-	if r, known := e.ResolveTaskForumReply("discord", "g", "forum", "post"); !known || r != nil {
-		t.Fatalf("secondary must consume without replying: %+v %v", r, known)
+	// #2121: a member that is not the lead (橘 dispatching while 鲸鱼娘 is lead) still answers
+	// when the post @-s it; the platform's mention check picks the one bot.
+	if r, known := e.ResolveTaskForumReply("discord", "g", "forum", "post"); !known || r == nil || r.Chat != "discord:source" {
+		t.Fatalf("secondary must get a reply route: %+v %v", r, known)
 	}
 	writeTaskBoard(t, dir, team.TaskBoardFile, "")
 	writeForumReplyItem(t, dir, team.TaskBoardDoneFile, teamTaskBoardItem{ID: 779, Chat: "discord:source", DoneAt: "11-14 23:00"})
@@ -140,6 +142,31 @@ func TestCUJ_TaskForum1_ReplyUsesSourceConversationAndPostReceipt(t *testing.T) 
 		if target != "post-delivery" {
 			t.Fatalf("receipt escaped post: %v", target)
 		}
+	}
+}
+
+// #2121: user 11-29 「怎么帖子艾特你没有反应」. 橘 dispatched the task while 鲸鱼娘 was the lead;
+// the user's @橘 in the post must start 橘's turn in the source conversation, not vanish.
+func TestCUJ_TaskForum2_NonLeadMentionedInPostAnswers(t *testing.T) {
+	_, e, a, base, session := inputFixture(t)
+	p := &forumReplySink{inputTestPlatform: base}
+	dir := t.TempDir()
+	e.team = &teamState{dir: dir, inject: false}
+	e.SetGateLocal(true)
+	writeForumReplyItem(t, dir, team.TaskBoardFile, teamTaskBoardItem{ID: 779, What: "任务帖对接", Who: "worker", Chat: inputTestKey, Status: "在做", WS: "discord:workspace", Dispatcher: "maomao"})
+	msg := &Message{SessionKey: "discord:post", ChannelID: "post", Platform: "discord", UserID: "human", Content: "怎么回事", Mentioned: true, ReplyCtx: "post-delivery", TaskForum: &TaskForumReply{Board: 779, Thread: "post"}}
+	e.ReceiveMessage(p, msg)
+	prompt := inputPrompt(t, a)
+	if !strings.Contains(prompt, "怎么回事") || !strings.Contains(prompt, "这是任务帖 #779") {
+		t.Fatalf("non-lead did not get the post message: %s", prompt)
+	}
+	if msg.SessionKey != inputTestKey || msg.ReplyCtx != "post-delivery" {
+		t.Fatalf("bad route: %+v", msg)
+	}
+	inputDone(a, "receipt-non-lead")
+	inputWait(t, func() bool { return !session.Busy() })
+	if visible := strings.Join(p.getSent(), "\n"); !strings.Contains(visible, "receipt-non-lead") {
+		t.Fatalf("missing receipt: %s", visible)
 	}
 }
 
