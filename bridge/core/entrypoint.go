@@ -20,7 +20,31 @@ const ClaudeEntrypointEnv = "BOTHOUSE_CLAUDE_ENTRYPOINT"
 
 // ClaudeEntrypoint returns the entrypoint name for spawned Claude Code CLIs.
 func ClaudeEntrypoint() string {
+	return claudeEntrypoint(false)
+}
+
+// ClaudeEntrypointForEnv returns the entrypoint for a CLI spawned with env.
+// The bothouse name only exists to keep subscription logins off the sdk-cli
+// 5-hour-window path; an API key has no such window, and Anthropic answers
+// API-key requests carrying an unknown entrypoint with billing_error
+// ("Credit balance is too low", #2334). So with a non-empty
+// ANTHROPIC_API_KEY the CLI keeps its own sdk-cli unless the user set
+// BOTHOUSE_CLAUDE_ENTRYPOINT.
+func ClaudeEntrypointForEnv(env []string) string {
+	apiKey := false
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "ANTHROPIC_API_KEY="); ok {
+			apiKey = strings.TrimSpace(v) != ""
+		}
+	}
+	return claudeEntrypoint(apiKey)
+}
+
+func claudeEntrypoint(apiKey bool) string {
 	v := strings.TrimSpace(os.Getenv(ClaudeEntrypointEnv))
+	if v == "" && apiKey {
+		return "sdk-cli"
+	}
 	switch v {
 	case "", "cli", "claude-vscode", "claude-desktop":
 		return DefaultClaudeEntrypoint
