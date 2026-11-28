@@ -445,3 +445,28 @@ func TestCompactProgressWriter_CardOnlyAfterFirstEvent(t *testing.T) {
 		t.Fatalf("final edit = %q, want a completed card payload", last)
 	}
 }
+
+// #2121: the wait line ticks every 2s on the card; it must not be copied into the task post
+// as a new message each time, while a real stage note still is.
+func TestCompactProgressWaitLineNotCopiedAsNote(t *testing.T) {
+	p := &stubThrottledProgressPlatform{
+		stubCompactProgressPlatform: stubCompactProgressPlatform{
+			stubPlatformEngine: stubPlatformEngine{n: "discord"},
+			style:              "card",
+			supportPayload:     true,
+		},
+	}
+	w := newCompactProgressWriter(context.Background(), p, "ctx", "cc", LangChinese, nil)
+	var notes []string
+	w.onNote = func(s string) { notes = append(notes, s) }
+	w.AppendStructured(ProgressCardEntry{Kind: ProgressEntryInfo, Text: "半身镜头已修"}, "半身镜头已修")
+	for _, s := range []string{"在等模型 24 秒", "在等模型 26 秒", "在等模型 28 秒"} {
+		w.ShowSubAgentWait(s)
+	}
+	if len(notes) != 1 || notes[0] != "半身镜头已修" {
+		t.Fatalf("notes copied to the post = %q", notes)
+	}
+	if w.onNote == nil {
+		t.Fatal("onNote must be restored after the wait line")
+	}
+}
