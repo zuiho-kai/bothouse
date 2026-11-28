@@ -585,6 +585,12 @@ func runMain() {
 		os.Exit(1)
 	}
 
+	// installed agent tools are also shared skills, so a rewritten persona cannot make a role forget them
+	if names, err := core.SyncAgentToolSkills(cfg.DataDir); err != nil {
+		slog.Warn("agent tools: shared skills update failed", "error", err)
+	} else if len(names) > 0 {
+		slog.Info("agent tools: shared skills up to date", "skills", names)
+	}
 	// a wizard-made main wiki runs its own copy of the wiki programs: bring it to this build's (#1650)
 	if updated, err := core.SyncRoleWikiPrograms(cfg.DataDir); err != nil {
 		slog.Warn("wiki programs: role install update failed", "error", err)

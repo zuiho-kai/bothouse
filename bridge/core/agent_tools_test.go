@@ -13,7 +13,7 @@ import (
 func toolFS(t *testing.T) fstest.MapFS {
 	t.Helper()
 	m := fstest.MapFS{}
-	for _, pat := range []string{"../contrib/tools/*.py", "../contrib/tools/rules/*.md", "../contrib/hooks/dshlog.py"} {
+	for _, pat := range []string{"../contrib/tools/*.py", "../contrib/tools/rules/*.md", "../contrib/tools/skills/*.md", "../contrib/hooks/dshlog.py"} {
 		files, err := filepath.Glob(pat)
 		if err != nil || len(files) == 0 {
 			t.Fatalf("no files for %s: %v", pat, err)
@@ -34,7 +34,12 @@ func withToolFS(t *testing.T) {
 	AgentToolFS = toolFS(t)
 	oldFetch := fetchUV // no uv download from tests (agentToolUV falls back to it when uv is not on PATH)
 	fetchUV = func(string) ([]byte, error) { return nil, os.ErrNotExist }
-	t.Cleanup(func() { AgentToolFS, fetchUV = old, oldFetch })
+	oldRoots := AgentToolSkillRoots // never the real ~/.agents/skills from tests
+	skillHome := t.TempDir()
+	AgentToolSkillRoots = func() []string {
+		return []string{filepath.Join(skillHome, "agents"), filepath.Join(skillHome, "claude"), filepath.Join(skillHome, "gemini")}
+	}
+	t.Cleanup(func() { AgentToolFS, fetchUV, AgentToolSkillRoots = old, oldFetch, oldRoots })
 }
 
 // No uv on PATH but bothouse has its own (a container without sudo): the persona names that uv, and it is
@@ -156,5 +161,59 @@ func TestWithToolRulesKeepsCRLFAndOtherBlocks(t *testing.T) {
 	}
 	if back := WithToolRules(out, ""); back != in {
 		t.Fatalf("remove: %q", back)
+	}
+}
+
+// A persona rewritten without the tools block (11-28) must not make the role forget the tools: every bridge start
+// puts each installed tool into the shared skill dirs, with the same command line as the persona block.
+func TestSyncAgentToolSkills(t *testing.T) {
+	withToolFS(t)
+	data := t.TempDir()
+	if names, err := SyncAgentToolSkills(data); err != nil || len(names) != 0 {
+		t.Fatalf("tools never installed: want nothing, got %v %v", names, err)
+	}
+	if _, err := InstallAgentTools(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(AgentToolsDir(data), "SKILL.md")); err == nil {
+		t.Fatal("skill templates must not be copied into the tools dir")
+	}
+	roots := AgentToolSkillRoots()
+	if err := os.MkdirAll(roots[1], 0o755); err != nil { // Claude Code installed, Antigravity not
+		t.Fatal(err)
+	}
+	names, err := SyncAgentToolSkills(data)
+	if err != nil || len(names) != len(agentTools) {
+		t.Fatalf("got %v %v", names, err)
+	}
+	b, err := os.ReadFile(filepath.Join(roots[0], "bothouse-watchvid", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	want := filepath.Join(AgentToolsDir(data), "watchvid.py")
+	if !strings.HasPrefix(s, "---\nname: bothouse-watchvid\ndescription: ") || !strings.Contains(s, want) || strings.Contains(s, "{{") {
+		t.Fatalf("skill:\n%s", s)
+	}
+	if !strings.Contains(s, "b23.tv") || !strings.Contains(s, "只看标题和简介不算看过视频") || !strings.Contains(s, "Reading only the title") {
+		t.Fatalf("skill misses trigger words or rule lines:\n%s", s)
+	}
+	if dst, err := os.Readlink(filepath.Join(roots[1], "bothouse-watchvid")); err != nil || dst != filepath.Join(roots[0], "bothouse-watchvid") {
+		t.Fatalf("claude link: %q %v", dst, err)
+	}
+	if _, err := os.Lstat(filepath.Join(roots[2], "bothouse-watchvid")); err == nil {
+		t.Fatal("no link into a CLI dir that does not exist")
+	}
+	// a user's own skill of the same name in a linked dir is left alone; a second run changes nothing
+	own := filepath.Join(roots[1], "bothouse-peek")
+	os.Remove(own)
+	if err := os.MkdirAll(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncAgentToolSkills(data); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Lstat(own); err != nil || st.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("user's own skill dir replaced")
 	}
 }

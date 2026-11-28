@@ -156,5 +156,50 @@ class ManualsPending(unittest.TestCase):
         self.assertFalse(manuals.is_search("exec", "echo hello"))
 
 
+class ToolGaps(unittest.TestCase):
+    """11-28: watchvid was written up in the wiki but no manual's name or description named it (only one body did),
+    so a role sent a video link never used it. Tools with wiki usage and no manual entry get a drafted manual."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.saved = {key: getattr(manuals, key) for key in ('PENDING', 'SKILLS', 'LINKS', 'WIKI')}
+        self.addCleanup(lambda: [setattr(manuals, key, value) for key, value in self.saved.items()])
+        manuals.PENDING, manuals.SKILLS, manuals.LINKS = None, self.root / 'skills', []
+        manuals.WIKI = self.root / 'wiki'
+        bin_ = self.root / 'bin'
+        bin_.mkdir()
+        for name in ('watchvid', 'covered', 'test_x'):
+            (bin_ / name).write_text('#!/bin/sh\n')
+            (bin_ / name).chmod(0o755)
+        (bin_ / 'notexec').write_text('x')
+        manuals.WIKI.mkdir()
+        (manuals.WIKI / 'video.md').write_text(
+            f'- 看视频：`{bin_}/watchvid <链接>` 出抽帧和转写\n- `{bin_}/covered` 和 `{bin_}/test_x`、`{bin_}/notexec`、'
+            f'`{bin_}/gone`\n')
+        (manuals.SKILLS / 'other').mkdir(parents=True)
+        (manuals.SKILLS / 'other' / 'SKILL.md').write_text(
+            '---\nname: other\ndescription: uses covered for things\n---\nwatchvid cookie is in the body only\n')
+
+    def test_only_wiki_tools_missing_from_every_name_and_description(self):
+        gaps = manuals.tool_gaps(manuals.existing())
+        self.assertEqual(sorted(gaps), ['watchvid'])
+        self.assertIn('video.md:1', gaps['watchvid']['lines'][0])
+
+    def test_pass_drafts_a_manual_and_does_not_ask_twice(self):
+        asked = []
+        def ask(prompt):
+            asked.append(prompt)
+            return {'groups': [{'id': 0, 'name': 'watch-video', 'description': '看视频 watchvid',
+                                'body': 'run watchvid'}]}
+        seen = set()
+        have = manuals.existing()
+        done, rows = manuals.tools_pass(have, '2026-11-29', seen, ask_fn=ask)
+        self.assertEqual(done, [('new', 'watch-video ← tool watchvid')])
+        self.assertIn('watchvid', asked[0])
+        self.assertTrue((manuals.SKILLS / 'watch-video' / 'SKILL.md').exists())
+        self.assertEqual(seen, {'watchvid'})
+        self.assertEqual(manuals.tools_pass(manuals.existing(), '2026-11-29', set(), ask_fn=ask), ([], []))
+        self.assertEqual(len(asked), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

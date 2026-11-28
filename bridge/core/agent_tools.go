@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -47,6 +48,9 @@ func InstallAgentTools(dataDir string) (string, error) {
 			return err
 		}
 		base := path.Base(p)
+		if path.Base(path.Dir(p)) == "skills" { // skill templates: SyncAgentToolSkills renders them, not copied here
+			return nil
+		}
 		if strings.HasPrefix(base, "test_") || !(strings.HasSuffix(base, ".py") || strings.HasSuffix(base, ".md")) {
 			return nil
 		}
@@ -167,6 +171,9 @@ func EnableAgentTools(o AgentToolOptions) (*AgentToolResult, error) {
 	}
 	uv := agentToolUV(o.DataDir)
 	if err := writeToolRules(persona, o.Lang, on, uv, dir); err != nil {
+		return nil, err
+	}
+	if _, err := writeAgentToolSkills(dir, uv); err != nil {
 		return nil, err
 	}
 	res := &AgentToolResult{ToolsDir: dir, PersonaFile: persona, UV: uv}
@@ -331,4 +338,117 @@ func withMarkedBlock(persona, begin, end, block string) string {
 	}
 	block = strings.ReplaceAll(block, "\n", eol)
 	return persona + begin + eol + block + eol + end + eol
+}
+
+// ── shared skills ──────────────────────────────────────────────
+
+// The persona block alone is not enough: a role whose persona file is rewritten by hand (or copied back from a
+// backup) loses it, and nothing puts it back — the role then no longer knows the tools exist (seen 11-28: a role
+// sent a video link only curled the page and answered from the title). So every installed tool is also a skill in
+// the directories the CLIs scan on their own (Codex, DSH, Pi, Grok: ~/.agents/skills; Claude Code: ~/.claude/skills;
+// Antigravity: ~/.gemini/skills), rewritten at every bridge start. The skill's body is the same rule lines as the
+// persona block, so the two never say different things.
+
+// AgentToolSkillRoots are the skill directories: the first holds the files, the others get a symlink to them.
+// A test or library user can point it elsewhere; nil = the user's real ones.
+var AgentToolSkillRoots func() []string
+
+func agentToolSkillRoots() []string {
+	if AgentToolSkillRoots != nil {
+		return AgentToolSkillRoots()
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".claude", "skills"), filepath.Join(home, ".gemini", "skills")}
+}
+
+// AgentToolSkill is one tool's SKILL.md: the frontmatter from skills/<name>.md, then the zh and en rule lines.
+func AgentToolSkill(name, uv, toolsDir string) (skill string, dir string) {
+	if AgentToolFS == nil {
+		return "", ""
+	}
+	head, err := fs.ReadFile(AgentToolFS, "contrib/tools/skills/"+name+".md")
+	if err != nil {
+		return "", ""
+	}
+	m := regexp.MustCompile(`(?m)^name:\s*(\S+)`).FindSubmatch(head)
+	if m == nil {
+		return "", ""
+	}
+	body := strings.TrimRight(string(head), "\n") + "\n"
+	for _, l := range []string{"zh", "en"} {
+		if b, err := fs.ReadFile(AgentToolFS, "contrib/tools/rules/"+name+"."+l+".md"); err == nil {
+			body += "\n" + strings.TrimRight(string(b), "\n") + "\n"
+		}
+	}
+	if uv == "" {
+		uv = "uv"
+	}
+	return strings.NewReplacer("{{TOOLS}}", toolsDir, "{{UV}}", uv).Replace(body), string(m[1])
+}
+
+// writeAgentToolSkills writes a skill for every tool whose script is in toolsDir. Returns the skill names written
+// or already current.
+func writeAgentToolSkills(toolsDir, uv string) ([]string, error) {
+	roots := agentToolSkillRoots()
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	var done []string
+	for _, n := range agentTools {
+		if _, err := os.Stat(filepath.Join(toolsDir, n+".py")); err != nil {
+			continue
+		}
+		body, name := AgentToolSkill(n, uv, toolsDir)
+		if body == "" {
+			continue
+		}
+		dst := filepath.Join(roots[0], name)
+		f := filepath.Join(dst, "SKILL.md")
+		if old, err := os.ReadFile(f); err != nil || string(old) != body {
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return done, err
+			}
+			if err := AtomicWriteFile(f, []byte(body), 0o644); err != nil {
+				return done, err
+			}
+		}
+		for _, r := range roots[1:] {
+			link := filepath.Join(r, name)
+			if st, err := os.Stat(r); err != nil || !st.IsDir() {
+				continue // that CLI is not installed here
+			}
+			if _, err := os.Lstat(link); err == nil {
+				continue // already there (our link, or the user's own skill of that name: leave it)
+			}
+			if err := os.Symlink(dst, link); err != nil {
+				return done, err
+			}
+		}
+		done = append(done, name)
+	}
+	return done, nil
+}
+
+// SyncAgentToolSkills runs at bridge start: where the tools were ever installed (<data_dir>/tools has a tool
+// script), it brings the scripts to this build and rewrites their shared skills. Machines that never turned the
+// tools on are left alone.
+func SyncAgentToolSkills(dataDir string) ([]string, error) {
+	dir := AgentToolsDir(dataDir)
+	has := false
+	for _, n := range agentTools {
+		if _, err := os.Stat(filepath.Join(dir, n+".py")); err == nil {
+			has = true
+			break
+		}
+	}
+	if !has || AgentToolFS == nil {
+		return nil, nil
+	}
+	if _, err := InstallAgentTools(dataDir); err != nil {
+		return nil, err
+	}
+	return writeAgentToolSkills(dir, agentToolUV(dataDir))
 }

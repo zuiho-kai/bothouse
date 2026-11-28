@@ -514,6 +514,98 @@ def register(rows, day):
         log("index commit " + ("ok" if r.returncode == 0 else f"FAILED {(r.stderr or r.stdout)[-200:]}"))
 
 
+# ── 本机工具没有入口（用户 11-29「通用性的改」）──
+# 11-28 鲸鱼娘收到视频链接只 curl 了网页、照标题回：看视频的 watchvid 写在 wiki 里，但没有哪份手册提到它，她不知道
+# 有这个工具。上面那套只在「两个会话各自摸索」后才起草，没人摸索过的工具永远进不了手册。这里反过来查：wiki 里写了用法
+# 的本机程序（路径带 /bin/、文件在、可执行），名字在哪份手册的名字和简介里都没出现的，把 wiki 里讲它的行交模型起草手册。
+TOOL_PATH = re.compile(r"(?<![\w.~/-])((?:~|/)[\w./-]*?/bin/([A-Za-z][\w.-]*[\w]))")
+SYSTEM_BIN = re.compile(r"^/(?:usr|bin|sbin|opt|System|Library)/")  # 系统自带、包管理器装的不算本机工具
+TOOL_LINES = 12  # 每个工具最多带几行 wiki 原文给模型；助手自定，够看出用法又不撑爆一批
+TOOL_SKIP = re.compile(r"^test_|\.(?:bak|orig|swp|json|txt|md|log|swift|go)$|\.bak-")
+
+
+def tool_gaps(have):
+    """{工具名: {"path": 可执行文件, "lines": [wiki 里提到它的行（页:行 原文）]}}，只列哪份手册的名字和简介都没提到的。"""
+    # 只认名字和一行简介：CLI 常驻上下文里只有这两样，正文按需才读。watchvid 当时就只在 proxy-7890-fetch 正文里讲 cookie，
+    # 简介没提，等于没有入口
+    known = "\n".join(f"{n} {d}" for n, (d, _) in have.items())
+    found = {}
+    # 日志页（log.md）按时间追加、旧做法多，排最后，名额先给正文页
+    for page in sorted(WIKI.rglob("*.md"), key=lambda p: (p.name == "log.md", str(p))):
+        if any(part.startswith(".") for part in page.relative_to(WIKI).parts):
+            continue
+        for n, line in enumerate(page.read_text(errors="ignore").splitlines(), 1):
+            for raw, name in TOOL_PATH.findall(line):
+                if TOOL_SKIP.search(name) or name in GENERIC:
+                    continue
+                path = Path(os.path.expanduser(raw))
+                if SYSTEM_BIN.match(raw) or not (path.is_file() and os.access(path, os.X_OK)):
+                    continue
+                g = found.setdefault(name, {"path": str(path), "lines": []})
+                if len(g["lines"]) < TOOL_LINES:
+                    g["lines"].append(f"{page.relative_to(WIKI)}:{n} {line.strip()[:400]}")
+    return {k: v for k, v in found.items() if not re.search(rf"(?<![\w-]){re.escape(k)}(?![\w-])", known)}
+
+
+TOOL_PROMPT = """你在给一组 AI 助手（不同 CLI 的聊天角色）维护「操作手册」（skill）。下面每组是本机一个现成程序：wiki 里写了它的用法，但没有任何一份已有手册提到它的名字，所以助手碰到该用它的事时不知道有它（例：收到视频链接只抓网页、照标题回答，因为没有手册提到看视频用的 watchvid）。
+
+逐组判断：助手在聊天或干活时会不会需要主动调它。只回一个 JSON 对象 {{"groups": [每组一项]}}，不要别的字。每项带 "id"（组号），再加下面之一：
+- 不需要（定时任务、钩子、别的程序内部调用的、测试或一次性脚本、已废弃；通用的语言运行时、包管理器、系统命令如 go、python3、uv、pnpm、ffprobe，助手本来就会用）：{{"id": 组号, "skip": "一句理由"}}
+- 需要：{{"id": 组号, "name": "小写英文短横线名", "description": "一行：做什么 + 什么时候用（带用户会说的中文说法和关键词，例如链接长什么样）", "body": "markdown 正文"}}
+
+正文照人工范本：开头一句直接给命令（程序完整路径）；「## 起步」最短能用的步骤；「## 坑」写 wiki 里记的坑；「## 出处」每条一行 wiki 页:行。只写下面原文里出现过的路径、参数和事实，不编。不写密钥、cookie 的值。
+
+已有手册（name：description）：
+{existing}
+
+{evidence}
+"""
+
+
+def tools_pass(have, day, seen, deadline=None, ask_fn=None):
+    """wiki 里有用法、却没有手册入口的本机工具，交模型起草；判过的（写了或 skip）记进 seen，不再判。返回 (done, rows)。"""
+    gaps = {k: v for k, v in tool_gaps(have).items() if k not in seen}
+    done, rows = [], []
+    if not gaps:
+        return done, rows
+    log(f"{len(gaps)} tools have wiki usage but no manual: {', '.join(sorted(gaps))}")
+    todo = sorted(gaps.items())
+    ex = "\n".join(f"- {n}：{d}" for n, (d, _) in have.items()) or "（无）"
+    room = MAX_CHARS - len(TOOL_PROMPT.format(existing=ex, evidence=""))
+    while todo:
+        if deadline and time.time() > deadline:
+            log("night budget used up, the rest of the tools wait for tomorrow")
+            break
+        batch, parts = [], []
+        for k, g in todo:
+            e = f"## 组 {len(batch)}：{k}（{g['path']}）\n" + "\n".join(g["lines"])
+            if batch and sum(map(len, parts)) + len(e) > room:
+                break
+            batch.append((k, g))
+            parts.append(e)
+        todo = todo[len(batch):]
+        try:
+            answers = ((ask_fn or ask)(TOOL_PROMPT.format(existing=ex, evidence="\n\n".join(parts))).get("groups") or [])
+        except Exception as e:  # noqa: BLE001 — 这一批明晚再试
+            log(f"tool batch of {len(batch)} FAILED: {type(e).__name__}: {e}")
+            continue
+        for ans in answers:
+            try:
+                k, g = batch[int(ans["id"])]
+                if "skip" in ans:
+                    done.append(("skip", f"tool {k} — {ans['skip']}"))
+                else:
+                    name, desc, path = write_new(ans, day, {"targets": {k}})
+                    have[name] = (desc, path)
+                    rows.append((name, desc, path))
+                    done.append(("new", f"{name} ← tool {k}"))
+                seen.add(k)
+                log(f"{done[-1][0]} {done[-1][1]}")
+            except Exception as e:  # noqa: BLE001
+                log(f"tool answer {str(ans)[:120]} FAILED: {type(e).__name__}: {e}")
+    return done, rows
+
+
 def run(since=None, until=None, dry=False, deadline=None, ask_fn=None, transcripts=None):
     """返回 [(动作, 名字或理由)]。since 不给 = 上次跑到的地方（首次：一天前）。"""
     hi = until or time.time()
@@ -530,6 +622,8 @@ def run(since=None, until=None, dry=False, deadline=None, ask_fn=None, transcrip
     gs = candidates(files, lo, new_from, hi)
     log(f"{len(files)} sessions, {len(gs)} repeated-search groups")
     if dry:
+        for k, g in sorted(tool_gaps(existing()).items()):
+            print("tool", k, "|", g["path"], "|", len(g["lines"]), "wiki lines")
         for g in gs:
             print(len(g["sessions"]), "sessions |", ", ".join(sorted(g["targets"])))
             for eps in g["sessions"].values():
@@ -577,10 +671,14 @@ def run(since=None, until=None, dry=False, deadline=None, ask_fn=None, transcrip
                 log(f"{done[-1][0]} {done[-1][1]}")
             except Exception as e:  # noqa: BLE001 — 一组落不下不拦别的组，这组明晚再试
                 log(f"group answer {str(ans)[:120]} FAILED: {type(e).__name__}: {e}")
+    tseen = set(st.get("tools", []))
+    tdone, trows = tools_pass(have, day, tseen, deadline=deadline, ask_fn=ask_fn)
+    done += tdone
+    rows += trows
     if rows:
         register(rows, day)
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps({"at": hi, "groups": sorted(seen)}, ensure_ascii=False))
+    STATE.write_text(json.dumps({"at": hi, "groups": sorted(seen), "tools": sorted(tseen)}, ensure_ascii=False))
     done += tidy_all(day, deadline=deadline, ask_fn=ask_fn)  # 收尾：补充合进正文、临时路径清掉（用户 11-02）
     return done
 
