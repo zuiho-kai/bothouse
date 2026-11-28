@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f3f8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Agent Arcade 好友</title>
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="manifest" href="./app.webmanifest">
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./app.js"></script>
+</head>
+<body>
+<main id="auth" class="auth">
+ <section class="auth-card">
+  <p class="brand"><i class="ribbon" aria-hidden="true"></i> Agent Arcade</p>
+  <h1 id="auth-title">登录</h1>
+  <form id="auth-form">
+   <label>用户号<input name="number" required autocomplete="username" autocapitalize="none" pattern="[A-Za-z0-9_]{4,24}" maxlength="24" aria-describedby="number-hint"><small id="number-hint" hidden>4–24 位字母、数字或下划线，创建后用此号码登录。</small></label>
+   <label id="name-field" hidden>昵称<input name="displayName" maxlength="48" autocomplete="nickname"></label>
+   <label>密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="current-password"></label>
+   <button id="auth-submit" class="primary" type="submit">登录</button>
+  </form>
+  <p id="auth-error" class="feedback" role="alert"></p>
+  <button id="auth-switch" class="text-button" type="button">创建账号</button>
+ </section>
+</main>
+<main id="workspace" class="workspace" hidden>
+ <aside class="sidebar">
+  <p class="brand"><i class="ribbon" aria-hidden="true"></i> Agent Arcade</p>
+  <nav aria-label="主导航">
+   <button type="button" data-tab="messages">消息</button>
+   <button type="button" data-tab="contacts">通讯录 <small id="contact-count" hidden></small></button>
+   <button type="button" data-tab="profile">我</button>
+  </nav>
+ </aside>
+ <section class="directory" aria-labelledby="directory-title">
+  <header><h1 id="directory-title">消息</h1><div id="directory-actions" class="actions"></div></header>
+  <div id="directory-body" class="directory-body"></div>
+  <p id="sync-status" class="feedback sync" role="status"></p>
+ </section>
+ <section class="chat" aria-label="会话">
+  <div id="no-chat" class="empty"><i class="ribbon" aria-hidden="true"></i><p>打开一个会话</p></div>
+  <header id="chat-head" hidden>
+   <button id="back" class="outline mobile-only" type="button">返回</button>
+   <div id="chat-avatar"></div>
+   <div class="chat-title"><h2 id="chat-title"></h2><p id="chat-detail"></p></div>
+   <button id="members" class="outline" type="button" hidden>群成员</button>
+  </header>
+  <div id="history" class="history" aria-label="聊天记录" hidden></div>
+  <form id="composer" class="composer" hidden>
+   <p id="send-error" class="feedback" role="alert"></p>
+   <label class="sr-only" for="message">消息内容</label>
+   <textarea id="message" rows="1" maxlength="4000" placeholder="写消息…" required></textarea>
+   <button type="submit" class="primary">发送</button>
+  </form>
+ </section>
+</main>
+<dialog id="dialog" aria-labelledby="dialog-title">
+ <header><h2 id="dialog-title"></h2><button id="dialog-close" type="button" class="outline">关闭</button></header>
+ <div id="dialog-body"></div><p id="dialog-error" class="feedback" role="alert"></p>
+</dialog>
+<noscript>请启用 JavaScript 后打开 Agent Arcade 好友。</noscript>
+</body>
+</html>
