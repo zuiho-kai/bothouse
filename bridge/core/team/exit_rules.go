@@ -568,9 +568,22 @@ func SelfRouteProblems(body string) []string {
 // no 「要你做的」 at all (a plain reply in a chat channel) is read line by line: a line that asks
 // something of the reader (「请把……」「你先……」) is checked the same way.
 func selfRouteHit(body string) string {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	if ExitRules.srTodo.FindStringIndex(body) == nil {
-		for _, ln := range strings.Split(body, "\n") {
+	parts, hasTodo := todoSections(body)
+	if !hasTodo {
+		lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+		inFence := false
+		for _, ln := range lines {
+			trim := strings.TrimSpace(ln)
+			if strings.HasPrefix(trim, "```") {
+				inFence = !inFence
+				continue
+			}
+			if inFence || strings.HasPrefix(trim, ">") {
+				continue
+			}
+			if isDetailStart(ln) {
+				break
+			}
 			if ExitRules.srAskLine.MatchString(ln) {
 				if hit := handHit(ln); hit != "" {
 					return hit
@@ -579,27 +592,136 @@ func selfRouteHit(body string) string {
 		}
 		return ""
 	}
-	for {
-		loc := ExitRules.srTodo.FindStringIndex(body)
-		if loc == nil {
-			return ""
-		}
-		body = body[loc[1]:]
-		first, more, _ := strings.Cut(body, "\n")
-		if ExitRules.srNone.MatchString(first) {
-			continue
-		}
-		part := []string{first}
-		for _, ln := range strings.Split(more, "\n") {
-			if ExitRules.srEnd.MatchString(ln) {
-				break
-			}
-			part = append(part, ln)
-		}
-		if hit := handHit(strings.Join(part, "\n")); hit != "" {
+	for _, p := range parts {
+		if hit := handHit(p); hit != "" {
 			return hit
 		}
 	}
+	return ""
+}
+
+// isDetailStart reports whether ln opens the 「细节」 section of a report (「细节」, 「细节：」, or
+// 「细节：...」 at line start). Everything from that line onward is evidence, scope echoes, or
+// quoted user words, never the report's 「要你做的」.
+func isDetailStart(ln string) bool {
+	trim := strings.TrimSpace(ln)
+	if ExitRules.detail.MatchString(trim) {
+		return true
+	}
+	if !strings.HasPrefix(trim, "细节") {
+		return false
+	}
+	rest := strings.TrimLeft(trim[len("细节"):], "\t 　")
+	return strings.HasPrefix(rest, "：") || strings.HasPrefix(rest, ":")
+}
+
+// inQuotesAt reports whether byte offset pos in ln lies inside a quoted span: paired quotes
+// (「…」/『…』/“…”/‘…’, tracking nesting so nested 「…」 stays quoted) or a matched pair of
+// symmetric quotes ("…" / `…`) on the same line.
+func inQuotesAt(ln string, pos int) bool {
+	var cjk1, cjk2, curly2, curly1 int
+	inDouble, inTick := false, false
+	for i, r := range ln {
+		if i >= pos {
+			break
+		}
+		switch r {
+		case '「':
+			cjk1++
+		case '」':
+			if cjk1 > 0 {
+				cjk1--
+			}
+		case '『':
+			cjk2++
+		case '』':
+			if cjk2 > 0 {
+				cjk2--
+			}
+		case '“':
+			curly2++
+		case '”':
+			if curly2 > 0 {
+				curly2--
+			}
+		case '‘':
+			curly1++
+		case '’':
+			if curly1 > 0 {
+				curly1--
+			}
+		case '"':
+			if inDouble {
+				inDouble = false
+			} else if strings.IndexByte(ln[i+1:], '"') >= 0 {
+				inDouble = true
+			}
+		case '`':
+			if inTick {
+				inTick = false
+			} else if strings.IndexByte(ln[i+1:], '`') >= 0 {
+				inTick = true
+			}
+		}
+	}
+	return cjk1 > 0 || cjk2 > 0 || curly2 > 0 || curly1 > 0 || inDouble || inTick
+}
+
+// todoHeaderIndex returns the first unquoted 「要你做的」/「要你定的」 header match in ln.
+func todoHeaderIndex(ln string) []int {
+	for _, loc := range ExitRules.srTodo.FindAllStringIndex(ln, -1) {
+		if !inQuotesAt(ln, loc[0]) {
+			return loc
+		}
+	}
+	return nil
+}
+
+// todoSections extracts every 「要你做的」/「要你定的」 section before 「细节」 (and stops once
+// 「我加的：」 appears after a 「要你做的」 section). Fenced code blocks, blockquotes, and quoted
+// mentions (such as 「...要你做的：...」 in quoted replies or background text) are skipped so they
+// are never mistaken for the report's 「要你做的」 section. hasTodo is true when at least one
+// section header was found, even if its body says 没有/无.
+func todoSections(body string) (parts []string, hasTodo bool) {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	inFence := false
+	for i := 0; i < len(lines); i++ {
+		ln := lines[i]
+		trim := strings.TrimSpace(ln)
+		if strings.HasPrefix(trim, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if isDetailStart(ln) || (hasTodo && ExitRules.added.MatchString(ln)) {
+			break
+		}
+		if strings.HasPrefix(trim, ">") {
+			continue
+		}
+		loc := todoHeaderIndex(ln)
+		if loc == nil {
+			continue
+		}
+		hasTodo = true
+		first := ln[loc[1]:]
+		if ExitRules.srNone.MatchString(first) {
+			continue
+		}
+		sec := []string{first}
+		for i+1 < len(lines) {
+			next := lines[i+1]
+			if ExitRules.srEnd.MatchString(next) || isDetailStart(next) {
+				break
+			}
+			i++
+			sec = append(sec, next)
+		}
+		parts = append(parts, strings.Join(sec, "\n"))
+	}
+	return parts, hasTodo
 }
 
 // handHit: the hand-off phrase in s, "" when s has none or names something only the user can do. A
@@ -722,26 +844,8 @@ func ExitBounceNote(problems []string) string {
 }
 
 // UserTodo is the 「要你做的」 part of a report, "" when it has none or says 没有 (same bounds as
-// selfRouteHit: up to the next 【…】/我加的/自验/细节 line or a blank line).
+// selfRouteHit: before 「细节」, up to the next 【…】/给你的/我加的/自验/类别/细节 line or blank line).
 func UserTodo(body string) string {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	var parts []string
-	for {
-		loc := ExitRules.srTodo.FindStringIndex(body)
-		if loc == nil {
-			return strings.TrimSpace(strings.Join(parts, "\n"))
-		}
-		body = body[loc[1]:]
-		first, more, _ := strings.Cut(body, "\n")
-		if ExitRules.srNone.MatchString(first) {
-			continue
-		}
-		parts = append(parts, first)
-		for _, ln := range strings.Split(more, "\n") {
-			if ExitRules.srEnd.MatchString(ln) {
-				break
-			}
-			parts = append(parts, ln)
-		}
-	}
+	parts, _ := todoSections(body)
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }

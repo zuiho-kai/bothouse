@@ -200,6 +200,8 @@ func TestSelfRouteProblems(t *testing.T) {
 		// 11-10 13:2x test bridge reply in the e2e channel (screenshot), a plain reply
 		"请把更新后的规则文件和 gate 放进 /tmp/iso.O9CP9P/home/.bothouse/collaboration/。或者让我切到 iso.usWPPc 那份，我一收到确认就重交",
 		"[report] #1 背景：x\n做了什么：y\n要你做的：把新包拷到 /Applications 里替换一下\n给你的：无\n我加的：无",
+		"[report] #1466 背景：桥配置改好了。\n已改好。\n要你做的：你现在重启一下桥。\n给你的：无\n我加的：无\n细节：\n入口自验：\n```\nok\n```\n用户原话逐条：\n- 「你现在就重启吧」—— 做到",
+		"[report] #1466 背景：桥配置改好了。\n已改好。\n要你做的：\n1. 重启一下桥\n给你的：无\n我加的：无",
 		"【结论】改好了。\n【要你做的】在设置里打开辅助功能权限。",
 	}
 	for _, s := range back {
@@ -226,6 +228,16 @@ func TestSelfRouteProblems(t *testing.T) {
 		"[ask] #8 背景：x\n做了什么：y\n要你做的：二选一。A：照现在这样。B：做系统层面的拦截。我把成员命令也接到这种装法上。我推荐 B。\n我加的：无",
 		// 11-10 #1364 real [report]: the scope line the skeleton makes it echo quotes 「要你做的」 — a quote, not the section
 		"[report] #1364 背景：x\n做了什么：y\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n交接范围逐项：\n- 改：汇报和提问里「要你做的」出现让用户放文件、跑命令、改设置这类话，程序打回让它自己找路 —— 上一棒已做",
+		// #2348 real [report]: 「用户原话逐条」 quotes a nested-quote reply containing 「要你做的：」 followed by 「你现在就重启吧」
+		"[report] #1461 背景：你问要不要开公网。\n已上线。\n要你做的：没有\n给你的：https://k.zzzxx.online\n我加的：无\n细节：\n入口自验：\n```\n200 OK\n```\n用户原话逐条：\n- 「[replying to C酱: 没口令只看到「需要访问口令」。 要你做的：手机第一次打开要带上口令。 给你的：https://z.zzzxx.online] 口令是什么」—— 无关\n- 「Muse-1 网关离线 还有这个 你现在就重启吧」—— 无关",
+		// #2348: report without a 「细节：」 heading; quoted 「要你做的：」 after 「我加的：」 must not be scanned
+		"[report] #1461 背景：你问要不要开公网。\n已上线。\n要你做的：没有\n给你的：无\n我加的：无\n用户原话逐条：\n- 「[replying to C酱: 要你做的：手机打开]」—— 无关\n- 「你现在就重启吧」—— 无关",
+		// #2348: 「背景」 quotes 「要你做的：重启」 while the real 「要你做的」 says 没有
+		"[report] #1466 背景：修交回检查把「要你做的：重启」误判的问题。\n已修好。\n要你做的：没有\n给你的：无\n我加的：无",
+		// #2348: fenced code block in 「细节」 contains a line starting with 「要你做的：重启」
+		"[report] #1466 背景：修误判。\n已修好。\n要你做的：没有\n给你的：无\n我加的：无\n细节：\n入口自验：\n```\n要你做的：重启\n```",
+		// #2348: non-empty 「要你做的」 must stop at 「给你的：」 and not scan the give line
+		"[report] #2 背景：选路线。\n两种方案都测了。\n要你做的：定方向：A 还是 B\n给你的：/Users/x/重启说明.md\n我加的：无",
 	}
 	for _, s := range pass {
 		if p := team.SelfRouteProblems(s); p != nil {
@@ -234,6 +246,22 @@ func TestSelfRouteProblems(t *testing.T) {
 	}
 	if p := team.ReportPreflight(back[0], ""); !strings.Contains(strings.Join(p, "；"), "换路") {
 		t.Errorf("preflight misses the self-route check: %v", p)
+	}
+	// #2348: ReportPreflight passes when 「用户原话逐条」 quotes 「你现在就重启吧」 and 「要你做的」 is 没有,
+	// and still blocks when 「要你做的」 actually asks the user to restart.
+	quotedRestartReport := "[report] #1461 背景：你问要不要开公网。\n已上线。\n要你做的：没有\n给你的：https://k.zzzxx.online\n我加的：无\n细节：\n入口自验：\n```\n200 OK\n```\n用户原话逐条：\n- 「[replying to C酱: 没口令只看到「需要访问口令」。 要你做的：手机第一次打开要带上口令。] 口令是什么」—— 无关\n- 「还有这个 你现在就重启吧」—— 无关"
+	if p := team.ReportPreflight(quotedRestartReport, ""); p != nil {
+		t.Errorf("preflight false-positived on quoted restart in details: %v", p)
+	}
+	realRestartReport := "[report] #1466 背景：桥配置改好了。\n已改好。\n要你做的：你现在重启一下桥。\n给你的：无\n我加的：无\n细节：\n入口自验：\n```\nok\n```\n用户原话逐条：\n- 「你现在就重启吧」—— 做到"
+	if p := team.ReportPreflight(realRestartReport, ""); !strings.Contains(strings.Join(p, "；"), "换路") {
+		t.Errorf("preflight failed to block real restart hand-off: %v", p)
+	}
+	if got := team.UserTodo(quotedRestartReport); got != "" {
+		t.Errorf("UserTodo leaked details/quotes: %q", got)
+	}
+	if got := team.UserTodo("[report] #2 背景：选路线。\n测了。\n要你做的：定方向：A 还是 B\n给你的：https://example.com/a\n我加的：无"); got != "定方向：A 还是 B" {
+		t.Errorf("UserTodo bled into 给你的: %q", got)
 	}
 }
 
