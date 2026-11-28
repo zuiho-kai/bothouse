@@ -161,6 +161,7 @@ DEFAULTS = {
     # engine "openai": the day ingest's two tool-less proposal calls go to an OpenAI-compatible chat/completions route
     # instead of the Codex CLI, several batches at once.
     # api_key_file holds the key; the key never goes into config, logs or the usage table.
+    # With api_base and api_key_file set, the codex engine's calls go to the same route and key too (codex_route).
     "api_base": "", "api_model": "", "api_key_file": "",
     # 记忆推送/夜间标注目录（tags.jsonl）："" = <数据目录>/gate；本机实验版在 ~/.bothouse/gate-exp
     "gate_dir": "",
@@ -1800,6 +1801,21 @@ def agy(instruction, stdin="", label="?", context=None):
     return ok, out or f"rc={r.returncode} status={res.get('status')} {r.stderr[-300:]}", 0
 
 
+def codex_route():
+    """Codex CLI flags and env that send its calls to the configured api route with this wiki's own key instead of
+    Codex's ChatGPT login (user 2026-11-28「整理用密钥 有个专门的luna密钥啊」: the login's revoked refresh token
+    reverted every night batch). No route configured -> no flags: Codex keeps its own login."""
+    if not (CFG["api_base"] and CFG["api_key_file"]):
+        return [], {}
+    try:
+        key = Path(CFG["api_key_file"]).expanduser().read_text().strip()
+    except OSError as e:
+        raise ConfigError(f"config.json: api_key_file {CFG['api_key_file']} unreadable ({type(e).__name__})") from e
+    provider = ('{name="wiki_api",base_url=' + json.dumps(CFG["api_base"])
+                + ',env_key="WIKI_API_KEY",wire_api="responses"}')
+    return ["-c", 'model_provider="wiki_api"', "-c", f"model_providers.wiki_api={provider}"], {"WIKI_API_KEY": key}
+
+
 def codex(instruction, stdin="", label="?", context=None, effort=None, model=None, resume=None):
     """Codex CLI (ChatGPT login in ~/.codex). Transcript leads stdin like gemini(). notify=[] drops the
     desktop notify hooks; workspace-write keeps shell inside the wiki. Git is ours (model_pass), not the model's.
@@ -1808,12 +1824,13 @@ def codex(instruction, stdin="", label="?", context=None, effort=None, model=Non
     prompt = (CONTEXT.format(text=context) + "\n\n" if context else "") + instruction.replace(
         "at the end of your system prompt", "at the start of your input") + \
         ("\n\n" + stdin if stdin else "")
+    route, route_env = codex_route()
     with tempfile.NamedTemporaryFile("r", suffix=".txt", prefix="wiki-codex-") as out:
         # one option list for a fresh start and a resume, so the resumed model runs with the same sandbox as the first
         # one (`exec resume` has no -s/-C: sandbox_mode goes as -c, which overrides config.toml's danger-full-access —
         # rollout 2026-10-19 15:53 turn_context shows workspace-write; the cwd is the process cwd = WIKI)
         opts = ["-m", model, "-c", f"model_reasoning_effort={effort or EFFORT}", "-c", "notify=[]",
-                "-c", 'sandbox_mode="workspace-write"', *(["-c", f'service_tier="{TIER}"'] if TIER else []),
+                "-c", 'sandbox_mode="workspace-write"', *(["-c", f'service_tier="{TIER}"'] if TIER else []), *route,
                 "--skip-git-repo-check", "--json", "-o", out.name]
         if resume:
             cmd = ["codex", "exec", "resume", resume, *opts, "-"]
@@ -1821,7 +1838,7 @@ def codex(instruction, stdin="", label="?", context=None, effort=None, model=Non
         else:
             cmd = ["codex", "exec", *opts, "-C", str(WIKI), "-"]
         r = engine_run(cmd, input=prompt, cwd=WIKI, capture_output=True, text=True, timeout=3600,
-                           env={**os.environ, "WIKI_INGEST": "1"})
+                           env={**os.environ, **route_env, "WIKI_INGEST": "1"})
         result = out.read().strip()
     u, turns, errors, tid, terminal, active, progress = codex_retry.events(r.stdout, resume)
     with open(USAGE, "a") as f:
@@ -3045,12 +3062,13 @@ def codex_json(prompt, schema, label, model, effort):
     # source: 2026-11-20 measurement — a one-line prompt costs 19560 input tokens as configured, 16956 with these off
     off = [flag for feature in ("plugins", "apps", "browser_use", "computer_use", "image_generation")
            for flag in ("--disable", feature)]
+    route, route_env = codex_route()
     with tempfile.NamedTemporaryFile("r", suffix=".txt", prefix="wiki-codex-") as out:
         cmd = ["codex", "exec", "-m", model, "-c", f"model_reasoning_effort={effort}", "-c", "notify=[]",
-               *(["-c", f'service_tier="{TIER}"'] if TIER else []), *off, "-s", "read-only", "--skip-git-repo-check",
+               *(["-c", f'service_tier="{TIER}"'] if TIER else []), *route, *off, "-s", "read-only", "--skip-git-repo-check",
                "--json", "-C", str(PROPOSE_DIR), "--output-schema", str(name), "-o", out.name, "-"]
         r = engine_run(cmd, input=prompt, cwd=PROPOSE_DIR, capture_output=True, text=True, timeout=3600,
-                       env={**os.environ, "WIKI_INGEST": "1"})
+                       env={**os.environ, **route_env, "WIKI_INGEST": "1"})
         result = out.read().strip()
     u, turns, errors, tid, terminal, active, progress = codex_retry.events(r.stdout)
     with open(USAGE, "a") as f:
