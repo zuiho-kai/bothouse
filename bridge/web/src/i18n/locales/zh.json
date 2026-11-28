@@ -112,6 +112,7 @@
     "headlineEmpty": "还没有角色在这里",
     "headlineBusy": "{{busy}} 个角色在忙，{{idle}} 个空闲",
     "headlineIdle": "{{count}} 个角色都在待命",
+    "headlineOffline": "{{count}} 个角色不在线",
     "needsLook": "{{count}} 件事需要看一下",
     "allGood": "一切正常",
     "busyNow": "在忙",
@@ -767,5 +768,20 @@
     "allFeatures": "全部功能",
     "more": "更多",
     "addRoleHint": "接一个新的 AI 进来，配好就能在群里干活"
+  },
+  "modelInput": {
+    "fetch": "获取模型列表",
+    "fetching": "正在获取...",
+    "select": "选择模型",
+    "search": "搜索模型...",
+    "noMatch": "没有匹配的模型",
+    "success": "获取到 {{count}} 个模型",
+    "empty": "未找到可用模型",
+    "failed": "获取模型列表失败",
+    "authFailed": "API Key 无效或无权限",
+    "notFound": "这个地址没有模型列表接口，检查 API 地址",
+    "needConfig": "请先填写 API 地址和 API Key",
+    "needKey": "请先填写 API Key",
+    "needBase": "请先填写 API 地址"
   }
 }

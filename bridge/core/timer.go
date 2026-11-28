@@ -568,8 +568,18 @@ func (ts *TimerScheduler) executeJob(jobID string) {
 	if !job.IsShellJob() {
 		if wait := engine.capacityWait(engine.admissionQuotaScope(engine.agent, job.SessionKey)); wait > 0 {
 			slog.Info("timer: delaying job until provider cooldown ends", "id", jobID, "project", job.Project, "delay", wait)
+			if job.Handoff {
+				noteHandoffQuotaHeld(engine, job.SessionKey, time.Now(), wait)
+			}
 			ts.scheduleAt(job, wait)
 			return
+		}
+		if job.Handoff {
+			if id := clearHandoffQuotaHeld(engine, job.SessionKey); id > 0 {
+				slog.Info("timer: held handoff dropped; its task waits for the cooldown and its wait retry hands it back", "id", jobID, "board", id, "session", job.SessionKey)
+				ts.store.MarkFired(jobID, fmt.Errorf("task #%d is handed back by its wait retry", id))
+				return
+			}
 		}
 	}
 

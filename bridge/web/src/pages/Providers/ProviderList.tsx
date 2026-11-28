@@ -11,6 +11,7 @@ import {
   type GlobalProvider, type ProviderPreset, type ProviderModel, type CCSwitchProvider,
 } from '@/api/providers';
 import { cn } from '@/lib/utils';
+import { ModelInput } from '@/components/ModelInput';
 import { dshHomeUrl } from '@/lib/collabPages';
 import api from '@/api/client';
 
@@ -399,8 +400,10 @@ function ModelBadges({ models, limit = 3 }: { models: string[]; limit?: number }
 /* ── Model List Editor ── */
 
 function ModelListEditor({
-  models, onChange, defaultModel, onSetDefault,
+  models, onChange, defaultModel, onSetDefault, baseUrl, apiKey,
 }: {
+  baseUrl?: string;
+  apiKey?: string;
   models: ProviderModel[];
   onChange: (models: ProviderModel[]) => void;
   defaultModel?: string;
@@ -459,13 +462,15 @@ function ModelListEditor({
           })}
         </div>
       )}
-      <div className="flex gap-2">
-        <Input
+      <div className="flex items-end gap-2">
+        <ModelInput
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={setInput}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
           placeholder="model-name"
           className="flex-1"
+          baseUrl={baseUrl}
+          apiKey={apiKey}
         />
         <Button type="button" variant="ghost" size="sm" onClick={addModel} disabled={!input.trim()}>
           <Plus size={14} />
@@ -533,8 +538,9 @@ function mergePerAgentToForm(form: GlobalProvider, configs: Record<string, Agent
 /* ── Per-agent config editor ── */
 
 function AgentConfigEditor({
-  agentType, config, onChange, t,
+  agentType, config, onChange, t, apiKey,
 }: {
+  apiKey?: string;
   agentType: string;
   config: AgentConfigEntry;
   onChange: (cfg: AgentConfigEntry) => void;
@@ -553,13 +559,13 @@ function AgentConfigEditor({
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-ink-soft mb-1">
-          {t('globalProviders.form.model')}
-        </label>
-        <Input
+        <ModelInput
+          label={t('globalProviders.form.model')}
           value={config.model}
-          onChange={e => onChange({ ...config, model: e.target.value })}
+          onChange={model => onChange({ ...config, model })}
           placeholder="model-name"
+          baseUrl={config.base_url}
+          apiKey={apiKey}
         />
       </div>
       <div>
@@ -567,6 +573,8 @@ function AgentConfigEditor({
           {t('globalProviders.form.models')}
         </label>
         <ModelListEditor
+          baseUrl={config.base_url}
+          apiKey={apiKey}
           models={config.models}
           onChange={models => onChange({ ...config, models })}
           defaultModel={config.model}
@@ -743,13 +751,14 @@ function ProviderFormModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-ink-soft mb-1">
-                  {t('globalProviders.form.model')}
-                </label>
-                <Input
+                <ModelInput
+                  label={t('globalProviders.form.model')}
                   value={form.model || ''}
-                  onChange={e => set('model', e.target.value)}
+                  onChange={v => set('model', v)}
                   placeholder="claude-sonnet-4-20250514"
+                  baseUrl={form.base_url}
+                  apiKey={form.api_key}
+                  testid="gp-model"
                 />
                 <p className="mt-1 text-xs text-ink-mute">{t('globalProviders.form.modelHint')}</p>
               </div>
@@ -758,6 +767,8 @@ function ProviderFormModal({
                   {t('globalProviders.form.models')}
                 </label>
                 <ModelListEditor
+                  baseUrl={form.base_url}
+                  apiKey={form.api_key}
                   models={form.models || []}
                   onChange={models => set('models', models)}
                   defaultModel={form.model}
@@ -796,6 +807,7 @@ function ProviderFormModal({
                       config={perAgent[at] || { base_url: '', model: '', models: [] }}
                       onChange={cfg => updatePerAgent(at, cfg)}
                       t={t}
+                      apiKey={form.api_key}
                     />
                   );
                 })}

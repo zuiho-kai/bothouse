@@ -922,3 +922,41 @@ func TestTurnResume_SummaryKeepsPrefixOnlyMessage(t *testing.T) {
 		t.Errorf("summary = %q, want the folded original %q", got, want)
 	}
 }
+
+// #2069: a new-per-run cron turn interrupted by a restart is checked on its own
+// side session. A reply on the channel's main session does not drop it; a reply
+// on the side session still does.
+func TestTurnResume_SideSessionReplyCheckedOnOwnSession(t *testing.T) {
+	e := newResumeEngine(t, t.TempDir())
+	key := "test:c1"
+	main := e.sessions.GetOrCreateActive(key)
+	side := e.sessions.NewSideSession(key, "cron-job")
+	from := time.Now().Add(-time.Minute)
+	to := time.Now().Add(time.Minute)
+	en := TurnJournalEntry{Project: "test", SessionKey: key, InteractiveKey: key + "#cron:" + side.ID,
+		Platform: "test", Trigger: TurnTriggerTimer, StartedAt: time.Now()}
+
+	main.History = append(main.History, HistoryEntry{Role: "assistant", Content: "main reply", Timestamp: time.Now()})
+	if e.repliedBetween(en, from, to) {
+		t.Fatal("main-session reply must not count as a reply to the side-session cron turn")
+	}
+	plans := planTurnResumes([]TurnJournalEntry{en}, turnResumeEnv{now: time.Now(), startTime: to, repliedBetween: e.repliedBetween})
+	if len(plans) != 1 || plans[0].action != turnResumeDeliver {
+		t.Fatalf("cron turn should resume, got %+v", plans)
+	}
+
+	side.History = append(side.History, HistoryEntry{Role: "assistant", Content: "cron reply", Timestamp: time.Now()})
+	if !e.repliedBetween(en, from, to) {
+		t.Fatal("a reply on the side session itself should still count")
+	}
+	plans = planTurnResumes([]TurnJournalEntry{en}, turnResumeEnv{now: time.Now(), startTime: to, repliedBetween: e.repliedBetween})
+	if len(plans) != 1 || plans[0].action != turnResumeDrop {
+		t.Fatalf("cron turn that already replied should drop, got %+v", plans)
+	}
+
+	// A plain chat turn keeps checking the main session.
+	plain := TurnJournalEntry{Project: "test", SessionKey: key, InteractiveKey: key, Platform: "test", Trigger: TurnTriggerUser}
+	if !e.repliedBetween(plain, from, to) {
+		t.Fatal("plain turn should see the main-session reply")
+	}
+}

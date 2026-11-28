@@ -19,22 +19,15 @@ import (
 
 const leadReturnTTL = 24 * time.Hour
 
-// dispatchedBy is the primary role whose turn this is to hand back ("" = none): the lead @-ing this sub,
-// or a person's message that @-s this sub and the lead together (issue #182, 2026-10-20「龙娘算，橘核对」:
-// both bots answered at once and 橘 "checked" an 80-minute-old message). The sub answers, its final
-// answer @-s the lead, and the lead (whose gate keeps it quiet on that message) checks the answer then.
-// content is the text after this bot's own @ was removed or marked.
+// dispatchedBy is the primary role whose turn this is to hand back ("" = none):
+// only when the lead bot itself @-s this sub to delegate work. When a person
+// @-mentions multiple bots (including the lead), each bot answers directly
+// instead of chaining back through returnToLead.
 func (p *Platform) dispatchedBy(fromBot, mentioned bool, authorID, content string) string {
-	if !mentioned || p.lead() == "" || p.lead() == p.selfID() {
+	if !mentioned || !fromBot || p.lead() == "" || p.lead() == p.selfID() {
 		return ""
 	}
-	if fromBot {
-		if authorID == p.lead() {
-			return p.lead()
-		}
-		return ""
-	}
-	if strings.Contains(content, "<@"+p.lead()+">") || strings.Contains(content, "<@!"+p.lead()+">") {
+	if authorID == p.lead() {
 		return p.lead()
 	}
 	return ""

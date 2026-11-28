@@ -2546,7 +2546,7 @@ func TestCUJ_Progress1_QuietQueueAndFailure(t *testing.T) {
 	_, e, a, _, s := inputFixture(t)
 	p := newProgressPlatform()
 	e.platforms = []Platform{p}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	e.SetDisplayConfig(DisplayCfg{ThinkingMessages: false, ToolMessages: false})
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
@@ -2606,7 +2606,7 @@ func TestCUJ_Progress3_ContinueAndAcceptSameCard(t *testing.T) {
 	allChatsAreWorkspaces(e)
 	p := &indexedProgressPlatform{progressTestPlatform: newProgressPlatform()}
 	e.platforms = []Platform{p}
-	e.SetDataDir(t.TempDir())
+	inputDataDir(t, e)
 	if err := e.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}

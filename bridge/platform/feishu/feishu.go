@@ -344,6 +344,9 @@ func newPlatform(name, domain string, opts map[string]any) (core.Platform, error
 	allowBots, _ := opts["allow_bots"].(string)
 	teamLead, _ := opts["team_lead_bot"].(string)
 	cardEntries := progressIntOpt(opts["progress_card_entries"])
+	if cardEntries == 0 {
+		cardEntries = feishuProgressKeepAllEntries
+	}
 	cardLineLen := progressIntOpt(opts["progress_line_len"])
 	cardHideThinking, _ := opts["progress_hide_thinking"].(bool)
 	groupOnly, _ := opts["group_only"].(bool)
@@ -2122,7 +2125,8 @@ func (p *Platform) resolveMentionsInContent(ctx context.Context, chatID, content
 		// does NOT notify the target, which defeats bot-to-bot mentions.
 		escapedName := html.EscapeString(name)
 		atTag := fmt.Sprintf(`<at user_id="%s">%s</at>`, openID, escapedName)
-		result = strings.ReplaceAll(result, pattern, atTag)
+		// An @ name in code is an example, not a call (#2099).
+		result = core.MapOutsideCode(result, func(s string) string { return strings.ReplaceAll(s, pattern, atTag) })
 	}
 	return result
 }
@@ -4253,9 +4257,10 @@ func buildProgressPanel(title string, expanded bool, elements []map[string]any) 
 }
 
 func buildProgressPanelElements(items []model.ProgressCardEntry, lang string) []map[string]any {
-	elements := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		elements = append(elements, renderProgressEntryElement(item, lang))
+	details := progressDetailEntries(items)
+	elements := make([]map[string]any, 0, len(details))
+	for _, entry := range details {
+		elements = append(elements, entry.render(lang, 0))
 	}
 	return elements
 }
@@ -4270,10 +4275,11 @@ func appendProgressGroupedElements(elements []map[string]any, items []model.Prog
 		))
 	}
 	if len(tools) > 0 {
+		toolElements := buildProgressPanelElements(tools, lang)
 		elements = append(elements, buildProgressPanel(
-			progressPanelTitle("Tools", len(tools), lang),
+			progressPanelTitle("Tools", len(toolElements), lang),
 			running,
-			buildProgressPanelElements(tools, lang),
+			toolElements,
 		))
 	}
 	if len(others) > 0 {
@@ -4287,6 +4293,10 @@ func appendProgressGroupedElements(elements []map[string]any, items []model.Prog
 }
 
 func buildProgressCardJSONFromPayload(payload *core.ProgressCardPayload) string {
+	return buildProgressCardJSON(payload, false)
+}
+
+func buildProgressCardJSON(payload *core.ProgressCardPayload, showBrief bool) string {
 	items := normalizeProgressItems(payload)
 	if len(items) == 0 {
 		return buildCardJSON(" ")
@@ -4296,8 +4306,16 @@ func buildProgressCardJSONFromPayload(payload *core.ProgressCardPayload) string 
 	title, template, footer := progressStateMeta(payload.State, payload.Lang, agent)
 	running := payload.State == core.ProgressCardStateRunning
 
-	elements := make([]map[string]any, 0, len(items)+3)
-	if payload.Truncated {
+	elements := make([]map[string]any, 0, 6)
+	truncated := payload.Truncated
+	if showBrief {
+		brief, details, clipped := buildProgressViews(items, payload.Lang)
+		elements = append(elements, brief, details)
+		truncated = truncated || clipped
+	} else {
+		elements = appendProgressGroupedElements(elements, items, payload.Lang, running)
+	}
+	if truncated {
 		truncatedText := "Showing latest updates only."
 		if isZhLikeProgressLang(payload.Lang) {
 			truncatedText = "仅显示最近更新。"
@@ -4311,10 +4329,8 @@ func buildProgressCardJSONFromPayload(payload *core.ProgressCardPayload) string 
 				"text_color": "grey",
 			},
 		})
-		elements = append(elements, map[string]any{"tag": "hr"})
 	}
 
-	elements = appendProgressGroupedElements(elements, items, payload.Lang, running)
 	if footer != "" {
 		elements = append(elements, map[string]any{"tag": "hr"})
 		elements = append(elements, map[string]any{
@@ -4350,7 +4366,7 @@ func buildProgressCardJSONFromPayload(payload *core.ProgressCardPayload) string 
 
 func buildPreviewCardJSON(content string) string {
 	if payload, ok := core.ParseProgressCardPayload(content); ok {
-		return buildProgressCardJSONFromPayload(payload)
+		return buildProgressCardJSON(payload, true)
 	}
 	if payload, ok := core.ParseSubTaskTablePayload(content); ok {
 		return buildFeishuSubTaskCardJSON(payload)
@@ -4600,7 +4616,7 @@ func (p *Platform) UpdateMessage(ctx context.Context, previewHandle any, content
 		h.lastContent = content
 		h.mu.Unlock()
 	} else if payload, ok := core.ParseProgressCardPayload(content); ok {
-		cardJSON = buildProgressCardJSONFromPayload(payload)
+		cardJSON = buildProgressCardJSON(payload, true)
 	} else if payload, ok := core.ParseSubTaskTablePayload(content); ok {
 		cardJSON = buildFeishuSubTaskCardJSON(payload)
 	} else {
@@ -4750,33 +4766,10 @@ func (p *Platform) Stop() error {
 	return nil
 }
 
-// DeletePreviewMessage removes a preview message so the caller can send a
-// separate final message without leaving a stale interactive card behind.
-func (p *Platform) DeletePreviewMessage(ctx context.Context, previewHandle any) error {
-	if !p.useInteractiveCard {
-		return core.ErrNotSupported
-	}
-
-	h, ok := previewHandle.(*feishuPreviewHandle)
-	if !ok {
-		return fmt.Errorf("%s: invalid preview handle type %T", p.tag(), previewHandle)
-	}
-
-	req := larkim.NewDeleteMessageReqBuilder().
-		MessageId(h.messageID).
-		Build()
-	return p.withTransientRetry(ctx, "delete preview message", func() error {
-		return p.withFreshTenantAccessTokenRetry(ctx, "delete preview message", func(client *lark.Client, options ...larkcore.RequestOptionFunc) error {
-			resp, err := client.Im.Message.Delete(ctx, req, options...)
-			if err != nil {
-				return fmt.Errorf("%s: delete preview message: %w", p.tag(), err)
-			}
-			if !resp.Success() {
-				return fmt.Errorf("%s: delete preview message code=%d msg=%s", p.tag(), resp.Code, resp.Msg)
-			}
-			return nil
-		})
-	})
+// DeletePreviewMessage leaves the card in chat because Feishu shows API
+// deletions as message recalls.
+func (p *Platform) DeletePreviewMessage(context.Context, any) error {
+	return core.ErrNotSupported
 }
 
 // SendAudio uploads audio bytes to Feishu and sends a voice message.
@@ -6361,7 +6354,11 @@ func richPanelElements(steps []core.ToolStep, emptyText string) []map[string]any
 		elements = append(elements, richPlaceholderElement(fmt.Sprintf("... %d earlier steps hidden", hidden)))
 	}
 	for _, step := range visible {
-		elements = append(elements, richStepElement(step))
+		row := richStepElement(step)
+		if step.Kind == core.ToolStepKindTool {
+			row = buildRichPanel(richStepDisplayName(step), false, []map[string]any{row})
+		}
+		elements = append(elements, row)
 	}
 	return elements
 }
@@ -6495,6 +6492,9 @@ func buildRichCardJSONBytes(status core.CardStatus, steps []core.ToolStep, markd
 	case core.CardStatusDone:
 		headerTemplate = "green"
 		headerTitle = "Done"
+	case core.CardStatusContinued:
+		headerTemplate = "grey"
+		headerTitle = "Continued"
 	case core.CardStatusError:
 		headerTemplate = "red"
 		headerTitle = "Error"

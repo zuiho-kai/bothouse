@@ -25,6 +25,8 @@ with open(os.path.join(os.environ["GATE_SETUP_DIR"], "starts.txt"), "a") as f:
     f.write("start\n")
 with open(os.path.join(os.environ["GATE_SETUP_DIR"], "wiki_env.txt"), "w") as f:
     f.write(os.environ.get("GATE_WIKI", "") + "\n" + os.environ.get("GATE_WIKI_BOTS", ""))
+with open(os.path.join(os.environ["GATE_SETUP_DIR"], "vector_env.txt"), "w") as f:
+    f.write(os.environ.get("GATE_VECTOR", ""))
 if os.environ.get("FAKE_GATE_MODE") == "exit":
     sys.exit(3)
 class H(http.server.BaseHTTPRequestHandler):
@@ -269,5 +271,24 @@ func TestGateWikiEnv(t *testing.T) {
 	t.Setenv("GATE_WIKI", "off")
 	if got := strings.Join(gateWikiEnv(data, ""), " "); strings.Contains(got, "GATE_WIKI=") {
 		t.Fatalf("a GATE_WIKI already set must be kept, got %q", got)
+	}
+}
+
+// TestGateSupervisorVectorSwitch: no vector address (the [gate] vector default, config.GateVectorURL) starts the gate
+// without GATE_VECTOR, so the memory push stays keyword-only; with one the gate gets it (contrib/gate/vector_search.py).
+func TestGateSupervisorVectorSwitch(t *testing.T) {
+	t.Setenv("GATE_VECTOR", "")
+	for _, want := range []string{"", "http://127.0.0.1:1"} {
+		t.Run("url="+want, func(t *testing.T) {
+			dataDir := setupFakeGate(t, true)
+			g := NewGateSupervisor(dataDir)
+			g.SetVectorURL(want)
+			g.Run(true)
+			defer g.Stop()
+			waitGate(t, "gate listening", 10*time.Second, GateRunning)
+			if b, _ := os.ReadFile(filepath.Join(dataDir, "vector_env.txt")); string(b) != want {
+				t.Fatalf("GATE_VECTOR = %q, want %q", b, want)
+			}
+		})
 	}
 }

@@ -133,8 +133,35 @@ func inputFixture(t *testing.T) (*APIServer, *Engine, *inputTestAgent, *inputTes
 	session := e.sessions.GetOrCreateActive(inputTestKey)
 	session.SetAgentSessionID(as.id, ag.Name())
 	api := &APIServer{engines: map[string]*Engine{"gge": e}}
-	t.Cleanup(func() { e.cancel(); inputWait(t, func() bool { return !session.Busy() }); _ = e.Stop() })
+	inputFixtureSessions.Store(e, session)
+	t.Cleanup(func() { inputStop(t, e) })
 	return api, e, ag, p, session
+}
+
+var inputFixtureSessions, inputStopOnce sync.Map // *Engine -> *Session, *sync.Once
+
+// inputStop cancels a fixture engine, waits for its session to go idle and stops it, once.
+func inputStop(t *testing.T, e *Engine) {
+	o, _ := inputStopOnce.LoadOrStore(e, &sync.Once{})
+	o.(*sync.Once).Do(func() {
+		e.cancel()
+		if s, ok := inputFixtureSessions.Load(e); ok {
+			inputWait(t, func() bool { return !s.(*Session).Busy() })
+		}
+		_ = e.Stop()
+	})
+}
+
+// inputDataDir gives a fixture engine a TempDir data dir that is removed only after the engine
+// has stopped. t.Cleanup runs last-registered first, so a TempDir made after inputFixture is
+// otherwise removed while the turn is still writing its journal there (#2100
+// "turn-journal: directory not empty").
+func inputDataDir(t *testing.T, e *Engine) string {
+	t.Helper()
+	dir := t.TempDir()
+	e.SetDataDir(dir)
+	t.Cleanup(func() { inputStop(t, e) })
+	return dir
 }
 func inputWait(t *testing.T, fn func() bool) {
 	t.Helper()

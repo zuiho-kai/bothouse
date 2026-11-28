@@ -109,6 +109,7 @@
     "headlineEmpty": "No roles here yet",
     "headlineBusy": "{{busy}} busy, {{idle}} idle",
     "headlineIdle": "{{count}} roles standing by",
+    "headlineOffline": "{{count}} roles offline",
     "needsLook": "{{count}} things need a look",
     "allGood": "All good",
     "busyNow": "Busy",

@@ -76,6 +76,14 @@ type dshState struct {
 
 // dshRoles lists DSH members and reports whether their state was available.
 func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus) {
+	st, status := m.readDSHState(ctx)
+	if st == nil {
+		return nil, status
+	}
+	return dshStateRoles(st), status
+}
+
+func (m *ManagementServer) readDSHState(ctx context.Context) (*dshState, dshStatus) {
 	ctx, cancel := context.WithTimeout(ctx, dshRolesTimeout)
 	defer cancel()
 	c, status := m.dshClient()
@@ -91,7 +99,7 @@ func (m *ManagementServer) dshRoles(ctx context.Context) ([]RoleInfo, dshStatus)
 		}
 		return nil, dshStatus{Status: "error", Error: dshStateReadError(context.WithoutCancel(ctx), c.target, err)}
 	}
-	return dshStateRoles(&st), status
+	return &st, status
 }
 
 // dshStateRoles turns DSH's members into roles: every member that is an agent, i.e. kind "dsh"

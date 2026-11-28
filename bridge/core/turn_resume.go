@@ -607,19 +607,41 @@ func (e *Engine) timerWillRerun(jobID string) bool {
 	return !job.ScheduledAt.Before(StartTime.Add(-missedJobGracePeriod))
 }
 
-// repliedBetween: the entry's chat got an assistant reply in [from, to) (#13,
-// #18): it was answered after the interruption; do not resume it.
+// repliedBetween: the entry's own session got an assistant reply in [from, to)
+// (#13, #18): it was answered after the interruption; do not resume it. A
+// scheduled run on a side session (interactive key "<key>#cron:<id>" or
+// "#timer:<id>") is checked on that side session, not on the channel's main
+// session: a main-session reply does not answer the run (#2069).
 func (e *Engine) repliedBetween(en TurnJournalEntry, from, to time.Time) bool {
 	sessions := e.sessionsForEntry(en)
 	if sessions == nil {
 		return false
 	}
-	for _, h := range sessions.GetOrCreateActive(en.SessionKey).GetHistory(0) {
+	var s *Session
+	if id := sideSessionIDOf(en.InteractiveKey); id != "" {
+		if s = sessions.FindByID(id); s == nil {
+			return false
+		}
+	} else {
+		s = sessions.GetOrCreateActive(en.SessionKey)
+	}
+	for _, h := range s.GetHistory(0) {
 		if h.Role == "assistant" && !h.Timestamp.Before(from) && h.Timestamp.Before(to) {
 			return true
 		}
 	}
 	return false
+}
+
+// sideSessionIDOf returns the side session id in a scheduled run's interactive
+// key (engine_sched.go: "<key>#cron:<id>", "<key>#timer:<id>"), or "".
+func sideSessionIDOf(iKey string) string {
+	for _, sep := range []string{"#cron:", "#timer:"} {
+		if i := strings.LastIndex(iKey, sep); i >= 0 {
+			return iKey[i+len(sep):]
+		}
+	}
+	return ""
 }
 
 // ---- S1: a resumed session that fails at once ----
@@ -729,8 +751,10 @@ func (e *Engine) retryFreshOnResumeError(p Platform, msg Message, errMsg string,
 // ---- relay sessions (#8: sessions a relay starts are closed on stop too) ----
 
 type relaySessionSet struct {
-	mu   sync.Mutex
-	list []AgentSession
+	mu       sync.Mutex
+	list     []AgentSession
+	nextWork uint64
+	work     map[string]struct{}
 }
 
 // trackRelaySession registers an agent session a relay started itself (it is

@@ -26,6 +26,10 @@ try:
 except ImportError:
     board = None
 import wiki_search as search
+try:
+    import vector_search as vector  # 可选的向量一路（GATE_VECTOR，默认关）；hooks/wiki-context.py 没装它，只走关键词
+except ImportError:
+    vector = None
 
 _FLOOR_TAG = re.compile(r"\s*<!-- 帖 t[0-9a-f]{10}·\d+楼.*?-->\s*$")  # 楼层帖标注（#1177，同 forum_scores.TAG）：算编号、显示时去掉
 
@@ -476,10 +480,15 @@ def match_wiki(text, k=TOP_PAGES, root=None, skip=None, prepared=False, key="", 
     idx = _index(root)
     q = text if prepared else query(text)
     pages, defer = {}, []
+
+    def find(n):  # 关键词名单；开了向量一路（GATE_VECTOR）就是关键词+向量 RRF 合并的名单，向量按这轮的话查（同离线实验）
+        if vector is None:
+            return idx.search(q, k=n)
+        return [idx.lines[i][:3] for i in vector.rank(idx, root, q, need or q, n)]
     if skip:  # 多取一些，跳掉的行由后面的补上（名额不放宽）
-        hits = [h for h in idx.search(q, k=search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
+        hits = [h for h in find(search.TOP * 3) if is_item(h[2]) and not in_prompt(h[2], skip)][:search.TOP]
     else:
-        hits = [h for h in idx.search(q, k=search.TOP * (2 if key else 1)) if is_item(h[2])]  # 有频道时多取一倍候选：旧说法沉底后要有新的补位
+        hits = [h for h in find(search.TOP * (2 if key else 1)) if is_item(h[2])]  # 有频道时多取一倍候选：旧说法沉底后要有新的补位
     if FORUM:  # 记忆论坛：低分折叠沉底不隐藏，按 reddit confidence 稳定重排（forum_scores.py）；角色 wiki 同一份
         hits = FORUM.rerank(hits, None if _same(root, WIKI) else root)
     if key and _same(root, WIKI):  # 按项目排序只对主 wiki（角色 wiki 是各角色自己的经验，不分项目）

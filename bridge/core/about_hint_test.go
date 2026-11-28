@@ -25,24 +25,24 @@ func TestAboutHintReachesEveryAgentOnce(t *testing.T) {
 	_, e, a, _, s := inputFixture(t)
 	rules := teamModeRulesFor(DefaultDispatchMode)
 
-	if got := e.contextRules(rules, s, nativePromptAgent{a}); got != rules {
+	if got := e.contextRules(rules, "", s, nativePromptAgent{a}); got != rules {
 		t.Fatalf("native agent got the hint twice (system prompt + turn): %q", got[max(0, len(got)-200):])
 	}
 	s.ResetTurnCtx()
-	if got := e.contextRules(rules, s, a); got != rules+"\n\n"+bridgeInstructionsBlock+"\n" {
+	if got := e.contextRules(rules, "", s, a); got != rules+"\n\n"+bridgeInstructionsBlock+"\n" {
 		t.Fatalf("non-native agent missing bridge instructions: %q", got[max(0, len(got)-200):])
 	}
-	if got := e.contextRules(rules, s, a); got != "" {
+	if got := e.contextRules(rules, "", s, a); got != "" {
 		t.Fatal("hint resent within the same agent context")
 	}
 
 	s.ResetTurnCtx()
 	e.SetTeamModeRulesEnabled(false)
-	if got := e.contextRules(rules, s, a); got != bridgeInstructionsBlock+"\n" {
+	if got := e.contextRules(rules, "", s, a); got != bridgeInstructionsBlock+"\n" {
 		t.Fatalf("rules off: want hint only, got %q", got)
 	}
 	s.ResetTurnCtx()
-	if got := e.contextRules(rules, s, nativePromptAgent{a}); got != "" {
+	if got := e.contextRules(rules, "", s, nativePromptAgent{a}); got != "" {
 		t.Fatalf("rules off, native: want nothing, got %q", got)
 	}
 }

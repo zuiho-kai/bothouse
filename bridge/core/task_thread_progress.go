@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -86,6 +87,7 @@ func (e *Engine) taskThreadProgressContext(ctx context.Context, p Platform, sess
 		if w.lineLen <= 0 {
 			w.lineLen = taskThreadCardLineLen
 		}
+		w.onNote = func(text string) { e.postToTaskThreadContext(ctx, p, session, text) }
 		slog.Info("progress card: copied into the task thread", "session", session, "task_id", t.ID, "thread", t.ThreadID)
 		return w
 	}
@@ -111,6 +113,9 @@ func (e *Engine) postToTaskThreadContext(ctx context.Context, p Platform, sessio
 	if t == nil {
 		return
 	}
+	if !noteThreadPost(t.ThreadID, text) {
+		return // already there: the narration a turn ends with is also its final reply
+	}
 	rc, ok := target.TaskThreadReplyCtx(t)
 	if !ok {
 		return
@@ -133,4 +138,51 @@ func (e *Engine) outputThreadTask(ctx context.Context, session string) *Task {
 		return task
 	}
 	return e.sessionTask(session)
+}
+
+// threadPosts remembers the last texts copied into each task thread, so one text reaching it by
+// two paths (the card's narration and the turn's final reply) is posted once.
+var threadPosts = struct {
+	sync.Mutex
+	last map[string][]string
+}{last: map[string][]string{}}
+
+const threadPostsKept = 8 // 本次加的：一轮里最后几段叙述和最终回复会重合，记最近 8 条够去重
+
+func noteThreadPost(thread, text string) bool {
+	threadPosts.Lock()
+	defer threadPosts.Unlock()
+	for _, t := range threadPosts.last[thread] {
+		if t == text {
+			return false
+		}
+	}
+	l := append(threadPosts.last[thread], text)
+	if len(l) > threadPostsKept {
+		l = l[len(l)-threadPostsKept:]
+	}
+	threadPosts.last[thread] = l
+	return true
+}
+
+// postTurnReplyToTaskThread copies a workspace turn's answer into its task thread: the stage
+// notes an agent ends a turn with (「PR 已开、在等测试」) were seen only in the workspace
+// (#2099: workspace 6's 18:36 reply never reached the #2094 post). Only the part the turn had
+// not already put on its card is sent; the card's narration reached the thread as it came.
+func postTurnReplyToTaskThread(e *Engine, turn *interactiveTurn, r *interactiveResult) {
+	if r == nil || r.isSilent || turn == nil || !e.isTeamWorkspaceChat(turn.sessionKey) {
+		return
+	}
+	text := r.baseResponse
+	if turn.segmentStart > 0 && !r.terminalReply {
+		text = ""
+		if turn.segmentStart < len(turn.textParts) {
+			text = joinReplyParts(turn.textParts[turn.segmentStart:])
+		}
+	}
+	text = strings.TrimSpace(stripSilentReply(text))
+	if text == "" {
+		return
+	}
+	e.postToTaskThreadContext(turn.outputCtx, r.p, turn.sessionKey, text)
 }

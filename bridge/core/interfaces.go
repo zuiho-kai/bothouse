@@ -1052,10 +1052,11 @@ type StreamingCardPlatform interface {
 type CardStatus string
 
 const (
-	CardStatusThinking CardStatus = "thinking" // grey
-	CardStatusWorking  CardStatus = "working"  // blue
-	CardStatusDone     CardStatus = "done"     // green
-	CardStatusError    CardStatus = "error"    // red
+	CardStatusThinking  CardStatus = "thinking"  // grey
+	CardStatusWorking   CardStatus = "working"   // blue
+	CardStatusContinued CardStatus = "continued" // grey
+	CardStatusDone      CardStatus = "done"      // green
+	CardStatusError     CardStatus = "error"     // red
 )
 
 // PreviewStatusUpdater is an optional interface for platforms that support

@@ -12,8 +12,8 @@ import (
 // maomao fork: team work between bots on Feishu, the same rules as platform/discord
 // (discord.go allow_bots filter, lead_return.go). Another bot's message gets in only when its
 // sender id is listed in allow_bots and it @-s this bot. team_lead_bot names the primary role:
-// when the lead @-s this sub (or a person @-s this sub and the lead together), the turn's final
-// answer gets an @ to the lead prepended, so the lead is woken even if the model forgets the @.
+// when the lead bot @-s this sub, the turn's final answer gets an @ to the lead prepended,
+// so the lead is woken even if the model forgets the @.
 // Both options hold ids as this app sees them in events (sender_id / mentions open_id).
 
 const leadReturnTTL = 24 * time.Hour
@@ -33,20 +33,15 @@ func (p *Platform) botAllowed(id string) bool {
 	return allow != "" && core.AllowList(allow, id)
 }
 
-// dispatchedBy is the primary role whose turn this is to hand back ("" = none): the lead @-ing
-// this sub, or a person's message that @-s this sub and the lead together.
+// dispatchedBy is the primary role whose turn this is to hand back ("" = none):
+// only when the lead bot itself @-s this sub. Human co-mentions wake each
+// mentioned bot directly without chaining back to the lead.
 func (p *Platform) dispatchedBy(fromBot, mentioned bool, senderID string, mentions []*larkim.MentionEvent) string {
 	lead := p.lead()
-	if !mentioned || lead == "" || lead == p.getBotOpenID() {
+	if !mentioned || !fromBot || lead == "" || lead == p.getBotOpenID() {
 		return ""
 	}
-	if fromBot {
-		if senderID == lead {
-			return lead
-		}
-		return ""
-	}
-	if isBotMentioned(mentions, lead) {
+	if senderID == lead {
 		return lead
 	}
 	return ""
@@ -95,6 +90,19 @@ func (p *Platform) MergeInjectedReply(turnCtx, injectedCtx any) any {
 		t.lead = in.lead
 	}
 	return t
+}
+
+func (p *Platform) RichCardContinuationReply(turnCtx, injectedCtx any) (any, bool) {
+	turn, turnOK := turnCtx.(replyContext)
+	inserted, insertedOK := injectedCtx.(replyContext)
+	if !turnOK || !insertedOK || inserted.messageID == "" || inserted.messageID == turn.messageID || inserted.chatID != turn.chatID {
+		return nil, false
+	}
+	if turn.lead == "" {
+		turn.lead = inserted.lead
+	}
+	turn.messageID = inserted.messageID
+	return turn, true
 }
 
 // HasConfiguredTeamLead reports whether team_lead_bot is set (core.ConfiguredTeamLead).

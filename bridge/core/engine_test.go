@@ -8357,21 +8357,52 @@ func TestCmdBindSetup_UsesSharedLogic(t *testing.T) {
 
 // stubStartSessionAgent records StartSession calls and can fail on specific session IDs.
 type stubStartSessionAgent struct {
-	calls   []string
-	failIDs map[string]error // session IDs that should fail
-	mu      sync.Mutex
+	calls    []string
+	failIDs  map[string]error // session IDs that should fail
+	sequence []error
+	mu       sync.Mutex
 }
 
 func (a *stubStartSessionAgent) Name() string { return "stub" }
 func (a *stubStartSessionAgent) StartSession(_ context.Context, sessionID string) (AgentSession, error) {
 	a.mu.Lock()
 	a.calls = append(a.calls, sessionID)
+	callIndex := len(a.calls) - 1
 	a.mu.Unlock()
+	if callIndex < len(a.sequence) && a.sequence[callIndex] != nil {
+		return nil, a.sequence[callIndex]
+	}
 
 	if err, ok := a.failIDs[sessionID]; ok {
 		return nil, err
 	}
 	return &stubAgentSession{}, nil
+}
+
+func TestResumeActiveWriterRetriesBeforeFreshFallback(t *testing.T) {
+	agent := &stubStartSessionAgent{
+		sequence: []error{fmt.Errorf("thread old-session-id already has an active writer")},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e := &Engine{
+		agent: agent, sessions: NewSessionManager(""), ctx: ctx,
+		i18n: NewI18n("en"), interactiveStates: make(map[string]*interactiveState),
+	}
+	session := e.sessions.GetOrCreateActive("test:writer-retry")
+	session.SetAgentSessionID("old-session-id", "stub")
+
+	state := e.getOrCreateInteractiveStateWith("test:writer-retry", &stubPlatformEngine{n: "test"}, "ctx", session, e.sessions, nil, "")
+	if state.agentSession == nil {
+		t.Fatal("expected resumed session to start")
+	}
+
+	agent.mu.Lock()
+	calls := append([]string(nil), agent.calls...)
+	agent.mu.Unlock()
+	if len(calls) != 2 || calls[0] != "old-session-id" || calls[1] != "old-session-id" {
+		t.Fatalf("StartSession calls = %v, want two attempts to resume the saved session", calls)
+	}
 }
 func (a *stubStartSessionAgent) ListSessions(_ context.Context) ([]AgentSessionInfo, error) {
 	return nil, nil

@@ -2277,6 +2277,17 @@ class LosslessSplit(unittest.TestCase):
         self.check(parts, True)
         self.check([w for x in ["  " + self.LONG] for w in I.wrap(x)], True)  # an indented sub-bullet too
 
+    def test_wrap_cut_after_a_period_kept(self):  # #2103: that 「。」 is content, TRAIL takes it off each page line
+        import lossless
+        line = "- 长行：" + "".join(f"第{i}条写在这里，把当时看到的现象和最后的结论都记全，一句接一句，长度差不多够一整段了。"
+                                  for i in range(1, 10)) + "收尾。"
+        parts = I.wrap(line)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(any(x.endswith("。") for x in parts[:-1]), parts)
+        old = f"# P\n## 关键事实\n{line}\n"
+        new = "# P\n## 关键事实\n" + "\n".join(parts) + "\n"
+        self.assertEqual(lossless.missing({"infra/p.md": old}, {"infra/p.md": new}), [])
+
     def test_sentence_dropped_lost(self):
         parts = I.wrap(self.LONG)
         self.check(parts[:-1], False)

@@ -242,7 +242,7 @@ func TestOnMessageMarksLeadDispatch(t *testing.T) {
 	}{
 		{"lead bot @-s this sub", "ou_lead", teamGroupEvent("bot", "ou_lead", "ou_self"), "ou_lead"},
 		{"another allowed bot @-s this sub", "ou_lead", teamGroupEvent("bot", "ou_other", "ou_self"), ""},
-		{"person @-s this sub and the lead", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), "ou_lead"},
+		{"person @-s this sub and the lead", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), ""},
 		{"person @-s this sub only", "ou_lead", teamGroupEvent("user", "ou_user", "ou_self"), ""},
 		{"no team_lead_bot", "", teamGroupEvent("user", "ou_user", "ou_self", "ou_lead"), ""},
 		{"this bot is the lead", "ou_self", teamGroupEvent("bot", "ou_other", "ou_self"), ""},
@@ -349,5 +349,21 @@ func TestMergeInjectedReplyKeepsLead(t *testing.T) {
 	}
 	if got := p.MergeInjectedReply("other", injected); got != "other" {
 		t.Errorf("foreign turn context changed: %v", got)
+	}
+}
+
+func TestRichCardContinuationReplyTargetsInsertedMessage(t *testing.T) {
+	p := &Platform{}
+	turn := replyContext{messageID: "om_turn", chatID: "oc_chat", sessionKey: "turn-session"}
+	inserted := replyContext{messageID: "om_inserted", chatID: "oc_chat", lead: "ou_lead"}
+	got, ok := p.RichCardContinuationReply(turn, inserted)
+	if !ok {
+		t.Fatal("no continuation target for the inserted Feishu message")
+	}
+	if rc := got.(replyContext); rc.messageID != inserted.messageID || rc.sessionKey != turn.sessionKey || rc.lead != inserted.lead {
+		t.Errorf("continuation = %+v, want inserted message with the running session and lead", rc)
+	}
+	if _, ok := p.RichCardContinuationReply(turn, replyContext{chatID: turn.chatID}); ok {
+		t.Error("synthetic input without a message ID should not move the card")
 	}
 }

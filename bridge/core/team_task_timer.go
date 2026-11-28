@@ -49,6 +49,14 @@ func (ts *TimerScheduler) deliverToTask(engine *Engine, job *TimerJob) bool {
 		return true
 	}
 	here := teamChatKey(job.SessionKey)
+	if job.Handoff && !(teamTaskInWork(t.State) && t.WS == here) {
+		// A handoff wake starts its task in the workspace it was handed to. The task has left
+		// (closed, paused, handed to another workspace, which got its own wake): the wake would
+		// only break into whatever works the workspace now (#2098).
+		slog.Info("timer: the handoff wake's task is no longer in its workspace; dropped", "id", job.ID, "board", t.ID, "state", string(t.State), "set_in", here, "task_ws", t.WS)
+		ts.store.MarkFired(job.ID, fmt.Errorf("task #%d is no longer in %s", t.ID, here))
+		return false
+	}
 	switch {
 	case teamTaskInWork(t.State):
 		to := job.SessionKey

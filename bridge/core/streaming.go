@@ -91,6 +91,12 @@ type RichCardSupporter interface {
 	BuildRichCard(status CardStatus, title string, steps []ToolStep, markdown string, streaming bool, statusFooter string) string
 }
 
+// RichCardContinuationTarget opts into starting a new card below a mid-turn input.
+type RichCardContinuationTarget interface {
+	MessageUpdater
+	RichCardContinuationReply(turnCtx, injectedCtx any) (any, bool)
+}
+
 // RichCardMarkdownResolver is an optional interface for platforms that need to
 // pre-process rich-card markdown before it is rendered or streamed.
 //

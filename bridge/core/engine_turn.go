@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -854,9 +855,20 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
 	}
 	startElapsed := time.Since(startAt)
+	// A Codex app-server can still be releasing the thread after it exits.
+	// Retry the same ID once before treating it as unavailable.
+	if err != nil && startSessionID != "" && input == nil && strings.Contains(strings.ToLower(err.Error()), "already has an active writer") {
+		select {
+		case <-time.After(750 * time.Millisecond):
+			agentSession, err = agent.StartSession(WithSessionSettings(e.ctx, settings), startSessionID)
+		case <-e.ctx.Done():
+			err = e.ctx.Err()
+		}
+		startElapsed = time.Since(startAt)
+	}
 	if err != nil {
 		// If resume/continue failed, try a fresh session as fallback.
-		if startSessionID != "" && input == nil {
+		if startSessionID != "" && input == nil && e.ctx.Err() == nil {
 			slog.Error("session resume failed, falling back to fresh session",
 				"session_key", sessionKey, "failed_session_id", startSessionID,
 				"error", err, "elapsed", startElapsed)

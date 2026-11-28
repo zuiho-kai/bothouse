@@ -22,10 +22,25 @@ const watchTurnEndDelay = 15 * time.Second
 // four upstream errors each followed by another automatic resume).
 const watchFailLimit = 2
 
+// watchWakeSettleGrace: how long a wake we posted counts as in flight before the
+// watch may call the workspace stopped. A wake is a platform message: it has to
+// arrive, the session has to unlock from the previous turn, and a cold-cache
+// restart may start fresh; 15s timers run far ahead of that (11-27 #2065: wakes at
+// 09:44:04/09:44:20, escalation at 09:44:37, while the first wake's turn was still
+// waiting for the old agent process and ran to 09:45:33).
+const watchWakeSettleGrace = 2 * time.Minute
+
+// watchWakeRetry: while a wake is in flight the watch looks again this often; not
+// the 15s turn-end delay, which would poll a workspace for the whole grace.
+const watchWakeRetry = time.Minute
+
 type watchIdleState struct {
 	Returned bool      `json:"returned,omitempty"`
 	Ended    time.Time `json:"ended,omitzero"`
 	Wakes    int       `json:"wakes,omitempty"`
+	// Woke: when the last wake was posted. A wake the workspace has not taken up
+	// yet is work in flight, not a stop (idleWakeUnconsumed).
+	Woke     time.Time `json:"woke,omitzero"`
 	Fails    int       `json:"fails,omitempty"`   // consecutive turns that ended in an agent error
 	CantDo   int       `json:"cant_do,omitempty"` // consecutive turns that answered "can't do it"
 	Reported bool      `json:"reported,omitempty"`
@@ -115,6 +130,55 @@ func (e *Engine) watchTarget(key, owner string) *Engine {
 // idle wake, the auto return and the release hold; before, this scanned the workspace pool's
 // session tables and the watch's workspaceBusy did not, and the two disagreed (#698 15:42).
 func (e *Engine) watchBusy(key string) bool { return teamTurnRunning(key) }
+
+// watchSessionBusy: the workspace's session is locked, i.e. its ingress accepted a message
+// (a wake we posted, a bgrun completion, a restart's queued turn) and the turn has not ended.
+// The turn fact is written later, after the old agent process closes and the state is rebuilt
+// (engine_turn.go beginTeamTurn; 11-27 #2065: accepted 09:44:12, turn fact only after the
+// 1m35s slow close at 09:45:25), so watchBusy alone reads "idle" in exactly that window. This
+// is only a reason to wait longer before escalating, never progress: a false positive delays
+// an escalation, it cannot park or renew anything.
+func watchSessionBusy(e *Engine, key string) bool {
+	for _, x := range e.watchEngines() {
+		if x == nil || x.sessions == nil {
+			continue
+		}
+		id := x.sessions.ActiveSessionID(key)
+		if id == "" {
+			continue
+		}
+		if s := x.sessions.FindByID(id); s != nil && s.Busy() {
+			return true
+		}
+	}
+	return false
+}
+
+// idleWakeUnconsumed: a wake was posted and the workspace has not taken it up yet. Consumed
+// means a turn ended after it (it ran, whatever it answered) or a bgrun started; a running
+// turn is watchBusy. Before that, the session may still be locked by the wake's ingress or a
+// restart, or the bridge may have been down when the wake was posted; give it the settle grace
+// measured from the later of the wake and this process's start.
+func idleWakeUnconsumed(e *Engine, key string, h TeamHandoff) bool {
+	if h.Idle.Woke.IsZero() || teamTurnEndedSince(key, h.Idle.Woke) || e.backgroundRunStartedSince(key, h.Idle.Woke) {
+		return false
+	}
+	if watchSessionBusy(e, key) {
+		return true
+	}
+	since := h.Idle.Woke
+	if e.startedAt.After(since) {
+		since = e.startedAt // restart after the wake: the process has not consumed it yet
+	}
+	return time.Since(since) < watchWakeSettleGrace
+}
+
+// idleWorkInFlight: anything that says the workspace is still doing something. Used before a
+// wake and again right before escalating to the primary role; a true here only postpones the
+// escalation (armIdleWakeRetry), never reports the workspace stopped.
+func idleWorkInFlight(e *Engine, a idleAssignment) bool {
+	return e.watchBusy(a.key) || e.watchDelegatedWork(a.key) || idleWakeUnconsumed(e, a.key, a.h)
+}
 
 // A coordinator waiting for its dispatched work is not an idle worker.
 // Receipts cover tracked relays; the peer's current incoming task identifies
@@ -530,8 +594,25 @@ func (e *Engine) armReleaseHoldRecheck(a idleAssignment) {
 	time.AfterFunc(watchCheckAfter(), func() { e.fireIdleWake(a) })
 }
 
+// armIdleWakeRetry: the workspace still looks busy, so look again later. The timer is not
+// reset on the handoff (unlike a wake), so a workspace that stays busy cannot extend its own
+// grace; the retry walks the same checks until they are all false, then escalates as before.
+func armIdleWakeRetry(e *Engine, a idleAssignment) {
+	time.AfterFunc(watchWakeRetry, func() { e.fireIdleWake(a) })
+}
+
 func (e *Engine) fireIdleWake(a idleAssignment) {
-	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() || e.watchBusy(a.key) || e.watchDelegatedWork(a.key) {
+	if e.ctx.Err() != nil || !e.quotaCoolingFor(e.admissionQuotaScope(e.agent, a.key)).IsZero() {
+		return
+	}
+	if idleWorkInFlight(e, a) {
+		// A wake is still being taken up (session locked / restart window) or the
+		// workspace is running something: keep the watch, do not stack a wake or
+		// report it stopped. A running turn or delegation re-arms through its own
+		// terminal event; a wake in flight has none until it is consumed, so retry.
+		if idleWakeUnconsumed(e, a.key, a.h) {
+			armIdleWakeRetry(e, a)
+		}
 		return
 	}
 	w := newHandoffWatch(e)
@@ -586,6 +667,19 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 	if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
 		return // background completion supplies the next terminal event
 	}
+	// Last look before telling the chat its workspace stopped (11-27 #2065): a turn
+	// that started during the board read, a bgrun that just began, or a wake still
+	// being taken up all mean it is working. Hang the watch again; do not escalate.
+	if a.h.Idle.Wakes >= 2 {
+		if idleWorkInFlight(e, a) {
+			armIdleWakeRetry(e, a)
+			return
+		}
+		if running, _ := w.workspaceBackgroundProgress(a.key, a.h.Idle.Ended); running {
+			armIdleWakeRetry(e, a)
+			return
+		}
+	}
 	escalate, wake := false, false
 	h, ok := e.updateIdle(a, func(h *TeamHandoff) {
 		// Ignore timers belonging to a prior turn or a task already handed back.
@@ -597,6 +691,7 @@ func (e *Engine) fireIdleWake(a idleAssignment) {
 			escalate = true
 		} else {
 			h.Idle.Wakes++
+			h.Idle.Woke = time.Now()
 			wake = true
 		}
 	})

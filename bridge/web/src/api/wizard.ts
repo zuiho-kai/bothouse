@@ -110,6 +110,9 @@ export const listFeishuChats = (body: { app_id: string; app_secret: string; plat
   api.post<{ chats: { chat_id: string; name: string }[] }>('/setup/feishu/chats', body);
 export const testJev = (body: { base_url: string; api_key?: string; model: string; lang: string; fallback_name: string }) =>
   api.post<{ test: JevTest; usable: boolean; reason?: string; in_use?: string; hint: string }>('/setup/jev/test', body);
+// #2113: the model IDs the role's API lists (empty with error when it cannot be read)
+export const listProviderModels = (body: { vendor: string; base_url: string; api_key: string }) =>
+  api.post<{ models: string[]; error?: string }>('/setup/provider/models', body);
 export const saveJev = (body: { base_url: string; api_key?: string; model: string; remove?: boolean; lang: string; fallback_name: string }) =>
   api.post<{ saved: boolean; cleared: boolean; reason?: string; in_use?: string; test?: JevTest; hint: string }>('/setup/jev/save', body);
 export interface SetupPersona { path: string; exists: boolean; content: string; reply_language?: string; reply_language_line?: string }

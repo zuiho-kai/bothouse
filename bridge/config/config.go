@@ -269,6 +269,24 @@ type ProactiveConfig struct {
 
 type GateConfig struct {
 	Port int `toml:"port,omitempty"` // 127.0.0.1 port of this data dir's gate; default 9930 (contrib/gate/gate.py); the wizard picks another when 9930 belongs to another install
+	// Vector: memory push also searches by vector and merges it with the keyword list (contrib/gate/vector_search.py);
+	// needs the embedding service contrib/gate/embed_svc.py running. Default off (user 11-27「可配置项…默认关」).
+	Vector    bool   `toml:"vector,omitempty"`
+	VectorURL string `toml:"vector_url,omitempty"` // embedding service address; "" = DefaultGateVectorURL
+}
+
+// DefaultGateVectorURL: where contrib/gate/embed_svc.py listens by default (EMBED_PORT).
+const DefaultGateVectorURL = "http://127.0.0.1:9931"
+
+// GateVectorURL: the embedding service the gate should ask, "" when the vector search is off.
+func (g GateConfig) GateVectorURL() string {
+	if !g.Vector {
+		return ""
+	}
+	if g.VectorURL != "" {
+		return g.VectorURL
+	}
+	return DefaultGateVectorURL
 }
 
 // Display mode constants.

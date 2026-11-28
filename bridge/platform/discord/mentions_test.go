@@ -39,6 +39,9 @@ func TestMarkSelfMention(t *testing.T) {
 			t.Errorf("markSelfMention(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+	if got := markSelfMention("<@111> <@222> 看看", "111", "", ""); got != "<@222> 看看" {
+		t.Errorf("empty bot name fallback = %q, want %q", got, "<@222> 看看")
+	}
 }
 
 func TestNameCalled(t *testing.T) {
@@ -110,5 +113,30 @@ func TestNotePersonNames(t *testing.T) {
 	}
 	if _, ok := personNames.Load("somebot"); ok {
 		t.Error("bot recorded as a person")
+	}
+}
+
+// #2099: 彩虹猫 11-27 18:36 quoted 「`@鲸鱼娘 @橘`」 in a progress note and both were woken.
+func TestReplaceMentionsSkipsInlineCode(t *testing.T) {
+	alias := map[string]string{"橘": "1", "鲸鱼娘": "3"}
+	in := "测试原句 `@鲸鱼娘 @橘`，@橘 看一下"
+	want := "测试原句 `@鲸鱼娘 @橘`，<@1> 看一下"
+	if got := replaceMentions(in, alias); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBotMentionInCodeIsNotACall(t *testing.T) {
+	inCode := "例子 `<@9> 你看` 结束"
+	if hasExplicitDiscordBotMention(inCode, "9", "") {
+		t.Fatal("a bot's mention only in code must not wake the bot")
+	}
+	m := &discordgo.MessageCreate{Message: &discordgo.Message{Content: inCode, Mentions: []*discordgo.User{{ID: "9"}}}}
+	if isDiscordBotMention(m, "9", "", false) {
+		t.Fatal("Discord lists the code mention; it still must not count")
+	}
+	m.Content = inCode + " <@9> 真的叫你"
+	if !isDiscordBotMention(m, "9", "", false) || !hasExplicitDiscordBotMention(m.Content, "9", "") {
+		t.Fatal("a real mention beside the code example must count")
 	}
 }

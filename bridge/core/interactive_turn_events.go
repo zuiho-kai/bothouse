@@ -487,6 +487,7 @@ func (e *Engine) onTurnThinking(turn *interactiveTurn, p Platform, rv richCardVi
 		if !e.display.ThinkingMessages {
 			return turnFlowContinue
 		}
+		turn.continueRichCard(p, rv.build)
 		if thinking := strings.TrimSpace(truncateIf(event.Content, e.display.ThinkingMaxLen)); thinking != "" {
 			turn.toolSteps = append(turn.toolSteps, ToolStep{
 				Kind:    ToolStepKindThinking,
@@ -611,6 +612,7 @@ func (e *Engine) onTurnToolUse(turn *interactiveTurn, p Platform, rv richCardVie
 		if !e.display.ToolMessages {
 			return turnFlowContinue
 		}
+		turn.continueRichCard(p, rv.build)
 		turn.toolSteps = append(turn.toolSteps, ToolStep{
 			Kind:    ToolStepKindTool,
 			Name:    event.ToolName,
@@ -737,6 +739,8 @@ func (e *Engine) onTurnToolResult(turn *interactiveTurn, p Platform, rv richCard
 		cardResult = truncateIf(cardResult, cardToolResultMaxLen)
 		if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 			if rv.has {
+				turn.continueRichCard(p, rv.build)
+				turn.restoreRichToolCall(event.ToolName)
 				turn.toolSteps = mergeRichToolResult(turn.toolSteps, event, result, e.display.ToolMaxLen)
 				e.showRichStepCard(turn, p, rv, CardStatusWorking, "tool-result card", "tool-result card")
 				return turnFlowContinue
@@ -767,6 +771,9 @@ func (e *Engine) onTurnText(turn *interactiveTurn, p Platform, rv richCardView, 
 		content = stripAgentFooterLines(content)
 	}
 	if content != "" && !isEllipsisOnly(content) {
+		if rv.has && (turn.streamCard == nil || turn.streamCard.Failed()) && strings.TrimSpace(content) != "" && !isSilentReply(content) {
+			turn.continueRichCard(p, rv.build)
+		}
 		// A tool/thinking boundary commits the previous preview. The
 		// next public text opens a new one, even before the next tool
 		// or final result (including an answer to a mid-turn insert).
@@ -1071,6 +1078,7 @@ func (e *Engine) onTurnResult(turn *interactiveTurn, p Platform, rv richCardView
 	if !e.deliverTurnResult(turn, r) {
 		return turnFlowReturn
 	}
+	postTurnReplyToTaskThread(e, turn, r)
 	if !e.finishTurnResult(turn, r) {
 		return turnFlowReturn
 	}

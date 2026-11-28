@@ -277,3 +277,12 @@ Supplies model formatting guidance once per agent context. The Cloud Web adapter
 - feishu: 不支持：用户 11-24 定这次只做 Discord（「我现在说的只限于discord」）
 - cloud-web: 不支持：同上，只做 Discord
 - dsh: 不支持：经 cloud-web 接入，同上
+
+## RichCardContinuationTarget
+
+任务中途插入消息时，当前 rich 卡片结束流式更新，后续输出在新卡片里引用这条补充消息（core/interactive_turn.go）。
+
+- feishu: 已接
+- discord: 不支持：进度使用 Discord embed 或普通消息，走各自的分段更新流程
+- cloud-web: 不支持：预览通过网关消息更新或原地结束，使用 `ReplyInPlace` 协议
+- dsh: 不支持：通过 cloud-web 网关更新预览

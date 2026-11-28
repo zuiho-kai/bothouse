@@ -23,6 +23,7 @@ import DSHAdd from './DSHAdd';
 import QQSetup from './QQSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
+import { ModelInput } from '@/components/ModelInput';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
 interface RoleDraft {
@@ -1008,8 +1009,10 @@ export default function SetupWizard() {
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
-                        <Input label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
-                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, model: e.target.value.trim() } })} />
+                        {/* #2115: like CC Switch — 获取模型列表, pick one, or type it */}
+                        <ModelInput label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} testid={`provider-model-${idx}`}
+                          vendor={r.provider.vendor} baseUrl={r.provider.base_url} apiKey={r.provider.api_key}
+                          onChange={(v) => patchRole(r.key, { provider: { ...r.provider, model: v.trim() } })} />
                         {/* #1498: DSH sends its own 256000 when the overlay has no maxTokens, and relays answer 503 */}
                         {isDSH && <Input inputMode="numeric" label={T.maxTokens} placeholder="128000" value={r.provider.max_tokens}
                           data-testid={`provider-max-tokens-${idx}`}

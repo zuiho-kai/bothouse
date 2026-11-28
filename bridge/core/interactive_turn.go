@@ -2,10 +2,116 @@ package core
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
 )
+
+func (turn *interactiveTurn) continueRichCard(p Platform, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string) {
+	target, ok := p.(RichCardContinuationTarget)
+	if !ok {
+		return
+	}
+	var continued bool
+	turn.state.mu.Lock()
+	for _, input := range turn.state.injectedReplyCtxs {
+		if input.cardBoundaryRead {
+			continue
+		}
+		input.cardBoundaryRead = true
+		if reply, ok := target.RichCardContinuationReply(turn.replyCtx, input.ctx); ok {
+			turn.replyCtx = reply
+			continued = true
+		}
+	}
+	turn.state.mu.Unlock()
+	if !continued || turn.cardMessageID == nil {
+		return
+	}
+	turn.closeRichCardForContinuation(p, target, buildCard)
+}
+
+func (turn *interactiveTurn) continueRichCardFrom(p Platform, target RichCardContinuationTarget, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string, injected []*injectedReply) {
+	var continued bool
+	for _, input := range injected {
+		if input.cardBoundaryRead {
+			continue
+		}
+		input.cardBoundaryRead = true
+		if reply, ok := target.RichCardContinuationReply(turn.replyCtx, input.ctx); ok {
+			turn.replyCtx = reply
+			continued = true
+		}
+	}
+	if !continued || turn.cardMessageID == nil {
+		return
+	}
+	turn.closeRichCardForContinuation(p, target, buildCard)
+}
+
+func (turn *interactiveTurn) closeRichCardForContinuation(p Platform, target RichCardContinuationTarget, buildCard func(CardStatus, string, []ToolStep, string, bool, string) string) {
+	previousCard := turn.cardMessageID
+	turn.cardMessageID = nil
+	turn.lastRichCardUpdate = time.Time{}
+	turn.lastRichCardLen = 0
+	body := stripSilentReply(turn.partialText)
+	card := buildCard(CardStatusContinued, "", turn.toolSteps, body, false, "")
+	if err := authorizedOutput(turn.outputCtx, func() error {
+		return target.UpdateMessage(turn.outputCtx, previousCard, card)
+	}); err != nil {
+		// Keep the content available for the new card if the final edit fails.
+		slog.Warn("rich card: could not close card before mid-turn continuation", "platform", p.Name(), "error", err)
+		return
+	}
+	for _, step := range turn.toolSteps {
+		if step.Kind == ToolStepKindTool && !step.Done {
+			turn.pendingRichTools = append(turn.pendingRichTools, step)
+		}
+	}
+	turn.toolSteps = nil
+	turn.partialText = ""
+	turn.richCardTextStart = len(turn.textParts)
+	turn.segmentStart = turn.richCardTextStart
+	turn.silentHold = false
+}
+
+func trimRichCardPrefix(fullResponse string, committedParts []string) string {
+	rawPrefix := strings.Join(committedParts, "")
+	if rawPrefix == "" {
+		return fullResponse
+	}
+	if rest, ok := strings.CutPrefix(fullResponse, rawPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	trimmedPrefix := strings.TrimSpace(rawPrefix)
+	if trimmedPrefix == "" {
+		return fullResponse
+	}
+	if rest, ok := strings.CutPrefix(fullResponse, trimmedPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	if rest, ok := strings.CutPrefix(strings.TrimLeft(fullResponse, " \t\r\n"), trimmedPrefix); ok {
+		return strings.TrimLeft(rest, "\r\n")
+	}
+	return fullResponse
+}
+
+func (turn *interactiveTurn) restoreRichToolCall(name string) {
+	name = strings.TrimSpace(name)
+	for _, step := range turn.toolSteps {
+		if step.Kind == ToolStepKindTool && !step.Done && strings.TrimSpace(step.Name) == name {
+			return
+		}
+	}
+	for i := len(turn.pendingRichTools) - 1; i >= 0; i-- {
+		if strings.TrimSpace(turn.pendingRichTools[i].Name) == name {
+			turn.toolSteps = append(turn.toolSteps, turn.pendingRichTools[i])
+			turn.pendingRichTools = append(turn.pendingRichTools[:i], turn.pendingRichTools[i+1:]...)
+			return
+		}
+	}
+}
 
 // interactiveTurn is the state processInteractiveEvents keeps while it reads
 // one agent turn (and the queued turns chained after it): what used to be the
@@ -62,6 +168,8 @@ type interactiveTurn struct {
 	lastRichCardUpdate  time.Time
 	lastRichCardLen     int
 	cardMessageID       any
+	richCardTextStart   int        // position in textParts at the last card boundary
+	pendingRichTools    []ToolStep // calls shown on an earlier card that can still return a result
 	partialText         string
 	triggerAutoCompress bool
 	pendingSend         <-chan error

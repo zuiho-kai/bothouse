@@ -283,12 +283,17 @@ func TestReplyRouting_CalledBotSeesItsMention(t *testing.T) {
 		t.Errorf("reply to the lead must not be handed back to it, lead=%q", lead)
 	}
 
-	// Explicit @lead @sub in a plain message: the sub still hands its answer back (issue #182).
+	// Explicit @lead @sub in a plain message: both bots receive Mentioned=true and see their own
+	// @ marked (even with group_reply_all off), and the sub does not chain back to the lead.
 	plain := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "plain", GuildID: "guild", ChannelID: "channel",
 		Author: &discordgo.User{ID: "human"}, Timestamp: time.Now(), Content: "<@100> <@200> 帮我算",
 		Mentions: []*discordgo.User{{ID: "100", Bot: true}, {ID: "200", Bot: true}}}}
-	if got := run("200", plain); got == nil || got.ReplyCtx.(replyContext).lead != "100" {
-		t.Errorf("explicit co-mention must still return to the lead: %+v", got)
+	gotMain, gotSub := run("100", plain), run("200", plain)
+	if gotMain == nil || !gotMain.Mentioned || !strings.Contains(gotMain.Content, "@bot100(你)") {
+		t.Errorf("co-mentioned lead must be addressed and see its own mention: %+v", gotMain)
+	}
+	if gotSub == nil || !gotSub.Mentioned || !strings.Contains(gotSub.Content, "@bot200(你)") || gotSub.ReplyCtx.(replyContext).lead != "" {
+		t.Errorf("co-mentioned sub must be addressed, see its own mention, and not return to lead: %+v", gotSub)
 	}
 
 	// Reply to the sub and @ the lead: the sub is only the reply target, so the lead answers itself

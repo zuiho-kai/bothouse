@@ -1,18 +1,24 @@
 package feishu
 
 import (
+	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/chenhg5/cc-connect/core/model"
-
 	"github.com/chenhg5/cc-connect/core"
+	"github.com/chenhg5/cc-connect/core/model"
 )
 
-// maomao fork: per-bot progress card size and the edit pace, the same options
-// as Discord (platform/discord/discord.go progress_card_entries,
-// progress_line_len, progress_hide_thinking). Unset options keep Feishu's
-// card as it was: core's default entry count, lines not cut, thinking shown.
+// Keep enough recent progress entries to fill the Details panel (up to 100
+// entries, each pairing at most one ToolUse and one ToolResult) while bounding
+// serialized progress payloads on long turns.
+const (
+	feishuProgressDetailBytes    = maxRichCardJSONBytes - 4000
+	feishuProgressDetailElements = 100
+	feishuProgressKeepAllEntries = feishuProgressDetailElements * 2
+	feishuProgressBriefRunes     = 80
+)
 
 var (
 	_ core.ProgressCardSizer       = (*Platform)(nil)
@@ -30,6 +36,83 @@ func (p *Platform) ProgressUpdateInterval() time.Duration { return feishuProgres
 func (p *Platform) ProgressCardEntries() int              { return p.cardEntries }
 func (p *Platform) ProgressCardLineLen() int              { return p.cardLineLen }
 func (p *Platform) ProgressCardHideThinking() bool        { return p.cardHideThinking }
+
+type progressDetailEntry struct {
+	entry  model.ProgressCardEntry
+	result *model.ProgressCardEntry
+}
+
+func progressDetailEntries(items []model.ProgressCardEntry) []progressDetailEntry {
+	details := make([]progressDetailEntry, 0, len(items))
+	openCalls := make(map[string][]int)
+	for i, item := range items {
+		tool := strings.ToLower(strings.TrimSpace(item.Tool))
+		switch item.Kind {
+		case model.ProgressEntryToolUse:
+			openCalls[tool] = append(openCalls[tool], len(details))
+		case model.ProgressEntryToolResult:
+			if calls := openCalls[tool]; len(calls) > 0 {
+				details[calls[len(calls)-1]].result = &items[i]
+				openCalls[tool] = calls[:len(calls)-1]
+				continue
+			}
+		}
+		details = append(details, progressDetailEntry{entry: item})
+	}
+	return details
+}
+
+func (detail progressDetailEntry) render(lang string, lineLen int) map[string]any {
+	items := []model.ProgressCardEntry{detail.entry}
+	if detail.result != nil {
+		items = append(items, *detail.result)
+	}
+	items = cutProgressLines(items, lineLen)
+	row := renderProgressEntryElement(items[0], lang)
+	if detail.entry.Kind != model.ProgressEntryToolUse {
+		return row
+	}
+	rows := []map[string]any{row}
+	if len(items) > 1 {
+		rows = append(rows, renderProgressEntryElement(items[1], lang))
+	}
+	return buildProgressPanel(buildToolDisplay(items[0].Tool, items[0].Text).Title, false, rows)
+}
+
+func buildProgressViews(items []model.ProgressCardEntry, lang string) (brief, details map[string]any, clipped bool) {
+	latest := items[len(items)-1]
+	for i := len(items) - 1; i >= 0; i-- {
+		kind := items[i].Kind
+		if kind == model.ProgressEntryToolUse || kind == model.ProgressEntryToolResult || kind == model.ProgressEntryError {
+			latest = items[i]
+			break
+		}
+	}
+	brief = renderProgressEntryElement(cutProgressLines([]model.ProgressCardEntry{latest}, feishuProgressBriefRunes)[0], lang)
+
+	entries := progressDetailEntries(items)
+	elements := make([]map[string]any, 0, min(len(entries), feishuProgressDetailElements))
+	remaining := feishuProgressDetailBytes
+	for i := len(entries) - 1; i >= 0 && len(elements) < feishuProgressDetailElements; i-- {
+		element := entries[i].render(lang, 0)
+		data, _ := json.Marshal(element)
+		if len(data)+1 > min(remaining, feishuProgressDetailBytes/2) {
+			element = entries[i].render(lang, feishuProgressBriefRunes)
+			data, _ = json.Marshal(element)
+		}
+		if len(data)+1 > remaining {
+			break
+		}
+		elements = append(elements, element)
+		remaining -= len(data) + 1
+	}
+	slices.Reverse(elements)
+	label := "Details"
+	if isZhLikeProgressLang(lang) {
+		label = "细节"
+	}
+	return brief, buildProgressPanel(label, false, elements), len(elements) < len(entries)
+}
 
 // progressIntOpt reads a TOML integer option (int64 from the decoder; int in
 // tests); anything else, or a negative number, is 0 (unset).

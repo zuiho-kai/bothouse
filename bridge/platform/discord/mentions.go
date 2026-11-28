@@ -97,10 +97,9 @@ func replaceMentions(content string, alias map[string]string) string {
 		names = append(names, n)
 	}
 	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) }) // longest first
-	parts := strings.Split(content, "```")
-	for i := 0; i < len(parts); i += 2 { // even parts are outside code fences
+	// Code (``` fences and `spans`) is an example, not a call (#2099).
+	return core.MapOutsideCode(content, func(s string) string {
 		var b strings.Builder
-		s := parts[i]
 		for len(s) > 0 {
 			at := strings.IndexByte(s, '@')
 			if at < 0 {
@@ -122,9 +121,8 @@ func replaceMentions(content string, alias map[string]string) string {
 				b.WriteByte('@')
 			}
 		}
-		parts[i] = b.String()
-	}
-	return strings.Join(parts, "```")
+		return b.String()
+	})
 }
 
 var otherMentionRe = regexp.MustCompile(`<@[!&]?\d+>|@everyone|@here`)
@@ -134,7 +132,7 @@ var otherMentionRe = regexp.MustCompile(`<@[!&]?\d+>|@everyone|@here`)
 // that @-ed two bots read as "@ the other one" and the agent stayed silent (maomao fork).
 func markSelfMention(text, botID, botRoleID, name string) string {
 	stripped := stripDiscordMentionWithRole(text, botID, botRoleID)
-	if !otherMentionRe.MatchString(stripped) {
+	if name == "" || !otherMentionRe.MatchString(stripped) {
 		return stripped
 	}
 	return labelSelfMention(text, botID, botRoleID, name)

@@ -452,7 +452,7 @@ func (p *Platform) handleMessage(raw []byte) {
 
 	rc := replyContext{SessionKey: sessionKey, ReplyCtx: replyCtx, MsgID: msgID}
 	// maomao fork: the lead's turn to hand back (lead_return.go). A teammate bot's name-call counts
-	// as its @ here, as on Discord; a person's needs the explicit @ (issue #182 co-mention rule).
+	// as its @ here, as on Discord; only lead-bot dispatches return to the lead.
 	rc.lead = p.dispatchedBy(m, explicit || (m.FromBot && calledByName))
 	msg := &core.Message{
 		SessionKey: sessionKey,
