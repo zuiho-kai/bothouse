@@ -574,7 +574,13 @@ func (w *compactProgressWriter) ShowSubAgentWait(text string) bool {
 		return false
 	}
 	w.removeWaitLine()
+	// The wait line is redrawn in place on every tick; it is not a stage note. Copying it into
+	// the task post (onNote, e3d2e4d88 11-27) posted 「在等模型 24 秒」「26 秒」… as new messages
+	// every 2s (#2121, user 11-29 「你有毒吧，每秒钟计数一次」).
+	note := w.onNote
+	w.onNote = nil
 	ok := w.AppendStructured(ProgressCardEntry{Kind: ProgressEntryInfo, Text: text}, text)
+	w.onNote = note
 	if ok && len(w.items) > 0 && len(w.entries) > 0 {
 		w.waitText = w.items[len(w.items)-1].Text
 		w.waitFallback = w.entries[len(w.entries)-1]

@@ -24,8 +24,12 @@ func sameTaskForumPost(a, b *TaskForumReply) bool {
 }
 
 // TaskForumInboundHandler is an optional capability of the platform's engine
-// event handler. A known post is consumed by every bot, but only the lead gets
-// a reply descriptor, so one gateway event cannot wake every team member.
+// event handler. A known post is consumed by every bot and every bot gets a reply
+// descriptor; the platform then wakes only the bot the message @-s or replies to
+// (humanReplyRoute), so one gateway event still wakes one member. Until #2121 only
+// the configured lead got a descriptor: after the lead moved to 鲸鱼娘 (11-22), the
+// user's @橘 in 橘's own task posts was swallowed with no log line (user 11-29
+// 「怎么帖子艾特你没有反应」).
 type TaskForumInboundHandler interface {
 	ResolveTaskForumReply(platform, guild, parent, thread string) (*TaskForumReply, bool)
 }
@@ -62,9 +66,6 @@ func (e *Engine) ResolveTaskForumReply(platform, guild, parent, thread string) (
 	if board <= 0 {
 		return nil, false
 	}
-	if !e.isTeamLead() {
-		return nil, true
-	}
 	it := e.taskForumReplyItem(board)
 	if it == nil {
 		return &TaskForumReply{Board: board, Thread: thread}, true
@@ -95,7 +96,7 @@ func (e *Engine) taskForumReplyItem(board int) *teamTaskBoardItem {
 // here and woke the lead.
 func (e *Engine) prepareTaskForumReply(p Platform, msg *Message) bool {
 	r := msg.TaskForum
-	if msg.FromBot || msg.Recalled || msg.scheduledFrom != nil || !msg.Mentioned || !e.isTeamLead() {
+	if msg.FromBot || msg.Recalled || msg.scheduledFrom != nil || !msg.Mentioned {
 		return false
 	}
 	if r.prepared {

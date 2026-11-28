@@ -12,7 +12,7 @@ import (
 // a task; arbitrary threads with task-looking titles keep ordinary behavior.
 //
 // Being in a task post does not address the bot: people talk to each other there.
-// The message goes to the lead only when it @-s the bot or replies to its message,
+// The message goes to this bot only when it @-s the bot or replies to its message (any team member, #2121),
 // by the same rules as a channel (isDiscordBotMention, humanReplyRoute).
 func (p *Platform) handleTaskForumReply(s *discordgo.Session, m *discordgo.MessageCreate, botRoleID string) bool {
 	if m.GuildID == "" {
