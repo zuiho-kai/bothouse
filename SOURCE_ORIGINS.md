@@ -7,6 +7,8 @@ CoNest（共栖）将已有桥接和产品扩展集中到一个仓库，不代�
 | bridge/ | zuiho-kai/cc-connect 的 maomao，8b27736e5b6f2dba61bc0cfb2d5397b73224156c；其 Go module 为 github.com/chenhg5/cc-connect | 保留 Git 祖先历史，移入子目录，包含本机后续桥接补丁 |
 | skills/ | 同一产品开发阶段的项目协作技能 | 纳入产品工作流 |
 | plugins/desktop-pet/ | PC2005-cloud/dsh-pet 的 dsh-pet 包，c25386848f70f6e40902e4376f6e7b1e196bc326（MIT，© 2026 PC2005-cloud） | fork 成 bothouse 自带桌宠，保留上游 LICENSE；改动和同步方法见 plugins/desktop-pet/BOTHOUSE.md |
+| tunnel-relay/src/server.mjs | sh2001sh/Kooyu 的 services/relay/src/server.mjs，e33137b（MIT，© Kooyu contributors） | 改写：去掉账号网关、信箱、推送、预览，只留宿主接入和转发；文件头保留来源 |
+| dsh/collab/tunnel-*.mjs | sh2001sh/Kooyu 的 packages/host/src/devices/{secure-channel.ts,relay.ts,pairing.ts}，e33137b（MIT，© Kooyu contributors） | 改写：沿用 Ed25519 身份指纹、X25519+HKDF+AES-256-GCM 端到端信封、流式加密分块与 128 位配对长码设计，适配 DSH 协作插件通道接口并去掉账号/信箱/预览；各文件头保留来源 |
 
 项目自有代码按 Apache-2.0 授权；上游组件与第三方依赖仍按各自许可使用，详见 [LICENSING.md](LICENSING.md)。
 

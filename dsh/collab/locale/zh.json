@@ -2,5 +2,35 @@
   "meta": {
     "title": "bothouse",
     "description": "让 DSH 模型和本机 Claude Code、Codex 进同一个群。第一行「bothouse」是后台服务，下面各项都靠它，一般不用关；频道、团队工作台、bothouse 面板、其他电脑可以分别打开。"
+  },
+  "relay": {
+    "summary": "不在同一个网络？用中继",
+    "privacyNotice": "中继是别人或你自己运营的服务器，它看不到内容，但看得到你的 IP 和流量大小。",
+    "urlLabel": "中继地址",
+    "urlPlaceholder": "https://relay.example.com",
+    "admissionLabel": "准入码（选填）",
+    "admissionPlaceholder": "公开中继留空；私有中继填运营者给的准入码",
+    "saveButton": "保存并连接",
+    "clearButton": "清除",
+    "stateUnconfigured": "没填",
+    "stateConnecting": "连接中",
+    "stateConnected": "已连上",
+    "stateLimited": "被限额",
+    "stateBlocked": "已拒绝",
+    "stateError": "连不上",
+    "hostTitle": "经中继让别的电脑连我",
+    "hostHint": "连上中继后生成一条一次性连接串（5 分钟有效），发给另一台电脑粘贴或扫码。",
+    "generateLink": "生成连接串",
+    "copyLink": "复制连接串",
+    "copied": "已复制",
+    "cancelLink": "取消",
+    "controllerTitle": "粘贴连接串连到另一台电脑",
+    "controllerHint": "把另一台电脑生成的连接串粘贴到下面，核对中继地址和对方指纹后确认连接。",
+    "pastePlaceholder": "粘贴连接串（bhrelay1:...）",
+    "confirmRelay": "中继地址",
+    "confirmFingerprint": "对方指纹",
+    "confirmButton": "确认连接",
+    "channelTailscale": "Tailscale",
+    "channelTunnel": "中继"
   }
 }

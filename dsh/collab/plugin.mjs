@@ -27,7 +27,11 @@ import { wikiGalaxyRoute } from './wiki-galaxy.mjs';
 import { defaultBridgeConfig, leadFile as bridgeLeadFile } from './bridge-files.mjs';
 import { panelRoute } from './panel.mjs';
 import { TeamStatus } from './team-status.mjs';
-import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
+import { ALIVE_EVERY_MS, PairClient, PairHost, PairListener, PAIR_PORT, REMOTE_OWNER, dispatchHostRequest, hostHandler, isLoopback, pairApiRoute, remoteProxyRoute, tailnetAddress } from './pairing.mjs';
+import { ChannelRegistry, createTailscaleChannel } from './channels.mjs';
+import { TunnelIdentity } from './tunnel-identity.mjs';
+import { TunnelHost } from './tunnel-host.mjs';
+import { createTunnelChannel } from './tunnel-client.mjs';
 import { homedir, hostname } from 'node:os';
 import { migratePageRows } from './pages-migrate.mjs';
 
@@ -152,6 +156,7 @@ export async function apply(ctx, rawConfig) {
     r.gateway?.closeAll();
     clearInterval(r.pairSweep);
     clearInterval(r.aliveSweep);
+    await r.tunnelHost?.stop();
     await r.pairListener?.close();
     for (const end of r.streams ?? []) end();
     r.wss?.close();
@@ -247,13 +252,29 @@ export async function apply(ctx, rawConfig) {
   const pairAddr = String(process.env.CONEST_COLLAB_PAIR_ADDR ?? '').trim();
   const pairPort = Number(process.env.CONEST_COLLAB_PAIR_PORT) || PAIR_PORT;
   const pairHost = new PairHost({ file: join(config.dataDir, 'pair-devices.json') });
-  const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort });
+  const hostName = hostname();
+  const hostDispatch = dispatchHostRequest({ host: pairHost, name: hostName, route: (req, res) => browserRoute(req, res) });
   const pairListener = r.pairListener = new PairListener({
     host: pairHost, port: pairPort, logger: ctx.logger,
     address: pairAddr === '' ? () => tailnetAddress() : async () => pairAddr,
-    handler: hostHandler({ host: pairHost, name: hostname(), route: (req, res) => browserRoute(req, res), allowLoopback: isLoopback(pairAddr) }),
+    handler: hostHandler({ host: pairHost, name: hostName, route: (req, res) => browserRoute(req, res), allowLoopback: isLoopback(pairAddr) }),
   });
-  if (pairHost.list().length > 0) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));
+  const tunnelIdentity = new TunnelIdentity({ file: join(config.dataDir, 'tunnel-identity.json') });
+  const tunnelHost = r.tunnelHost = new TunnelHost({
+    configFile: join(config.dataDir, 'tunnel-config.json'),
+    identity: tunnelIdentity,
+    pairHost,
+    dispatch: hostDispatch,
+    logger: ctx.logger,
+    allowLoopback: true,
+  });
+  const pairChannels = new ChannelRegistry([
+    createTailscaleChannel({ listener: pairListener, defaultPort: pairPort }),
+    createTunnelChannel({ tunnelHost, clientIdentity: tunnelIdentity }),
+  ]);
+  const pairClient = new PairClient({ file: join(config.dataDir, 'pair-links.json'), port: pairPort, channels: pairChannels });
+  if (pairHost.activeTailscale()) pairListener.ensure().catch(err => ctx.logger.warn('conest-collab: pairing listener: %s', err.message));
+  if (tunnelHost.configured) tunnelHost.start();
   // 来源：码有效期按分钟计（pairing.mjs CODE_TTL_MS），每分钟收一次没人用的配对监听。
   const pairSweep = r.pairSweep = setInterval(() => { pairListener.settle().catch(() => {}); }, 60_000);
   pairSweep.unref?.();
@@ -329,12 +350,12 @@ export async function apply(ctx, rawConfig) {
     if (galaxyHandled !== undefined) return galaxyHandled;
     const panelHandled = panelRoute(req, res, url, { bridgeConfig: config.bridgeConfig });
     if (panelHandled !== undefined) return panelHandled;
-    // #131: pairing (this machine lets others in) and remote links (this machine drives others).
+    // #131 / #2314: pairing (this machine lets others in) and remote links (this machine drives others).
     if (!req[REMOTE_OWNER]) {
       if (path === '/collab/devices' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', DEVICES_PAGE);
-      const paired = pairApiRoute(req, res, url, { host: pairHost, client: pairClient, listener: pairListener });
+      const paired = pairApiRoute(req, res, url, { host: pairHost, client: pairClient, listener: pairListener, tunnelHost, hostName });
       if (paired !== undefined) return paired;
-      const remote = remoteProxyRoute(req, res, url, { client: pairClient });
+      const remote = remoteProxyRoute(req, res, url, { client: pairClient, channels: pairChannels });
       if (remote !== undefined) return remote;
     }
     if (path === '/collab' && req.method === 'GET') return text(res, 200, 'text/html; charset=utf-8', PAGE);

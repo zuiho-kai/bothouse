@@ -116,6 +116,12 @@ jobs:
       - run: npx -y pnpm@10 install --frozen-lockfile
         if: ${{ !cancelled() }}
         working-directory: dsh/collab
+      # tunnel-relay holds the self-hosted relay used by dsh/collab/tunnel.test.mjs (#2314)
+      - run: npm ci
+        if: ${{ !cancelled() }}
+        working-directory: tunnel-relay
+      - run: node --test ../tunnel-relay/test/*.test.mjs
+        if: ${{ !cancelled() }}
       # bridge/core/dsh_bundle/{collab,packages} are not in git: generated from dsh/ (same script as
       # `make dshbundle`). The bothouse-embeds test below and the Go bundle tests read the result.
       - name: Generate the embedded DSH bundle
@@ -526,6 +532,10 @@ jobs:
           node-version: '24'
       - run: npx -y pnpm@10 install --frozen-lockfile
         working-directory: dsh/collab
+      - run: npm ci
+        working-directory: tunnel-relay
+      - run: node --test ../tunnel-relay/test/*.test.mjs
+        working-directory: bridge
       - run: node --test ../dsh/collab/*.test.mjs
         working-directory: bridge
 
