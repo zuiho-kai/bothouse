@@ -9,6 +9,12 @@
      it is; the extension then puts the role text in front of each message instead (extension/extension.py).
   3. on a machine where bothouse has no role that runs JiuwenSwarm, makes a default one (seed_role), so the first
      chat already carries a persona and a memory wiki. A bothouse role found later takes over (extension.py).
+
+JiuwenSwarm 0.2.9 dropped the application_plugins loader of step 1 and has plugin packages instead
+(server/runtime/extension_package_manager.py). There steps 1 and 2 are replaced by one: plugin/bothouse/ (a plugin
+package whose rail puts the role text into the system prompt) is imported and installed with JiuwenSwarm's own
+import_plugin_package / install_plugin_package, and nothing of JiuwenSwarm is patched (install_plugin). Step 3 is
+the same.
 """
 import hashlib
 import importlib.metadata
@@ -193,6 +199,33 @@ def seed_role(base: Path) -> tuple[Path, Path | None, bool, str]:
     return persona, wiki, text != old, why
 
 
+def report_role(role_file: Path | None, base: Path) -> None:
+    """Step 3: the bothouse role in use, else the default role (made now when it is not there)."""
+    if role_file is not None:
+        print(f"人设和记忆来自 bothouse 的角色：{role_file}")
+        return
+    role, wiki, wrote, why = seed_role(base)
+    print(f"{'已建默认角色' if wrote else '默认角色之前建过'}「{SEED_NAME}」：人设 {role}（可以直接改），"
+          + (f"记忆 wiki {wiki}" if wiki else f"记忆 wiki 没建成（{why}），解决后重跑这条装命令"))
+
+
+def install_plugin(packages, root: Path) -> int:
+    """JiuwenSwarm 0.2.9+: plugin/bothouse/ imported and installed the way JiuwenSwarm installs a local plugin
+    (the plugin centre's import), so it is listed under 我的插件 and a JiuwenMate colleague can be given it."""
+    sys.dont_write_bytecode = True
+    pkg = HERE / "plugin" / "bothouse"
+    got = packages.import_plugin_package({"path": str(pkg)})
+    packages.install_plugin_package({"id": got["id"]})
+    print(f"插件已装：{got['id']}（JiuwenSwarm 的插件中心「我的插件」里能看到）")
+    sys.path.insert(0, str(pkg.parent))
+    from bothouse.rails import bothouse_role_rail as rail  # the copy in this package: the same lookup the installed rail does
+
+    report_role(rail.bothouse_role_file(), root / "bothouse")
+    print("用法：对话里勾选插件「bothouse 人设与记忆」；飞书等渠道的 JiuwenMate 同事在「能力 → 插件」里装备它再发布。"
+          "JiuwenSwarm 升级后重跑这条装命令。")
+    return 0
+
+
 def main() -> int:
     try:
         import jiuwenswarm
@@ -200,6 +233,12 @@ def main() -> int:
     except ImportError:
         print(f"这个 Python（{sys.executable}）里没有 JiuwenSwarm：先 pip install workswarm，再重跑。")
         return 1
+    import importlib.util
+
+    if importlib.util.find_spec("jiuwenswarm.extensions.manager") is None:  # 0.2.9: no application_plugins loader
+        from jiuwenswarm.server.runtime import extension_package_manager as packages
+
+        return install_plugin(packages, get_root_dir())
     dest = get_root_dir() / "application_plugins" / "bothouse"
     dest.mkdir(parents=True, exist_ok=True)
     for f in sorted((HERE / "extension").iterdir()):

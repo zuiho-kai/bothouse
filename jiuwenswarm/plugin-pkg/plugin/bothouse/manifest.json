@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "package_type": "plugin",
+  "id": "bothouse",
+  "name": "bothouse 组织智能体与记忆",
+  "description": "让九问的智能体带上 bothouse 角色人设、飞书需求卡/话题进度分离，以及全队共享记忆论坛。",
+  "display_name": {
+    "en": "bothouse org agent & team memory",
+    "zh": "bothouse 组织智能体与记忆"
+  },
+  "display_description": {
+    "en": "Adds bothouse role persona, Feishu need cards, topic-isolated execution with one progress card, and a shared team memory forum.",
+    "zh": "为九问 AI 同事提供人设、飞书需求卡、话题干活与进度卡分离，以及全队共享记忆论坛。"
+  },
+  "category": "Engineering",
+  "source": "local",
+  "avatar": "",
+  "default_init_input": {
+    "zh": "对当前需求做一次需求分析并生成飞书需求卡",
+    "en": "Run a requirement analysis and send a Feishu need card"
+  },
+  "tags": [
+    { "en": "Team Memory", "zh": "记忆论坛" },
+    { "en": "Feishu Topic", "zh": "飞书话题" },
+    { "en": "bothouse", "zh": "bothouse" }
+  ],
+  "quick_inputs": [
+    { "zh": "对当前需求做一次需求分析并生成飞书需求卡", "en": "Run a requirement analysis and send a Feishu need card" },
+    { "zh": "在全队记忆论坛里查一下以前定过的规矩", "en": "Search the shared team memory forum for past rules" },
+    { "zh": "把这件活开飞书话题并挂出进度卡", "en": "Open a Feishu topic and post the progress card" }
+  ],
+  "skills": [
+    {
+      "dir": "./skills/bothouse-team-workflow",
+      "mode": "all"
+    }
+  ],
+  "tools": [
+    {
+      "file": "tools/feishu_need_card_tool.py",
+      "class": "BothouseFeishuNeedCardTool",
+      "display_name": { "en": "Feishu Need Card", "zh": "飞书需求分析卡" },
+      "display_description": {
+        "en": "Collects group quotes, shared memory rules, and acceptance criteria into a Feishu interactive need card.",
+        "zh": "汇总群聊原话、记忆论坛历史规则和验收标准，发出可直接文字确认开工的飞书需求卡。"
+      }
+    },
+    {
+      "file": "tools/feishu_topic_task_tool.py",
+      "class": "BothouseFeishuTopicTaskTool",
+      "display_name": { "en": "Feishu Topic & Progress", "zh": "飞书话题与进度卡" },
+      "display_description": {
+        "en": "Keeps agent work logs inside a Feishu topic, updates one progress card in-place, and checks stuck tasks.",
+        "zh": "把干活来回关进飞书话题，主群只原地刷新一张进度卡，并支持卡住提醒与交回检查。"
+      }
+    },
+    {
+      "file": "tools/memory_forum_tool.py",
+      "class": "BothouseMemoryForumTool",
+      "display_name": { "en": "Team Memory Forum", "zh": "全队记忆论坛" },
+      "display_description": {
+        "en": "Searches shared team memory threads, cites rules, records corrections, and promotes repeat mistakes to checks.",
+        "zh": "检索全队共享记忆论坛，记录纠正并夜间归帖投票，同类错第二次自动升成检查。"
+      }
+    }
+  ],
+  "rails": [
+    {
+      "file": "rails/bothouse_role_rail.py",
+      "class": "BothouseRoleRail",
+      "display_name": { "en": "bothouse role & team memory", "zh": "bothouse 角色与团队记忆" },
+      "display_description": {
+        "en": "Injects persona and shared team memory forum hits before each model call and checks stuck tasks.",
+        "zh": "每次调用模型前注入人设与全队共享记忆论坛命中规则，并巡检卡住任务。"
+      }
+    }
+  ]
+}
