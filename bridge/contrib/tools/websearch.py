@@ -4,15 +4,21 @@
 # dependencies = ["ddgs", "trafilatura", "requests", "beautifulsoup4", "lxml"]
 # ///
 """websearch search "query" [n] [engine]  → JSON list [{title, url, snippet, engine}] (free, no API key)
-   websearch fetch URL [chars]             → the page's main text (trafilatura), cut at 6000 chars by default
+   websearch fetch URL [chars] [backend]  → the page's main text, cut at 6000 chars by default
 
 engine (default auto: Chinese in the query → cn + global, else global):
    global  ddgs (DuckDuckGo/Bing/Brave… aggregated)        cn     baidu + sogou + bili merged
    baidu / sogou / so360                                   zhihu  sogou/baidu/360 with site:zhihu.com (titles and snippets only)
    bili    Bilibili video search API
+   keenable  Keenable search API (keenable.ai), no key needed; only used when asked for, e.g. keenable or keenable+cn
 Optional: WEBSEARCH_CN_PROXY=http://host:port, an HTTP proxy with a mainland-China exit for the Chinese engines.
 Without it they are queried directly; when Baidu/Sogou answer with a captcha it falls back to 360.
-Zhihu answers need a login to read in full; fetch returns whatever the public page shows."""
+Zhihu answers need a login to read in full; fetch returns whatever the public page shows.
+
+backend (default local):
+   local     download the page here, main text via trafilatura
+   keenable  Keenable fetch API (keenable.ai), no key needed
+Optional: KEENABLE_API_KEY raises Keenable's keyless limits (1000 requests/hour per IP), for search and fetch."""
 import json, os, re, socket, sys, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
@@ -110,6 +116,21 @@ def ddgs(q, n, px=None):
     return [{"title": r.get("title"), "url": r.get("href"), "snippet": r.get("body")}
             for r in DDGS().text(q, max_results=n, region=region)]
 
+KEENABLE_API = "https://api.keenable.ai/v1"
+
+def _keenable(path, body):
+    import requests
+    key = os.environ.get("KEENABLE_API_KEY", "")
+    headers = {"X-Keenable-Title": "bothouse"}
+    if key: headers["X-API-Key"] = key
+    r = requests.post(f"{KEENABLE_API}/{path}" + ("" if key else "/public"), json=body, headers=headers, timeout=20)
+    if r.status_code != 200: raise RuntimeError(f"keenable HTTP {r.status_code}: {r.text[:200]}")
+    return r.json().get("results") or []
+
+def keenable(q, n, px):  # Keenable's own API, so the CN proxy is not used
+    return [{"title": r.get("title"), "url": r.get("url"), "snippet": " ".join((r.get("snippet") or "").split())[:200]}
+            for r in _keenable("search", {"query": q, "max_results": min(max(n, 1), 50)})]
+
 def zhihu(q, n, px):
     return _first([sogou, baidu, so360], q + " site:zhihu.com", n, px)
 
@@ -136,7 +157,7 @@ def search(q, n=6, engine="auto"):
     if engine == "auto":
         engine = "cn+global" if re.search(r"[一-鿿]", q) else "global"
     groups = {"global": lambda: _first([ddgs], q, n, px), "cn": None, "zhihu": lambda: zhihu(q, n, px)}
-    single = {"baidu": baidu, "sogou": sogou, "so360": so360, "bili": bili}
+    single = {"baidu": baidu, "sogou": sogou, "so360": so360, "bili": bili, "keenable": keenable}
     if engine in single:
         return _first([single[engine]], q, n, px)[:n]
     parts = []
@@ -144,12 +165,14 @@ def search(q, n=6, engine="auto"):
         if name == "cn":
             parts += [lambda e=e: _first([e] + [x for x in cn_web if x is not e], q, n, px) for e in cn_web[:2]]
             parts.append(lambda: _first([bili], q, n, px))
+        elif name in single:
+            parts.append(lambda e=single[name]: _first([e], q, n, px))
         else:
             parts.append(groups[name])
     with ThreadPoolExecutor(len(parts)) as ex:
         return _merge(list(ex.map(lambda f: f(), parts)), n)
 
-def fetch(url, chars=6000):  # 6000 沿用原版 websearch
+def _fetch_local(url, chars):  # download here + trafilatura (the default backend)
     import trafilatura
     host = urllib.parse.urlsplit(url).hostname or ""
     px = _cn_proxies() if host.endswith(CN_DOMAINS) else None
@@ -161,10 +184,20 @@ def fetch(url, chars=6000):  # 6000 沿用原版 websearch
     text = trafilatura.extract(html or "", include_links=False) or ""
     return text[:chars]
 
+def _fetch_keenable(url, chars):
+    page = (_keenable("fetch", {"urls": [url], "content": {"max_chars": chars}}) or [{}])[0]
+    if page.get("error"): raise RuntimeError(f"keenable fetch: {page['error'].get('message')}")
+    return (page.get("content") or "")[:chars]
+
+FETCH_BACKENDS = {"local": _fetch_local, "keenable": _fetch_keenable}
+
+def fetch(url, chars=6000, backend="local"):  # 6000 沿用原版 websearch
+    return FETCH_BACKENDS[backend](url, chars)
+
 if __name__ == "__main__":
     if len(sys.argv) < 3: sys.exit(__doc__)
     if sys.argv[1] == "search":
         n = int(sys.argv[3]) if len(sys.argv) > 3 else 6
         print(json.dumps(search(sys.argv[2], n, sys.argv[4] if len(sys.argv) > 4 else "auto"), ensure_ascii=False, indent=1))
     else:
-        print(fetch(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 6000))
+        print(fetch(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 6000, sys.argv[4] if len(sys.argv) > 4 else "local"))
