@@ -1,4 +1,5 @@
 import { backendLabel, roleLabel } from '@/lib/roleIdentity';
+import { ModelInput } from '@/components/ModelInput';
 import { withBase } from '@/lib/basePath';
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -555,7 +556,7 @@ export default function ProjectDetail() {
                   <Input label={t('providers.name')} value={newProvider.name} onChange={(e) => setNewProvider({...newProvider, name: e.target.value})} />
                   <Input label="API Key" type="password" value={newProvider.api_key} onChange={(e) => setNewProvider({...newProvider, api_key: e.target.value})} />
                   <Input label={t('providers.baseUrl')} value={newProvider.base_url} onChange={(e) => setNewProvider({...newProvider, base_url: e.target.value})} placeholder="https://api.example.com" />
-                  <Input label={t('providers.model')} value={newProvider.model} onChange={(e) => setNewProvider({...newProvider, model: e.target.value})} />
+                  <ModelInput label={t('providers.model')} value={newProvider.model} onChange={(v) => setNewProvider({...newProvider, model: v})} baseUrl={newProvider.base_url} apiKey={newProvider.api_key} testid="proj-provider-model" />
                   <div className="flex justify-end gap-2 pt-1">
                     <Button variant="secondary" onClick={() => setShowAddProvider(false)}>{t('common.cancel')}</Button>
                     <Button onClick={handleAddProvider}>{t('providers.add')}</Button>

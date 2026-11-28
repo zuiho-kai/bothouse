@@ -12,7 +12,7 @@ import { restartSystem } from '@/api/status';
 import { shownNames } from '@/api/projects';
 import {
   applyWizard, checkDiscord, getSetupPersona, getCLIs, getExistingBots, getLocalHub, getMatrix, getSetupState, listChannels, listFeishuChats,
-  startLocalHub, testCloudWeb, testJev, saveJev, listProviderModels,
+  startLocalHub, testCloudWeb, testJev, saveJev,
   type CloudWebTest, type DiscordBotInfo, type LocalHubStatus, type DiscordChannel, type ExistingBot, type LocalCLI, type ACPPreset, type MatrixCell,
   type SetupPersona, type SetupStateResp, type WizardRequest, type WizardResult, type WizardVendor, type WizardWiki,
 } from '@/api/wizard';
@@ -23,6 +23,7 @@ import DSHAdd from './DSHAdd';
 import QQSetup from './QQSetup';
 import { PersonaLibrary, useLibrary } from '@/components/library';
 import type { LibraryPersona } from '@/api/library';
+import { ModelInput } from '@/components/ModelInput';
 import { fmt, isZhLang, keptLangLabel, langLabel, libraryTexts, replyLangOptions, stepLabel, wizardTexts } from './texts';
 
 interface RoleDraft {
@@ -174,23 +175,6 @@ export default function SetupWizard() {
   const [fallback, setFallback] = useState('');
   const [gateMode, setGateMode] = useState<'smart' | 'addressed' | 'off'>('addressed');
   const [jev, setJev] = useState({ base_url: '', api_key: '', model: '' });
-  // #2113: model IDs each role's API lists, keyed by role. The model box offers them, so the user
-  // picks claude-opus-4-7 instead of typing the name a menu shows ("Opus 4.7").
-  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
-  const providerSig = roles.filter((r) => r.useProvider && r.provider.api_key)
-    .map((r) => `${r.key}\t${r.provider.vendor}\t${r.provider.base_url}\t${r.provider.api_key}`).join('\n');
-  useEffect(() => {
-    if (!providerSig) return;
-    const timer = setTimeout(() => {
-      for (const line of providerSig.split('\n')) {
-        const [key, vendor, base_url, api_key] = line.split('\t');
-        listProviderModels({ vendor, base_url, api_key })
-          .then((res) => setProviderModels((m) => ({ ...m, [key]: res.models || [] })))
-          .catch(() => setProviderModels((m) => ({ ...m, [key]: [] })));
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [providerSig]);
   // jevTest: the gate-style test (nothing written); jevSave: what 下一步 / 跳过 did to jev.json
   const [jevTest, setJevTest] = useState<{ running: boolean; usable?: boolean; reason?: string; hint?: string }>({ running: false });
   const [jevSave, setJevSave] = useState<{ saving?: boolean; saved?: boolean; cleared?: boolean; inUse?: string; error?: string }>({});
@@ -1025,23 +1009,15 @@ export default function SetupWizard() {
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, base_url: e.target.value.trim() } })} />}
                         <Input type="password" label={T.apiKey} value={r.provider.api_key} data-testid={`provider-key-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, api_key: e.target.value.trim() } })} />
-                        <Input label={T.model} placeholder={vendor?.model || providerModels[r.key]?.[0] || ''} value={r.provider.model} data-testid={`provider-model-${idx}`}
-                          list={`provider-models-${idx}`}
-                          onChange={(e) => patchRole(r.key, { provider: { ...r.provider, model: e.target.value.trim() } })} />
-                        <datalist id={`provider-models-${idx}`}>{(providerModels[r.key] || []).map((id) => <option key={id} value={id} />)}</datalist>
+                        {/* #2115: like CC Switch — 获取模型列表, pick one, or type it */}
+                        <ModelInput label={T.model} placeholder={vendor?.model || ''} value={r.provider.model} testid={`provider-model-${idx}`}
+                          vendor={r.provider.vendor} baseUrl={r.provider.base_url} apiKey={r.provider.api_key}
+                          onChange={(v) => patchRole(r.key, { provider: { ...r.provider, model: v.trim() } })} />
                         {/* #1498: DSH sends its own 256000 when the overlay has no maxTokens, and relays answer 503 */}
                         {isDSH && <Input inputMode="numeric" label={T.maxTokens} placeholder="128000" value={r.provider.max_tokens}
                           data-testid={`provider-max-tokens-${idx}`}
                           onChange={(e) => patchRole(r.key, { provider: { ...r.provider, max_tokens: e.target.value.replace(/[^0-9]/g, '') } })} />}
                       </div>
-                      {(() => {
-                        const ids = providerModels[r.key] || [];
-                        const m = r.provider.model;
-                        if (/\s/.test(m)) return <p className="text-xs text-red-500" data-testid={`provider-model-name-${idx}`}>{fmt(T.modelIsName, { m })}</p>;
-                        if (m && ids.length > 0 && !ids.includes(m)) return <p className="text-xs text-amber-600" data-testid={`provider-model-unlisted-${idx}`}>{fmt(T.modelUnlisted, { m })}</p>;
-                        if (ids.length > 0) return <p className="text-xs text-gray-500" data-testid={`provider-model-count-${idx}`}>{fmt(T.modelListed, { n: ids.length })}</p>;
-                        return null;
-                      })()}
                       {isDSH && <p className="text-xs text-gray-500" data-testid={`provider-max-tokens-hint-${idx}`}>{T.maxTokensHint}</p>}
                       {/* DSH's thinking is a two-value setting (dsh-llm-deepseek config: enabled | disabled): say so before the first 400 */}
                       {isDSH && <p className="text-xs text-gray-500" data-testid={`dsh-no-adaptive-${idx}`}>{T.dshNoAdaptive}</p>}
