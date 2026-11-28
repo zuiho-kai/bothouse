@@ -528,7 +528,8 @@ def tool_gaps(have):
     """{工具名: {"path": 可执行文件, "lines": [wiki 里提到它的行（页:行 原文）]}}，只列哪份手册的名字和简介都没提到的。"""
     # 只认名字和一行简介：CLI 常驻上下文里只有这两样，正文按需才读。watchvid 当时就只在 proxy-7890-fetch 正文里讲 cookie，
     # 简介没提，等于没有入口
-    known = "\n".join(f"{n} {d}" for n, (d, _) in have.items())
+    # 名字按短横线拆开也算（bothouse-peek 管的就是 peek）
+    known = "\n".join(f"{n} {n.replace('-', ' ')} {d}" for n, (d, _) in have.items())
     found = {}
     # 日志页（log.md）按时间追加、旧做法多，排最后，名额先给正文页
     for page in sorted(WIKI.rglob("*.md"), key=lambda p: (p.name == "log.md", str(p))):

@@ -167,14 +167,17 @@ class ToolGaps(unittest.TestCase):
         manuals.WIKI = self.root / 'wiki'
         bin_ = self.root / 'bin'
         bin_.mkdir()
-        for name in ('watchvid', 'covered', 'test_x'):
+        for name in ('watchvid', 'covered', 'test_x', 'peek'):
             (bin_ / name).write_text('#!/bin/sh\n')
             (bin_ / name).chmod(0o755)
         (bin_ / 'notexec').write_text('x')
         manuals.WIKI.mkdir()
         (manuals.WIKI / 'video.md').write_text(
             f'- 看视频：`{bin_}/watchvid <链接>` 出抽帧和转写\n- `{bin_}/covered` 和 `{bin_}/test_x`、`{bin_}/notexec`、'
-            f'`{bin_}/gone`\n')
+            f'`{bin_}/gone`、`{bin_}/peek`\n')
+        (manuals.SKILLS / 'bothouse-peek').mkdir(parents=True)
+        (manuals.SKILLS / 'bothouse-peek' / 'SKILL.md').write_text(
+            '---\nname: bothouse-peek\ndescription: 看队友进度\n---\n')
         (manuals.SKILLS / 'other').mkdir(parents=True)
         (manuals.SKILLS / 'other' / 'SKILL.md').write_text(
             '---\nname: other\ndescription: uses covered for things\n---\nwatchvid cookie is in the body only\n')
