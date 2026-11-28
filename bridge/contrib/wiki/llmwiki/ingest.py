@@ -3278,7 +3278,7 @@ class Prefetch:
 PREFETCH = None  # set by ingest_batches while the openai engine ingests
 
 
-def propose_pass(label, it, text, sids, sources, engine):
+def propose_pass(label, it, text, sids, sources, engine, checkpoint=()):
     """Ingest one batch through propose.py: two tool-less calls, the script
     searches, writes, then the same acceptance (lint, lossless, log, quotes) and delivery as _one_pass. Replaces the
     agentic pass whose every tool step re-read the whole context and whose rejections re-ran the same input.
@@ -3292,6 +3292,9 @@ def propose_pass(label, it, text, sids, sources, engine):
     sync_work()
     propose_dir()
     failed = []
+    # deliver() takes only contract-checked commits (#1853): freeze this pass's source like _one_pass does.
+    coverage = block_contract.freeze(REPO, ["HEAD"], text)
+    coverage.update(kind="ingest", review_required=CFG["fact_update_review"])
 
     def call(prompt, schema, sub):
         global LAST_ENGINE, ROUTE_DOWN, OUT_OF_TIME
@@ -3358,8 +3361,11 @@ def propose_pass(label, it, text, sids, sources, engine):
                                                      cache=PROPOSE_DIR / "facts",
                                                      sessions=it.get("_sessions"), finish=finish,
                                                      log=lambda msg: log(f"{label} {msg}"))
+        if summary is not None:  # the script's edits only relocate old blocks (invalidate → 「## 历史」), never update them
+            coverage["plan"] = block_contract.scripted_moves(REPO, coverage, block_contract.working_tree(WORK))
         errs = "" if summary is None else "\n".join(
-            e for e in (acceptance(sids, MAX_NET_DELETE, "ingest"), page_checks(label, sources)) if e)
+            e for e in (block_contract.materialize(REPO, WORK, coverage, "ingest"),
+                        acceptance(sids, MAX_NET_DELETE, "ingest", coverage=coverage), page_checks(label, sources)) if e)
     except Exception as e:  # noqa: BLE001 — a script error fails this pass like model_pass does, not the run
         CRASHED = f"{type(e).__name__}: {e}"[:300]
         log(f"{label} CRASHED (script error, counted as a failed pass): {CRASHED}\n{traceback.format_exc().rstrip()}")
@@ -3375,7 +3381,9 @@ def propose_pass(label, it, text, sids, sources, engine):
     git("add", "-A")
     if not git("status", "--porcelain"):
         return True
-    git("commit", "-qm", label)
+    message = (label + "\n\n" + block_contract.TRAILER + block_contract.canonical(coverage) + "\n\n"
+               + PROGRESS_TRAILER + block_contract.canonical([dict(p, engine=LAST_ENGINE) for p in checkpoint]))
+    git("commit", "-qm", message)
     return "changed" if deliver(label) is True else False
 
 
@@ -3437,7 +3445,7 @@ def _ingest_batches(db, batches, engines, pending):
                 item = {**batch[0][0], "_sessions": list(dict.fromkeys(
                     (it["id"][:8], it["date"]) for it, _ in batch))}
                 try:
-                    res = propose_pass(label, item, text, sids, sources, engine)
+                    res = propose_pass(label, item, text, sids, sources, engine, checkpoint)
                 except (HouseholdError, discord_said.Unavailable) as exc:
                     log(f"{label} REVERTED: {exc}; retried on a later run")
                     REJECT_REASONS.append(str(exc))

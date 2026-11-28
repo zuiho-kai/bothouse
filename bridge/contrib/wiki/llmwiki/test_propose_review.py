@@ -180,6 +180,41 @@ class ProposeReview(unittest.TestCase):
         self.assertEqual(calls.count("facts"), 1)
         self.assertEqual(calls.count("ops"), 2)
 
+    def test_accepted_proposal_commit_carries_the_block_contract_and_progress(self):
+        """deliver() refuses a commit without the frozen block contract (#1853); the proposal pass must write it
+        (2026-11-28: every role-wiki proposal batch logged 「candidate has no frozen block contract」)."""
+        def api(prompt, schema, label):
+            if schema == P.FACTS_SCHEMA:
+                answer = dict(title="配置", nothing_reason="", facts=[fact()])
+            elif schema == P.OPS_SCHEMA:
+                answer = dict(ops=[op(readme="", description="")], unplaced=[])
+            else:
+                answer = dict(results=[])
+            return True, json.dumps(answer), False
+        seen = {}
+        def deliver(label):  # deliver()'s own gate, minus the cherry-pick onto a separate main checkout
+            sha = I.git("rev-parse", "HEAD", cwd=self.root)
+            message = I.git("show", "-s", "--format=%B", sha, cwd=self.root)
+            coverage = I.block_contract.from_message(message)
+            seen.update(coverage=coverage, message=message, errors=coverage and I.block_contract.check(
+                self.root, coverage, I.block_contract.tree(self.root, sha), "ingest"))
+            return coverage is not None and not seen["errors"]
+        checkpoint = [dict(id="aaaaaaaa", start=0, end=10)]
+        with patch.multiple(I, WIKI=self.root, WORK=self.root, REPO=self.root, PREFETCH=None,
+                            PROPOSE_DIR=self.root / "cache"), \
+                patch.object(I, "sync_work"), patch.object(I, "api_json", api), patch.object(I, "log"), \
+                patch.object(I, "user_texts", return_value=[I.flat(fact()["quote"])]), \
+                patch.object(I, "acceptance", return_value=""), patch.object(I, "deliver", deliver):
+            self.assertEqual(I.propose_pass("ingest aaaaaaaa", dict(id="aaaaaaaa", date="2026-11-20"),
+                                            "USER: 现在配置用新值", ["aaaaaaaa"], [self.root / "s.jsonl"],
+                                            "openai:high", checkpoint), "changed")
+        self.assertIsNotNone(seen["coverage"])
+        self.assertEqual(seen["errors"], [])
+        progress = [line for line in seen["message"].splitlines() if line.startswith(I.PROGRESS_TRAILER)]
+        self.assertEqual(len(progress), 1)
+        self.assertEqual([{k: p[k] for k in ("id", "start", "end")} for p in
+                          json.loads(progress[0][len(I.PROGRESS_TRAILER):])], checkpoint)
+
     def test_small_sessions_share_a_proposal_batch_and_each_get_a_log_entry(self):
         items = [dict(id=sid, end=10, path=self.root / (sid + ".jsonl"), title="配置", cwd="/test",
                       date="2026-11-20", text="USER: 现在配置用新值") for sid in ["aaaaaaaa", "bbbbbbbb"]]
