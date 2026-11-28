@@ -231,6 +231,8 @@ QQ 走 OneBot/NapCat、用 Tailscale 在手机上远程管理、给角色装个�
 
 ## 文档与参与开发
 
+若已连接支持项目分享的 Agent Arcade 好友服务，可在 **项目 → 项目详情 → 设置 → 分享给 Agent Arcade 好友** 输入对方从「我」复制的准确用户号，核对显示的昵称和号码后确认分享。对方可在通讯录中找这个角色聊天或派活。可在同一名单撤回，其他明确授权和配对仍按原范围生效。
+
 欢迎贡献，先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。带网页面板的源码构建要先构建前端、再编译 Go，且不加 `no_web`，见[面板构建](docs/dashboard-source-build.md)。
 
 更多见[上手指南](docs/GETTING_STARTED.md) · [README 细节](docs/readme-details.md) · [在 DSH 里用 bothouse](docs/platforms/dsh.md) · [一个 CLI 组团队](docs/single-cli-team.md) · [接入 Discord 和飞书](docs/connect-discord-feishu.md) · [模型和推理档位](docs/model-and-reasoning.md) · [Codex 会话隔离](docs/codex-session-isolation.md) · [调度与团队记忆](docs/ccm-and-wiki.md) · [角色包](docs/persona-packs.md) · [分角色 Wiki 与夜间反思](bridge/contrib/wiki/README.md) · [护栏和工具](bridge/contrib/hooks/README.md) · [记忆读取频率报告](docs/READ_FREQUENCY.md) · [用量接口](docs/api/usage.md) · [自建网页协议](bridge/docs/cloud-web.md) · [架构](docs/ARCHITECTURE.md) · [主角色协作脚本](bridge/contrib/lead/README.md)

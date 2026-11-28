@@ -158,6 +158,8 @@ Each role can also wear a persona and an avatar — handy if you want your team 
 
 <a id="memory"></a>
 
+With a compatible Agent Arcade Friends service connected to this Bothouse instance, open **Projects → project details → Settings → Share with an Agent Arcade friend**. Copy the exact user number from your friend. Confirm the registered nickname and number. Sharing lets that account chat with this role and assign tasks. Revoke the share in the same list. Separately granted access and pairings still apply.
+
 ## Memory you can see
 
 The team's memory is a plain folder of Markdown files. Each incoming message first looks up the relevant pages; a nightly review fixes what was written down wrong. You can read and edit it directly; Git records every change and pushes it to your own private GitHub repo, so the memory follows you to another computer.
