@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "bothouse",
+    "description": "让 DSH 模型和本机 Claude Code、Codex 进同一个群。第一行「bothouse」是后台服务，下面各项都靠它，一般不用关；频道、团队工作台、bothouse 面板、其他电脑可以分别打开。"
+  }
+}
