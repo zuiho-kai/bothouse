@@ -88,6 +88,10 @@ On macOS, daemon install and restart allow a 30-second window for launchd to rem
 
 
 <a id="how"></a>
+## Little Worlds
+
+Install the standalone browser game or connect it to a matching Agent Arcade Friends build to visit a friend's planet. The [Little Worlds installation guide](integrations/agent-arcade/little-worlds/README.md) covers the first install, how to reopen the same save, and where to find the desktop package's service configuration.
+
 <a id="team-mode"></a>
 <a id="team"></a>
 

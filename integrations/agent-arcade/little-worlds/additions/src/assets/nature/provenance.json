@@ -1,0 +1,29 @@
+{
+  "author": "Quaternius",
+  "license": "CC0-1.0",
+  "archive": "Stylized Nature MegaKit [Standard-1.0]",
+  "landingPage": "https://store.godotengine.org/asset/quaternius/stylized-nature-megakit/",
+  "download": "https://store.godotengine.org/asset/quaternius/stylized-nature-megakit/download/31/",
+  "authorPage": "https://quaternius.com/packs/stylizednaturemegakit.html",
+  "archiveSHA256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9",
+  "originals": {
+    "glTF/CommonTree_5.gltf": "fb7061f2bf9fe850870b056431f8f66cd8fdeb443c90695c5efbcf1fe6876d53",
+    "glTF/CommonTree_5.bin": "0e617612d50e6bb2ca3c64338383f8938ce9e04d55b548ff11cec7a7b7d8f072",
+    "glTF/Bark_NormalTree.png": "f36e94fdd73255347325b998e02a0b2575fdf714b0315bfe5e8ff34bc8e13603",
+    "glTF/Leaves_NormalTree_C.png": "998612bdf0b76a22f5f54d65cd7a457815d2842d89653fa4348a4ebb42933ad3",
+    "glTF/Pine_5.gltf": "bb060ce1420af32dc996241078d36e4c991577397474aa64f4c691362c482cfa",
+    "glTF/Pine_5.bin": "18982d7f6c430d1a42568d4ef62017398dedb1ddc60dfbab047f8cddea9cf797",
+    "glTF/Leaf_Pine_C.png": "86f7ff7a214f5424de48d269568f36a15485e61c80677e426c7be9f45181eef9",
+    "glTF/Bush_Common.gltf": "77811fca92610cb254713d3d49d5029ab6cf13050c3afb61aa942786a7b2ca90",
+    "glTF/Bush_Common.bin": "a5e1a773c8ba78fd9c05a8b342131eba4879302a8fddd2c5186cab9ee1ef4966",
+    "glTF/Leaves_TwistedTree_C.png": "0e459b56b14c0e81b1b7cf3d1e8c6f0bb71790eb6c46bb02a76a922d8df646ea",
+    "glTF/Pebble_Round_5.gltf": "b035e434152a2e78200cf5d50886e63b6f1c1da0be566d7ed174d19ea079d64d",
+    "glTF/Pebble_Round_5.bin": "47fb694cc6fb08cea0652b783512bc7702a3584e354bbd9e39effb8d77e31c6b",
+    "glTF/PathRocks_Diffuse.png": "85a04abb2c136fee53b376daf3b7d7f96fdf3966de0258dff6fe2b24da792b23",
+    "glTF/Flower_3_Group.gltf": "4df1612371982c543f930d6b213967372e0d459622d7eff7fc2ed1ddbfaa3b6c",
+    "glTF/Flower_3_Group.bin": "5ab387dd3d6fe181df3af4eeac4df85533e4c27e77545ae39a61e0c2aaaab248",
+    "glTF/Leaves.png": "23248cebe28a24e78add32db3c2ee2f4d7b9219e9d2467279722f0197a7b6bd5",
+    "glTF/Flowers.png": "5c531f2329c241c625aafd6cb769de29f33b480ef2a16491c2489f3c68e62a6a",
+    "License_Standard.txt": "120710e542c3ebaf83856c4eb55b4a1e680593b39302eba7fdc5d942dfe78c58"
+  }
+}

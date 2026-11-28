@@ -1,0 +1,710 @@
+{
+  "repository": "https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766.git",
+  "baseCommit": "809aa0dee5df7ae4e3036f67f44da9a7ca31d153",
+  "baseTree": "b1d8fe7a5edb9a16cc06b27ce1cf01973e5b56c7",
+  "worldRevision": "ed709673ad4177097fb2560b7442dfd2073c4ef8",
+  "worldTree": "9d1c92395db91b44766ad82f50ec360361e6133c",
+  "patchSHA256": "e617d2a69875ea9433dbebef4453c799e0dc7d3f0bd5d1d2ad98bd9f730568fb",
+  "windowsPublisherSHA256": {
+    "publish-residents.py": "e8ad43f595f85f9ca48944a2b776aedebc0194bd9b1c06009c948fe7048230e5",
+    "resident_portraits.py": "54d071eae342c66140d412a60567ffb532726ceef7b9b882884638db780c327d"
+  },
+  "files": [
+    {
+      "action": "M",
+      "path": ".gitignore",
+      "blob": "de6a91eac554e31a505606b247481894c9293378",
+      "sha256": "20c82b48920386ef6e69d9783c971b3e1b639b4d067094a3a04230409c4f8715"
+    },
+    {
+      "action": "M",
+      "path": "ASSET-CREDITS.md",
+      "blob": "bd3a7cf533c85f9d2eb98a086e5fcffe612c1255",
+      "sha256": "b8b9523c7f97d1c7565db00821a5453b3beccd2d9df3992ea9cf86747732cf98"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/bothouse-resident-models.md",
+      "blob": "1af12ded085cbf134a91c2782779b9b1f6f72e6a",
+      "sha256": "68a95834952b761302a107051b411b0573c8dc11c2868716ec8e7c1765ad73ed"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/bothouse-residents.md",
+      "blob": "af8d3f9a5d48b5929659612b20ee25ddd4e878f2",
+      "sha256": "55eeacc26d1fb24d568cc7eb9c1e504192bac28963b1b4f5630fc1d1c9067679"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/friends-home.md",
+      "blob": "f77f32ae21c8681f9d001c9751075946b482fc9d",
+      "sha256": "0c0980f061519dd40d7d746370b5e6677b28732d7710be9045a3fdb1aa4aaff9"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/resident-portrait-transfer.md",
+      "blob": "89cc1daed7323f888eb0feba3482d2f3165f688d",
+      "sha256": "df0bc6bdaac11ec119966d262a438b4cc54f726f2fccdbd721faa88618be1e54"
+    },
+    {
+      "action": "A",
+      "path": "docs/integration/windows-resident-host.md",
+      "blob": "3e4927a3f891762d7735177990dcf57c3fc3aa2c",
+      "sha256": "ab201b8bfbcd6dd81cf6f3702e1237735aa84cb87593b4f4755e0e63eac874e7"
+    },
+    {
+      "action": "M",
+      "path": "index.html",
+      "blob": "41ef56f0edf09482e5f805005d64c4e2a034534c",
+      "sha256": "7a649843be0a792739348ce3cffa1509a5779905b8224523e6a86b263a06127f"
+    },
+    {
+      "action": "A",
+      "path": "scripts/configure-friends-world.ts",
+      "blob": "695375c747c6505c53553b2d36e2dde465775587",
+      "sha256": "25c4a726f25872eb63da57d66bba5d541cb65dd68017cb5201fad1685bed462f"
+    },
+    {
+      "action": "A",
+      "path": "scripts/publish-residents.py",
+      "blob": "273ee40a52ef677fd6004d70c9ea2b8b158c8a92",
+      "sha256": "0d50d743e2a30de7354a7271767355abed7b407fdd241c532aeee0694e44eb75"
+    },
+    {
+      "action": "A",
+      "path": "scripts/resident_host.py",
+      "blob": "5c5351d7d15e8d671202c38b6a3358e8ad4f9434",
+      "sha256": "98752a776c019f9d0ca63be04deaca6c7f0a793980fc45ae73beef27b6cdbe1c"
+    },
+    {
+      "action": "A",
+      "path": "scripts/resident_portraits.py",
+      "blob": "ccef3bad214bf643932945f483f2093633d0c4bd",
+      "sha256": "a13be74c2a0a859bf393a31888ab311a7e253e38a017c22e57a6f2001036648d"
+    },
+    {
+      "action": "A",
+      "path": "scripts/resident_preview.py",
+      "blob": "df0f41d163c7550ecc26c0e703388834d8bd8f18",
+      "sha256": "69084124dd1af53547c48c70dd984b683d95fdfeed4e3a0cdf6b9bc24395c037"
+    },
+    {
+      "action": "A",
+      "path": "scripts/test_resident_looks.py",
+      "blob": "d962ec6fff24e418b8aec8a26a881cca1ea32a49",
+      "sha256": "3d5e22f17c766daff3af41da4687e4fa1c51d124e3c8544f9d3146bd05a22d0c"
+    },
+    {
+      "action": "A",
+      "path": "scripts/verify-app-resident-binding.mjs",
+      "blob": "92cff283ec0d47fbe4ae8fda992314d8dc0317f7",
+      "sha256": "eecb62e1b219ee385ea907fff52a0fbba7785d6c662ea2e8731df0414269eaa7"
+    },
+    {
+      "action": "A",
+      "path": "scripts/verify-friends-world.mjs",
+      "blob": "dece79c8a91d4e8d7e8d5a7896af6e1263963603",
+      "sha256": "9835ce5cdd725ae2c4ea01c9b4134ffc4c6ee128268b04faf01846cddf24bd03"
+    },
+    {
+      "action": "A",
+      "path": "scripts/verify-resident-portrait.mjs",
+      "blob": "70360b2de279221d9041fe241283635b266f486a",
+      "sha256": "868a942292555ffc3da96f299e4db7645369790c494726408563c978cd240640"
+    },
+    {
+      "action": "A",
+      "path": "scripts/verify-residents.mjs",
+      "blob": "822a239ded31e0e4f30b7842db1d7f5aa9590a2c",
+      "sha256": "3a4fd00afc305928ab798abf736a33e629ee66567f0f54af1e28c0fca8942de6"
+    },
+    {
+      "action": "A",
+      "path": "spec/bothouse-dock-sightline.test.ts",
+      "blob": "3b8d7d82b2cf1a18ea6608143df8ab3b936ad755",
+      "sha256": "e8409453e12e27aa069aed41193df648208f541ea6d0c0200340916b62049b13"
+    },
+    {
+      "action": "A",
+      "path": "spec/bothouse-work-pose.test.ts",
+      "blob": "d1906f7e1ea9239e8a87ceaf93a824e1a3ccbc80",
+      "sha256": "ba5c27adc64728c4d7cf1b8d6915e5eb6f649ac2cbc44c07f0d3d6ff61d6d40e"
+    },
+    {
+      "action": "M",
+      "path": "spec/guide-interaction.test.ts",
+      "blob": "c846ef9b2e15b65dd66c59f0a7087c98595b0172",
+      "sha256": "52f735508d3e800f895c337ddfad34a74bf5f9982f5bf68f0c60419de5223ecd"
+    },
+    {
+      "action": "M",
+      "path": "spec/multiplayer-sync.test.ts",
+      "blob": "fd8efa6865b7402a27b06514f66eb1caf37c9187",
+      "sha256": "4b2d67446f5d3685544b2d2026ea04311818a6ca1e26c1aaee88689dab3559a5"
+    },
+    {
+      "action": "A",
+      "path": "spec/nature-art.test.ts",
+      "blob": "fa524691cf301daa1856d65a12dc75defb55451e",
+      "sha256": "a05f3fcb05d68645464be8b05d8da5dc6ee83177c927b018b0ecd32b24a74735"
+    },
+    {
+      "action": "A",
+      "path": "spec/street-prop-contract.test.ts",
+      "blob": "25e4cbb43912a95af046a268cc08c08764a5c0f9",
+      "sha256": "62637b23ade5f1042fab9f8ab95bb065191892be920740c5a90117cd1a917665"
+    },
+    {
+      "action": "M",
+      "path": "spec/town-residents.test.ts",
+      "blob": "3c232d4e5a7bcc79aa6e56450e9f0d195ddf10ed",
+      "sha256": "3dc3d8d96daf6f2e946c17a5d1bf8f5d876a1cbddb81dda1beec4f1ee1f156cb"
+    },
+    {
+      "action": "M",
+      "path": "spec/welcome.test.ts",
+      "blob": "0cdeab3be9ed7c353f834f27c717cb7c0a488c16",
+      "sha256": "ff96647f955154e465a91d11d0671c597566d2a87ddedcd47e40eb7174575d00"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/LICENSE.txt",
+      "blob": "5926b61f8cf928bcfd2599e73380334ffbb3096c",
+      "sha256": "c37975277afc5874515eaa0fb66f4703a0d2931dce7b256c234e5dc1e4a4439d"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/bookcaseOpen.glb",
+      "blob": "9a0cce7691e94277f3409719e9e68c910c25aa2c",
+      "sha256": "750702218d68c062b15dfef6ab06a4014d1cfa8bd05f02e57c53b7e13bec157c"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/books.glb",
+      "blob": "615aaa9632cf1b262c257f2cb7c208a6f199ab84",
+      "sha256": "b8dc56e5d29f6fc1f4727fccb1b9642627fee9942c48060a00034e98df02701c"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/cardboardBoxClosed.glb",
+      "blob": "923e2359c0bc07cf22285f351fc98dce563f66da",
+      "sha256": "4af079dca52960912764574950f0549ff2ae1224b3db1528718629473a2d5d81"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/chairCushion.glb",
+      "blob": "bffa780b8f8a3efef7756025b2d00a3e01377a41",
+      "sha256": "33544228984857f2cb502b58452fed72157335f9b1caf29e96da5c9094c53fdc"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/plantSmall2.glb",
+      "blob": "2e6b8c7d1e1a6ce83d732344e1cc1a219a87adb4",
+      "sha256": "d7c8ff42c66dd4f9238a73570549813d1ca6c5f6f661d7af9cb764c4fce314b9"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/pottedPlant.glb",
+      "blob": "774d659a2d2be3f9af3fea78e13b2f250fdbb262",
+      "sha256": "5b760eda2766f75fda36b2c5df652a1662f82981ef64cd8fa7fe7bcd386b3a15"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/radio.glb",
+      "blob": "6a810e8a7fcbd0386a46bbf82a05213ff223ff29",
+      "sha256": "1ba93d6ba6f049750853b4652b92f286f2898e527695a0705b75cc7615897fed"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-furniture/tableRound.glb",
+      "blob": "885fdcd356eff8cc379e306d7b3b1ef3c5ca7475",
+      "sha256": "f8daea9124a542a00b7bdacfddac82dc468573d43e44d7b54dd6316e9695754b"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-space-kit/.gitattributes",
+      "blob": "daafddec506f6e139d6e5eb42f084c10f127e724",
+      "sha256": "1d4dea16216419d517e74290cc4f24ee17e2d582033abc33b187c9d331c5ce76"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-space-kit/LICENSE.txt",
+      "blob": "e97a6cd5088a9cb44fb6c4d1bf97b5e0280facac",
+      "sha256": "bd4e050e69d41351282c4d53f943cd4d80a80b968593e60653ba5292637941b7"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-space-kit/README.md",
+      "blob": "7456f23445044d521e9b79bf554c9560f4090637",
+      "sha256": "3cd32f82b991ca0f69c1f77496e3570e5517b463e754ef1305981268289101ab"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-space-kit/craft_cargoA.obj",
+      "blob": "8aee637727e1670339615b9d2147d5d7cc2391fe",
+      "sha256": "2aa478d18910492bf21d10157c13c634dcbfea41d34a4b9ee50f19821ac7aa6e"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/kenney-space-kit/craft_cargoB.obj",
+      "blob": "9a3b9bd32243c20291a66217975fc3eeb3d73dfe",
+      "sha256": "2c24d2fd7c92ccae89ba6e1dda59c2eefff3218255b94a0e890bcbae39d8d915"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/License_Standard.txt",
+      "blob": "18e116b12c8839ef107813eaa34e85de80adb6ba",
+      "sha256": "5de0412f4f694f3d8cfa2b334a3ddb7ebbdc3ac5b1e9c262ff4870d0564341db"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/README.md",
+      "blob": "41f7687ddedc8fac3014537d3c337ef9a1f537c2",
+      "sha256": "74676e124967750703f2b0f14e1fd44b3bcf2874b516e2507c77dc9adfa2531c"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/bark-normaltree.webp",
+      "blob": "300c64e1b56292fad1e488e7298117724f3221e0",
+      "sha256": "02be5b361f3d48b1b5c1d38871c97742d7fce203f13ddad6d09e0b6ec126f8c9"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/flowers.webp",
+      "blob": "bfe698f13e85e31db225e78db54a0c150668fbb8",
+      "sha256": "de8c99b05875251308e3867540f539f91c6202df12fc064813b7215d4291f8aa"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/leaf-pine-c.webp",
+      "blob": "43a1965dc4c3375071dd144011d5e896b99f2cc4",
+      "sha256": "292f6f583f83c070aabcd5dd33ec18012bf061f39fae45aaa5c795e2dc360bd2"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/leaves-normaltree-c.webp",
+      "blob": "022f480fd30e0165d68609603e8818f36a3f7ad9",
+      "sha256": "b6f1c3833bb833486afae56df9a399d8324844f09145fe6547259bdd94b6f0c2"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/leaves-twistedtree-c.webp",
+      "blob": "fa728e96b41c1660fad6e0993336eeebd0e21155",
+      "sha256": "fc2dddbb63c5a96b0b4907fd4e6a9e2067698c615ef76a7e36a0d77c4b1f43d1"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/leaves.webp",
+      "blob": "e2ee02a34c56dec221d557c4b985b6048ee729fe",
+      "sha256": "aea46f699d3b544aaec7ee64f8bcfae9c934cea4db8e6992eb42890fadfa27c0"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/meshes.json",
+      "blob": "fb0e6623fb2e3085ffeaa797aebfe427708b1620",
+      "sha256": "04994af825fb0bdd1efd35b37a2a9365226660684b8f52238e99eb45fdc7b068"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/pathrocks-diffuse.webp",
+      "blob": "d35495a15c7826c66f6c0382834924e2afbd6f51",
+      "sha256": "7e8e884d62455f938b259f46f0eb5784e0078fd8a6da4fd1c614b6b13da69654"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/nature/provenance.json",
+      "blob": "6ece60cc856199b2eb12afba41d008f492aa50c9",
+      "sha256": "ab5d438eaf23e6b3aa84922ab6f149782a46f7eedeac94bc09d0b09dd0954ba5"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/README.md",
+      "blob": "88dabbd960b29544b2ab62102f09f7405ac5854c",
+      "sha256": "56abfe881d33daba21211b91e82d9e59e39a28eeeeda1b1a1a86c24b3c984fb9"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/brow.png",
+      "blob": "fc771aea0402f82eaa96e353500c63ce84559955",
+      "sha256": "6c61fa6e63e2b2061f7ef10391f4b713f4eae9418e354c3d60b4fb55cd225793"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/face.json",
+      "blob": "037e3fcc569a2dbb54e9006f50816a16baf9e424",
+      "sha256": "35e73a2c1e52e5e7666205511d1b2347548f6cd9feb46cd335cec1b73c8d7c0f"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/glint.png",
+      "blob": "87e58e979f0affec6f515ad63a8e688c82e57a14",
+      "sha256": "4ceb88356bd94609488a45a717b7f29882bf683efc8c3ced131fb517ab23c943"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/iris.png",
+      "blob": "28f1d9426c47e311d62399b29a7a8aac8995072c",
+      "sha256": "e6990026b94419feda943410d29e9c9c5925490627623cb224c2488d755daa4b"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/lash.png",
+      "blob": "b8423d6b8c5984d6dc635a5c087e26f6ab643fc4",
+      "sha256": "dbedf5cb44f428b6caa5a9f92a80edc46da702a681ef4fa409ef7fd0c95eb000"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/liner.png",
+      "blob": "1420072209c8cfcbcaa2de1cf18855cb0353fbd3",
+      "sha256": "e50ea193fa5dca85aea477e9e6221272af6b80c63f72c7abe869fac832eb6585"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/mouth.png",
+      "blob": "90aecae54e0b654eba1db0c8c8555ec5d8b1ee8d",
+      "sha256": "ee29fd3ee8c3333d69565f210ea4cc824650978958a16849cf2076a0fc450071"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/skin.png",
+      "blob": "9e01350c0418722642cb3d85898c356b0d96df1a",
+      "sha256": "d1ead02caf387fc8abc17a7ca42e1a4f57ee78b940ee9e9bb59bb050e544f873"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/resident-face/white.png",
+      "blob": "5f31760554af5e8e95d06c76bfebf472c5342a33",
+      "sha256": "7ff57e4c5cb6c62a92701b6ffb85bbfb5068cac344537be6875d44bc72d6124e"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/town-exterior/.gitattributes",
+      "blob": "942d7b32d375bbc2a03c1cd1e04dcc2be179c189",
+      "sha256": "067eeef2477c516f4eb8ac86711880fabd592c0c83294d279377a3d3f23b7b73"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/town-exterior/Kenney-License.txt",
+      "blob": "41b10f4987cb7a41c65ddacabb8eecd429314e9a",
+      "sha256": "fb8e4817197ef9f62215e95b4451a0f09c769c8e03e416e3a2ce108dfa6117e4"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/town-exterior/README.md",
+      "blob": "7dba72e9c37f52a85c921200b31b81e8d622bb8a",
+      "sha256": "a6527ef39a25d88ce5dad8613b453468a2bd68932e1950d6ff3b9175333fa65d"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/town-exterior/kenney.json",
+      "blob": "2441ca14f92e1acf973ef90d05c129eaa5e80d68",
+      "sha256": "803998eea9b341fc497f692722f34fcf8e971e9a46cb753271b9170af8422ba9"
+    },
+    {
+      "action": "A",
+      "path": "src/assets/town-exterior/provenance.json",
+      "blob": "8bdc8f5d44c5bca745cfc1edbd62fc41f98958c4",
+      "sha256": "3a1e5bc5d70c31ae8b9601c0d8f7a61ec9a8b5373630eb144319d57829aa651b"
+    },
+    {
+      "action": "A",
+      "path": "src/client/authored-town-mesh.ts",
+      "blob": "5ee1972ed73be5c8d3d7b1e07ad8c79b37a57560",
+      "sha256": "5aba5832abd09b701e27e6ac7cf9bcd90ef782e577264781ece6a9e27672222c"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-costume-model.ts",
+      "blob": "602397f31cf8f043c3781745920e5aaea339922a",
+      "sha256": "85b4e845c6e956c262908206bd30435cc9dd0a2769bd5439324d348a5b2c8633"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-face-model.ts",
+      "blob": "dad3b5c7c09743e88943043de89b708f9793cb39",
+      "sha256": "6f5af72cb6df4d03b947313d3b1301b5e9d290916ed625560d88f8924a257ce9"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-resident-model.ts",
+      "blob": "c0bd3c7cbc7d5969d67cfc653c3b65bf48e1b2c4",
+      "sha256": "ef7f6de3b984c1bb20e9dbfa2025fd3d94a7c848ea53d0ab9f0a6b1839046694"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-resident-sites.ts",
+      "blob": "d95ca5e6583230b11a975526419b86c7eb646671",
+      "sha256": "7c8bae8bee337ce7743b3da5b6d37fe8f0d7aa588687816d63509b79a9a2c347"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-residents.ts",
+      "blob": "a67fef180a6bd0f0ac1507caf679e974dcb4e44e",
+      "sha256": "912ff75c2c9dc3f1416c1103f53d8b310baa4d357be03445e93b159c6ca33381"
+    },
+    {
+      "action": "A",
+      "path": "src/client/bothouse-sculpt-model.ts",
+      "blob": "a92c57acbcb3b8e5a7085f44cda0ba7763257909",
+      "sha256": "f993d1110ffb02fb0e947e269390c666b66c64b5b8bedc355f4e233f8205a71c"
+    },
+    {
+      "action": "M",
+      "path": "src/client/build-art.ts",
+      "blob": "434dca5f7d35749a931c1732c274edb757d23b15",
+      "sha256": "790fa64210032ccead148275a13e47ca879d99110b0b56e152391e8c38849cdd"
+    },
+    {
+      "action": "M",
+      "path": "src/client/character-sample.ts",
+      "blob": "a614b875aadb91c3d2e23932784dfa2f5b2f3194",
+      "sha256": "293c28d99e8ebb6a8a47b227f523246c6680d1a59f0d838936adf5fe99488c1c"
+    },
+    {
+      "action": "M",
+      "path": "src/client/colony.ts",
+      "blob": "d8a52ee284d047a66651a2477aa56aed6ec474c1",
+      "sha256": "6abd35e336463fe670f1732cd088e6fe55cbf940d7cb9a340caae172dee8e5d6"
+    },
+    {
+      "action": "M",
+      "path": "src/client/flight.css",
+      "blob": "044eb69124dbd394fcdf96bfbdd5145f969e5101",
+      "sha256": "4aa4c1bfba67e1297c36af80d721cf12bce75cb562cd788f91629c9ce19d54f9"
+    },
+    {
+      "action": "M",
+      "path": "src/client/flight.ts",
+      "blob": "7b499e2157dd600fbcbf208a63b09c652cb61e55",
+      "sha256": "8692d09cccf6396fda0f704c0719aff2859dddf79b271209ea89ab74c582c8de"
+    },
+    {
+      "action": "M",
+      "path": "src/client/harbour.ts",
+      "blob": "353faeb78c3b1508899eece2aebc32edcf831162",
+      "sha256": "1d85ad5104bc1b6f40aaa5d2f7238278d181c59c59bdffc1cbd7b3d47e2f59e5"
+    },
+    {
+      "action": "A",
+      "path": "src/client/home-furniture-models.ts",
+      "blob": "73c9906b5b44ea66f38c1f4bdc1c1b36a554404e",
+      "sha256": "f5c6af19d94227c47c7dd28491f4c77b11b19533d9b0db31dd15cc82110187b8"
+    },
+    {
+      "action": "M",
+      "path": "src/client/home-interior.ts",
+      "blob": "4f7c95d00b864c34b7af561e939ecd02035f2bc8",
+      "sha256": "e63bce0c0b182708b5d0f7f7a2e4bb0c985ce68750d01f95a9c9c044338373be"
+    },
+    {
+      "action": "M",
+      "path": "src/client/i18n.ts",
+      "blob": "bf706cd6fa139b03cabbd15bbdea1995a39b312b",
+      "sha256": "9d809e5f37d8487ec168a8b76219159630073fb09be6d13cb1abdc69eee370a5"
+    },
+    {
+      "action": "M",
+      "path": "src/client/main.ts",
+      "blob": "e55e97277ae3e8a00fe08b9cd7f90a3cbd34dc39",
+      "sha256": "39bea4a22d4de8177bbbb18f4a7fb9254b2c3dd9c871fe8d8f86bdfc3aacd5dd"
+    },
+    {
+      "action": "M",
+      "path": "src/client/messages.ts",
+      "blob": "2c010f1c66e10925f06537c71bf95e11c7aa0efd",
+      "sha256": "bd644d2939a6997e6efb83d2f4afc2604570ce6362de3ff1783fee2696398ae2"
+    },
+    {
+      "action": "A",
+      "path": "src/client/nature-art.ts",
+      "blob": "3e254c59840119cea310b015c3e59126e5a58686",
+      "sha256": "48bf877cf222fdd96a98990389317831e91bdf9ea9988d09d887bcda199b97b2"
+    },
+    {
+      "action": "M",
+      "path": "src/client/public-town-art.ts",
+      "blob": "2c01445b7080b652b279186f4250be714ecedaf0",
+      "sha256": "e9435451f5795454f4e883d7696145a770876a91b4dab6bc3a18b5d3a2db352e"
+    },
+    {
+      "action": "M",
+      "path": "src/client/ship-model.ts",
+      "blob": "1f5185dbd58aaec5f078894547de43f4264ed156",
+      "sha256": "d25287161fcc1ad8bb5f0f3e8be2082a9b8bf328433ec1a2d7c9da36655a3f6b"
+    },
+    {
+      "action": "M",
+      "path": "src/client/shipyard.ts",
+      "blob": "5772ead4c82fa8aa62571fa933ac4b4c7dee4bf8",
+      "sha256": "37fe250628d55e63f7870ca3c75606001ab175f19b7524ed7c6f907721d2fa8b"
+    },
+    {
+      "action": "M",
+      "path": "src/client/terrain-model.ts",
+      "blob": "fb9b2ec315a9892be7b8651a0ce8905832113fac",
+      "sha256": "53eabf39c14e67427a644161a72b31769f6de09a4406bec0d1b782cdd9496d26"
+    },
+    {
+      "action": "A",
+      "path": "src/client/town-exterior.ts",
+      "blob": "22d337cdaf2d494920d04f6ae86d8ac68f27e6fa",
+      "sha256": "0d468863cacb2ea701aa9a3c417727515f1ef51f260334fd2d39e23e05e42806"
+    },
+    {
+      "action": "A",
+      "path": "src/client/town-resident-ledger.ts",
+      "blob": "0f73c0cb703f44112c1865d69418a673de45900c",
+      "sha256": "6fef0ebfb11d7ff659db33dceaa08689cbccb256dcb0e2a7cdbbc6b544c27cc3"
+    },
+    {
+      "action": "M",
+      "path": "src/client/town-residents.ts",
+      "blob": "f17cf1cb912de18b4cd0c64f9a54106ab63f9909",
+      "sha256": "451fa0b3be3ccefe735eb6e9d496a8704bafb3bcbfeeed645f0d8c1f110f5757"
+    },
+    {
+      "action": "A",
+      "path": "src/client/transport-models.ts",
+      "blob": "e8da698a3ccd092b08dc0379d1c77ef3febca6f7",
+      "sha256": "086184e07a243be1aa52743b38cca65d273bfb5ca497a21513f9dd70c8fbc961"
+    },
+    {
+      "action": "M",
+      "path": "src/client/tutorial.css",
+      "blob": "8f7601a799ef54756ad05764e0317eb5d87f58a8",
+      "sha256": "e0c1059d96beeacdb8a4b9722ea5d9778214e2c075cb4ab9e47fb21e76a26943"
+    },
+    {
+      "action": "M",
+      "path": "src/client/tutorial.ts",
+      "blob": "fd93bd9dd610d8a1960b20fb987e8e920540c219",
+      "sha256": "7f3f1a809700213bcd35f4e0747d6b7061924cd26e48762a7f6ea376ae161dde"
+    },
+    {
+      "action": "M",
+      "path": "src/client/village-polish.ts",
+      "blob": "ecb98897cb97a494611a31cdc641d69d165be265",
+      "sha256": "125a0861057c12ef2cc61017ebc9847ad6b45a4f7a92eee404ec79c70ed8f168"
+    },
+    {
+      "action": "M",
+      "path": "src/client/world-guide.ts",
+      "blob": "1cc0782009230650b88263a8406b1380f04ad5a9",
+      "sha256": "a6a8fb92b8ff4f0c56889815dc065eec39637359cdc74d5778b718bc1f87b065"
+    },
+    {
+      "action": "A",
+      "path": "src/server/app-residents.ts",
+      "blob": "8d4f37d69c9305c71d111d3468bd4c5f10c11443",
+      "sha256": "c7d69f0a0440a5078dd74f71a9edbe1636013606037506becd083e026d5db631"
+    },
+    {
+      "action": "A",
+      "path": "src/server/friends-origins.ts",
+      "blob": "856387fc02726b45a89be7fccb97c156ddd751d4",
+      "sha256": "58f13c43b969993ac92d33b3dc759e8cb654e9e7bc1d9758ea4f8dee379f666c"
+    },
+    {
+      "action": "A",
+      "path": "src/server/friends-session.ts",
+      "blob": "986ea594b03eb325dc0b00be582d9d45b492f7cc",
+      "sha256": "54aac812a80ce1486c4f5bc0069e3b99969c56dccd595019d0a208f2435b58b1"
+    },
+    {
+      "action": "M",
+      "path": "src/server/index.ts",
+      "blob": "30d045c4d67d7fb9675a0123e8f41e9bd526f053",
+      "sha256": "407829db4e23010dd3758e43e9c032edb5d50079ef8461a0fc12c7322ebe97bd"
+    },
+    {
+      "action": "A",
+      "path": "src/server/planet-residents.ts",
+      "blob": "77ee8a3eda04736565ab716580c0c3c1aa0c8bf6",
+      "sha256": "8b96f30e977b4f5724d63dcaf2957c1988e85eb6bbb375622e0ae03c5ffca7c1"
+    },
+    {
+      "action": "A",
+      "path": "src/server/resident-art.ts",
+      "blob": "1dbc937ee23c9ae2703a5611d81c9d4ac7b680d5",
+      "sha256": "a64576996e9bcce23ccdab450a1fae66a89c25040f9aaffd619f73c4eb471ba1"
+    },
+    {
+      "action": "A",
+      "path": "src/server/resident-http.ts",
+      "blob": "4d42a389990118b05466864342696d82c09cd039",
+      "sha256": "361061fd2a9d60c57bb02542d96980819eec1ebe01a4b6372c2266aa96c3a569"
+    },
+    {
+      "action": "M",
+      "path": "src/server/store.ts",
+      "blob": "c5e2c769335fc38daa8d5677c5ad2b6691998497",
+      "sha256": "b41d2aeff6b54a7f0e028f8b951dcaf885a4e8689943b9d054ff2a1d7e42ac3a"
+    },
+    {
+      "action": "A",
+      "path": "src/shared/planet-residents.ts",
+      "blob": "1c8be445c6722ab637fa4854906855fc0b2d22a5",
+      "sha256": "1411506c1344fd45609822e782bc05e1be3590e392c04130960bf3113a86f2bb"
+    },
+    {
+      "action": "A",
+      "path": "src/shared/resident-portrait.ts",
+      "blob": "9f6a08cdaf111ec2f3c4386ac53303138c7ac50f",
+      "sha256": "24836ed60409e82b0d0d4eef34e86a3da691c09f98d1f8a6a9b0786cabd79d28"
+    },
+    {
+      "action": "M",
+      "path": "src/shared/town-resident-motion.ts",
+      "blob": "94b75240f14c96ad09b58f5c04055881778d43bc",
+      "sha256": "d702115cb78021066989595d584af64af901fc8ddd76d5d10bc954a074e9855b"
+    },
+    {
+      "action": "A",
+      "path": "tools/check-bothouse-models.mjs",
+      "blob": "8c0aeba713103489d031ed9ee5fa092a3e030c83",
+      "sha256": "135db752b651daafb3194b4e5c1b78ce5e86380aef4e552365304914183de6f0"
+    },
+    {
+      "action": "A",
+      "path": "tools/check-friend-dock-guide.mjs",
+      "blob": "f9c177fc4005e8f365e1f28334b8d0c13e8f27c6",
+      "sha256": "06b609617e27b1c5226ab4fa2b4342b376a07c6965a430422ba3ee975c6fd1e5"
+    },
+    {
+      "action": "A",
+      "path": "tools/check-resident-scene.mjs",
+      "blob": "3fc4790b2d0523f2d8b6cdde6fcf21df20ca9daa",
+      "sha256": "399287ec3636b736ae4814995d09035c8850fa844776be925a8168e8602625db"
+    },
+    {
+      "action": "A",
+      "path": "tools/export-resident-face.py",
+      "blob": "9b938aebc2b147da882c80603966ffe0b5606ca7",
+      "sha256": "b109ad2f546b794f9730b5b7c5fb065f91b114c0bd54b0030374266719daca02"
+    },
+    {
+      "action": "A",
+      "path": "tools/import-village-town-art.py",
+      "blob": "9962fd75cf0b7bb9e38972a96eff5e5abb6f6299",
+      "sha256": "2cd9984c70b11ae11bad96825cfa22f29615562087b310a8a565e50b4d5c01c9"
+    },
+    {
+      "action": "A",
+      "path": "tools/inspect-resident-faces.mjs",
+      "blob": "f08a07a85e8a4c151d681be1eef3bad07975f541",
+      "sha256": "c7829ee8fb2be30b914ef6be59261a03ca8d28f703a95a4d5d4ed0c9cc6806d8"
+    },
+    {
+      "action": "A",
+      "path": "tools/prepare-resident-art.mjs",
+      "blob": "99310043db11869af69471c563e6c986e7aef9b2",
+      "sha256": "27360ff8c59ebac9eb73282901abe0a4787874efdc05007ef321d08fcc58ed19"
+    },
+    {
+      "action": "A",
+      "path": "星球居民.cmd",
+      "blob": "f185650797fc3946f38f1203ee6e3029be3ec300",
+      "sha256": "cf90b77172b9e4155a77cbed292b49191717e2948db11d84c7e73385a8bb9868"
+    }
+  ]
+}

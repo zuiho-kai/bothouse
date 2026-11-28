@@ -1,0 +1,3 @@
+# Preserve the author archive bytes, including its original line endings.
+*.obj binary
+LICENSE.txt binary

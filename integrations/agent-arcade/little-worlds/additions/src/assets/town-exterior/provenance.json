@@ -1,0 +1,14 @@
+{
+  "author": "Kenney",
+  "license": "CC0-1.0",
+  "release": "Fantasy Town Kit 2.0",
+  "url": "https://opengameart.org/content/fantasy-town-kit",
+  "zipSha256": "1a7530c09f4d2fa2cdee259876f089334f8b1f27fa86a0c4f54ef86cdd8676ef",
+  "objSha256": {
+    "roof": "89ea10919d63f830c8670994799eb9c32afeab515a04792c6423c05b7b4b9005",
+    "roof-window": "5114b8a5141b2ef48fce5531694ef4d67f01a979f70281f81e2e10abd2c754c4",
+    "wall-detail-cross": "015c207a05ee54cd9f38b2fce19073eb8846642314ab1415c401989be94cbff3",
+    "stall-bench": "3cdc4d1a518e7e748ea87a5642582f6429e098cc572592dd2a94b6bfb55f0952",
+    "overhang": "28e4b37074a48dff286b2fedbd9a5032d310c1bb80037d3aeca094f9c3552676"
+  }
+}

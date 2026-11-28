@@ -61,6 +61,10 @@ Windows 命令、安装包和常驻后台见[上手指南](docs/GETTING_STARTED.
 </p>
 
 <a id="how"></a>
+## 小星球
+
+可以单独在浏览器里玩 Little Worlds，也可以连接配套的 Agent Arcade 好友端，拜访已开放来访的好友星球。[小星球安装指南](integrations/agent-arcade/little-worlds/README.md) 有首次安装、重开原存档和查找 Windows 安装包服务配置的步骤。
+
 <a id="team-mode"></a>
 <a id="team"></a>
 <a id="core"></a>

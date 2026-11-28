@@ -1,0 +1,63 @@
+# Little Worlds with Bothouse residents
+
+从原作者的公开课程基线安装完整 Little Worlds 游戏和本次居民功能。准备 Python 3.11+、Git、Node.js 24+ 及 pnpm 11.9.0（也可用 Corepack 获取此版本）。从本仓库根目录打开 Windows 终端，运行：
+
+```powershell
+cd integrations/agent-arcade/little-worlds
+python install.py .\LittleWorlds --run
+```
+
+在浏览器打开 http://127.0.0.1:18746/，进入游戏并着陆自己的星球。使用独立浏览器时，在同一浏览器打开 /resident-settings，选择「连接我的 Bothouse」，然后双击安装目录里的「星球居民.cmd」，选择本机预览，按提示在自己的电脑填入连接码。由 Agent Arcade 打开的世界可从星球页点「连接我的 AI」，需要兼容的 App 和本人已配对的 Bothouse。从 Agent Arcade 的真人好友私聊点「会话设置 → 拜访好友星球」。目标房主已允许好友拜访时，登船后可确认目的地并起飞。访友需要 #2180 中相应的新版社交端。单独玩游戏无需 AI 服务。发布器细节见 additions/docs/integration/bothouse-residents.md。
+
+关闭终端后，从仓库根重新进入 `integrations/agent-arcade/little-worlds`，运行 `python .\LittleWorlds\serve.py` 重开同一处存档。默认保存于安装目录的 .data/resident-preview/world.sqlite。请使用空目录首次安装；端口已占用可选 `--port 18749`，此时选择该回环地址，同一端口使用同一存档。已有 Bothouse 角色和模型配置由房主在 Bothouse 中管理。
+
+## 自定义居民的三维造型
+
+在支持「星球里的三维造型」的 Bothouse 成员设置中，房主可分别保存星球身体和本机头像。保存后，已连接的发布器会将造型自动同步到星球。头像原件仍按原有分享设置处理。仅安装游戏即可使用旧版 Bothouse 的已有造型与默认规则。要更换头像后仍保留指定身体，请同时使用包含独立造型设置的 Bothouse 版本。
+
+For a costume that survives portrait changes, use a Bothouse build with the **3D appearance on the planet** member setting. The publisher syncs that stored selection automatically. Older Bothouse builds still work with their existing avatar presets and the default resident models.
+
+工作中的居民会停步举起账册，工作结束后收起。房主明确分享的公开头像可以作为徽牌显示，龙娘仍保留三维身体、龙角与背翼。
+
+Working residents stop and hold a ledger until the work ends. An explicitly shared portrait can appear as a badge while the dragon resident keeps its 3D body, horns, and wings.
+
+访友落地时，居民会在便于看清的码头旁站位。连线状态以小星球服务是否可达为准。若临时停服，保持游戏页面打开，同一服务恢复后可以继续原航程或在已到达的星球行走。
+
+Residents greet visitors from clearer positions near the dock. The game checks whether the world server itself can be reached. If that server goes down temporarily, keep the page open. When it comes back at the same address, the current visit can continue.
+
+## 与 Agent Arcade 好友共用星球
+
+房主先在配套好友 App 登录，再在小星球设置中允许好友来访。部署者第一次配对时，按[好友端 Windows 打包说明](https://github.com/Ray0766/bothouse/blob/6e52ff3de58789eed9eed9c5dc1633ee2e43879f/integrations/agent-arcade/social/windows/README.md)解包匹配的测试 MSIX，选取解包目录内的 `Social/resources/app/service.json`。该文件随配套 Windows 包生成，世界安装器读取其中的 `origin` 与 `littleWorldsOrigin`，并保存到这份世界存档的配对配置。
+
+```powershell
+python install.py .\LittleWorlds --desktop-service "<MSIX 解包目录>\Social\resources\app\service.json" --run
+```
+
+自建服务也可用 `--friends-origin` 与 `--world-origin` 指定两个完整 HTTPS 原点，好友服务的 `LITTLE_WORLDS_ORIGIN` 应与游戏原点相同。回环开发可用 HTTP。游戏监听在回环，异地访问使用部署者自己的 HTTPS 反向代理。独立课程游戏继续使用上方无服务参数的安装命令。
+
+换设备登录同一好友账号后，已核实的存档会恢复原玩家。旧存档若只留在旧设备，请先在原 App 档案打开一次。允许好友拜访和连接居民分别设置；没有 AI 的房主也能分享，撤回后，已着陆的访客会看到来访已关闭，可直接返回原聊天。居民活动随访问权限收回，未发草稿保留。升级时若旧访客看到重进提示，可返回原聊天，再从同一好友的会话设置打开星球。详见 [双端部署](additions/docs/integration/friends-home.md)。
+
+## Install and reopen in English
+
+From the Bothouse checkout root, run:
+
+```powershell
+cd integrations/agent-arcade/little-worlds
+python install.py .\LittleWorlds --run
+```
+
+Open http://127.0.0.1:18746/ to play. To reopen the same save, return to that directory and run `python .\LittleWorlds\serve.py`.
+
+To enable Friends visits, use a matching Agent Arcade Friends build. [Unpack the Windows test MSIX](https://github.com/Ray0766/bothouse/blob/6e52ff3de58789eed9eed9c5dc1633ee2e43879f/integrations/agent-arcade/social/windows/README.md) into an empty directory. The service settings are at `Social/resources/app/service.json` under the unpacked directory. For a new world installation, pass that file with `--desktop-service "<unpacked MSIX directory>\Social\resources\app\service.json"` before `--run`. The same save remembers the two addresses when reopened. The host signs in and enables visits. A friend opens their private conversation settings in Agent Arcade and selects **拜访好友星球** (Visit friend's planet). They can return to that conversation without sending the draft.
+
+## How the installation works
+
+Use an empty directory. The installer retrieves the public Git tag final-project-submission and verifies commit 809aa0dee5df7ae4e3036f67f44da9a7ca31d153. It applies the patch, checks every added blob and verifies the entire reconstructed Git tree against the worldTree pinned in manifest.json. Git HEAD stays on the public baseline with the delta staged for inspection. The build uses the upstream frozen dependency lock, skips development install hooks, and builds both the game and worker. The resulting local HTTP server binds to loopback. The first installation needs access to the public Git repo and package registry or their local equivalents. With an existing clone containing the pinned baseline and a populated pnpm store:
+
+```sh
+python install.py ./LittleWorlds --source /path/to/existing/course-repo --offline --run
+```
+
+The installed game uses actual Three.js scenes, resident meshes, a local database and the original world UI. For the bridge integration test from the installed release folder use `node scripts/verify-residents.mjs`. It exercises the real publisher and world with synthetic local Bothouse management responses. Production integrations require your own running Bothouse. When Agent Arcade sends its language on the first visit, the world uses it until you pick a language in the game. An authorized native DSH resident shows working when its verified local Bothouse Engine is busy.
+
+See NOTICE.md for source and asset terms, and manifest.json for the complete path, Git blob and SHA-256 list. The Agent Arcade host integration is tracked in [Bothouse PR #2180](https://github.com/zuiho-kai/bothouse/pull/2180). The command above also works for the standalone browser game. The public upstream tag identifies the baseline only.

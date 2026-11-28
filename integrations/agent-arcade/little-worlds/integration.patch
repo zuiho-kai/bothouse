@@ -1,0 +1,1259 @@
+diff --git a/.gitignore b/.gitignore
+index 276fd324963f5d6c375d4fb5c7e71a2e85f9e047..de6a91eac554e31a505606b247481894c9293378 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -34 +34,4 @@ playwright-report/
+ * 2.*
++
++# Operator-installed Bothouse artwork has its own distribution terms.
++/public/bothouse-art/
+diff --git a/ASSET-CREDITS.md b/ASSET-CREDITS.md
+index 95c6d02a4c10b9de7c542f53fcf28eb916e30454..bd3a7cf533c85f9d2eb98a086e5fcffe612c1255 100644
+--- a/ASSET-CREDITS.md
++++ b/ASSET-CREDITS.md
+@@ -2,2 +2,34 @@
+ 
++## Kenney Furniture Kit 2.0 - private rooms
++
++Kenney's [Furniture Kit](https://kenney.nl/assets/furniture-kit) supplies
++unmodified CC0 1.0 GLB files for the private-room furniture renderer. See the
++[original archive notice](src/assets/kenney-furniture/LICENSE.txt). The official
++ZIP SHA-256 is
++`e67652d0932cee41683f74711c03d3e192a2af9979ef8e6b237711f5482d46b0`.
++
++| Saved furniture kind | Original file in `Models/GLTF format/` |
++| --- | --- |
++| Table | `tableRound.glb` |
++| Chair | `chairCushion.glb` |
++| Open shelf | `bookcaseOpen.glb` |
++| Shelf contents | `books.glb`, `cardboardBoxClosed.glb`, `plantSmall2.glb`, `radio.glb` |
++| Plant | `pottedPlant.glb` |
++
++The models are bundled at build time and loaded from the game origin. The
++client fits the models to the saved floor anchor and the existing collision
++footprint. The open shelves also reuse the original stoneware jar profile.
++The room retains the existing item IDs, layout and editing rules.
++The catalogue geometry remains available if a model fails to load and is
++still used for outdoor and public placements. Private rooms have no bed or
++lamp in the existing save catalogue.
++
++[Quaternius Furniture Pack](https://quaternius.com/packs/furniture.html) (CC0)
++was considered. Kenney offers matching GLBs for all four saved furniture
++kinds and needs no format conversion.
++
++## Street and house exterior
++
++The village exterior reuses the original local cottage and lantern alongside fitted roof, timber, bench and sign meshes from the Kenney Fantasy Town Kit 2.0 (CC0). [Sources, author notice and reproducible extraction](src/assets/town-exterior/README.md).
++
+ ## R8 local workshop additions
+@@ -152 +184,20 @@ No terrain demo server patch or additional downloaded art was used.
+ The optional background music is an original procedural bell/pad miniature implemented for Little Worlds in `src/client/ambient-music.ts`. Web Audio oscillators synthesize its notes locally; there are no sampled recordings, downloaded tracks, external audio services or new asset licences. Messenger is an atmosphere reference only; its music was not copied.
++
++## Bothouse residents on visited planets
++
++The visitor sees articulated meshes in Little Worlds' village materials.
++The six modelled looks use Bothouse's public character designs as references.
++The buildings, landing pad and ground movement come from Little Worlds.
++For each character's references and modelled details, see the
++[resident model notes](docs/integration/bothouse-resident-models.md).
++
++Bothouse's [desk frame reference](https://github.com/zuiho-kai/bothouse/blob/8ec73a8f32573b5307922df3c79675a934cdefb7/dsh/collab/desk/index.html)
++and [avatar credits](https://github.com/zuiho-kai/bothouse/blob/8ec73a8f32573b5307922df3c79675a934cdefb7/dsh/collab/avatars/README.md)
++identify the artwork and its upstream authors. Copyright 2026 zuiho-kai and
++Bothouse contributors. Bothouse's Apache-2.0 code licence preserves the terms
++of third-party artwork. Check the applicable design rights for your deployment.
++
++A resident with a custom appearance uses the village's generic body. An avatar
++cleared for visitor display can appear on its badge and in the resident list.
++The list credits the pack, author and licence supplied by its publisher. The
++scene needs no sprite-sheet installation or desktop-pet animation files.
+diff --git a/index.html b/index.html
+index 3485d1df00959a9d8f731596e3f84908297e6b66..41ef56f0edf09482e5f805005d64c4e2a034534c 100644
+--- a/index.html
++++ b/index.html
+@@ -77,3 +77,14 @@
+ // This tiny bootstrap runs before the main module graph downloads; it never calls an API.
+-(()=>{let language='en';try{if(localStorage.getItem('little-worlds:language:v1')==='zh')language='zh';}catch{}
++(()=>{
++const hint=new URLSearchParams(location.search).get('appLang');
++let language=hint==='zh'?'zh':'en';
++try{
++  const saved=localStorage.getItem('little-worlds:language:v1');
++  if(saved==='zh'||saved==='en')language=saved;
++  else if(hint==='zh'||hint==='en'){
++    const key='little-worlds:app-language:v1', first=localStorage.getItem(key);
++    if(first==='zh'||first==='en')language=first;
++    else localStorage.setItem(key,language);
++  }
++}catch{}
+ if(language==='zh'){document.documentElement.lang='zh-CN';const copies={eyebrow:'SUNSEED · 慢慢探索',title:'小星球',intro:'逛逛小村庄，送出一点善意，再把家变成喜欢的模样。',deviceNote:'小星球使用实时 3D 画面。性能较低的设备可能加载缓慢、出现卡顿，或无法完成加载。请先尝试「流畅」画质；若仍无法顺畅运行，建议换用性能更强的电脑。加载失败也可能与网络或浏览器设置有关。'};for(const node of document.querySelectorAll('[data-welcome-string]'))node.textContent=copies[node.dataset.welcomeString];document.getElementById('welcome-panel').setAttribute('aria-label','欢迎来到小星球');document.getElementById('welcome-stage').textContent='正在下载游戏模块…';document.getElementById('welcome-help').textContent='正在加载游戏模块，可测的准备计数将在可用时显示。';document.getElementById('welcome-start').textContent='正在准备你的星球…';document.getElementById('welcome-progress').setAttribute('aria-label','当前准备阶段');document.getElementById('welcome-retry').textContent='重试';}
+@@ -94,2 +105,3 @@ window.addEventListener('error',event=>{if(!(event.target instanceof HTMLScriptE
+ <section id="flight-hud" class="flight-hud" aria-label="Flight instruments" hidden><aside class="flight-course"><span class="eyebrow">NAVIGATION / TARGET VECTOR</span><h2 id="course-name">A world ahead</h2><p id="course-distance"></p><p id="course-heading" role="status"></p></aside><div class="flight-ident"><b>SHIP</b><span>Loading saved design</span></div><div id="flight-heading" class="flight-heading"></div><div id="ship-marker" class="flight-ship-marker" aria-hidden="true"><span>Your ship</span></div><span id="course-marker" class="course-marker" aria-hidden="true">◇</span><div class="flight-speed"><span id="flight-throttle">STANDBY</span><strong id="ship-speed">0</strong><small>m / s</small><div class="velocity-track"><i id="velocity-bar"></i></div><p id="flight-altitude"></p></div></section>
++<div id="travel-guidance"></div>
+ <div id="boarding-prompt" class="boarding-prompt" hidden><small id="dock-context">STARPORT / BOARDING GATE</small><button id="board-ship" class="primary">Board your ship <kbd>E</kbd></button></div><div id="notice" class="notice" role="status" hidden></div>
+diff --git a/spec/guide-interaction.test.ts b/spec/guide-interaction.test.ts
+index b730d3d2aa8fcf30938fb85d0e57464b68942005..c846ef9b2e15b65dd66c59f0a7087c98595b0172 100644
+--- a/spec/guide-interaction.test.ts
++++ b/spec/guide-interaction.test.ts
+@@ -51 +51,13 @@ it('shows a stationary scene companion, replaces/clears routes and closes on tra
+ });
++
++it.each(['?appChat=bothouse','?appLang=zh'])('keeps fixed guidance and omits the course-chat panel on desktop (%s)',search=>{
++ vi.stubGlobal('location',{search});
++ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
++ document.body.innerHTML='<div class="minimal-bar"></div><button id="help"></button>';
++ createWorldGuide(new Scene(),vi.fn());
++ expect(document.getElementById('world-guide-chat')).toBeNull();
++ expect(document.getElementById('world-guide-help-title')!.textContent).toBe('Fixed help & ground directions');
++ if(search.includes('appChat'))expect(document.getElementById('world-guide-chat-open')!.textContent).toBe('AI chat');
++ else expect(document.getElementById('world-guide-chat-open')).toBeNull();
++ expect(fetch).not.toHaveBeenCalled();
++});
+\ No newline at end of file
+diff --git a/spec/multiplayer-sync.test.ts b/spec/multiplayer-sync.test.ts
+index 9d5be1fc64008293f78343a54bf166e39b88f224..fd8efa6865b7402a27b06514f66eb1caf37c9187 100644
+--- a/spec/multiplayer-sync.test.ts
++++ b/spec/multiplayer-sync.test.ts
+@@ -32,9 +32,9 @@ function colonyFixture(current:Universe,read:()=>Promise<Universe>=async()=>curr
+   document.body.innerHTML='<button id="open-history"></button><button id="open-terrain"></button><select id="built-list"></select><canvas></canvas>';
+-  const applyPlayer=vi.fn(()=>true),paint=vi.fn(),obstacles=vi.fn();
++  const applyPlayer=vi.fn(()=>true),paint=vi.fn(),obstacles=vi.fn(),onReadFailure=vi.fn();
+   // Exercise the real acceptance/polling methods without the editor's event setup.
+   const colony:Colony=Object.assign(Object.create(Colony.prototype) as Colony,{universe:current,building:false,syncing:true,busy:false,
+-    bridge:{applyPlayer,universe:paint,obstacles,canvas:document.querySelector('canvas'),read} as Partial<ColonyBridge>,
++    bridge:{applyPlayer,universe:paint,obstacles,canvas:document.querySelector('canvas'),read,onReadFailure} as Partial<ColonyBridge>,
+     layer:new Group(),pathPreview:new Group(),objects:new Map(),shadows:new PlacedObjectShadows(),painted:'',selected:null,pollBusy:false,
+     hud:vi.fn(),editor:vi.fn(),starMap:vi.fn(),renderObject:vi.fn(()=>new Group())});
+-  return {colony,applyPlayer,paint,obstacles};
++  return {colony,applyPlayer,paint,obstacles,onReadFailure};
+ }
+@@ -119,5 +119,6 @@ it('keeps successful reconnect state when an earlier universe poll fails later',
+   s.createObject('owner',{planetId:planet,objectId:randomUUID(),kind:'lamp',position:normalize([.5,1,.4]),rotation:0});c.colony.accept(s.universe('visitor'));
+-  fail(new Error('old disconnected request'));await pending;expect(c.colony.syncing).toBe(true);
++  fail(new Error('old disconnected request'));await pending;expect(c.colony.syncing).toBe(true);expect(c.onReadFailure).not.toHaveBeenCalled();
+   const disconnected=colonyFixture(before,async()=>{throw new Error('current failure');});await (disconnected.colony as unknown as {poll:()=>Promise<void>}).poll();
+-  expect(disconnected.colony.syncing).toBe(false);disconnected.colony.accept(s.universe('visitor'));expect(disconnected.colony.syncing).toBe(true);
++  expect(disconnected.colony.syncing).toBe(false);expect(disconnected.onReadFailure).toHaveBeenCalledOnce();
++  disconnected.colony.accept(s.universe('visitor'));expect(disconnected.colony.syncing).toBe(true);
+ });
+diff --git a/spec/town-residents.test.ts b/spec/town-residents.test.ts
+index 4ce3509ab79c6be9e4f83d9bb35ebca818b3ec49..3c232d4e5a7bcc79aa6e56450e9f0d195ddf10ed 100644
+--- a/spec/town-residents.test.ts
++++ b/spec/town-residents.test.ts
+@@ -167,8 +167,9 @@ it('responds to E immediately after a menu closes before the next resident frame
+ 
+-it('batches every resident into four shared primitive meshes and releases owned GPU resources once', () => {
++it('batches shared courier geometry across the town and releases only owned GPU resources', () => {
+   const parent = new Group(), crowd = new TownResidents(parent, plain(), townResidents().map((d, i) => ({ ...d, position: point(i * .8), route: undefined })));
+-  const batches = crowd.root.children as InstancedMesh[];
+-  expect(batches).toHaveLength(4);
++  const batches = [...crowd.root.children] as InstancedMesh[];
++  expect(batches.length).toBeLessThanOrEqual(12);
++  expect(batches.some(mesh => mesh.name === 'resident-courier' && mesh.count > townResidents().length)).toBe(true);
+   expect(batches.every(mesh => mesh.isInstancedMesh)).toBe(true);
+-  expect(new Set(batches.map(mesh => mesh.material)).size).toBe(1);
++  expect(new Set(batches.map(mesh => mesh.material)).size).toBe(2);
+   expect(crowd.diagnostics.triangles).toBeLessThan(40000);
+@@ -176,4 +177,5 @@ it('batches every resident into four shared primitive meshes and releases owned
+   batches.forEach(mesh => mesh.geometry.addEventListener('dispose', () => geometries++));
+-  const material = batches[0].material;
+-  if (!Array.isArray(material)) material.addEventListener('dispose', () => materials++);
++  for (const material of new Set(batches.map(mesh => mesh.material))) {
++    if (!Array.isArray(material)) material.addEventListener('dispose', () => materials++);
++  }
+   const before = JSON.stringify(crowd.positions());
+@@ -186,3 +188,4 @@ it('batches every resident into four shared primitive meshes and releases owned
+   expect(parent.children).toHaveLength(0);
+-  expect(geometries).toBe(4); expect(materials).toBe(1);
++  expect(geometries).toBe(batches.filter(mesh => mesh.name !== 'resident-courier').length);
++  expect(materials).toBe(2);
+ });
+diff --git a/spec/welcome.test.ts b/spec/welcome.test.ts
+index bab62f910dac30ad938d2b9de40d4a4fb6e8571e..0cdeab3be9ed7c353f834f27c717cb7c0a488c16 100644
+--- a/spec/welcome.test.ts
++++ b/spec/welcome.test.ts
+@@ -146 +146,22 @@ it.each([null,'','bad','zh-CN','en','zh'])('uses English boot defaults and prese
+ });
++
++it.each([
++ ['zh', null, null, 'zh-CN', 'zh'],
++ ['en', null, null, 'en', 'en'],
++ ['en', null, 'zh', 'zh-CN', 'zh'],
++ ['zh', 'en', 'zh', 'en', 'zh'],
++ ['en', 'zh', 'en', 'zh-CN', 'en'],
++ [null, null, 'zh', 'en', 'zh'],
++ ['invalid', null, 'zh', 'en', 'zh'],
++])('applies a desktop hint once and preserves the explicit game preference (%s, %s, %s)', (hint,saved,first,language,remembered)=>{
++ const url='http://welcome.test/'+(hint?'?appLang='+hint:'');
++ const page=new JSDOM(html,{url,runScripts:'dangerously',beforeParse(window){
++  if(saved)window.localStorage.setItem('little-worlds:language:v1',saved);
++  if(first)window.localStorage.setItem('little-worlds:app-language:v1',first);
++ }});
++ try{
++  expect(page.window.document.documentElement.lang).toBe(language);
++  expect(page.window.localStorage.getItem('little-worlds:language:v1')).toBe(saved);
++  expect(page.window.localStorage.getItem('little-worlds:app-language:v1')).toBe(remembered);
++ }finally{page.window.close();}
++});
+diff --git a/src/client/build-art.ts b/src/client/build-art.ts
+index 4ac5126e36616101ce4acd38b28bcf638c114fd2..434dca5f7d35749a931c1732c274edb757d23b15 100644
+--- a/src/client/build-art.ts
++++ b/src/client/build-art.ts
+@@ -1,4 +1,10 @@
+ import * as T from 'three';
++import {plantedNature} from './nature-art.ts';
+ import {createProp} from '../assets/claude-geometry/props/index.ts';
+-import { sharedParts,worldMaterials } from './shared-assets.ts';
++import { handleFor } from '../assets/claude-geometry/core/dispose.ts';
++import { PartBuilder } from '../assets/claude-geometry/style/geometry.ts';
++import { libraryMaterials, makeKit } from '../assets/claude-geometry/blueprint/parts/kit.ts';
++import { serviceLight } from '../assets/claude-geometry/blueprint/parts/village/street.ts';
++import { townMeshPieces } from './authored-town-mesh.ts';
++import { assetConnections, sharedParts, worldMaterials } from './shared-assets.ts';
+ import { legacyBuiltObject } from './legacy-build-art.ts';
+@@ -9,4 +15,32 @@ import type {StyleLibrary} from '../assets/claude-geometry/style/materials.ts';
+ export function builtObject(kind:BuildKind,assetVersion=2,lod:LodTier='medium',library?:StyleLibrary){
+-  if(assetVersion===2&&kind==='lamp'){
+-    const handle=createProp(kind,library??worldMaterials());handle.object.userData.assetVersion=2;handle.object.userData.disposeOwned=()=>handle.dispose();return handle.object;
++  if(kind==='tree'||kind==='flowers')return plantedNature(kind,assetVersion,lod);
++  if(kind==='cottage'||(assetVersion===2&&kind==='lamp')){
++    const handle=createProp(kind,library??worldMaterials());
++    handle.object.userData.assetVersion=assetVersion;
++    handle.object.userData.disposeOwned=()=>handle.dispose();
++    return handle.object;
++  }
++  if(kind==='lamp'||(kind==='bench'&&assetVersion===2)){
++    const builder=new PartBuilder(lod), materials=libraryMaterials(library??worldMaterials());
++    if(kind==='lamp'){
++      // Fit the source's 3.42 m lantern post to the solid historical prop.
++      // Its hanging diffuser stays at the old street light's position and direction.
++      const heightScale=1.96/3.31;
++      builder.within({position:[.3*.70,0,-.36*.32],scale:[.70,heightScale,.32]},()=>serviceLight(makeKit(builder,materials)));
++    }else{
++      for(const {geometry} of townMeshPieces('bench'))builder.geometry(materials.get('tread'),geometry);
++    }
++    const handle=handleFor(builder.build(kind==='lamp'?'village-paper-lantern':'kenney-stall-bench').group);
++    if(kind==='lamp')handle.object.traverse(o=>{if(o instanceof T.Mesh&&o.material===materials.get('lamp'))o.castShadow=false;});
++    const part=kind==='lamp'?'service.light':'furniture.bench';
++    const socket=new T.Object3D();
++    socket.name=`asset:0:${part}`;
++    socket.userData={part,connections:assetConnections(part)};
++    handle.object.add(socket);
++    handle.object.userData.sourcePart=part;
++    handle.object.userData.parts=[{part,position:[0,0,0]}];
++    handle.object.userData.propKind=kind;
++    handle.object.userData.assetVersion=assetVersion;
++    handle.object.userData.disposeOwned=()=>handle.dispose();
++    return handle.object;
+   }
+diff --git a/src/client/character-sample.ts b/src/client/character-sample.ts
+index 9e2e1f9978b075934705f6aaaf25981ddaa57039..a614b875aadb91c3d2e23932784dfa2f5b2f3194 100644
+--- a/src/client/character-sample.ts
++++ b/src/client/character-sample.ts
+@@ -14,3 +14,3 @@ const material=(color:string)=>{if(!materialCache.has(color)){const m=applyArtMa
+ const eyeMaterial=new T.MeshStandardMaterial({vertexColors:true,roughness:.65,metalness:0});eyeMaterial.userData.sharedResource=true;
+-function eyeGeometry(color:string){return shared('eye:'+color,()=>{
++function eyeGeometry(color:string,compact:boolean){return shared('eye:'+color+':'+compact,()=>{
+  const parts:Array<{color:string;scale:number[];position:number[]}>= [
+@@ -21,5 +21,8 @@ function eyeGeometry(color:string){return shared('eye:'+color,()=>{
+  ];
+- const geometries=parts.map(p=>{const g=new T.SphereGeometry(1,10,6);g.scale(p.scale[0],p.scale[1],p.scale[2]);g.translate(p.position[0],p.position[1],p.position[2]);const c=new T.Color(p.color),values=new Float32Array(g.attributes.position.count*3);for(let i=0;i<values.length;i+=3)values.set([c.r,c.g,c.b],i);g.setAttribute('color',new T.BufferAttribute(values,3));return g;});const merged=mergeGeometries(geometries)!;geometries.forEach(g=>g.dispose());return merged;
++ const geometries=parts.map(p=>{const g=new T.SphereGeometry(1,compact?4:10,compact?3:6);g.scale(p.scale[0],p.scale[1],p.scale[2]);g.translate(p.position[0],p.position[1],p.position[2]);const c=new T.Color(p.color),values=new Float32Array(g.attributes.position.count*3);for(let i=0;i<values.length;i+=3)values.set([c.r,c.g,c.b],i);g.setAttribute('color',new T.BufferAttribute(values,3));return g;});const merged=mergeGeometries(geometries)!;geometries.forEach(g=>g.dispose());return merged;
+  });}
+-export function sampleCourier(identity:Character,options:Appearance={...defaultAppearance(identity),model:'sample'}){
++export function sampleCourier(identity:Character,options:Appearance={...defaultAppearance(identity),model:'sample'},townCoat?:string){
++ const compact=townCoat!==undefined;
++ const sphereGeometry=()=>compact?shared('town-sphere',()=>new T.SphereGeometry(1,6,4)):sphere();
++ const capsuleGeometry=()=>compact?shared('town-capsule',()=>new T.CapsuleGeometry(1,1,2,5)):capsule();
+  const root=new T.Group(),rig=new T.Group(),torso=new T.Group(),head=new T.Group();root.name='little-worlds-traveller';root.userData.characterVariant='sample';root.add(rig);rig.add(torso);torso.position.y=.87;
+@@ -27,4 +30,4 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  const add=(parent:T.Object3D,g:T.BufferGeometry,color:string,position:number[],scale:number[],tint=false)=>{const mesh=new T.Mesh(g,material(color));mesh.position.fromArray(position);mesh.scale.fromArray(scale);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);if(tint)tinted.push(mesh);return mesh;};
+- const ellipsoid=(p:T.Object3D,color:string,pos:number[],scale:number[],tint=false)=>add(p,sphere(),color,pos,scale,tint);
+- const coat=COURIER_LOOK.coats[identity],skin=SKIN_COLORS[options.skin],hair='#504338',cream='#f3e8ce',dark='#405653',leather='#865e43';
++ const ellipsoid=(p:T.Object3D,color:string,pos:number[],scale:number[],tint=false)=>add(p,sphereGeometry(),color,pos,scale,tint);
++ const coat=townCoat??COURIER_LOOK.coats[identity],skin=SKIN_COLORS[options.skin],hair='#504338',cream='#f3e8ce',dark='#405653',leather='#865e43';
+  // Soft fitted jacket, curved hem, open cream collar and modest scarf.
+@@ -37,6 +40,8 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  // Diagonal strap and a rounded canvas field bag, visible from the follow view.
+- const strap=add(torso,shared('strap',()=>new T.BoxGeometry(.035,.48,.025)),leather,[0,.01,-.145],[1,1,1]);strap.rotation.z=-.48;
+- ellipsoid(torso,'#b69363',[-.16,-.10,-.15],[.135,.16,.07]);
+- ellipsoid(torso,cream,[-.16,-.045,-.204],[.123,.055,.028]);
+- ellipsoid(torso,leather,[-.16,-.075,-.229],[.018,.035,.008]);
++ if(!compact){
++  const strap=add(torso,shared('strap',()=>new T.BoxGeometry(.035,.48,.025)),leather,[0,.01,-.145],[1,1,1]);strap.rotation.z=-.48;
++  ellipsoid(torso,'#b69363',[-.16,-.10,-.15],[.135,.16,.07]);
++  ellipsoid(torso,cream,[-.16,-.045,-.204],[.123,.055,.028]);
++  ellipsoid(torso,leather,[-.16,-.075,-.229],[.018,.035,.008]);
++ }
+  // Head: softer jaw, ears, clear eyes and a sculpted side-swept hair silhouette.
+@@ -44,3 +49,3 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  head.scale.fromArray(options.face==='oval'?[.92,1.08,.98]:options.face==='round'?[1.06,.95,1.04]:[1,1,1]);
+- add(head,shared('head',()=>new T.SphereGeometry(1,16,12)),skin,[0,0,0],[.215,.235,.195]);
++ add(head,compact?shared('town-head',()=>new T.SphereGeometry(1,8,6)):shared('head',()=>new T.SphereGeometry(1,16,12)),skin,[0,0,0],[.215,.235,.195]);
+  ellipsoid(head,skin,[0,-.10,.05],[.17,.14,.15]);
+@@ -51,3 +56,3 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  }
+- const eyes=[-1,1].map(side=>{const eye=new T.Mesh(eyeGeometry(EYE_COLORS[options.eyes]),eyeMaterial);eye.position.set(side*.078,.015,.173);eye.rotation.y=side*.13;head.add(eye);return eye;});
++ const eyes=[-1,1].map(side=>{const eye=new T.Mesh(eyeGeometry(EYE_COLORS[options.eyes],compact),eyeMaterial);eye.position.set(side*.078,.015,.173);eye.rotation.y=side*.13;head.add(eye);return eye;});
+  for(const side of [-1,1]){const brow=ellipsoid(head,hair,[side*.081,.093,.169],[.059,.014,.013]);brow.rotation.z=side*.10;}
+@@ -55,3 +60,3 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  const mouth=shared('smile',()=>new T.TubeGeometry(new T.QuadraticBezierCurve3(new T.Vector3(-.041,-.121,.172),new T.Vector3(0,-.140,.180),new T.Vector3(.041,-.121,.172)),8,.007,4,false));add(head,mouth,'#956b5a',[0,0,0],[1,1,1]);
+- const cap=add(head,shared('hair-cap',()=>new T.SphereGeometry(1,16,9,0,Math.PI*2,0,1.70)),hair,[0,.04,-.025],[.232,.237,.213]);
++ const cap=add(head,compact?shared('town-hair-cap',()=>new T.SphereGeometry(1,8,5,0,Math.PI*2,0,1.70)):shared('hair-cap',()=>new T.SphereGeometry(1,16,9,0,Math.PI*2,0,1.70)),hair,[0,.04,-.025],[.232,.237,.213]);
+  if(options.hair==='swept'){
+@@ -67,9 +72,10 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+  // Articulated limbs reuse shared low-resolution geometry and existing game API.
+- const arms=[-1,1].map(side=>{const upper=new T.Group(),forearm=new T.Group();torso.add(upper);upper.position.set(side*.225,.16,0);ellipsoid(upper,coat,[side*.014,-.085,0],[.085,.145,.085],true);upper.add(forearm);forearm.position.y=-.22;add(forearm,capsule(),coat,[0,-.085,0],[.061,.067,.061],true);ellipsoid(forearm,cream,[0,-.17,0],[.066,.025,.066]);ellipsoid(forearm,skin,[0,-.226,.014],[.059,.069,.056]);return{upper,forearm};});
+- const legs=[-1,1].map(side=>{const hip=new T.Group(),knee=new T.Group();rig.add(hip);hip.position.set(side*.102,.65,0);add(hip,capsule(),dark,[0,-.125,0],[.081,.09,.078]);hip.add(knee);knee.position.y=-.25;add(knee,capsule(),dark,[0,-.115,0],[.064,.085,.064]);ellipsoid(knee,leather,[0,-.28,.040],[.091,.076,.144]);ellipsoid(knee,'#c8ae82',[0,-.33,.042],[.094,.018,.142]);return{hip,knee};});
++ const arms=[-1,1].map(side=>{const upper=new T.Group(),forearm=new T.Group();torso.add(upper);upper.position.set(side*.225,.16,0);ellipsoid(upper,coat,[side*.014,-.085,0],[.085,.145,.085],true);upper.add(forearm);forearm.position.y=-.22;add(forearm,capsuleGeometry(),coat,[0,-.085,0],[.061,.067,.061],true);ellipsoid(forearm,cream,[0,-.17,0],[.066,.025,.066]);ellipsoid(forearm,skin,[0,-.226,.014],[.059,.069,.056]);return{upper,forearm};});
++ const legs=[-1,1].map(side=>{const hip=new T.Group(),knee=new T.Group();rig.add(hip);hip.position.set(side*.102,.65,0);add(hip,capsuleGeometry(),dark,[0,-.125,0],[.081,.09,.078]);hip.add(knee);knee.position.y=-.25;add(knee,capsuleGeometry(),dark,[0,-.115,0],[.064,.085,.064]);ellipsoid(knee,leather,[0,-.28,.040],[.091,.076,.144]);ellipsoid(knee,'#c8ae82',[0,-.33,.042],[.094,.018,.142]);return{hip,knee};});
+  const parcel=add(torso,shared('parcel',()=>new T.BoxGeometry(.34,.23,.24)),'#c6a36e',[0,-.10,.29],[1,1,1]);parcel.visible=false;
+  const seal=ellipsoid(parcel,cream,[0,.045,.125],[.07,.026,.006]);seal.castShadow=false;
+- const shadow=new T.Mesh(shared('shadow',()=>new T.CircleGeometry(.29,20)),new T.MeshBasicMaterial({color:'#2f3d3a',transparent:true,opacity:.20,depthWrite:false}));shadow.material.userData.ownedResource=true;shadow.rotation.x=-Math.PI/2;shadow.position.y=.02;root.add(shadow);
++ const shadow=compact?null:new T.Mesh(shared('shadow',()=>new T.CircleGeometry(.29,20)),new T.MeshBasicMaterial({color:'#2f3d3a',transparent:true,opacity:.20,depthWrite:false}));
++ if(shadow){shadow.material.userData.ownedResource=true;shadow.rotation.x=-Math.PI/2;shadow.position.y=.02;root.add(shadow);}
+  let gait=0,lastTime=0,gestureUntil=0;
+- return{root,parcel,head,setColor(c:Character){tinted.forEach(m=>m.material=material(COURIER_LOOK.coats[c]));},greet(t:number){gestureUntil=t+1.5;},animate(t:number,speed:number,reduced:boolean,turn=0,grounded=true){
++ return{root,parcel,head,torso,arms,legs,setColor(c:Character){tinted.forEach(m=>m.material=material(COURIER_LOOK.coats[c]));},greet(t:number){gestureUntil=t+1.5;},animate(t:number,speed:number,reduced:boolean,turn=0,grounded=true){
+   const dt=Math.min(.05,Math.max(0,t-lastTime));lastTime=t;const stride=Math.min(1,speed/3);gait+=dt*speed*4.4;const phase=reduced?0:gait;
+@@ -80,3 +86,3 @@ export function sampleCourier(identity:Character,options:Appearance={...defaultA
+   arms.forEach((arm,i)=>{arm.upper.rotation.set(parcel.visible?-.92:-Math.sin(phase+i*Math.PI)*.35*stride,0,(i?1:-1)*.09);arm.forearm.rotation.x=parcel.visible?-.72:-.18;});
+-  shadow.visible=grounded;if(!grounded&&!reduced){legs.forEach(l=>{l.hip.rotation.x=-.15;l.knee.rotation.x=.35;});}
++  if(shadow)shadow.visible=grounded;if(!grounded&&!reduced){legs.forEach(l=>{l.hip.rotation.x=-.15;l.knee.rotation.x=.35;});}
+   if(t<gestureUntil&&!reduced&&!parcel.visible){arms[1].upper.rotation.z=-2.25;arms[1].forearm.rotation.x=Math.sin(t*14)*.25;}
+diff --git a/src/client/colony.ts b/src/client/colony.ts
+index 09549aaf6fa80e4da5e025d2cea68daff88c3d4a..d8a52ee284d047a66651a2477aa56aed6ec474c1 100644
+--- a/src/client/colony.ts
++++ b/src/client/colony.ts
+@@ -1 +1,2 @@
++import {addTownExterior} from './town-exterior.ts';
+ import { localizedOption, setAttribute, setText, translate } from './i18n.ts';
+@@ -35,3 +36,3 @@ export interface ColonyBridge {
+   obstacles: (blocks:Obstacle[]) => void; pause: (building:boolean) => void;
+-  read: () => Promise<Universe>; write: (route:string, body:unknown) => Promise<Universe>;
++  read: () => Promise<Universe>; onReadFailure?: () => void; write: (route:string, body:unknown) => Promise<Universe>;
+   libraryRead: () => Promise<LibraryEntry[]>; librarySave: (body:unknown) => Promise<LibraryEntry>;
+@@ -226,3 +227,13 @@ export class Colony {
+     const before=this.universe;
+-    try{this.accept(await this.bridge.read());}catch{if(this.universe===before){this.syncing=false;this.hud();this.editor();}}finally{this.pollBusy=false;}
++    let received=false;
++    try{
++      const next=await this.bridge.read();
++      received=true;
++      this.accept(next);
++    }catch{
++      if(this.universe===before){
++        this.syncing=false;this.hud();this.editor();
++        if(!received)this.bridge.onReadFailure?.();
++      }
++    }finally{this.pollBusy=false;}
+   }
+@@ -277,3 +288,5 @@ export class Colony {
+       :buildBlueprintModel(visibleParts,worldMaterials(),'medium',options);
+-    const finish=buildStructureFinish(parts,worldMaterials(),cameraCutaway?{cameraPartSlots:cameraPartSlots(parts)}:{});model.object.add(finish.object);
++    const slots=cameraCutaway?cameraPartSlots(parts):undefined;
++    const finish=buildStructureFinish(parts,worldMaterials(),{cameraPartSlots:slots});model.object.add(finish.object);
++    addTownExterior(model.object,parts,worldMaterials(),slots);
+     const transform=placedTransform({dir:obj.position,yaw:obj.rotation},fit);
+diff --git a/src/client/flight.css b/src/client/flight.css
+index e56a89e92190efaab22096861abb75c51ac8688a..044eb69124dbd394fcdf96bfbdd5145f969e5101 100644
+--- a/src/client/flight.css
++++ b/src/client/flight.css
+@@ -36 +36,44 @@
+ #trip-preview::before{content:'';display:block;width:54px;height:54px;border-radius:50%;margin:0 12px 0 0;float:left;background:radial-gradient(circle at 32% 25%,#fff8,transparent 55%),var(--destination-color,#73ad80);box-shadow:inset -9px -8px 0 #17354133}#trip-preview{min-height:54px;display:flow-root}
++
++#friend-visit-route{position:fixed;top:76px;left:16px;z-index:4;max-width:min(24rem,80vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f2ead6;color:#173541;border:1px solid #8aa89b;border-radius:8px;padding:8px 12px}
++
++/* Stack directions and the destination without covering the scene between controls. */
++#travel-guidance {
++  position: fixed;
++  top: 76px;
++  left: 16px;
++  z-index: 22;
++  display: flex;
++  flex-direction: column;
++  align-items: flex-start;
++  gap: 8px;
++  pointer-events: none;
++}
++#travel-guidance > #friend-visit-route,
++#travel-guidance > #world-guide-hud {
++  position: static;
++  pointer-events: auto;
++}
++@media (max-width: 700px) {
++  #travel-guidance {
++    top: auto;
++    bottom: min(25dvh, 210px);
++    left: 12px;
++  }
++}
++
++#friend-visit-closure {
++  position: fixed;
++  z-index: 26;
++  inset: 126px 16px auto auto;
++  max-width: calc(100vw - 32px);
++  padding: 12px 16px;
++  border: 1px solid var(--ui-dialog-border);
++  border-radius: 14px;
++  background: var(--ui-dialog-surface);
++  color: var(--ui-dialog-text);
++}
++#friend-visit-closure p { margin: 0; }
++#friend-visit-closure a:not([hidden]) { display: inline-block; margin-top: 8px; }
++.scene-loading-overlay #friend-visit-closure { position: static; margin: 12px auto 0; }
++#welcome-panel #friend-visit-closure { position: static; width: fit-content; margin: 0 auto 12px; }
+diff --git a/src/client/flight.ts b/src/client/flight.ts
+index eeb7d88eabbcb938873d370abbcf3434b7202330..7b499e2157dd600fbcbf208a63b09c652cb61e55 100644
+--- a/src/client/flight.ts
++++ b/src/client/flight.ts
+@@ -32,3 +32,3 @@ interface Bridge {
+   apply:(p:PlayerState)=>void; applyUniverse:(u:Universe)=>void; flushGround:()=>Promise<void>;
+-  clearGround:()=>void; canBoard:()=>boolean; failed:(error:unknown)=>void; notice:(message:string)=>void;
++  clearGround:()=>void; canBoard:()=>boolean; findShip:()=>void; failed:(error:unknown)=>void; notice:(message:string)=>void;
+ }
+@@ -37,2 +37,4 @@ export class SpaceFlight {
+   presentation=false;pilot:FlightState|null=null; planets:PlanetSummary[]=[];busy=false;
++  private friendPlanet=new URLSearchParams(location.search).get('visit');
++  private friendRoute=document.createElement('button');
+   private route:Vec3[]=[];private routeIndex=0;private travelling=false;private routeNote='Choose a destination. The ship handles takeoff and landing.';
+@@ -57,2 +59,15 @@ export class SpaceFlight {
+     configureSpace(this.scene,bridge.renderer);this.scene.fog=null;this.scene.add(this.ship.root);this.drawing=createVillageDrawing(bridge.renderer,this.scene,this.camera,true);
++    if(this.friendPlanet){
++      this.friendRoute.id='friend-visit-route';
++      this.friendRoute.type='button';this.friendRoute.hidden=true;
++      this.friendRoute.onclick=()=>{
++        if(!this.friendPlanet)return;
++        if(!this.active&&!this.bridge.canBoard()){
++          this.bridge.findShip();
++          return;
++        }
++        this.mark(this.friendPlanet);
++      };
++      el('travel-guidance').prepend(this.friendRoute);
++    }
+     el('board-ship').onclick=()=>this.openLaunch();
+@@ -98,2 +113,13 @@ export class SpaceFlight {
+     this.planets=u.planets;
++    if(this.friendPlanet){
++      const friend=u.planets.find(p=>p.id===this.friendPlanet&&p.kind==='garden'&&p.claimed);
++      if(friend&&u.player.flight.mode==='ground'&&u.currentPlanet.id===friend.id){
++        this.friendRoute.hidden=true;this.friendPlanet=null;this.pendingTarget=null;
++        this.bridge.notice('You are on your friend’s planet.');
++      }else{
++        this.friendRoute.hidden=false;this.friendRoute.disabled=!friend;
++        setText(this.friendRoute,friend?'Visit friend · '+friend.name:'This friend’s planet is unavailable.');
++        if(friend&&!this.pendingTarget)this.pendingTarget=friend.id;
++      }
++    }
+     const selected=this.travelSelect.value,departure=this.departureSelect.value;
+diff --git a/src/client/harbour.ts b/src/client/harbour.ts
+index 5e243b9ac17c704ab24ecf75238869f6006af5f8..353faeb78c3b1508899eece2aebc32edcf831162 100644
+--- a/src/client/harbour.ts
++++ b/src/client/harbour.ts
+@@ -24,2 +24,3 @@ import {terrainModel} from './terrain-model.ts';
+ import {buildStructureFinish} from './structure-finish.ts';
++import {addTownExterior} from './town-exterior.ts';
+ import {createPublicTownArt} from './public-town-art.ts';
+@@ -61,2 +62,3 @@ export function createHarbour(scene:T.Scene,village:SamplePublicVillage|null=nul
+    const parts=contents[o.blueprintHash!],fit=structureFit(parts,o.position,o.rotation,field),model=buildBlueprintModel(parts,worldMaterials(),'medium',{foundationDepth:fit.foundationDepth}),t=placedTransform({dir:o.position,yaw:o.rotation},fit);
++   addTownExterior(model.object,parts,worldMaterials());
+    if(village){
+diff --git a/src/client/home-interior.ts b/src/client/home-interior.ts
+index c598904e2a1c8c2e3b4958442be2343bcfaa34f6..4f7c95d00b864c34b7af561e939ecd02035f2bc8 100644
+--- a/src/client/home-interior.ts
++++ b/src/client/home-interior.ts
+@@ -21,2 +21,3 @@ import { createHomeDoor } from './home-door.ts';
+ import { createHomeRoomArt, applyHomeRoomTheme } from './home-room-art.ts';
++import {loadHomeFurniture} from './home-furniture-models.ts';
+ import {beginSceneLoading,yieldSceneFrame} from './loading-state.ts';
+@@ -86,2 +87,3 @@ export class HomeInterior {
+   private furniture = new T.Group();
++  private furnitureModels: Awaited<ReturnType<typeof loadHomeFurniture>> = new Map();
+   private avatar = courier('clay');
+@@ -252,5 +254,7 @@ export class HomeInterior {
+       room=this.createRoom(interior);await next();
++      const models=await loadHomeFurniture(interior.items.map(item=>item.kind));
++      if(!current())return;
+       for(const [index,item] of interior.items.entries()){
+         preparation.task.update('Preparing furniture…',index,interior.items.length);
+-        furniture.add(this.createFurnitureItem(item));await next();
++        furniture.add(this.createFurnitureItem(item,models));await next();
+       }
+@@ -265,2 +269,3 @@ export class HomeInterior {
+       disposeGeometry(this.room);disposeGeometry(this.furniture);
++      this.furnitureModels=models;
+       this.room=room;this.furniture=furniture;room=null;furniture=null;this.scene.add(this.room,this.furniture);
+@@ -299,12 +304,21 @@ export class HomeInterior {
+   }
+-  private createFurnitureItem(item:HomeItem) {
+-      const b = new PartBuilder('medium'), source = libraryMaterials(this.library), kit = makeKit(b, source);
+-      emitPart(PART[item.kind], 'village', kit); const built = b.build(`home-item-${item.id}`);
+-      // Catalogue edge furniture uses its back edge as origin; indoor records
+-      // use footprint centres. Recenter without changing scale or height.
+-      const box = new T.Box3().setFromObject(built.group), center = box.getCenter(new T.Vector3());
+-      built.group.position.set(-center.x, 0, -center.z);
+-      const root = new T.Group(); root.add(built.group); root.position.fromArray(item.position); root.rotation.y = item.yaw; root.userData.homeItem = item.id;
+-      source.owned().forEach(material => { material.userData.ownedResource = true; });
+-      return root;
++  private createFurnitureItem(item:HomeItem,models=this.furnitureModels) {
++    const model = models.get(item.kind)?.clone(true) ?? this.createProceduralFurniture(item);
++    const root = new T.Group();
++    root.add(model);
++    root.position.fromArray(item.position);
++    root.rotation.y = item.yaw;
++    root.userData.homeItem = item.id;
++    return root;
++  }
++
++  private createProceduralFurniture(item:HomeItem) {
++    const b = new PartBuilder('medium'), source = libraryMaterials(this.library), kit = makeKit(b, source);
++    emitPart(PART[item.kind], 'village', kit);
++    const {group} = b.build(`home-item-${item.id}`);
++    // Catalogue edge furniture uses its back edge as origin; indoor records use the footprint centre.
++    const center = new T.Box3().setFromObject(group).getCenter(new T.Vector3());
++    group.position.set(-center.x, 0, -center.z);
++    source.owned().forEach(material => { material.userData.ownedResource = true; });
++    return group;
+   }
+diff --git a/src/client/i18n.ts b/src/client/i18n.ts
+index 7a870819b29ebed6159a71a69de0600400265e76..bf706cd6fa139b03cabbd15bbdea1995a39b312b 100644
+--- a/src/client/i18n.ts
++++ b/src/client/i18n.ts
+@@ -108,5 +108,13 @@ export function setLanguage(next: Language) {
+ export function initI18n() {
++  const hint = new URLSearchParams(location.search).get('appLang');
++  let fallback = chooseLanguage(hint);
+   let saved: string | null = null;
+-  try { saved = localStorage.getItem(LANGUAGE_KEY); } catch { /* Browser language remains available. */ }
+-  language = chooseLanguage(saved);
++  try {
++    saved = localStorage.getItem(LANGUAGE_KEY);
++    if (hint === 'en' || hint === 'zh') {
++      const first = localStorage.getItem('little-worlds:app-language:v1');
++      if (first === 'en' || first === 'zh') fallback = first;
++    }
++  } catch { /* The desktop hint and default still work without storage. */ }
++  language = saved === 'en' || saved === 'zh' ? saved : fallback;
+   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+diff --git a/src/client/main.ts b/src/client/main.ts
+index 0639a7b2e636be2963ca2599618308f12632025a..e55e97277ae3e8a00fe08b9cd7f90a3cbd34dc39 100644
+--- a/src/client/main.ts
++++ b/src/client/main.ts
+@@ -32,2 +32,3 @@ import { createVillagePolish } from './village-polish.ts';
+ import { BOARD_RADIUS, portPoint } from '../shared/ports.ts';
++import { BothouseResidents } from './bothouse-residents.ts';
+ import { GroundPresence } from './presence.ts';
+@@ -270,3 +271,4 @@ function accept(next: PlayerState) {
+   if(previousMode==='ground'&&state.flight.mode==='space'&&activePlanet==='hub'&&!reduced&&flight){departure={time:0,base:world.parked.root.position.clone(),start:camera.position.clone(),rotation:camera.quaternion.clone()};flight.presentation=true;document.body.classList.add('departing');notice('Departure clearance granted · Sunseed Harbour',4200);}
+-  physicsMismatch=false;online = navigator.onLine; renderSaveProgress(); renderTask();
++  // An accepted world response proves this server is reachable, even on a local-only network.
++  physicsMismatch=false;online=true;renderSaveProgress();renderTask();
+   homeInterior?.receive(state);homeInterior?.setOnline(online);homeControls?.receivePlayer(state);
+@@ -275,7 +277,10 @@ function accept(next: PlayerState) {
+ }
+-function failed(error: unknown) {
+-  clearGroundMotion();
+-  presence.clear();
+-  online = false; status('Offline · retrying', true);
++function worldUnavailable(){
++  if(physicsMismatch)return;
++  online=false;presence.clear();clearGroundMotion();clearInput();flight?.clear();
+   homeInterior?.setOnline(false);
++  status('Offline · retrying',true);
++}
++function failed(error: unknown) {
++  worldUnavailable();
+   notice(error instanceof Error ? error.message : 'Could not save. Reconnecting…');
+@@ -319,2 +324,3 @@ worldMaterials().attachRenderer(renderer,textureFormat());
+ const scene = new T.Scene();
++const bothouseResidents=new BothouseResidents(scene,reduced);
+ const exteriorHomeDoor=createHomeDoor();scene.add(exteriorHomeDoor.root);exteriorHomeDoor.root.visible=false;
+@@ -723,3 +729,3 @@ setInterval(async()=>{
+   try {
+-    const next=await serial(()=>stateLoader.read());if(!accept(next))return;
++    const next=await serial(()=>stateLoader.read());if(online||!accept(next))return;
+     walker=new SurfaceWalker(next.position);lastSaved.copy(walker.up);clearInput();rebaseGroundCamera();ensureColony();notice('Back at your last saved spot. Welcome home.');
+@@ -727,4 +733,2 @@ setInterval(async()=>{
+ },2500);
+-window.addEventListener('online',()=>notice('Reconnecting to your worlds…'));
+-window.addEventListener('offline',()=>{presence.clear();online=false;homeInterior?.setOnline(false);clearGroundMotion();clearInput();flight?.clear();status('Offline · retrying',true);});
+ 
+@@ -734,2 +738,6 @@ function animate(now:number) {
+   mouseLook?.sync();lookButton.hidden=!canLook()||overview;paintLookHint();
++  const garden=colony?.universe?.currentPlanet;
++  const visitVisible=online&&colony?.syncing&&!document.hidden&&!graphicsLost&&!worldPending&&!state?.appearanceRequired&&state?.flight.mode==='ground'&&state.location?.kind!=='interior'&&!homeTransition&&garden?.id===activePlanet&&garden.claimed&&garden.kind==='garden';
++  const landedGarden=online&&colony?.syncing&&state?.flight.mode==='ground'&&garden?.kind==='garden'&&garden.claimed?garden.id:null;
++  bothouseResidents.frame(visitVisible?groundWorld:null,landedGarden,state?.location?.visitEpoch??0,now,!!garden?.mine&&garden.id===activePlanet&&online);
+   if(graphicsLost)return;
+@@ -910,2 +918,3 @@ function animate(now:number) {
+   const cutawayFrame=cameraLocalExceptionB&&!overview?committedCutawayFrame:activeTownCutaway&&groundWorld?activeTownCutaway.update({world:groundWorld,camera,feet,up:renderUp,dt,enabled:cameraCutawayB&&!overview,diagnostics:measureCamera}):null;
++  bothouseResidents.animate(dt,walker.up.toArray() as Vec3,renderCamera(),!scenePaused);
+   residents?.update({dt,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:renderCamera(),reducedMotion:reduced,enabled:!scenePaused});
+@@ -915,2 +924,3 @@ function animate(now:number) {
+   practical.update(scene,renderCamera(),dt);if(indoorRoomView.room)indoorRoomView.render();else drawing.render(new T.Vector3(),overview);readyWelcome();
++  if(measureCamera)renderer.domElement.dataset.companions=JSON.stringify(bothouseResidents.snapshot(renderCamera()));
+   // Opt-in, atomic evidence from this rendered frame. Reading this snapshot can
+@@ -1032,3 +1042,3 @@ function ensureColony() {
+     apply:next=>{if(colony?.universe!==next)colony?.accept(next);},notice});
+-  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
++  flight=new SpaceFlight({progress:saveProgress,canvas:renderer.domElement,renderer,online:()=>online,player:()=>state,checkpoint:body=>serial(()=>request('flight/checkpoint',body)),command:changeVisit,findShip:()=>worldGuide.findShip(),apply:accept,applyUniverse:u=>{if(colony?.universe!==u)colony?.accept(u);},flushGround:async()=>{await savePosition(true);await queue;},clearGround:()=>{clearInput();colony?.stopBuilding();},canBoard:()=>!sceneLoadingActive()&&!homeTransition&&state.location?.kind!=='interior'&&!!walker&&!!standing?.grounded&&!colony?.building&&distance(walker.up.toArray() as Vec3,portPoint(activePlanet),groundRadius())<BOARD_RADIUS-.12,failed,notice});
+   flight.setDesign((state.ship??defaultShip()).design);flight.receive(state.flight);scene.environment=flight.scene.environment;scene.environmentIntensity=groundPresentation(activePlanet,activeRadius).environmentIntensity;
+@@ -1040,3 +1050,4 @@ function ensureColony() {
+     libraryRead:()=>request<import('../shared/blueprints.ts').LibraryEntry[]>('blueprints'),librarySave:body=>serial(()=>request<import('../shared/blueprints.ts').LibraryEntry>('blueprints/save',body)),
+-    read:()=>request<Universe>('universe'),write:(route,body)=>serial(()=>request<Universe>(route,body)),flush:async()=>{await savePosition(true);await queue;},notice,
++    read:()=>request<Universe>('universe'),onReadFailure:()=>{if(online)worldUnavailable();},
++    write:(route,body)=>serial(()=>request<Universe>(route,body)),flush:async()=>{await savePosition(true);await queue;},notice,
+   });
+@@ -1061,3 +1072,3 @@ photoMode=new PhotoMode({renderer,
+     view.updateProjectionMatrix();view.updateMatrixWorld(true);
+-    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
++    return {scene,camera:view,target,prepare:photo=>{updateGroundFog(scene,activePlanet,activeRadius,photo.position.length());world.animate(elapsed,true,photo.position,walker.up,mode==='overview');bothouseResidents.animate(0,walker.up.toArray() as Vec3,photo,false);residents?.update({dt:0,time:elapsed,viewer:walker.up.toArray() as Vec3,camera:photo,reducedMotion:reduced,enabled:false});}};
+   },notice,
+diff --git a/src/client/messages.ts b/src/client/messages.ts
+index d70699bd82d9f5a8977872996503a0f5100d8343..2c010f1c66e10925f06537c71bf95e11c7aa0efd 100644
+--- a/src/client/messages.ts
++++ b/src/client/messages.ts
+@@ -3,2 +3,4 @@
+ export const messages: Record<string, string> = {
++  'This friend’s planet is unavailable.': '暂时无法拜访这位好友的星球。',
++  'You are on your friend’s planet.': '已到达好友的星球。',
+   'Show kit': '展开建造工具',
+@@ -1235,2 +1237,3 @@ export const messages: Record<string, string> = {
+ export const patterns: readonly (readonly [string, string, (readonly number[])?])[] = [
++  ['Visit friend · {0}', '拜访好友 · {0}'],
+   ["Fly to {0}? Your current trip stays unchanged until you confirm.","飞往 {0}？确认前不会改变当前旅程。"],
+diff --git a/src/client/public-town-art.ts b/src/client/public-town-art.ts
+index e31b823b5a69a8875885e1cde20d0b3ecb36b77b..2c01445b7080b652b279186f4250be714ecedaf0 100644
+--- a/src/client/public-town-art.ts
++++ b/src/client/public-town-art.ts
+@@ -16,2 +16,3 @@ import {builtObject,disposeGeometry} from './build-art.ts';
+ import {buildStructureFinish} from './structure-finish.ts';
++import {addTownExterior} from './town-exterior.ts';
+ import type {GroundFit} from '../assets/claude-geometry/core/ground.ts';
+@@ -97,3 +98,5 @@ function prepareTownOptions(village:SamplePublicVillage,radius:number,options:Pu
+           shareStaticGlows(model.object);
+-          finish=buildStructureFinish(parts,library,options.cameraCutaway?{cameraPartSlots:cameraPartSlots(parts)}:{});model.object.add(finish.object);
++          const slots=options.cameraCutaway?cameraPartSlots(parts):undefined;
++          finish=buildStructureFinish(parts,library,{cameraPartSlots:slots});model.object.add(finish.object);
++          if(lod!=='low')addTownExterior(model.object,parts,library,slots);
+           const transform=placedTransform({dir:o.position,yaw:o.rotation},fit);
+diff --git a/src/client/ship-model.ts b/src/client/ship-model.ts
+index 525c544b7aace144fa98de66cb61fe6f772814d3..1f5185dbd58aaec5f078894547de43f4264ed156 100644
+--- a/src/client/ship-model.ts
++++ b/src/client/ship-model.ts
+@@ -1,3 +1,3 @@
+ import * as T from 'three';
+-import { createShipModel } from '../assets/claude-geometry/ship/factory.ts';
++import { createTravelShip } from './transport-models.ts';
+ import { encodeShipDesign } from '../assets/claude-geometry/ship/design.ts';
+@@ -11,3 +11,3 @@ export function makeShip() {
+   let design = defaultShip().design, key = encodeShipDesign(design);
+-  let handle = createShipModel(design, worldMaterials(), 'medium');
++  let handle = createTravelShip(design, library);
+   moving(handle.object);root.add(handle.object);
+@@ -20,3 +20,3 @@ export function makeShip() {
+       const nextKey = encodeShipDesign(next); if (key === nextKey) return;
+-      const replacement = createShipModel(next, worldMaterials(), 'medium');
++      const replacement = createTravelShip(next, library);
+       handle.dispose(); handle = replacement; design = next; key = nextKey; moving(handle.object);root.add(handle.object);
+diff --git a/src/client/shipyard.ts b/src/client/shipyard.ts
+index 8856c726a754f80e41e37562696c200f393ca434..5772ead4c82fa8aa62571fa933ac4b4c7dee4bf8 100644
+--- a/src/client/shipyard.ts
++++ b/src/client/shipyard.ts
+@@ -3,3 +3,3 @@ import * as T from 'three';
+ import type { Stage } from '../assets/claude-geometry/shell/stage.ts';
+-import { createShipModel } from '../assets/claude-geometry/ship/factory.ts';
++import { createTravelShip } from './transport-models.ts';
+ import type { ShipHandle } from '../assets/claude-geometry/ship/factory.ts';
+@@ -60,3 +60,3 @@ export class Shipyard {
+     if(!this.stage)return;
+-    const replacement=createShipModel(this.draft,this.stage.library,'medium');
++    const replacement=createTravelShip(this.draft,this.stage.library);
+     this.model?.dispose();this.model=replacement;this.stage.scene.add(replacement.object);this.frame();
+diff --git a/src/client/terrain-model.ts b/src/client/terrain-model.ts
+index af46a0e52754af0f16119b6056df5c529454dee6..fb9b2ec315a9892be7b8651a0ce8905832113fac 100644
+--- a/src/client/terrain-model.ts
++++ b/src/client/terrain-model.ts
+@@ -10,2 +10,3 @@ import { fieldOf,foundations } from '../shared/terrain.ts';
+ import type { HomeSurfaceRoute } from '../shared/home-layout.ts';
++import { replaceTerrainNature } from './nature-art.ts';
+ import { rebasedTerrainFlora } from './sample-landscape.ts';
+@@ -42,2 +43,10 @@ export function terrainModel(environment:string,objects:readonly PlacedObject[]=
+  }
++ const vegetation=model.object.getObjectByName('flora');
++ if(vegetation){
++  const before=measure(vegetation);
++  replaceTerrainNature(vegetation,lod);
++  const after=measure(vegetation);
++  model.stats.triangles+=after.triangles-before.triangles;
++  model.stats.drawCalls+=after.drawCalls-before.drawCalls;
++ }
+  model.stats.generationMs+=performance.now()-adaptedAt;
+diff --git a/src/client/town-residents.ts b/src/client/town-residents.ts
+index da3e7f54005a4d8cc94c24f7f5504e6e4fc118cb..f17cf1cb912de18b4cd0c64f9a54106ab63f9909 100644
+--- a/src/client/town-residents.ts
++++ b/src/client/town-residents.ts
+@@ -2,2 +2,5 @@ import * as T from 'three';
+ import { applyArtMaterial, ART_PALETTE } from './art-profile.ts';
++import { sampleCourier } from './character-sample.ts';
++import { townResidentLedger } from './town-resident-ledger.ts';
++import { defaultAppearance, type Appearance } from '../shared/appearance.ts';
+ import { GroundWorld } from '../shared/physics/world.ts';
+@@ -9,3 +12,4 @@ import type { Vec3 } from '../shared/world.ts';
+ type Shape = 'box' | 'sphere' | 'cylinder' | 'cone';
+-interface Piece { node: T.Object3D; shape: Shape; color: T.Color; detail: boolean; slot: number }
++type BatchKey = Shape | T.BufferGeometry;
++interface Piece { node: T.Object3D; shape: BatchKey; color: T.Color; detail: boolean; slot: number }
+ interface Rig {
+@@ -24,4 +28,4 @@ export interface TownResidentFrame {
+ const palette = { clay: ART_PALETTE.clay, sage: ART_PALETTE.sage, cream: ART_PALETTE.cream, blue: '#6b8796', ochre: '#bb914f' };
+-const skin = ['#d9b78c', '#b98765', '#805b46', '#e0bf9e'];
+-const ink = ART_PALETTE.ink, timber = ART_PALETTE.wood, cream = ART_PALETTE.cream;
++const skins: Appearance['skin'][] = ['sand', 'bronze', 'deep', 'porcelain', 'warm'];
++const timber = ART_PALETTE.wood, cream = ART_PALETTE.cream;
+ const zero = new T.Matrix4().makeScale(0, 0, 0);
+@@ -44,5 +48,4 @@ function workReach(rig: Rig, side: 'left' | 'right', height: number, forward: nu
+ 
+-/** Original host-owned residents, using the same village material adapter and
+- * metre scale as the courier. Four instanced primitive batches share all models;
+- * no cloned courier, skinned meshes, per-person textures or animation mixers. */
++/** The courier supplies the meshes at the town's existing animated joints.
++ * Resident bodies and props are drawn in shared geometry batches. */
+ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+@@ -52,3 +55,3 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+   anchor.add(body, leftLeg, rightLeg); body.position.y = .89;
+-  body.add(head, leftArm, rightArm); head.position.y = .36;
++  body.add(head, leftArm, rightArm); head.position.y = .43;
+   leftArm.position.set(-.25, .22, 0); rightArm.position.set(.25, .22, 0);
+@@ -61,28 +64,34 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+   };
+-  const coat = palette[definition.coat], face = skin[index % skin.length];
+-  const broad = definition.occupation === 'repairer' || definition.occupation === 'porter';
+-  piece(body, 'sphere', coat, [0, .075, 0], [broad ? .51 : .44, .45, .33]);
+-  piece(body, 'cylinder', coat, [0, -.14, 0], [broad ? .43 : .35, .22, .3]);
+-  piece(body, 'box', timber, [0, -.23, 0], [broad ? .4 : .33, .065, .3]);
+-  piece(body, 'sphere', '#465553', [0, -.285, -.005], [.33, .15, .29]);
+-  piece(body, 'box', cream, [0, .235, .11], [.14, .055, .11]);
+-  piece(head, 'sphere', face, [0, .04, 0], [.33, .37, .32]);
+-  piece(head, 'sphere', timber, [0, .13, -.025], [.35, .22, .3]);
+-  for (const x of [-.065, .065]) piece(head, 'sphere', ink, [x, .057, .151], [.025, .029, .018], true);
+-  piece(head, 'sphere', ink, [0, -.055, .15], [.048, .013, .013], true);
+-  for (const [arm, forearm] of [[leftArm, leftForearm], [rightArm, rightForearm]]) {
+-    piece(arm, 'sphere', coat, [0, -.08, 0], [.17, .25, .19]);
+-    piece(arm, 'cylinder', coat, [0, -.16, 0], [.15, .18, .17]);
+-    arm.add(forearm); forearm.position.y = -.25;
+-    piece(forearm, 'cylinder', coat, [0, -.10, 0], [.12, .2, .15]);
+-    piece(forearm, 'cylinder', cream, [0, -.195, 0], [.135, .045, .16]);
+-    piece(forearm, 'sphere', face, [0, -.255, .014], [.135, .14, .14]);
+-  }
+-  for (const [leg, knee] of [[leftLeg, leftKnee], [rightLeg, rightKnee]]) {
+-    piece(leg, 'cylinder', '#465553', [0, -.13, 0], [.185, .26, .20]);
+-    leg.add(knee); knee.position.y = -.28;
+-    piece(knee, 'cylinder', '#465553', [0, -.12, 0], [.14, .24, .16]);
+-    piece(knee, 'box', timber, [0, -.30, .055], [.185, .11, .28]);
+-    piece(knee, 'box', '#bc965f', [0, -.255, .055], [.17, .025, .22]);
+-  }
++  const coat = palette[definition.coat];
++  leftArm.add(leftForearm); rightArm.add(rightForearm);
++  leftForearm.position.y = rightForearm.position.y = -.25;
++  leftLeg.add(leftKnee); rightLeg.add(rightKnee);
++  leftKnee.position.y = rightKnee.position.y = -.28;
++  const look: Appearance = { ...defaultAppearance(), skin: skins[index % skins.length],
++    hair: definition.accessory === 'sunhat' || definition.accessory === 'shawl' ? 'bob' :
++      ['tools', 'cap', 'mailbag'].includes(definition.accessory) ? 'crop' : 'swept' };
++  const model = sampleCourier(look.coat, look, coat);
++  // Rebind the courier meshes to the town joints, leaving hand and tool pivots
++  // at their original measured positions.
++  const useJoint = (source: T.Group, target: T.Group, stretch = 1) => {
++    for (const mesh of [...source.children]) {
++      if (!(mesh instanceof T.Mesh) || !mesh.visible || Array.isArray(mesh.material)) continue;
++      target.add(mesh);
++      mesh.position.y *= stretch;
++      mesh.scale.y *= stretch;
++      const material = mesh.material as T.MeshStandardMaterial;
++      pieces.push({ node: mesh, shape: mesh.geometry, color: material.color,
++        detail: material.vertexColors, slot: -1 });
++    }
++  };
++  useJoint(model.torso, body);
++  useJoint(model.head, head);
++  useJoint(model.arms[0].upper, leftArm, .25 / .22);
++  useJoint(model.arms[1].upper, rightArm, .25 / .22);
++  useJoint(model.arms[0].forearm, leftForearm, .255 / .226);
++  useJoint(model.arms[1].forearm, rightForearm, .255 / .226);
++  useJoint(model.legs[0].hip, leftLeg, .28 / .25);
++  useJoint(model.legs[1].hip, rightLeg, .28 / .25);
++  useJoint(model.legs[0].knee, leftKnee);
++  useJoint(model.legs[1].knee, rightKnee);
+   const apron = () => {
+@@ -98,4 +107,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+       piece(hammer, 'box', ART_PALETTE.iron, [0, .5, 0], [3.5, .25, 1.8], true);
+-      piece(head, 'cylinder', coat, [0, .21, 0], [.35, .12, .35]);
+-      piece(head, 'box', coat, [0, .17, .11], [.34, .035, .28]);
++      piece(head, 'cylinder', coat, [0, .242, 0], [.47, .10, .46]);
++      piece(head, 'box', coat, [0, .198, .13], [.44, .035, .36]);
+       break;
+@@ -103,4 +112,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+     case 'sunhat':
+-      piece(head, 'cylinder', '#c9af72', [0, .185, 0], [.58, .04, .55]);
+-      piece(head, 'cone', '#c9af72', [0, .265, 0], [.35, .16, .33]);
++      piece(head, 'cylinder', '#c9af72', [0, .245, 0], [.62, .04, .58]);
++      piece(head, 'cone', '#c9af72', [0, .325, 0], [.39, .16, .37]);
+       apron();
+@@ -111,4 +120,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+       piece(body, 'box', cream, [.24, -.2, .124], [.16, .07, .018], true);
+-      piece(head, 'cylinder', coat, [0, .22, 0], [.33, .08, .32]);
+-      piece(head, 'box', coat, [0, .185, .13], [.28, .025, .25]);
++      piece(head, 'cylinder', coat, [0, .249, 0], [.45, .07, .43]);
++      piece(head, 'box', coat, [0, .217, .16], [.38, .025, .28]);
+       break;
+@@ -116,5 +125,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+     case 'book':
+-      piece(body, 'box', ART_PALETTE.clay, [0, -.01, .33], [.39, .065, .27]);
+-      piece(body, 'box', cream, [0, .03, .33], [.35, .025, .23]);
+-      piece(body, 'box', timber, [0, .047, .33], [.018, .012, .23], true);
++      for (const {color, offset:[x,y,z], size, detail} of townResidentLedger)
++        piece(body, 'box', color, [x,y-.01,z+.33], size, detail);
+       break;
+@@ -131,4 +139,4 @@ function residentRig(definition: TownResidentDefinition, index: number): Rig {
+     case 'cap':
+-      piece(head, 'sphere', coat, [0, .185, -.025], [.36, .15, .32]);
+-      piece(head, 'box', coat, [0, .16, .115], [.28, .026, .21]);
++      piece(head, 'sphere', coat, [0, .222, -.025], [.47, .15, .43]);
++      piece(head, 'box', coat, [0, .195, .14], [.37, .026, .27]);
+       break;
+@@ -168,5 +176,5 @@ export class TownResidents {
+   readonly definitions: readonly TownResidentDefinition[];
+-  readonly diagnostics = { residents: 0, conversational: 0, invalidAnchors: [] as string[], visible: 0, animated: 0, moving: 0, batches: 4, instances: 0, triangles: 0, visibleInstances: 0, visibleTriangles: 0, movementReversals: 0 };
++  readonly diagnostics = { residents: 0, conversational: 0, invalidAnchors: [] as string[], visible: 0, animated: 0, moving: 0, batches: 0, instances: 0, triangles: 0, visibleInstances: 0, visibleTriangles: 0, movementReversals: 0 };
+   private residents: Resident[];
+-  private batches: Record<Shape, T.InstancedMesh>;
++  private batches = new Map<BatchKey, T.InstancedMesh>();
+   private world: GroundWorld;
+@@ -194,12 +202,19 @@ export class TownResidents {
+     material.userData.ownedResource = true;
+-    this.batches = {} as Record<Shape, T.InstancedMesh>;
+-    for (const shape of Object.keys(shapes) as Shape[]) {
+-      const count = this.residents.reduce((n, resident) => n + resident.rig.pieces.filter(piece => piece.shape === shape).length, 0);
+-      const batch = new T.InstancedMesh(shapes[shape], material, Math.max(1, count));
+-      batch.name = `resident-${shape}`; batch.count = count; batch.frustumCulled = false;
++    const materials = [material, material.clone()];
++    materials[1].vertexColors = true;
++    const counts = new Map<BatchKey, number>();
++    for (const { rig } of this.residents) for (const { shape } of rig.pieces) counts.set(shape, (counts.get(shape) ?? 0) + 1);
++    for (const [shape, count] of counts) {
++      const geometry = typeof shape === 'string' ? shapes[shape] : shape;
++      const batch = new T.InstancedMesh(geometry, materials[geometry.hasAttribute('color') ? 1 : 0], count);
++      batch.name = typeof shape === 'string' ? `resident-${shape}` : 'resident-courier';
++      batch.count = count; batch.frustumCulled = false;
+       batch.castShadow = true; batch.receiveShadow = true;
+-      batch.instanceMatrix.setUsage(T.DynamicDrawUsage); this.root.add(batch); this.batches[shape] = batch;
+-      this.diagnostics.triangles += (shapes[shape].index?.count ?? shapes[shape].attributes.position.count) / 3 * count;
++      batch.instanceMatrix.setUsage(T.DynamicDrawUsage); this.root.add(batch); this.batches.set(shape, batch);
++      this.diagnostics.triangles += (geometry.index?.count ?? geometry.attributes.position.count) / 3 * count;
+     }
+-    const slots: Record<Shape, number> = { box: 0, sphere: 0, cylinder: 0, cone: 0 };
++    for (const [shape, geometry] of Object.entries(shapes)) if (!counts.has(shape as Shape)) geometry.dispose();
++    for (const m of materials) if (![...this.batches.values()].some(batch => batch.material === m)) m.dispose();
++    this.diagnostics.batches = this.batches.size;
++    const slots = new Map<BatchKey, number>();
+     for (const resident of this.residents) {
+@@ -207,7 +222,10 @@ export class TownResidents {
+       for (const piece of resident.rig.pieces) {
+-        piece.slot = slots[piece.shape]++; this.batches[piece.shape].setColorAt(piece.slot, piece.color);
+-        this.batches[piece.shape].setMatrixAt(piece.slot, zero);
++        const batch = this.batches.get(piece.shape)!;
++        piece.slot = slots.get(piece.shape) ?? 0;
++        slots.set(piece.shape, piece.slot + 1);
++        batch.setColorAt(piece.slot, piece.color);
++        batch.setMatrixAt(piece.slot, zero);
+       }
+     }
+-    this.diagnostics.instances = Object.values(slots).reduce((a, b) => a + b, 0);
++    this.diagnostics.instances = [...slots.values()].reduce((a, b) => a + b, 0);
+     this.diagnostics.residents = definitions.length; this.diagnostics.conversational = definitions.filter(d => d.conversational).length;
+@@ -215,5 +233,5 @@ export class TownResidents {
+       this.pose(resident, 0, true); resident.rig.anchor.updateMatrixWorld(true);
+-      for (const piece of resident.rig.pieces) this.batches[piece.shape].setMatrixAt(piece.slot, piece.node.matrixWorld);
++      for (const piece of resident.rig.pieces) this.batches.get(piece.shape)!.setMatrixAt(piece.slot, piece.node.matrixWorld);
+     }
+-    for (const batch of Object.values(this.batches)) batch.instanceMatrix.needsUpdate = true;
++    for (const batch of this.batches.values()) batch.instanceMatrix.needsUpdate = true;
+     parent.add(this.root);
+@@ -259,6 +277,7 @@ export class TownResidents {
+     if (dirty) {
+-      const slots: Record<Shape, number> = { box: 0, sphere: 0, cylinder: 0, cone: 0 };
++      const slots = new Map<BatchKey, number>();
+       for (const resident of this.residents) if (resident.visible) for (const piece of resident.rig.pieces) {
+         if (piece.detail && resident.distance > 12) continue;
+-        const batch = this.batches[piece.shape], slot = slots[piece.shape]++;
++        const batch = this.batches.get(piece.shape)!, slot = slots.get(piece.shape) ?? 0;
++        slots.set(piece.shape, slot + 1);
+         batch.setMatrixAt(slot, piece.node.matrixWorld); batch.setColorAt(slot, piece.color);
+@@ -266,4 +285,4 @@ export class TownResidents {
+       this.diagnostics.visibleInstances = 0; this.diagnostics.visibleTriangles = 0;
+-      for (const shape of Object.keys(this.batches) as Shape[]) {
+-        const batch = this.batches[shape]; batch.count = slots[shape]; batch.instanceMatrix.needsUpdate = true;
++      for (const [shape, batch] of this.batches) {
++        batch.count = slots.get(shape) ?? 0; batch.instanceMatrix.needsUpdate = true;
+         if (batch.instanceColor) batch.instanceColor.needsUpdate = true;
+@@ -363,3 +382,7 @@ export class TownResidents {
+     const materials = new Set<T.Material>();
+-    for (const batch of Object.values(this.batches)) { batch.geometry.dispose(); (Array.isArray(batch.material) ? batch.material : [batch.material]).forEach(m => materials.add(m)); batch.dispose(); }
++    for (const [shape, batch] of this.batches) {
++      if (typeof shape === 'string') batch.geometry.dispose();
++      (Array.isArray(batch.material) ? batch.material : [batch.material]).forEach(m => materials.add(m));
++      batch.dispose();
++    }
+     materials.forEach(material => material.dispose()); this.root.clear();
+diff --git a/src/client/tutorial.css b/src/client/tutorial.css
+index 5a6310c1d13acbc0cb7847f723b4b8d424f46d84..8f7601a799ef54756ad05764e0317eb5d87f58a8 100644
+--- a/src/client/tutorial.css
++++ b/src/client/tutorial.css
+@@ -26 +26,9 @@ body.home-interior-active .core-tutorial{top:142px;max-height:calc(100dvh - 340p
+ @media(max-width:699px){body.tutorial-active:has(#home-controls:not([hidden])) .core-tutorial{max-height:max(82px,calc(100dvh - 494px));overflow:auto}}
++
++/* On visits, leave room for both the destination and the walking directions. */
++#travel-guidance:has(> #friend-visit-route:not([hidden])) > .core-tutorial {
++  position: static;
++  box-sizing: border-box;
++  max-height: min(28dvh, 16rem);
++  overflow: auto;
++}
+diff --git a/src/client/tutorial.ts b/src/client/tutorial.ts
+index fe2d73710c28b3c18654ea14a8b1f377be925f85..fd93bd9dd610d8a1960b20fb987e8e920540c219 100644
+--- a/src/client/tutorial.ts
++++ b/src/client/tutorial.ts
+@@ -117,3 +117,3 @@ export function mountTutorial(options: TutorialOptions) {
+   root.innerHTML = '<div class="tutorial-heading"><span class="tutorial-eyebrow"></span><button type="button" class="tutorial-skip"></button></div><p class="tutorial-progress"></p><h2></h2><p class="tutorial-copy"></p><p class="tutorial-route-status" role="status" aria-live="polite" hidden></p><p class="tutorial-feedback" role="status" aria-live="polite"></p><p class="tutorial-controls"></p><p class="tutorial-home-state" role="status"></p><button type="button" class="tutorial-retry"></button>';
+-  document.body.append(root);
++  document.getElementById('travel-guidance')!.append(root);
+   const get = <E extends HTMLElement = HTMLElement>(name: string) => root.querySelector<E>(name)!;
+diff --git a/src/client/village-polish.ts b/src/client/village-polish.ts
+index fb01ffaebf2bdb880563ee0e1fdbbc7a26ddaae6..ecb98897cb97a494611a31cdc641d69d165be265 100644
+--- a/src/client/village-polish.ts
++++ b/src/client/village-polish.ts
+@@ -8,2 +8,3 @@ import type { HomeDescriptor } from '../shared/home.ts';
+ import { ART_PALETTE, applyArtMaterial } from './art-profile.ts';
++import { townMeshPieces } from './authored-town-mesh.ts';
+ import type { TutorialSurface } from './tutorial-route.ts';
+@@ -81,4 +82,7 @@ export function createVillagePolish(parent: T.Object3D, surface: TutorialSurface
+       // silhouette; every piece stays above 2.05 m and behind the walking path.
+-      box(frame, ART_PALETTE.wood, 1.5, .08, .11, 0, 2.64, -.03);
+-      box(frame, ART_PALETTE.clay, 1.62, .06, .16, 0, 2.71, -.03);
++      // Its lowest bracket sits above the entire 2.205–2.535 m text rectangle.
++      const cap = local(frame, 0, .10, 0);
++      for (const { slot, geometry } of townMeshPieces('canopy')) {
++        add(geometry, slot === 'leaf' ? ART_PALETTE.sage : ART_PALETTE.wood, cap);
++      }
+       box(frame, ART_PALETTE.wood, 1.42, .43, .065, 0, 2.37, -.04);
+diff --git a/src/client/world-guide.ts b/src/client/world-guide.ts
+index f533e71cfc73d2be94e83498c99214dc9d9a3057..1cc0782009230650b88263a8406b1380f04ad5a9 100644
+--- a/src/client/world-guide.ts
++++ b/src/client/world-guide.ts
+@@ -22,2 +22,5 @@ interface Frame {
+ export function createWorldGuide(scene: T.Scene, release: () => void) {
++  const entry = new URLSearchParams(location.search);
++  const hostChat = entry.get('appChat') === 'bothouse';
++  const embedded = hostChat || ['zh', 'en'].includes(entry.get('appLang') ?? '');
+   let current: Frame | null=null, topic:GuideTopic='home', selected:GuideTopic|null=null, routePlanet='', roomKey='', lastPaint='', talking=false;
+@@ -34,10 +37,17 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+   chat.innerHTML='<header><h2 id="world-guide-chat-title"></h2><button id="world-guide-chat-close" type="button" aria-label="Close chat">×</button></header><details id="world-guide-disclosure"><summary id="world-guide-disclosure-title"></summary><p id="world-guide-ai-status"></p></details><p id="world-guide-ai-quota"></p><div id="world-guide-messages" role="log" aria-live="polite"><p id="world-guide-ai-answer"></p></div><p id="world-guide-ai-result" role="status"></p><form id="world-guide-form"><label for="world-guide-question" id="world-guide-question-label"></label><div class="world-guide-input"><textarea id="world-guide-question" maxlength="500" rows="2"></textarea><button id="world-guide-ask" type="submit"></button></div></form><footer><button id="world-guide-ai-stop" type="button" hidden></button><button id="world-guide-refresh" type="button"></button><button id="world-guide-local" type="button"></button></footer>';
+-  document.body.append(chat);
+-  const chatOpen=document.createElement('button');chatOpen.id='world-guide-chat-open';chatOpen.type='button';document.querySelector('.minimal-bar')?.append(chatOpen);
+-  const hud=document.createElement('section');hud.id='world-guide-hud';hud.hidden=true;hud.dataset.i18nVerbatim='';hud.innerHTML='<p id="world-guide-status" role="status"></p><button id="world-guide-details" type="button"></button><button id="world-guide-stop" type="button"></button>';document.body.append(hud);
++  if(!embedded)document.body.append(chat);
++  const chatOpen=document.createElement('button');chatOpen.id='world-guide-chat-open';chatOpen.type='button';
++  if(!embedded || hostChat)document.querySelector('.minimal-bar')?.append(chatOpen);
++  const hud=document.createElement('section');hud.id='world-guide-hud';hud.hidden=true;hud.dataset.i18nVerbatim='';hud.innerHTML='<p id="world-guide-status" role="status"></p><button id="world-guide-details" type="button"></button><button id="world-guide-stop" type="button"></button>';document.getElementById('travel-guidance')!.append(hud);
+   const el=<E extends HTMLElement=HTMLElement>(id:string)=>document.getElementById('world-guide-'+id)! as E;
+   const language=()=>document.documentElement.lang.startsWith('zh')?'zh' as const:'en' as const;
+-  const ai=createGuideConversation({language,answer(text){el('ai-answer').textContent=text;const log=el('messages');log.scrollTop=log.scrollHeight;},changed(){lastPaint='';paint();}});
+-  function close(focus=false){ai.cancel();talking=false;bubble.hidden=true;chat.hidden=true;actor.root.visible=false;document.body.classList.remove('world-guide-talking');release();if(focus)document.querySelector<HTMLCanvasElement>('#world canvas')?.focus({preventScroll:true});}
+-  function select(value:GuideTopic){topic=value;selected=value==='save'?null:value;routePlanet=current?.universe.currentPlanet.id??'';route.root.visible=false;document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();paint();}
++  const ai=embedded?null:createGuideConversation({language,answer(text){el('ai-answer').textContent=text;const log=el('messages');log.scrollTop=log.scrollHeight;},changed(){lastPaint='';paint();}});
++  function close(focus=false){ai?.cancel();talking=false;bubble.hidden=true;chat.hidden=true;actor.root.visible=false;document.body.classList.remove('world-guide-talking');release();if(focus)document.querySelector<HTMLCanvasElement>('#world canvas')?.focus({preventScroll:true});}
++  function skipTutorialOutsideFriendVisit() {
++    // The destination, walking directions and tutorial share room during a friend visit.
++    if (!document.querySelector('#friend-visit-route:not([hidden])')) {
++      document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();
++    }
++  }
++  function select(value:GuideTopic){topic=value;selected=value==='save'?null:value;routePlanet=current?.universe.currentPlanet.id??'';route.root.visible=false;skipTutorialOutsideFriendVisit();paint();}
+   function paint(){
+@@ -45,7 +55,9 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+     const aboard=current?.universe.player.flight.mode==='space',nearShip=topic==='visit'&&!current?.indoor&&!!current&&distance(current.position,portPoint(current.universe.currentPlanet.id),current.world.baseRadius)<BOARD_RADIUS-.12;
+-    const key=[lang,topic,selected,available,aboard,nearShip,current?.indoor,current?.online,route.diagnostics.reason,actor.root.visible,talking,ai.revision].join('|');if(key===lastPaint)return;lastPaint=key;
+-    homeChat.textContent=chatOpen.textContent=zh?'聊天 · DeepSeek':'Chat · DeepSeek';el('chat-close').setAttribute('aria-label',zh?'收起聊天':'Close chat');
++    const key=[lang,topic,selected,available,aboard,nearShip,current?.indoor,current?.online,route.diagnostics.reason,actor.root.visible,talking,ai?.revision].join('|');if(key===lastPaint)return;lastPaint=key;
++    homeChat.textContent=chatOpen.textContent=embedded?(zh?'AI 聊天':'AI chat'):(zh?'聊天 · DeepSeek':'Chat · DeepSeek');
++    if(ai)el('chat-close').setAttribute('aria-label',zh?'收起聊天':'Close chat');
++    el('help-title').textContent=zh?'固定玩法帮助与地面路线':'Fixed help & ground directions';
+     open.textContent=aboard?(zh?'向导 · 已登船':'Guide · Aboard'):(zh?'向导 · 空格':'Guide · Space');open.title=aboard?(zh?'你已在飞船中，使用目的地与航程控制；落地后可使用地面向导。':'You are already aboard. Use the destination and trip controls; ground guidance resumes after landing.'):(zh?'空格打开向导，选择寻找飞船。':'Space opens the guide. Choose Find ship.');open.setAttribute('aria-label',zh?'小星球向导':'World guide');menuOpen.textContent=homeOpen.textContent=zh?'小星球向导':'World guide';
+     el('title').textContent=zh?'芽芽 · 小星球向导':'Sprout · World guide';
+-    el('intro').textContent=actor.root.visible?(zh?'我在你身边。可在右侧聊天，或展开固定帮助查看地面路线。':'I am beside you. Chat on the right, or open fixed help for ground directions.'):(zh?'附近没有安全的站立空位，仍可在此聊天或查看固定帮助。':'There is no safe standing space nearby; chat and fixed help remain available here.');
++    el('intro').textContent=embedded?(zh?'选择玩法帮助或查看地面路线。':'Choose a help topic or view ground directions.'):actor.root.visible?(zh?'我在你身边。可在右侧聊天，或展开固定帮助查看地面路线。':'I am beside you. Chat on the right, or open fixed help for ground directions.'):(zh?'附近没有安全的站立空位，仍可在此聊天或查看固定帮助。':'There is no safe standing space nearby; chat and fixed help remain available here.');
+     el('topics').replaceChildren(...GUIDE_TOPICS.map((value,i)=>{const b=document.createElement('button');b.type='button';b.textContent=names[lang][i];b.dataset.topic=value;b.setAttribute('aria-pressed',String(topic===value));b.onclick=()=>select(value);return b;}));
+@@ -53,3 +65,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+     el('availability').textContent=aboard?(zh?'你已在飞船中，请使用目的地与航程控制。':'You are already aboard; use the destination and trip controls.'):!current?.online?(zh?'当前离线。可以阅读本地帮助；重连后再继续路线。':'Offline. Local help is available; reconnect before continuing the route.'):current.indoor?(topic==='visit'?(zh?'第 1 步：关闭对话，从房门出去。第 2 步：室外地面箭头会继续指向飞船。':'Step 1: close this chat and leave through the room door. Step 2: ground arrows outside continue to your ship.'):(zh?'室内可交谈；请先出门，再显示室外目的地路线。':'You can talk indoors. Go outside before showing a route to an outdoor destination.')):nearShip?(zh?'飞船就在这里。关闭对话，按 E 或点击“登上飞船”，再选择目的地。':'Your ship is here. Close this chat, press E or choose Board your ship, then pick a destination.'):!available?(zh?'这里没有可用的步行目的地；请使用固定帮助。':'There is no walking destination here; use the fixed help.'):selected?(route.diagnostics.connected?(zh?'地面箭头已显示。向导不会领路；请自己沿路线行走。':'Ground arrows are shown. Sprout stays here; walk the route yourself.'):(zh?'正在确认安全路线。若无法连通，请回到附近石板路再试。':'Checking a safe route. If no route connects, return to the nearby stone path and try again.')):(zh?'点一个目的地，显示地面导航。':'Choose a destination to show ground directions.');
+-    ai.paint();
++    ai?.paint();
+     el('walk').textContent=zh?'关闭并行走':'Close and walk';el('details').textContent=zh?'与向导交谈':'Talk to guide';el('stop').textContent=zh?'清除路线':'Clear route';el('close').setAttribute('aria-label',zh?'关闭向导':'Close guide');
+@@ -57,4 +69,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+   }
+-  function show(panel:'help'|'chat'|'both'='both'){
+-    if(!current?.visible)return;release();document.querySelector<HTMLDialogElement>('#menu-dialog')?.close();document.querySelector<HTMLButtonElement>('.tutorial-skip')?.click();
++  function show(panel:'help'|'chat'|'both'=embedded?'help':'both'){
++    if(!current?.visible)return;release();document.querySelector<HTMLDialogElement>('#menu-dialog')?.close();skipTutorialOutsideFriendVisit();
+     const p=nearbyGuidePoint(current.feet,current.up,current.forward,current.stand);talking=true;document.body.classList.add('world-guide-talking');if(panel!=='chat')bubble.hidden=false;if(panel!=='help')chat.hidden=false;roomKey=current.roomKey;
+@@ -62,8 +74,14 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+     if(p){actor.root.position.copy(p);const up=current.up.clone().normalize(),forward=current.feet.clone().sub(p).projectOnPlane(up).normalize(),right=new T.Vector3().crossVectors(up,forward).normalize();actor.root.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(right,up,forward));actor.greet(current.time);}
+-    lastPaint='';paint();if(panel!=='help')void ai.refresh();el(panel==='help'?'close':'question').focus({preventScroll:true});
++    lastPaint='';paint();if(panel!=='help')void ai?.refresh();el(panel==='help'?'close':'question').focus({preventScroll:true});
++  }
++  open.onclick=menuOpen.onclick=homeOpen.onclick=el('details').onclick=()=>show();
++  homeChat.onclick=chatOpen.onclick=()=>{
++    if(hostChat) location.assign('/.well-known/agent-arcade-ai-contacts');
++    else if(ai) show('chat');
++  };
++  if(ai){
++    el('local').addEventListener('click',()=>show('help'));
++    el('chat-close').onclick=()=>{ai.cancel();chat.hidden=true;if(bubble.hidden)close(true);else el('close').focus();};
++    el('form').onsubmit=event=>{event.preventDefault();void ai.ask();};
+   }
+-  open.onclick=menuOpen.onclick=homeOpen.onclick=el('details').onclick=()=>show('both');
+-  homeChat.onclick=chatOpen.onclick=()=>show('chat');
+-  el('local').addEventListener('click',()=>show('help'));
+-  el('chat-close').onclick=()=>{ai.cancel();chat.hidden=true;if(bubble.hidden)close(true);else el('close').focus();};
+   el('close').onclick=()=>{bubble.hidden=true;if(chat.hidden)close(true);else el('question').focus();};
+@@ -71,3 +89,2 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+   el('stop').onclick=()=>{selected=null;route.root.visible=false;hud.hidden=true;paint();};
+-  el('form').onsubmit=event=>{event.preventDefault();void ai.ask();};
+   let shortcutHeld=false;
+@@ -77,3 +94,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+     if(shortcutHeld&&(event.code==='Space'||event.key===' ')){event.preventDefault();event.stopImmediatePropagation();return;}
+-    if(guideShortcut(event)&&current?.visible&&!document.querySelector('dialog[open]')){shortcutHeld=true;event.preventDefault();event.stopImmediatePropagation();if(talking)close(true);else show('both');}
++    if(guideShortcut(event)&&current?.visible&&!document.querySelector('dialog[open]')){shortcutHeld=true;event.preventDefault();event.stopImmediatePropagation();if(talking)close(true);else show();}
+   },{capture:true});
+@@ -81,4 +98,4 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+   return {get active(){return selected!==null;},get talking(){return talking;},close,findShip(){if(!current?.visible)return;select('visit');show();el<HTMLDetailsElement>('help').open=true;},frame(input:Frame){
+-    ai.tick(!chat.hidden);current=input;chatOpen.disabled=!input.visible;open.disabled=menuOpen.disabled=!input.visible;homeOpen.hidden=!input.visible||!input.indoor||!input.universe.player.location||input.universe.player.location.kind!=='interior';
+-    homeChat.hidden=homeOpen.hidden;
++    ai?.tick(!chat.hidden);current=input;chatOpen.disabled=!input.visible;open.disabled=menuOpen.disabled=!input.visible;homeOpen.hidden=!input.visible||!input.indoor||!input.universe.player.location||input.universe.player.location.kind!=='interior';
++    homeChat.hidden=homeOpen.hidden||(embedded&&!hostChat);
+     if(talking&&(!input.visible||input.roomKey!==roomKey||!!document.querySelector('dialog[open]')))close();
+@@ -93,3 +110,3 @@ export function createWorldGuide(scene: T.Scene, release: () => void) {
+     }
+-    paint();return {mode:talking?'talking':selected?'route':'idle',position:actor.root.visible?actor.root.position.toArray():null,topic,selected,route:route.root.visible?route.diagnostics.reason:'hidden',routeVisible:route.root.visible,aiEnabled:ai.enabled,actorVisible:actor.root.visible};
++    paint();return {mode:talking?'talking':selected?'route':'idle',position:actor.root.visible?actor.root.position.toArray():null,topic,selected,route:route.root.visible?route.diagnostics.reason:'hidden',routeVisible:route.root.visible,aiEnabled:ai?.enabled??false,actorVisible:actor.root.visible};
+   }};
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 9321f714cc1187e76b4445145ff9a6722db64e26..30d045c4d67d7fb9675a0123e8f41e9bd526f053 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -3,3 +3,3 @@ import { createHash, randomBytes } from 'node:crypto';
+ import { readFile } from 'node:fs/promises';
+-import { resolve, extname } from 'node:path';
++import { resolve, extname, sep } from 'node:path';
+ import { marked } from 'marked';
+@@ -14,2 +14,8 @@ import {GuideLedger,createGuideAI,GuideAIError} from './guide-ai.ts';
+ import {guideConfiguration} from './guide-config.ts';
++import {serveResidentArt,withResidentArt} from './resident-art.ts';
++import {readFriendsOrigins} from './friends-origins.ts';
++import {friendsIdentity,friendsPlayers} from './friends-session.ts';
++import {appResidents} from './app-residents.ts';
++import {planetResidents} from './planet-residents.ts';
++import {jsonBody,residentSettings} from './resident-http.ts';
+ import { businessLog } from './business-log.ts';
+@@ -27,2 +33,8 @@ if (store.migrationBackup) console.log(`Before migration, saved a consistent bac
+ const audit=businessLog(databasePath);
++const residentSources=planetResidents(store.db);
++const appResidentLinks=appResidents(store.db,residentSources);
++const friendsAuthority=friendsIdentity(readFriendsOrigins(databasePath,process.env));
++const friendsWorld=friendsPlayers(store.db,store.enrollFriendsPlayer,
++  homeSample ? (player,bind)=>store.createPrepared(player,Date.now(),0,bind) : undefined);
++const residents=withResidentArt(store.db,{...residentSources,read:appResidentLinks.read});
+ const guideHelp=createGuideHelp();
+@@ -55,3 +67,3 @@ const server = createServer(async (req, res) => {
+     if (url.pathname === '/healthz') { send(200, { ok: true, profile:homeSample?'home-sample':store.integratedWorld?'integrated':'legacy-test' }); return; }
+-    if (url.pathname.startsWith('/api/')) {
++    if (url.pathname.startsWith('/api/')||url.pathname==='/resident-settings') {
+       auditRoute=url.pathname.slice(5);
+@@ -59,4 +71,80 @@ const server = createServer(async (req, res) => {
+       const cookie = new RegExp('(?:^|;\\s*)'+cookieName+'=([a-f0-9]{64})(?:;|$)').exec(req.headers.cookie ?? '')?.[1];
+-      let id = cookie ? hash(cookie) : '';
++      const cookieDigest=cookie ? hash(cookie) : '';
++      let id = friendsWorld.resolve(cookieDigest);
++      const setSession=(token:string,secure:boolean)=>res.setHeader('Set-Cookie',
++        `${cookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure?'; Secure':''}`);
++      if (url.pathname==='/api/friends-session'||url.pathname==='/api/friends-home') {
++        auditRoute=undefined;
++        if(req.method!=='POST')throw new RequestError(405,'Use POST.');
++        if(req.headers['content-type']?.split(';')[0]!=='application/json')throw new RequestError(415,'Send JSON.');
++        const destination=url.pathname==='/api/friends-home';
++        if((destination && req.headers.cookie) || (req.headers.origin && (destination || req.headers.origin!==friendsAuthority.audience)))
++          throw new RequestError(403,'Use the bound Friends service.');
++        const identity=await friendsAuthority.verify(await jsonBody(req,1024),!destination);
++        if(destination){send(200,friendsWorld.destination(identity));return;}
++        const token=await friendsWorld.open(identity,cookieDigest);
++        if(token)setSession(token,friendsAuthority.audience?.startsWith('https://')===true);
++        send(200,{ok:true,account:identity.account});return;
++      }
+       if(id&&store.has(id))auditIdentity=id;
++      const residentVisitAccess=async(planet:string)=>{
++        residentSources.requireLanded(id,planet);
++        const check=friendsWorld.visitCheck(id,cookieDigest,planet);
++        if(!check)return 'allowed';
++        if(!check.access)return 'reopen';
++        return await friendsAuthority.canReadVisit(check.access,planet)?'allowed':'closed';
++      };
++      if(url.pathname.startsWith('/api/resident-feed/art/') || url.pathname.includes('/residents/') && url.pathname.includes('/art/')){
++        auditRoute=undefined;
++        if(await serveResidentArt(req,res,url.pathname,id,residents,async planet=>await residentVisitAccess(planet)==='allowed'))return;
++        throw new RequestError(404,'Unknown resident portrait.');
++      }
++      if(url.pathname==='/resident-settings'){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        await residentSettings(req,res,residents,id);return;
++      }
++      const appOwnerRoute=url.pathname==='/api/app-residents';
++      if(appOwnerRoute){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        if(req.method==='GET'){send(200,appResidentLinks.status(id));return;}
++        if(req.headers.origin){
++          const protocol=req.headers['x-forwarded-proto']==='https'?'https:':'http:';
++          if(req.headers.origin!==protocol+'//'+req.headers.host)throw new RequestError(403,'Use this world’s own page.');
++        }
++      }
++      if(url.pathname==='/api/resident-feed/check'||url.pathname==='/api/resident-feed/pause'){
++        auditRoute=undefined;
++        if(req.method!=='POST'||req.headers.origin||req.headers['content-type']?.split(';')[0]!=='application/json')
++          throw new RequestError(403,'Use the bound App publisher.');
++        const token=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization??'')?.[1]??'';
++        residents.authorize(token);
++        const body=await jsonBody(req,2048);
++        if(url.pathname.endsWith('/check'))send(200,appResidentLinks.check(token,body));
++        else{
++          if(Object.keys(body).length)throw new RequestError(400,'Unexpected pause fields.');
++          send(200,appResidentLinks.pause(token));
++        }
++        return;
++      }
++      if(url.pathname==='/api/resident-feed'){
++        auditRoute=undefined;
++        if(req.method!=='POST')throw new RequestError(405,'Method not allowed.');
++        if(req.headers.origin||!req.headers['content-type']?.startsWith('application/json'))throw new RequestError(403,'Use the resident publisher.');
++        const token=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization??'')?.[1]??'';
++        residents.authorize(token);
++        const data=await jsonBody(req,1_048_576);
++        send(200,residents.publish(token,data));return;
++      }
++      const residentRoute=/^\/api\/planets\/(hub|p-[a-f0-9-]{36})\/residents(?:\/(connect|disconnect))?$/.exec(url.pathname);
++      if(residentRoute){
++        auditRoute=undefined;
++        if(!id||!store.has(id))throw new RequestError(401,'Open your world first.');
++        if(req.method==='GET'&&!residentRoute[2]){
++          const planet=residentRoute[1],access=await residentVisitAccess(planet);
++          send(200,access==='allowed'?residents.read(id,planet):
++            access==='reopen'?{residents:[],visitReopen:true}:{residents:[],visitClosed:true});return;
++        }
++      }
+       if (url.pathname === '/api/state' && req.method === 'GET') {
+@@ -65,4 +153,3 @@ const server = createServer(async (req, res) => {
+           auditIdentity=id;auditCreated=true;
+-          const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+-          res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`);
++          setSession(token,req.headers['x-forwarded-proto']==='https');
+           send(200, created); return;
+@@ -97,8 +184,9 @@ const server = createServer(async (req, res) => {
+       const bodyLimit = ['/api/blueprints/save','/api/home/save'].includes(url.pathname) ? BLUEPRINT_BODY_LIMIT : 2048;
+-      const chunks: Buffer[] = []; let byteLength = 0;
+-      for await (const chunk of req) { const bytes = Buffer.from(chunk); byteLength += bytes.length; if (byteLength > bodyLimit) throw new RequestError(413, 'Request too large.'); chunks.push(bytes); }
+-      const text = Buffer.concat(chunks).toString('utf8');
+-      let body: Record<string, unknown>;
+-      try { body = JSON.parse(text); } catch { throw new RequestError(400, 'Invalid JSON.'); }
+-      if (!body || Array.isArray(body) || typeof body !== 'object') throw new RequestError(400, 'Expected an object.');
++      const body=await jsonBody(req,bodyLimit);
++      if(appOwnerRoute){send(200,appResidentLinks.change(id,body));return;}
++      if(residentRoute){
++        if(residentRoute[2]==='connect'&&!Object.keys(body).length){send(200,residents.connect(id,residentRoute[1]));return;}
++        if(residentRoute[2]==='disconnect'&&Object.keys(body).length===1){send(200,residents.disconnect(id,residentRoute[1],body.sourceId));return;}
++        throw new RequestError(400,'Choose a resident connection action.');
++      }
+       auditContext=url.pathname.startsWith('/api/guide/')?{}:body;
+@@ -170,3 +258,3 @@ const server = createServer(async (req, res) => {
+       const path = resolve(root, '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
+-      if (!path.startsWith(root + '/')) throw new RequestError(404, 'Not found.');
++      if (!path.startsWith(root + sep)) throw new RequestError(404, 'Not found.');
+       try { body = await readFile(path); } catch { throw new RequestError(404, 'Not found.'); }
+diff --git a/src/server/store.ts b/src/server/store.ts
+index 78de6a6d453b52aed7cc7567eac6ad492a624c92..c5e2c769335fc38daa8d5677c5ad2b6691998497 100644
+--- a/src/server/store.ts
++++ b/src/server/store.ts
+@@ -210,2 +210,7 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+   };
++  function enrollArrival(id:string,now:number){
++    db.prepare('INSERT INTO players(id,position,moved_at) VALUES(?,?,?)').run(id,JSON.stringify(SPAWN),now);
++    arrivalHomes.enroll(id,now);
++    appearances.enroll(id);
++  }
+   const state = (id: string): PlayerState => {
+@@ -330,2 +335,6 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+     has: (id: string) => Boolean(db.prepare('SELECT id FROM players WHERE id=?').get(id)),
++    enrollFriendsPlayer(id:string){
++      if(!integratedWorld||!db.isTransaction)throw new RequestError(409,'Open an integrated world to link Friends.');
++      enrollArrival(id,Date.now());
++    },
+     /** Establish identity and Hub spawn before any expensive home generation. */
+@@ -336,4 +345,4 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+       try{
+-        db.prepare('INSERT INTO players(id,position,moved_at) VALUES(?,?,?)').run(id,JSON.stringify(SPAWN),now);
+-        arrivalHomes.enroll(id,now);appearances.enroll(id);db.exec('COMMIT');
++        enrollArrival(id,now);
++        db.exec('COMMIT');
+       }catch(error){if(db.isTransaction)db.exec('ROLLBACK');throw error;}
+@@ -362,4 +371,7 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+      * home, its owner and the new player's place at the door in one transaction, then the station. */
+-    async createPrepared(id: string, now = Date.now(), attempt = 0): Promise<PlayerState> {
+-      const work=heavy;if(!homeEnabled||!work)return this.create(id,now);
++    async createPrepared(id: string, now = Date.now(), attempt = 0, bind?:()=>void): Promise<PlayerState> {
++      const work=heavy;if(!homeEnabled||!work){
++        if(bind)throw new RequestError(503,BUSY);
++        return this.create(id,now);
++      }
+       const planetId=planets.freshHomePlanet(reservedHomes);reservedHomes.add(planetId);
+@@ -376,3 +388,3 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+           db.prepare('UPDATE players SET planet_id=?,position=? WHERE id=?').run(planetId,JSON.stringify(door.position),id);
+-          homes.movedExterior(id);db.exec('COMMIT');
++          homes.movedExterior(id);bind?.();db.exec('COMMIT');
+         }catch(error){
+@@ -381,3 +393,3 @@ export function openStore(path: string, options: { homeSample?: boolean; integra
+           if(error instanceof RequestError&&error.status===409&&!this.has(id)){
+-            if(attempt<2)return this.createPrepared(id,now,attempt+1);
++            if(attempt<2)return this.createPrepared(id,now,attempt+1,bind);
+             throw new RequestError(503,BUSY);
+diff --git a/src/shared/town-resident-motion.ts b/src/shared/town-resident-motion.ts
+index 30b342267729476ac36ece59318dd512aa98f329..94b75240f14c96ad09b58f5c04055881778d43bc 100644
+--- a/src/shared/town-resident-motion.ts
++++ b/src/shared/town-resident-motion.ts
+@@ -6,2 +6,4 @@ import type { Vec3 } from './world.ts';
+ 
++type MotionDefinition = Pick<TownResidentDefinition, 'position'|'route'|'facing'|'activity'|'phase'|'speed'>;
++
+ /** Ephemeral scenery motion; shares the player's capsule, supports and sweeps.
+@@ -9,4 +11,4 @@ import type { Vec3 } from './world.ts';
+  * recover(), which could silently move an authored resident to another place. */
+-export class TownResidentMotion {
+-  readonly definition: TownResidentDefinition;
++export class TownResidentMotion<D extends MotionDefinition = MotionDefinition> {
++  readonly definition: D;
+   readonly valid: boolean;
+@@ -23,3 +25,3 @@ export class TownResidentMotion {
+ 
+-  constructor(world: GroundWorld, definition: TownResidentDefinition) {
++  constructor(world: GroundWorld, definition: D) {
+     this.world = world; this.definition = definition;

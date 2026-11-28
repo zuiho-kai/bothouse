@@ -1,0 +1,13 @@
+# Source and asset scope
+
+The project owner Ray authorized use of the original Little Worlds project for this integration. Obtain the baseline directly from the [public course repository at its fixed commit](https://github.com/comp4020-agentic-coding-studio/comp4020-final-ray0766/tree/809aa0dee5df7ae4e3036f67f44da9a7ca31d153). The baseline has no repository-wide licence file. Existing code, course material and included art retain their original terms. The upstream ASSET-CREDITS.md and the integration patch preserve individual credits. This kit carries only the listed integration additions and patch context. It does not contain a copy of the course submission or a prebuilt game.
+
+The new installer and loopback bootstrap in this kit follow the Agent Arcade project's GNU Affero General Public License version 3. See LICENSE. This notice does not extend that grant to upstream project files, character identities, artwork or any third-party material. The integration delta is supplied for the owner's authorized Little Worlds build. Obtain any additional rights needed for separate commercial redistribution of upstream assets.
+
+The resident face geometry and eight derived textures are from pixiv / VRoid Project HairSample_Female (CC0). See additions/src/assets/resident-face/README.md for the exact source hash and changes, and [pixiv's sample-specific licence list](https://vroid.pixiv.help/hc/en-us/articles/4402614652569). The production resident bodies are modeled in code. See additions/docs/integration/bothouse-resident-models.md for design references and attribution. Legacy 2D strips and the source VRM are not packaged.
+
+The publisher interoperates with [Bothouse at 8ec73a8](https://github.com/zuiho-kai/bothouse/tree/8ec73a8f32573b5307922df3c79675a934cdefb7). Bring your own Bothouse installation, config and optional licensed portraits. The kit ships neither a Bothouse installation nor its role or model packs. Only the owner's approved roster and qualifying portraits enter the world.
+
+## Village, rooms, landscape and transport
+
+The eight furniture GLBs carry the original [Kenney Furniture Kit notice](additions/src/assets/kenney-furniture/LICENSE.txt). The [Kenney Fantasy Town Kit models](additions/src/assets/town-exterior/README.md) and [Kenney Space Kit cargo hulls](additions/src/assets/kenney-space-kit/README.md) retain the producer's included notices and CC0 terms. The [Quaternius Stylized Nature MegaKit Standard models and textures](additions/src/assets/nature/README.md) carry the author’s CC0 notice and original asset hashes. Ordinary villagers reuse the courier geometry from the pinned game baseline. Existing village factory geometry retains the credit in the base game's ASSET-CREDITS.md and the source pinned there.
